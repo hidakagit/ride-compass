@@ -14,6 +14,7 @@ const TILES = {
   urls: {
     poi: ["https://example.test/poi/{z}/{x}/{y}"],
     accident: ["https://example.test/accident/{z}/{x}/{y}"],
+    stop_place: ["https://example.test/stop_place/{z}/{x}/{y}"],
   },
   minZoom: 10,
   maxZoom: 14,

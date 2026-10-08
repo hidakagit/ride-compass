@@ -8,6 +8,7 @@
 | 点 | `node_materials` | ノードに付く値 |
 | 線（粗） | `way_materials` | 道1本に付く値 |
 | 線（細） | `road_edges` / `edge_materials` | 交差点で切った区間の形と、区間に付く値 |
+| 地点 | `stop_places` | 立ち寄り先。道の網とは別の点で、OpenStreetMap由来の値を持たない |
 
 面（ラスタ）の派生は持たない——面の生データを読む出口は「そのまま見せる」か「線へ
 落とす」のどちらかで、面のままの中間結果を要る相手がいない。
@@ -32,7 +33,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import DERIVED, Base
+from app.infrastructure.source_models import Source
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
+from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
 
 #: 数えた値は負にならない。0は数えた結果の「1つも無い」で、値が無いNULLとは別の値として持つ。
@@ -257,3 +260,37 @@ class NodeMaterialRow(Base):
         Boolean, nullable=False, server_default="false")
     max_highway_rank: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="0")
+
+
+#: 立ち寄り先の表へ地点を入れるソース。
+STOP_PLACE_SOURCES: frozenset[str] = frozenset({Source.OVERTURE_PLACE})
+
+
+class StopPlaceRow(Base):
+    """立ち寄り先1つ。群へ入れ、近くの同じ店をまとめたあとの地点（`batch/derive_stop_places.py`）。
+
+    **OpenStreetMap由来の値（最寄りの道・道へ寄せた座標）を持たない**——ODbLの共有の義務が表にかかる。
+    経由地へ寄せるのは要求のたびに計算する。出どころの違う地点（文化財の一覧等）も同じ表へ、`source`で分けて入れる。
+    """
+
+    __tablename__ = "stop_places"
+    __table_args__ = (
+        vocabulary_check("stop_places", "source", STOP_PLACE_SOURCES),
+        vocabulary_check("stop_places", "place_group", frozenset(StopPlaceGroup)),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="stop_places_confidence_is_ratio"),
+        # タイルが範囲で引く。
+        Index("idx_stop_places_geom", "geom", postgresql_using="gist"),
+        {"info": DERIVED},
+    )
+
+    #: 地点を入れたソース（`source_features.source`と同じ綴り）。
+    source: Mapped[str] = mapped_column(String, primary_key=True)
+    #: そのソースでの識別子（Overtureの地点のID等）。
+    source_key: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    place_group: Mapped[str] = mapped_column(String, nullable=False)
+    #: 地点が実在する見込み（0〜1）。地図で重なった点のどれを残すかに使う。
+    confidence: Mapped[float] = mapped_column(REAL, nullable=False)
+    #: チェーンの名前。無ければ個店。
+    brand: Mapped[str | None] = mapped_column(String, nullable=True)
+    geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)

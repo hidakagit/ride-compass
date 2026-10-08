@@ -48,6 +48,7 @@ from app.batch import (  # noqa: E402
     derive_counts,
     derive_node_materials,
     derive_raster_materials,
+    derive_stop_places,
     derive_topology,
     derive_way_materials,
 )
@@ -79,6 +80,7 @@ STAGES: tuple[tuple[str, Stage], ...] = (
     ("counts", lambda conn, tuning: derive_counts.derive(conn)),
     ("raster", lambda conn, tuning: derive_raster_materials.derive(conn)),
     ("ways", lambda conn, tuning: derive_way_materials.derive(conn)),
+    ("stop_places", lambda conn, tuning: derive_stop_places.derive(conn)),
 )
 
 #: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、作り直しは排他の鍵

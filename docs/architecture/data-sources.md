@@ -43,6 +43,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 | 気象庁ホームページの防災情報（アメダス・警報・ナウキャスト・キキクル・洪水予報・推計気象分布等のJSON・タイル） | `backend/app/infrastructure/`の`jma_*`・`flood_client.py` | 気象庁ホームページ利用規約（PDL1.0準拠）。**気象業務法の制約**（第17条 予報業務の許可・第23条 警報の制限）が別にかかる。アメダスの観測を累計して評価の材料（雨の材料）にするのと、推計気象分布（天気。実況で予報ではない）の地点の区分を晴れ・くもりに読み替えて観測所の降水と合わせ、天気のアイコンにするのと、降水ナウキャスト・降水短時間予報のタイルの色を、段をそのままにアプリの段の色へ1対1で塗り替えて重ねるのは加工に当たり、規約は出典と加工した旨の記載で加工を認める（観測値の加工についての別段の定めは無い）。塗り替えが気象業務法の上で「そのまま掲載」に入るかは、下の「気象業務法の予報業務許可」節の書いていないこと。出発時刻の予報で延ばす使い方は、下の「気象業務法の予報業務許可」節の確認が先 | 可（気象業務法の範囲で） | 出典。加工した場合は**加工した旨** | [利用規約](https://www.jma.go.jp/jma/kishou/info/coment.html)・[推計気象分布の解説](https://www.jma.go.jp/jma/kishou/know/suikei_kishou/kaisetsu.html) | 2026-10-05 |
 | 暑さ指数（WBGT、環境省 熱中症予防情報サイト） | `backend/app/infrastructure/wbgt_client.py`（予測値API・情報提供地点マスタCSV） | サイトの利用規約（PDL1.0準拠）。規約が適用外として挙げるのはメール配信サービスと「電子情報提供サービス」（事業者向けのCSVファイル提供）で、使っている予測値API（`api/v1/getForecastData`）と地点マスタCSVは別の「暑さ指数の実況値・予測値ダウンロード」の側にあり、適用外に挙がっていない。同サイトのよくある質問は、アプリで使うならこのWebAPIを案内している。自動化ツールからの高頻度アクセスは控えるよう求めている | 可 | 出典（例: 「出典：環境省熱中症予防情報サイト（当該ページのURL）」）。加工した場合は出典とは別に加工した旨 | [ご利用にあたって](https://www.wbgt.env.go.jp/tos.php)・[実況値・予測値ダウンロード](https://www.wbgt.env.go.jp/wbgt_data_download.php)・[API仕様書](https://www.wbgt.env.go.jp/man15NH/wbgt_data_api_service_manual.pdf)・[よくある質問](https://www.wbgt.env.go.jp/faq2.php)・[電子情報提供サービス](https://www.wbgt.env.go.jp/data_service.php) | 2026-09-26 |
 | 住所の辞書（jageocoder 用住所データベース 街区レベル、株式会社情報試作室。元データは国土交通省の位置参照情報・Geolonia 住所データ・デジタル庁のアドレス・ベース・レジストリ（町字マスター）・日本郵便の郵便番号データ・歴史的行政区域データセットβ版） | `backend/scripts/fetch_address_dictionary.py`（取得）、`backend/app/infrastructure/address_dictionary.py`（地点の検索） | 配布物に同梱のREADME（jageocoder 用住所データベース利用規約（街区レベル））。商用・非商用とも可（反社会的勢力・法令または公序良俗に違反する目的・データの提供者が不適切と判断した者の利用を除く）。サーバへ置くときはREADMEをデータと同じ場所に置く。READMEの文言を書けば国土交通省の利用規約も満たす（README）。アドレス・ベース・レジストリはPDL1.0で、地番マスターに掛かる登記所備付地図データ利用規約は、辞書が使う町字マスターには掛からない | 可 | 利用者から見える所に、READMEが指定する文言（「位置参照情報（大字町丁目・街区レベル）令和6年」（国土交通省）…をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用）。文言は版ごとに変わる（下の「版を持つ配布物の入れ替え」） | [配布](https://www.info-proto.com/static/jageocoder/)・[jageocoder](https://github.com/t-sagara/jageocoder)・[アドレス・ベース・レジストリの利用規約](https://www.digital.go.jp/policies/base_registry_address_tos/) | 2026-10-07 |
+| Overture Maps places（Overture Maps Foundation。地点の出どころは Meta・Microsoft・Foursquare・AllThePlaces・PinMeTo・DAC 等で、1つの地点の出どころは1つ） | `backend/scripts/fetch_overture_places.py`（取得）、アダプタ`overture_places` | テーマは出どころごとに CDLA Permissive 2.0（Meta・Microsoft・PinMeTo・DAC 等）・Apache 2.0（Foursquare）・CC0 1.0（AllThePlaces）。OpenStreetMap のデータを含まず、ODbL の共有の義務がかからない。Foursquare の NOTICE は、ライセンスの写しを渡すこと・変えた所を目立つように示すこと・NOTICE の全文を残すことを求め、API の形で配るなら NOTICE の内容を開発者向けの文書に目立つように載せることを勧める | 可（CDLA Permissive 2.0・Apache 2.0・CC0 1.0 のどれも商用の利用を制限しない） | 出どころごとの表示（Overture の出典の文書の文言）。Foursquare は著作権の1行・Apache 2.0・Overture の形へ変えた旨・NOTICE。`backend/app/domain/map_display.py: ALWAYS_SHOWN_ATTRIBUTIONS`の行と、そこからリンクする`frontend/public/licenses/`の Apache 2.0 の本文・NOTICE の写し（変えた旨を末尾に足したもの）が満たす | [出典](https://docs.overturemaps.org/attribution/)・[places](https://docs.overturemaps.org/guides/places/)・[Foursquare NOTICE](https://opensource.foursquare.com/places-notice-txt/) | 2026-10-08 |
 
 公共データ利用規約（PDL1.0）は商用利用を認め、CC BY 4.0と互換である
 （[デジタル庁](https://www.digital.go.jp/resources/open_data/public_data_license_v1.0)）。
@@ -74,6 +75,31 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 5. 本番の`/api/place-search?q=東京都新宿区西新宿2-8-1`が候補を返すことを見る。
 
 次の入れ替えは、着手可能日を入れた issue で待つ（置き場のリポジトリ）。
+
+### Overture Maps の地点（places）
+
+| 項目 | 内容 |
+|---|---|
+| 今の版 | `backend/app/batch/source_profile.yaml`の`overture_place`の`rows.release` |
+| 配布の頻度 | 毎月（公式の[リリースの予定](https://docs.overturemaps.org/release-calendar/)）。配布元の S3 に残るのは最大60日（2つの版）で、それより古い版は取り直せない |
+| 新しい版の見つけ方 | [リリースの予定](https://docs.overturemaps.org/release-calendar/)の表。版ごとのリリースノート（`https://docs.overturemaps.org/blog/<年>/<月>/<日>/release-notes/`）へのリンクがある。版の名前（`2026-09-23.1`等）は S3 の置き場の`release/<版>/`になる |
+
+手元へ写したファイル（本番は VM の`/home/ubuntu/ridecompass-cache-data/overture/`）は配布元から消えても残るので、
+版を上げるのは、新しい地点を入れたいときと、写したファイルを失って取り直すとき（古い版が配布元から消えていれば取り直せない）。
+
+入れ替えの手順:
+
+1. リリースノートで places のスキーマの変更（列の名前・`taxonomy`の語）と、出どころ（`sources[].dataset`）の増減を読む。
+   取込と派生が読む列（`backend/app/infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`・アダプタの絞り）と群の語
+   （`backend/app/domain/stop_place.py: OVERTURE_GROUP_WORDS`）が変わっていれば合わせる。
+2. [出典の文書](https://docs.overturemaps.org/attribution/)と Foursquare の NOTICE を読み、出どころと文言が変わっていれば
+   `ALWAYS_SHOWN_ATTRIBUTIONS`の行と`frontend/public/licenses/foursquare-places-NOTICE.txt`を合わせる（生成物`mapDisplay.ts`を作り直す）。
+   上の表の行の確認日も直す。
+3. `rows.release`を新しい版へ書き換えてマージする。
+4. 本番 VM で、別のコンテナ（[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」と同じ`docker run`）から
+   `python scripts/fetch_overture_places.py`（範囲の地点を写す。関東の枠で約190MB。Actions のランナーで17秒）→ `python -m app.batch.ingest_cli --source overture_place`
+   → `python -m app.batch.derive_cli`の順に打つ。本番 DB へ書くので、Claude は自分で打たず問いで頼む（[flow.md](../conventions/flow.md)「自動で進めないもの」）。
+5. 群ごとの件数（`SELECT place_group, count(*) FROM stop_places GROUP BY 1`）を前の版と比べ、大きく動いた群があれば 1 の変更を疑う。
 
 ## 気象業務法の予報業務許可
 

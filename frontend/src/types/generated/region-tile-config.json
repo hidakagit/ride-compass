@@ -2,7 +2,8 @@
   "tile_version_kinds": [
     "accident",
     "poi",
-    "road_surface"
+    "road_surface",
+    "stop_place"
   ],
   "road_surface": {
     "layer_name": "road_surface",
@@ -15,7 +16,8 @@
   },
   "point_layers": {
     "poi": "stop_poi",
-    "accident": "accidents"
+    "accident": "accidents",
+    "stop_place": "stop_places"
   },
   "road_tile_min_zoom": 12,
   "road_tile_max_zoom": 15,
