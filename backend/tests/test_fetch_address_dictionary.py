@@ -15,9 +15,13 @@ import io
 import zipfile
 
 from app.domain.place_search import ADDRESS_DICTIONARY_URL
+from app.domain.region import BoundingBox
 from app.infrastructure import address_dictionary
 from scripts import fetch_address_dictionary
 from tests.address_dictionary_fixture import README, dictionary_archive
+
+#: 引けることだけを見るので、範囲は地球の全体にする。
+EVERYWHERE = BoundingBox(min_latitude=-90, min_longitude=-180, max_latitude=90, max_longitude=180)
 
 
 async def test_fetches_and_places_the_dictionary_with_its_readme(address_dictionary_dir, respx_mock, tmp_path):
@@ -25,7 +29,7 @@ async def test_fetches_and_places_the_dictionary_with_its_readme(address_diction
 
     assert fetch_address_dictionary.main() == 0
 
-    candidates = await address_dictionary.search_addresses("東京都新宿区西新宿2-8-1")
+    candidates = await address_dictionary.search_addresses("東京都新宿区西新宿2-8-1", EVERYWHERE)
     assert [c.name for c in candidates] == ["東京都新宿区西新宿二丁目8番"]
     assert (address_dictionary_dir / "README.md").read_text(encoding="utf-8") == README
 
