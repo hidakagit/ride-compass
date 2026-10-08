@@ -8,6 +8,7 @@ import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { HelpIcon, LogIcon, MenuIcon, VersionIcon } from "@/components/ui/icons/icons";
 import { textVariants } from "@/components/ui/Text/Text";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { cn } from "@/lib/cn";
 import { getQueryClient } from "@/lib/queryClient";
 import { formatJstDateTime } from "@/lib/time";
 import { getFrontendVersion } from "@/services/versionApi";
@@ -126,7 +127,7 @@ function VersionDialog() {
       {error && <p className={textVariants({ variant: "error" })}>{error.message}</p>}
       {!data && !error && <p className={textVariants({ variant: "hint" })}>読み込み中…</p>}
       {data && (
-        <div className="flex flex-col gap-2">
+        <div className={cn(textVariants({ variant: "body" }), "flex flex-col gap-2")}>
           {data.commit === null ? (
             <p className={textVariants({ variant: "hint" })}>手元で動いている版です（本番の版ではありません）。</p>
           ) : (
