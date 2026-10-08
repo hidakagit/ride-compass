@@ -74,7 +74,7 @@ describe("PlaceSearch", () => {
     });
     expect(screen.queryByRole("list", { name: "住所の候補" })).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent(
-      `「${AZA.name}」を目的地にしました。当たったのは「字・丁目」までなので、ピンはその範囲の代表の位置です。`,
+      `「${AZA.name}」を目的地にしました。ピンは字・丁目の代表の位置です。つかんで動かせます。`,
     );
 
     // 街区まで当たった地点は、直せることだけを出す。
@@ -84,7 +84,7 @@ describe("PlaceSearch", () => {
 
     expect(onPlace).toHaveBeenLastCalledWith("waypoint", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
     expect(screen.getByRole("status")).toHaveTextContent(
-      `「${BLOCK.name}」を経由地に足しました。地図のピンをつかんで動かすと直せます。`,
+      `「${BLOCK.name}」を経由地に足しました。ピンはつかんで動かせます。`,
     );
 
     // 案内は地図に重なるので、閉じて地図を空けられる。
@@ -98,7 +98,8 @@ describe("PlaceSearch", () => {
     const box = screen.getByRole("searchbox", { name: "住所で探す" });
     const enough = "千代田区丸の内".slice(0, routeGenerateConfig.place_prediction_min_length);
 
-    await userEvent.type(box, enough.slice(0, -1));
+    // 空白は数えない。
+    await userEvent.type(box, ` ${enough.slice(0, -1)}`);
     await waitPastLookUpDelay();
     expect(sent).toEqual([]);
 

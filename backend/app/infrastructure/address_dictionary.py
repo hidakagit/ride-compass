@@ -12,6 +12,8 @@
 """
 
 import asyncio
+from itertools import groupby, islice
+from operator import itemgetter
 from pathlib import Path
 
 from jageocoder.address import AddressLevel
@@ -79,28 +81,38 @@ def _candidate(node: AddressNode) -> PlaceCandidate:
     )
 
 
+def _located(node: AddressNode) -> AddressNode | None:
+    """索引は位置を持たない節も指す（同じ市区町村の別の節等）。辞書の検索と同じく子の位置を借り、借りられない節は
+    候補にしない（位置を持つ同じ住所の節が別にある）。"""
+    if not node.has_valid_coordinate_values():
+        node = node.add_dummy_coordinates()
+    return node if node.has_valid_coordinate_values() else None
+
+
 def _continuations(tree: AddressTree, query: str, area: BoundingBox) -> list[AddressNode]:
-    """入力を頭に持つ索引の表記の節を、短い表記から、範囲の中の`PLACE_PREDICTION_LIMIT`件まで。"""
+    """入力を頭に持つ索引の表記の節を、短い表記から（同じ長さなら粗い段から）、範囲の中の`PLACE_PREDICTION_LIMIT`件まで。
+
+    同じ長さで粗い段を先にするのは、1文字の入力（「柏」）で同じ長さの大字（「柏下」「柏井」…）が市区町村（「柏市」）より
+    先に上限を埋めないため。"""
     prefix = tree.converter.standardize(query)
     # 標準化で空になる入力（「大字」等）は、空の頭がすべての表記に当たる。
     if len(query) < PLACE_PREDICTION_MIN_LENGTH or not prefix:
         return []
     trie = tree.trie.get_trie()
+    entries = (
+        (len(key), node_id)
+        for key in sorted(trie.iterkeys(prefix), key=lambda k: (len(k), k))
+        for node_id in tree.trie_nodes.get_record(pos=trie.key_id(key)).get("nodes", [])
+    )
     found: dict[int, AddressNode] = {}
-    scanned = 0
-    for key in sorted(trie.iterkeys(prefix), key=lambda k: (len(k), k)):
-        for node_id in tree.trie_nodes.get_record(pos=trie.key_id(key)).get("nodes", []):
-            scanned += 1
-            for node in _current_nodes(tree, tree.get_node_by_id(node_id)):
-                # 索引は位置を持たない節も指す（同じ市区町村の別の節等）。辞書の検索と同じく子の位置を借り、借りられない節は
-                # 候補にしない（位置を持つ同じ住所の節が別にある）。
-                if not node.has_valid_coordinate_values():
-                    node = node.add_dummy_coordinates()
-                    if not node.has_valid_coordinate_values():
-                        continue
-                if area.contains(_candidate(node)):
-                    found.setdefault(node.id, node)
-            if len(found) >= PLACE_PREDICTION_LIMIT or scanned >= _PREDICTION_SCAN_LIMIT:
+    for _, same_length in groupby(islice(entries, _PREDICTION_SCAN_LIMIT), key=itemgetter(0)):
+        # 段は節を読むだけで分かるので先に並べ、高くつく旧い節の置き換え（辞書の検索）は上限に達するまでだけ行う。
+        for indexed in sorted((tree.get_node_by_id(node_id) for _, node_id in same_length), key=lambda n: n.level):
+            for node in _current_nodes(tree, indexed):
+                located = _located(node)
+                if located is not None and area.contains(_candidate(located)):
+                    found.setdefault(located.id, located)
+            if len(found) >= PLACE_PREDICTION_LIMIT:
                 return list(found.values())[:PLACE_PREDICTION_LIMIT]
     return list(found.values())
 
