@@ -50,6 +50,8 @@ from app.domain.geo import COMPASS_LABELS  # noqa: E402
 from app.domain.place_search import (  # noqa: E402
     PLACE_KIND_LABELS,
     PLACE_MATCH_LEVEL_LABELS,
+    PLACE_PREDICTION_DELAY_SECONDS,
+    PLACE_PREDICTION_MIN_LENGTH,
     PlaceKind,
     PlaceMatchLevel,
 )
@@ -589,6 +591,9 @@ def main() -> None:
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             # 画面は経由地をこの数まで置け、超える点は置かない。
             "max_waypoints": MAX_WAYPOINTS,
+            # 住所の検索の欄が打ちかけで引き始める長さと、打つのが止まってから引くまでの間。口の回数制限はこの間から導く。
+            "place_prediction_min_length": PLACE_PREDICTION_MIN_LENGTH,
+            "place_prediction_delay_seconds": PLACE_PREDICTION_DELAY_SECONDS,
             "max_axis_weight": MAX_AXIS_WEIGHT,
             "enabled_axis_weight": ENABLED_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,

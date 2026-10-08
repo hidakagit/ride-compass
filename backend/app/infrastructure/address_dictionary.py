@@ -6,6 +6,9 @@
 
 辞書のsqliteの接続は開いたスレッドでしか使えないため、1回の検索ごとに同じスレッドの中で開いて引く
 （開くのは1ms前後）。開いた辞書を持ち越さない。
+
+入力の続き（打ちかけの語を頭に持つ住所）は、辞書の索引（大字の段までの標準化した表記のトライ）の前方一致で引く。
+範囲で絞りながら引くので、対象範囲を受けて範囲の外の候補をここで落とす。
 """
 
 import asyncio
@@ -16,7 +19,14 @@ from jageocoder.exceptions import AddressTreeException
 from jageocoder.node import AddressNode
 from jageocoder.tree import AddressTree
 
-from app.domain.place_search import ADDRESS_DICTIONARY_URL, PlaceCandidate, PlaceMatchLevel
+from app.domain.place_search import (
+    ADDRESS_DICTIONARY_URL,
+    PLACE_PREDICTION_LIMIT,
+    PLACE_PREDICTION_MIN_LENGTH,
+    PlaceCandidate,
+    PlaceMatchLevel,
+)
+from app.domain.region import BoundingBox
 from app.infrastructure.debug_log import log_throttled_warning
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "address_dictionary"
@@ -33,6 +43,9 @@ _LEVELS: dict[int, PlaceMatchLevel] = {
     AddressLevel.BLOCK: "block",
     AddressLevel.BLD: "building",
 }
+
+#: 続きを引くときに見る節の数の上限。範囲の外ばかりに当たる語でも、見る節を区切って時間を抑える。
+_PREDICTION_SCAN_LIMIT = 500
 
 
 class AddressDictionaryUnavailableError(Exception):
@@ -56,33 +69,64 @@ def _current_nodes(tree: AddressTree, node: AddressNode) -> list[AddressNode]:
     return [result.node for target in targets for result in tree.searchNode(target) if result.matched]
 
 
-def _search(path: Path, query: str) -> list[PlaceCandidate]:
+def _candidate(node: AddressNode) -> PlaceCandidate:
+    return PlaceCandidate(
+        kind="address",
+        level=_LEVELS[node.level],
+        name="".join(node.get_fullname()),
+        latitude=node.y,
+        longitude=node.x,
+    )
+
+
+def _continuations(tree: AddressTree, query: str, area: BoundingBox) -> list[AddressNode]:
+    """入力を頭に持つ索引の表記の節を、短い表記から、範囲の中の`PLACE_PREDICTION_LIMIT`件まで。"""
+    prefix = tree.converter.standardize(query)
+    # 標準化で空になる入力（「大字」等）は、空の頭がすべての表記に当たる。
+    if len(query) < PLACE_PREDICTION_MIN_LENGTH or not prefix:
+        return []
+    trie = tree.trie.get_trie()
+    found: dict[int, AddressNode] = {}
+    scanned = 0
+    for key in sorted(trie.iterkeys(prefix), key=lambda k: (len(k), k)):
+        for node_id in tree.trie_nodes.get_record(pos=trie.key_id(key)).get("nodes", []):
+            scanned += 1
+            for node in _current_nodes(tree, tree.get_node_by_id(node_id)):
+                # 索引は位置を持たない節も指す（同じ市区町村の別の節等）。辞書の検索と同じく子の位置を借り、借りられない節は
+                # 候補にしない（位置を持つ同じ住所の節が別にある）。
+                if not node.has_valid_coordinate_values():
+                    node = node.add_dummy_coordinates()
+                    if not node.has_valid_coordinate_values():
+                        continue
+                if area.contains(_candidate(node)):
+                    found.setdefault(node.id, node)
+            if len(found) >= PLACE_PREDICTION_LIMIT or scanned >= _PREDICTION_SCAN_LIMIT:
+                return list(found.values())[:PLACE_PREDICTION_LIMIT]
+    return list(found.values())
+
+
+def _search(path: Path, query: str, area: BoundingBox) -> list[PlaceCandidate]:
     tree = open_dictionary(path)
-    nodes: dict[int, AddressNode] = {}
+    whole: list[AddressNode] = []
+    partial: list[AddressNode] = []
     for result in tree.searchNode(query):
         # 何も当たらない入力にも、当たった文字列が空の結果が1件返る（名前が「大字」だけの節は、標準化した名前が空で、
         # 空の索引の鍵がどの入力の頭にも当たる）。
         if not result.matched:
             continue
-        # 旧い節を置き換えた今の節は、同じ入力でそのまま当たっていることがある。
-        for node in _current_nodes(tree, result.node):
-            nodes.setdefault(node.id, node)
-    return [
-        PlaceCandidate(
-            kind="address",
-            level=_LEVELS[node.level],
-            name="".join(node.get_fullname()),
-            latitude=node.y,
-            longitude=node.x,
-        )
-        for node in nodes.values()
-    ]
+        (whole if len(result.matched) == len(query) else partial).extend(_current_nodes(tree, result.node))
+    # 旧い節を置き換えた今の節は、同じ入力でそのまま当たっていることがあり、続きにも同じ節が出る。
+    nodes: dict[int, AddressNode] = {}
+    for node in [*whole, *_continuations(tree, query, area), *partial]:
+        nodes.setdefault(node.id, node)
+    return [candidate for candidate in map(_candidate, nodes.values()) if area.contains(candidate)]
 
 
-async def search_addresses(query: str) -> list[PlaceCandidate]:
-    """住所の候補（当たりの良い順）。辞書を開けなければ`AddressDictionaryUnavailableError`を送出する。"""
+async def search_addresses(query: str, area: BoundingBox) -> list[PlaceCandidate]:
+    """対象範囲の中の住所の候補（当たりの良い順、`PlaceSearchResult`の並び）。辞書を開けなければ
+    `AddressDictionaryUnavailableError`を送出する。"""
     try:
-        return await asyncio.to_thread(_search, DICTIONARY_DIR, query)
+        return await asyncio.to_thread(_search, DICTIONARY_DIR, query, area)
     except AddressDictionaryUnavailableError:
         log_throttled_warning(
             "place-search:address-dictionary",
