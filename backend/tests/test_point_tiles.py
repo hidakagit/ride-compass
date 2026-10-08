@@ -11,6 +11,7 @@
 - 配信（キャッシュ・空タイル・DB障害・未知のレイヤー） → `test_region_service.py`・`test_region_routes.py`
 - 範囲の中で点の無いタイルを空のバイト列にすること → `test_road_graph_repository_contracts.py`
 - 自転車・死亡の判定の両側（自転車ではない軽車両・死者0） → `test_derive_counts.py`（同じ式で数える）
+- 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
 """
 
 from collections import Counter
@@ -18,7 +19,7 @@ from collections import Counter
 import mapbox_vector_tile
 import pytest
 
-from app.batch import derive_node_materials
+from app.batch import derive_node_materials, derive_stop_places
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
@@ -183,3 +184,22 @@ async def test_an_accident_point_carries_bicycle_fatal_and_year(road_graph_repos
     [feature] = _features(await _tile(road_graph_repository, "accident"), "accident")
 
     assert feature["properties"] == {**expected, "occurred_year": 2021}
+
+
+# --- 立ち寄り先 ----------------------------------------------------------------
+
+
+async def test_a_stop_place_point_carries_its_group_confidence_and_name(road_graph_repository):
+    """立ち寄り先は事故と同じく対象範囲を一括で取り込むので、道を取り込んでいない所でも出す。タイルの外の地点は出ない。"""
+    def place(key: int, lon: float) -> object:
+        return point_record(key, lon, LAT, {
+            "names": {"primary": f"店{key}"}, "confidence": 0.75,
+            "brand": {"names": {"primary": None}}, "taxonomy": {"hierarchy": ["food_and_drink", "cafe"]}})
+
+    await ingest_records("overture_place", [place(1, LON), place(2, LON + 10 * FAR)])
+    async with raw_connection() as conn:
+        await derive_stop_places.derive(conn)
+
+    [feature] = _features(await _tile(road_graph_repository, "stop_place"), "stop_place")
+
+    assert feature["properties"] == {"group": "eat_drink", "confidence": 0.75, "name": "店1"}

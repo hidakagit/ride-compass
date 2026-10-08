@@ -6,3 +6,5 @@ osmium==4.3.1
 pyproj==3.7.2
 # 気象庁の区域の境界（シェープファイル）を読む。取得スクリプト（scripts/fetch_jma_area_boundaries.py）だけが使う。
 pyshp==3.1.6
+# Overture Maps の地点（GeoParquet）を範囲で絞って読む。取得（scripts/fetch_overture_places.py）と取込のアダプタが使う。
+duckdb==1.5.6

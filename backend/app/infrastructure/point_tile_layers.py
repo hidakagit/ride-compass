@@ -1,4 +1,4 @@
-"""点データのタイル（停止要因・補給休憩のPOI・事故）のレイヤーの宣言。
+"""点データのタイル（停止要因・補給休憩のPOI・事故・立ち寄り先）のレイヤーの宣言。
 
 点のレイヤーは`GET /api/region/point-tiles/{layer}/...`の1つの配信（`services/region_service.py:
 RegionService.get_point_tile`）で配り、レイヤーごとに違うのは焼き込むSQLとsource-layer名だけである。
@@ -6,7 +6,7 @@ RegionService.get_point_tile`）で配り、レイヤーごとに違うのは焼
 TILE_SHAPES`）・生成物（`region-tile-config.json`の`point_layers`）はここから組み立てる。
 
 どのSQLも`(covered, tile)`の1行を返す。取込範囲を判定するレイヤーは`road_graph_repository.py: COVERAGE_SQL`を
-読み、判定しないレイヤー（事故は対象範囲を一括で取り込むため「範囲の一部だけ取得済み」が無い）は`covered`を
+読み、判定しないレイヤー（事故・立ち寄り先は対象範囲を一括で取り込むため「範囲の一部だけ取得済み」が無い）は`covered`を
 常に真にする。`:layer_name`・`:extent`・タイル座標（`:z`・`:x`・`:y`・`:xmin`等）は読み出しの側
 （`road_graph_repository.py: RoadGraphRepository.get_tile_mvt`）が渡す。
 """
@@ -127,11 +127,34 @@ _ACCIDENT_TILE_MVT_SQL = text(
     """
 )
 
+# 立ち寄り先。群へ入れ、近くの同じ店をまとめた後の表（`batch/derive_stop_places.py`）をそのまま出す。
+_STOP_PLACE_TILE_MVT_SQL = text(
+    """
+    SELECT
+        true AS covered,
+        (
+            SELECT ST_AsMVT(mvt.*, :layer_name, :extent, 'geom') FROM (
+                SELECT
+                    ST_AsMVTGeom(
+                        ST_Transform(s.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                    ) AS geom,
+                    s.place_group AS "group",
+                    s.confidence,
+                    s.name
+                FROM stop_places s
+                WHERE ST_Intersects(s.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+            ) mvt
+            WHERE mvt.geom IS NOT NULL
+        ) AS tile
+    """
+)
+
 #: 名前→点のレイヤー。
 POINT_TILE_LAYERS: dict[str, PointTileLayer] = {
     layer.name: layer
     for layer in (
         PointTileLayer(name="poi", source_layer="stop_poi", sql=_POI_TILE_MVT_SQL),
         PointTileLayer(name="accident", source_layer="accidents", sql=_ACCIDENT_TILE_MVT_SQL),
+        PointTileLayer(name="stop_place", source_layer="stop_places", sql=_STOP_PLACE_TILE_MVT_SQL),
     )
 }
