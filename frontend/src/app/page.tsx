@@ -303,23 +303,22 @@ export default function Home() {
     );
   }
 
-  // 押した「生成」の結果の1行（件数・候補0件の理由・入力の誤りか失敗）。モバイルの「ルート設定」シートの見出しの下に出す
-  // ——シートは1枚ずつしか開かず、押した直後に見えるのは「ルート結果」タブの点だけで、点では理由が読めないため。
+  // 押した「生成」が候補を出せなかった理由の1行（候補0件の理由・入力の誤りか失敗）。モバイルの「ルート設定」シートの見出しの
+  // 下に出す——シートは1枚ずつしか開かず、押した直後に見えるのは「ルート結果」タブの点だけで、点では理由が読めないため。
+  // 候補が出たときは点と地図のルートで分かるので出さない（狭い画面で地図を空ける）。
   function renderGenerationOutcomeNote() {
     const { outcome } = generation;
     if (!outcome) return null;
     if (outcome.kind === "failed") return <ErrorText>{outcome.message}</ErrorText>;
     return (
       <p role="status" className={textVariants({ variant: "hint" })}>
-        {outcome.kind === "generated"
-          ? `候補を${outcome.count}件作りました。「ルート結果」で見られます。`
-          : outcome.message}
+        {outcome.message}
       </p>
     );
   }
 
   // 「ルート設定」の中身（デスクトップの区分・モバイルのシートの両方）。生成の結果・誤りはここに出さない（ボタンは
-  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは見出しの下に結果の1行も添える。
+  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは見出しの下に候補を出せなかった理由の1行も添える。
   function renderRouteSectionBody() {
     return (
       <RouteForm
@@ -502,6 +501,7 @@ export default function Home() {
             <PlaceSearch
               onPlace={placeFound}
               waypointsFull={conditions.waypoints.length >= routeGenerateConfig.max_waypoints}
+              routes={route.mapRoutes}
             />
           )}
           <div className="app-map-pane relative min-h-0 flex-1">

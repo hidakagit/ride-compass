@@ -175,10 +175,18 @@ function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx)
   };
 }
 
-/** 地図の上に重なるもの（呼び出し側が測った覆いと、印の付いた部品）を避けた、見えている所までの辺ごとの余白。 */
-function visiblePadding(map: MapLibreMap, measureObscured: () => RouteFitObscuredPx | undefined) {
+/** 地図の上に重なるもの（呼び出し側が測った覆いと、印の付いた部品）を避けた、見えている所までの辺ごとの余白。
+ * 閉じられる一時の重なりは`includeTransient`のときだけ避ける（`mapOverlayEdge`）。 */
+function visiblePadding(
+  map: MapLibreMap,
+  measureObscured: () => RouteFitObscuredPx | undefined,
+  { includeTransient }: { includeTransient: boolean },
+) {
   const canvas = map.getCanvas();
-  const obscured = mergeObscured(measureObscured(), measureMapOverlayEdges(canvas.getBoundingClientRect()));
+  const obscured = mergeObscured(
+    measureObscured(),
+    measureMapOverlayEdges(canvas.getBoundingClientRect(), { includeTransient }),
+  );
   return computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight });
 }
 
@@ -192,7 +200,7 @@ function fitBoundsToRoutes(
   const bounds = computeRouteBounds(routes);
 
   runWhenStyleReady(map, () => {
-    const padding = visiblePadding(map, measureObscured);
+    const padding = visiblePadding(map, measureObscured, { includeTransient: false });
     debugLog("map:viewport", "ルートを収める", { padding });
     map.fitBounds(bounds, { padding });
   });
@@ -204,7 +212,8 @@ const FOCUS_ZOOM = 16;
 /** 地点を、見えている所の中ほどへ寄せる。`flyTo`の`padding`は寄せたあとも地図に残るので、残らない`offset`でずらす。 */
 function flyToVisible(map: MapLibreMap, point: Coordinates, measureObscured: () => RouteFitObscuredPx | undefined) {
   runWhenStyleReady(map, () => {
-    const padding = visiblePadding(map, measureObscured);
+    // 置いたあとの案内の下にピンを隠さない。
+    const padding = visiblePadding(map, measureObscured, { includeTransient: true });
     map.flyTo({
       center: [point.longitude, point.latitude],
       zoom: FOCUS_ZOOM,

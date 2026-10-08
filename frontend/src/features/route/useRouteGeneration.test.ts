@@ -262,7 +262,7 @@ describe("生成の結果", () => {
 
     expect(rendered.onGenerated).toHaveBeenCalledWith([route("fast", 1800), route("slow", 3600)], { axis_a: 1 });
     expect(rendered.onOutcome).toHaveBeenCalledWith("fresh");
-    expect(rendered.result.current.generation.outcome).toEqual({ kind: "generated", count: 2 });
+    expect(rendered.result.current.generation.outcome).toBeNull();
     expect(rendered.result.current.generation.failure).toBeNull();
     expect(rendered.result.current.generation.destinationCorrected).toBe(false);
   });
