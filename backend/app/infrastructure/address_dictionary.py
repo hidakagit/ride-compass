@@ -46,6 +46,10 @@ _LEVELS: dict[int, PlaceMatchLevel] = {
     AddressLevel.BLD: "building",
 }
 
+#: 今は無い区画も持つデータセット（節の`priority`。辞書の`dataset`の表の0: 住所変更履歴、1: 歴史的行政区域データセット）。
+#: ほかのデータセット（位置参照情報・Geolonia 住所データ）は今の住所だけを持つ。
+_HISTORICAL_DATASETS = frozenset({0, 1})
+
 #: 続きを引くときに見る節の数の上限。範囲の外ばかりに当たる語でも、見る節を区切って時間を抑える。
 _PREDICTION_SCAN_LIMIT = 500
 
@@ -62,13 +66,39 @@ def open_dictionary(path: Path) -> AddressTree:
         raise AddressDictionaryUnavailableError from exc
 
 
+def _has_postcode(node: AddressNode) -> bool:
+    return any(key == "postcode" for key, _ in node.get_notes())
+
+
+def _is_current_division(node: AddressNode) -> bool:
+    """市区町村の段までの節が今の区画か。
+
+    この段の節は歴史的行政区域データセットの名前の1件ずつから作られ、廃止の日を持ち越さないので、今は無い区画も`ref:`を
+    持たずに今の区画と並ぶ（東京府渋谷区等。辞書を作る`jageocoder-converter`の`city_converter.py`）。今の区画にだけ付くものは
+    2つある: 郵便番号（今の郵便番号データに、そのJISコードの今の名前で載る区画に付く）と、今の住所だけを持つデータセットの
+    子の節。政令市・郡・都道府県は郵便番号を持たず子の区・市区町村が持ち、郵便番号の無い島の村は子の大字が今の住所の
+    データから来る。"""
+    return _has_postcode(node) or any(
+        child.priority not in _HISTORICAL_DATASETS or _has_postcode(child) for child in node.iter_children()
+    )
+
+
 def _current_nodes(tree: AddressTree, node: AddressNode) -> list[AddressNode]:
-    """旧い行政区画の節（合併で無くなった市の住所等）を、注記`ref:`が指す今の住所の節へ置き換える。辞書は旧い名前でも
-    引けるよう旧い節を持ち、当たりがその節で終わると旧い名前のまま返す（今の節へ付け替えるのは、その先の段を辿るときだけ）。"""
+    """旧い行政区画の節（合併で無くなった市の住所等）を、注記`ref:`が指す今の住所の節へ置き換え、`ref:`の無い今は無い
+    区画は落とす。辞書は旧い名前でも引けるよう旧い節を持ち、当たりがその節で終わると旧い名前のまま返す（今の節へ
+    付け替えるのは、その先の段を辿るときだけ）。
+
+    `ref:`の行き先が大字の無い区域（名前の無い大字の節。`ref:`では`<市区町村>.`）なら、その市区町村にする——名前の無い節は
+    市区町村の名前で大字の段として出て、位置も子から借りたものになる。"""
     targets = [target for key, value in node.get_notes() if key == "ref" for target in value.split("|")]
     if not targets:
-        return [node]
-    return [result.node for target in targets for result in tree.searchNode(target) if result.matched]
+        return [node] if node.level > AddressLevel.WARD or _is_current_division(node) else []
+    return [
+        result.node.parent if result.node.name == AddressNode.NONAME else result.node
+        for target in targets
+        for result in tree.searchNode(target)
+        if result.matched
+    ]
 
 
 def _candidate(node: AddressNode) -> PlaceCandidate:
