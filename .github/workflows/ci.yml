@@ -10,8 +10,11 @@
 #   実挙動、カスケード）を見る（対象の定義は docs/conventions/testing.md パターン4）。
 #   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
 #   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
-# - e2e-scan: e2eのうち全状態の走査を、幅ごとの別ジョブで走らせる（1本の中で画面の状態を辿るため、
-#   分けられる単位は幅）。
+#   e2eとe2e-scanは、Playwrightの公式のcontainerのimage（ブラウザとその依存を入れたもの）の中で走らせ、
+#   ブラウザを取り込む段を持たない。imageの版は、changesがfrontend/package-lock.jsonの@playwright/testの版から
+#   決める（版が違うとブラウザの実行ファイルが見つからない。公式の文書 https://playwright.dev/docs/docker ）。
+#   @playwright/testを上げる変更（Dependabot等）が、そのままimageも上げる。
+# - e2e-scan: e2eのうち全状態の走査（幅 × 段階ごとに1本）を、幅ごとに段階の数だけの別ジョブ（--shard）で走らせる。
 # - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。文書（docs/**・*.md）・
 #   Claude Codeの設定（.claude/**）・運用の道具（scripts/ のうちテストとデプロイが読まないもの）・タスク管理
 #   （.github/taskflow-paths の置き場。検査と公開は claude-gate.yml）だけの変更では走らせない。飛ばしてよいのは、
@@ -63,10 +66,16 @@ jobs:
       actions: read
     outputs:
       heavy: ${{ steps.diff.outputs.heavy }}
+      playwright: ${{ steps.playwright.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # e2e・e2e-scan の container の image の版（上の e2e の説明）。
+      - id: playwright
+        run: |
+          version=$(jq -er '.packages["node_modules/@playwright/test"].version' frontend/package-lock.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -214,6 +223,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
+      # --user 1001 は公式の文書（https://playwright.dev/docs/ci の GitHub Actions の container の例）のとおり。
+      # --ipc=host（Chromiumがメモリ不足で落ちない）と --init（PID 1 のプロセスの扱い）は https://playwright.dev/docs/docker が勧める。
+      options: --user 1001 --ipc=host --init
     timeout-minutes: 50
     defaults:
       run:
@@ -226,7 +240,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       # 全状態の走査は、下のe2e-scanが幅ごとの別ジョブで走らせる。
       - run: npm run test:e2e -- --grep-invert "全状態の走査"
       - uses: actions/upload-artifact@v4
@@ -235,7 +248,8 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
-  # 全状態の走査（frontend/e2e/all-states.spec.ts）を幅ごとに別のジョブで走らせる。
+  # 全状態の走査（frontend/e2e/all-states.spec.ts）を幅ごとに、段階（生成前・生成後・乗り換え後）の数の別のジョブで走らせる。
+  # 段階の所要は揃っている（2026-10-08 の成功した実行で desktop 35〜41秒ずつ）ので、1つのジョブに1段階ずつ割る。
   e2e-scan:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
@@ -243,8 +257,13 @@ jobs:
       fail-fast: false
       matrix:
         width: [mobile, desktop]
-    name: e2e-scan (${{ matrix.width }})
+        shard: [1, 2, 3]
+    name: e2e-scan (${{ matrix.width }} ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
+      # 付ける options は上の e2e と同じ。
+      options: --user 1001 --ipc=host --init
     timeout-minutes: 40
     defaults:
       run:
@@ -257,13 +276,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - run: |
-          npm run test:e2e -- -g "全状態の走査: ${{ matrix.width }}"
+          npm run test:e2e -- -g "全状態の走査: ${{ matrix.width }}" --shard=${{ matrix.shard }}/3
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report-scan-${{ matrix.width }}
+          name: playwright-report-scan-${{ matrix.width }}-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 7
   ci-ok:
