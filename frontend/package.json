@@ -10,6 +10,8 @@
     "dev": "next dev",
     "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
+    "prebuild:e2e": "node scripts/copy-maplibre-worker.mjs",
+    "build:e2e": "next build",
     "start": "next start",
     "start:standalone": "node scripts/prepare-standalone.mjs && node .next/standalone/server.js",
     "lint": "eslint",
@@ -17,7 +19,7 @@
     "knip": "knip",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && playwright test",
+    "test:e2e": "npm run build:e2e && playwright test",
     "generate:api": "openapi-typescript src/types/generated/openapi.json -o src/types/generated/api.d.ts"
   },
   "dependencies": {
