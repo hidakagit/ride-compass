@@ -6,7 +6,7 @@ import type { PlaceCandidate } from "@/types/route";
 export async function searchPlaces(query: string): Promise<PlaceCandidate[]> {
   const data = await requestApi(
     (init) => backendApi.GET("/api/place-search", { params: { query: { q: query } }, ...init }),
-    getOptions({ timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:placeSearch", errorLabel: "住所の検索" }),
+    getOptions({ timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:placeSearch", errorLabel: "地点の検索" }),
   );
   return data.candidates;
 }

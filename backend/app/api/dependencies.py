@@ -29,6 +29,7 @@ from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
 from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.stop_place_search import StopPlaceSearchQuery
 from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
 from app.services.axis_preview_service import AxisPreviewService
 from app.services.axis_registry_service import AxisRegistryAdminService
@@ -43,7 +44,7 @@ from app.services.flood_service import FloodService
 from app.services.graph_service import GraphService
 from app.services.jma_amedas_service import JmaAmedasService
 from app.services.material_coverage_service import MaterialCoverageService
-from app.services.place_search_service import PlaceSearchService
+from app.services.place_search_service import PlaceSearchReads, PlaceSearchService
 from app.services.region_service import AxisInspectorService, RegionService
 from app.services.route_generation_setup import (
     RouteGenerationSetup,
@@ -172,8 +173,14 @@ def get_wind_grid_service(weather_service: WeatherService = Depends(get_weather_
     return WindGridService(weather_service, open_region_service)
 
 
+@asynccontextmanager
+async def _open_place_search_reads() -> AsyncIterator[PlaceSearchReads]:
+    async with get_session_factory()() as session:
+        yield PlaceSearchReads(RegionService(repository=RoadGraphRepository(session)), StopPlaceSearchQuery(session))
+
+
 def get_place_search_service():
-    return PlaceSearchService(open_region_service)
+    return PlaceSearchService(_open_place_search_reads)
 
 
 async def get_dedicated_way_value_service(
