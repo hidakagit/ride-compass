@@ -8,7 +8,7 @@
  * 値を動かすキー）、説明の✕・部品の外・説明の外へのフォーカスのどれでも説明だけを閉じて部品を選ぶ続きへ戻り、終えるのは「やめる」とEscだけなこと、
  * 案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、終えたら部品が動くこと、
- * 閉じた展開する部品の説明の「中を見る」（出す部品と出さない部品）、それで開いた浮きパネルの中の部品も説明し、外の部品・外の押し操作・
+ * 閉じた展開する部品・選ばれていないタブの説明の「中を見る」（出す部品と出さない部品）、それで開いた浮きパネルの中の部品も説明し、外の部品・外の押し操作・
  * 終える操作で閉じること。
  *
  * ここで見ないもの:
@@ -29,6 +29,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import UsageGuide from "./UsageGuide";
 
 function renderScreen() {
@@ -461,8 +462,36 @@ describe("UsageGuide", () => {
       expect(explanation()).toHaveTextContent("距離を決めます。");
     });
 
+    it("選ばれていないタブは「中を見る」で切り替わり、中の部品も説明する", async () => {
+      render(
+        <>
+          <Tabs defaultValue="generate">
+            <TabsList>
+              <TabsTrigger value="generate">条件</TabsTrigger>
+              <TabsTrigger value="weights" usage="重みを決めます。">
+                重み
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="generate" />
+            <TabsContent value="weights">
+              <Button usage="評価軸の重さを変えます。">勾配</Button>
+            </TabsContent>
+          </Tabs>
+          <UsageGuide onEnd={vi.fn()} />
+        </>,
+      );
+      await userEvent.click(screen.getByRole("tab", { name: "重み" }));
+      expect(screen.queryByRole("button", { name: "勾配" })).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "中を見る" }));
+      await userEvent.click(screen.getByRole("button", { name: "勾配" }));
+
+      expect(explanation()).toHaveTextContent("評価軸の重さを変えます。");
+    });
+
     it.each([
       ["開いている部品", { "aria-expanded": true }],
+      ["選ばれているタブ", { role: "tab", "aria-selected": true }],
       ["別の面を開く部品（確かめのダイアログ等）", { "aria-expanded": false, "aria-haspopup": "dialog" as const }],
     ])("%sには出さない", async (_, attributes) => {
       render(
@@ -474,7 +503,7 @@ describe("UsageGuide", () => {
         </>,
       );
 
-      await userEvent.click(screen.getByRole("button", { name: "対象" }));
+      await userEvent.click(screen.getByText("対象"));
 
       expect(explanation()).toHaveTextContent("対象");
       expect(screen.queryByRole("button", { name: "中を見る" })).toBeNull();
