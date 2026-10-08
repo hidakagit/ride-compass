@@ -58,23 +58,20 @@ describe("clampBoundaryDrag", () => {
     const others = [0, 0.13, 0.5, 1.2];
     const starts = [WEIGHT_STEP, 0.07, 0.13, 0.3, 0.6];
     const deltas = [-1, -0.123, -0.005, 0, 0.004, 0.077, 1];
-    for (const other of others) {
-      for (const a of starts) {
-        for (const b of starts) {
-          const total = a + b + other;
-          const maxWeight = MAX_SHARE * total;
-          // 始めから上限を超えている配分は、超えた軸が増えないことだけを見る（下の別の it）。
-          if (a > maxWeight || b > maxWeight) continue;
-          for (const delta of deltas) {
-            const { weightA, weightB } = clampBoundaryDrag(a, b, delta, total);
-            const label = `${a}, ${b}, ${delta}, ${total}`;
-            expect(weightA + weightB, label).toBeCloseTo(a + b, 10);
-            for (const w of [weightA, weightB]) {
-              expect(w, label).toBeGreaterThanOrEqual(WEIGHT_STEP);
-              expect(w / total, label).toBeLessThanOrEqual(MAX_SHARE + 1e-9);
-              expect(Math.round(w / WEIGHT_STEP) * WEIGHT_STEP, label).toBeCloseTo(w, 10);
-            }
-          }
+    // 始めから上限を超えている配分は除く（超えた軸が増えないことは上の別の it で見る）。
+    const cases = others
+      .flatMap((other) => starts.flatMap((a) => starts.map((b) => ({ a, b, total: a + b + other }))))
+      .filter(({ a, b, total }) => Math.max(a, b) <= MAX_SHARE * total);
+    expect(cases.length).toBeGreaterThan(0);
+    for (const { a, b, total } of cases) {
+      for (const delta of deltas) {
+        const { weightA, weightB } = clampBoundaryDrag(a, b, delta, total);
+        const label = `${a}, ${b}, ${delta}, ${total}`;
+        expect(weightA + weightB, label).toBeCloseTo(a + b, 10);
+        for (const w of [weightA, weightB]) {
+          expect(w, label).toBeGreaterThanOrEqual(WEIGHT_STEP);
+          expect(w / total, label).toBeLessThanOrEqual(MAX_SHARE + 1e-9);
+          expect(Math.round(w / WEIGHT_STEP) * WEIGHT_STEP, label).toBeCloseTo(w, 10);
         }
       }
     }
