@@ -153,7 +153,7 @@ from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E4
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
-from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_WEIGHT  # noqa: E402
+from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_SHARE  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
@@ -594,7 +594,7 @@ def main() -> None:
             # 住所の検索の欄が打ちかけで引き始める長さと、打つのが止まってから引くまでの間。口の回数制限はこの間から導く。
             "place_prediction_min_length": PLACE_PREDICTION_MIN_LENGTH,
             "place_prediction_delay_seconds": PLACE_PREDICTION_DELAY_SECONDS,
-            "max_axis_weight": MAX_AXIS_WEIGHT,
+            "max_axis_share": MAX_AXIS_SHARE,
             "enabled_axis_weight": ENABLED_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
