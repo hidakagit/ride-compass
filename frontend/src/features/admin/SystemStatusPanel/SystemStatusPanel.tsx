@@ -3,7 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { formatJstDateTime } from "@/lib/time";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
-import { getDebugStats, getFrontendVersion } from "@/features/admin/adminApi";
+import { getDebugStats } from "@/features/admin/adminApi";
+import { getFrontendVersion } from "@/services/versionApi";
 import { getQueryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/Button/Button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";

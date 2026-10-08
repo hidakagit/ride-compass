@@ -128,7 +128,9 @@ Actionsの変数`BACKEND_ORIGIN`から読む（宛先が変わったらここも
 デプロイの目安にもなる——`commit`が変わっていなくても、再起動自体が起きたかを確認できる。
 
 確認は`GET /health`（backend）と`GET /api/version`（frontend）の`commit`を、手元の
-`git rev-parse HEAD`と突き合わせる。
+`git rev-parse HEAD`と突き合わせる。frontendの版は、画面のメニューの「バージョン表示」でも見られる（コミットの頭8文字・
+最後のマージの時刻・直近の変更の件名。件名と時刻はfrontendのサーバーが版ごとに1回だけGitHubのAPIから取る。
+RenderのDockerのビルドは`.git`を持たない——Renderの係の掲示板での答え（[Does the .git directory exist?](https://community.render.com/t/does-the-git-directory-exist/4951)）で、公式の文書には無い）。
 
 **backendのデプロイは、masterのCIが通ったコミットを、本番プロセスに届く変更があるときだけ
 出す。** `ci.yml`の`deploy-backend`が、masterへのpushでbackend・api-contract・frontend・e2e・e2e-scanの
