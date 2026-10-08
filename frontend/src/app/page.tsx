@@ -500,6 +500,8 @@ export default function Home() {
             （地図の上端の部品を動かさない）、候補の一覧と案内だけを地図に重ねる。 */}
           {pointEditingEnabled && (
             <PlaceSearch
+              // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
+              mapCenter={mapView.center ?? location}
               onPlace={placeFound}
               waypointsFull={conditions.waypoints.length >= routeGenerateConfig.max_waypoints}
             />

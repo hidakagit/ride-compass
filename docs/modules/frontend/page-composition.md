@@ -381,6 +381,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 - 軸を「未使用」と分ける重み（`useRoutePlanner.ts: routeWeights`）→ レンズの選択肢（`useMapView`の`routeWeights`）と
   候補の中身（`RouteOutcome`）。生成に使われた重み（`useRouteResults.ts: usedWeights`。backendが生成時に使った値を返し、
   生成が結果と一緒に渡す）で、生成前は代わりに今の設定の重み——重みタブが薄く出す軸と同じ軸が「未使用」に並ぶ。
+- 地図の見えている範囲の真ん中（`useMapView`の`center`）→ 地点の検索（`PlaceSearch`の`mapCenter`）。施設の候補を近い順に並べる点。
 - 地図の見え方の値（`useMapView`の`look`）→ `MapView`。レイヤーのON/OFF・レンズ・塗っている軸・
   隠した行・取得結果の状態そのものだけを渡し、そこから導けるもの（どのレイヤーを出すか・家族ごとの
   隠した行・二次軸の下敷き）は地図側のscene（`features/map/scene/applyToMap.ts`）が導く。
