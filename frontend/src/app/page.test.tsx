@@ -316,10 +316,12 @@ describe("ルートを作る", () => {
     const { user } = renderHome();
     const saveAs = async (name: string) => {
       await user.click(screen.getByRole("tab", { name: "保存" }));
-      const nameInput = screen.getByRole("textbox", { name: "保存する名前" });
+      await user.click(screen.getByRole("button", { name: "いまの設定を保存" }));
+      const dialog = screen.getByRole("dialog", { name: "いまの設定を保存" });
+      const nameInput = within(dialog).getByRole("textbox", { name: "保存する名前" });
       await user.clear(nameInput);
       await user.type(nameInput, name);
-      await user.click(screen.getByRole("button", { name: "保存" }));
+      await user.click(within(dialog).getByRole("button", { name: "保存" }));
     };
     const recall = async (name: string) => {
       await user.click(screen.getByRole("tab", { name: "保存" }));

@@ -4,8 +4,7 @@ import { useState } from "react";
 
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
-import { Card } from "@/components/ui/Card/Card";
-import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
+import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -46,8 +45,9 @@ function DescriptionRows({ rows }: { rows: [term: string, detail: React.ReactNod
   );
 }
 
-// 「ルート設定」区分の「保存」タブ。保存の前に、残るもの（条件・出発地の扱い・重みの割合・除外）だけを並べる
-// （スマホではパネルの高さが限られるので、残らないものや重みを変えたかは書かない）。呼び出すと各タブの値と
+// 「ルート設定」区分の「保存」タブ。タブには保存の窓を開くボタンと保存した一覧だけを置き、保存の前に窓で、残るもの
+// （条件・出発地の扱い・重みの割合・除外）だけを並べる（スマホではパネルの高さが限られ、走行中に使う一覧を上に見せる
+// ため。残らないものや重みを変えたかは書かない）。呼び出すと各タブの値と
 // 地図のピンが入れ替わり、生成はいつもの「ルート生成」で行う（入れ替えたあとに値を確かめたり少し変えたりできる）。
 export default function SavedConditionsPanel({
   saved,
@@ -67,6 +67,8 @@ export default function SavedConditionsPanel({
   // 選ぶまでは、出発地を地図で置いたかで決める（触らなければ、地図で置いた地点は固定・現在地は呼び出した時の現在地）。
   const [fixOriginDraft, setFixOriginDraft] = useState<boolean | null>(null);
   const fixOrigin = originKnown && (fixOriginDraft ?? originManual);
+  // 「いまの設定を保存」の窓を開いているか。保存すると閉じる。
+  const [saving, setSaving] = useState(false);
   const [recalled, setRecalled] = useState<SavedCondition | null>(null);
   // ✕を押した設定の名前。確認の窓で「消す」を押すまで消さない。
   const [removing, setRemoving] = useState<string | null>(null);
@@ -74,61 +76,76 @@ export default function SavedConditionsPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <Card variant="outline" className="flex flex-col gap-2">
-        <h3 className={textVariants({ variant: "heading" })}>いまの設定を保存</h3>
-        <DescriptionRows
-          rows={[
-            ["条件", currentDescription.route],
-            [
-              "出発地",
-              <ToggleGroup
-                key="origin"
-                aria-label="保存する出発地"
-                value={fixOrigin ? "fixed" : "current"}
-                onValueChange={(value) => setFixOriginDraft(value === "fixed")}
+      <Button
+        variant="secondary"
+        size="sm"
+        className="w-full"
+        aria-haspopup="dialog"
+        aria-expanded={saving}
+        usage="いまの設定（条件・出発地・重み・除外）を開いて確かめ、名前を付けてこの端末に保存します。"
+        onClick={() => setSaving(true)}
+      >
+        <span aria-hidden="true">＋</span> いまの設定を保存
+      </Button>
+      <DialogRoot open={saving} onOpenChange={setSaving}>
+        <DialogContent title="いまの設定を保存">
+          <div className="flex flex-col gap-2">
+            <DescriptionRows
+              rows={[
+                ["条件", currentDescription.route],
+                [
+                  "出発地",
+                  <ToggleGroup
+                    key="origin"
+                    aria-label="保存する出発地"
+                    value={fixOrigin ? "fixed" : "current"}
+                    onValueChange={(value) => setFixOriginDraft(value === "fixed")}
+                  >
+                    <ToggleGroupItem value="current" usage="呼び出すたびに、その時いる場所から作ります。">
+                      呼び出した時の現在地
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="fixed"
+                      disabled={!originKnown}
+                      usage="いまの出発地を保存して、いつもそこから作ります。"
+                    >
+                      今の出発地に固定
+                    </ToggleGroupItem>
+                  </ToggleGroup>,
+                ],
+                ["重み", currentDescription.weights],
+                ["除外", currentDescription.exclusions],
+              ]}
+            />
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSave(name, fixOrigin);
+                setNameDraft(null);
+                setFixOriginDraft(null);
+                setSaving(false);
+              }}
+            >
+              <Input
+                aria-label="保存する名前"
+                className="min-w-0 flex-auto"
+                value={name}
+                onChange={(event) => setNameDraft(event.target.value)}
+                data-usage="いまの設定に付ける名前です。そのまま保存もできます。"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                className="flex-none"
+                usage="上に並べた設定を、この名前でこの端末に保存します。同じ名前があれば上書きします。"
               >
-                <ToggleGroupItem value="current" usage="呼び出すたびに、その時いる場所から作ります。">
-                  呼び出した時の現在地
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="fixed"
-                  disabled={!originKnown}
-                  usage="いまの出発地を保存して、いつもそこから作ります。"
-                >
-                  今の出発地に固定
-                </ToggleGroupItem>
-              </ToggleGroup>,
-            ],
-            ["重み", currentDescription.weights],
-            ["除外", currentDescription.exclusions],
-          ]}
-        />
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSave(name, fixOrigin);
-            setNameDraft(null);
-            setFixOriginDraft(null);
-          }}
-        >
-          <Input
-            aria-label="保存する名前"
-            className="min-w-0 flex-auto"
-            value={name}
-            onChange={(event) => setNameDraft(event.target.value)}
-            data-usage="いまの設定に付ける名前です。そのまま保存もできます。"
-          />
-          <Button
-            type="submit"
-            size="sm"
-            className="flex-none"
-            usage="上に並べた設定を、この名前でこの端末に保存します。同じ名前があれば上書きします。"
-          >
-            {overwriting ? "上書き保存" : "保存"}
-          </Button>
-        </form>
-      </Card>
+                {overwriting ? "上書き保存" : "保存"}
+              </Button>
+            </form>
+          </div>
+        </DialogContent>
+      </DialogRoot>
 
       <p role="status" className={textVariants({ variant: "hint" })}>
         {recalled !== null && saved.some((entry) => entry.name === recalled.name)
