@@ -257,7 +257,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 条件のずれ）は`features/route/useRouteGeneration.ts`、**走行条件**は`features/conditions/useRideConditions.ts`が持つ。
 **結果**（候補・選択・地図で押した区間・生成に使われた重み）は`features/route/useRouteResults.ts`が持ち、
 結果・生成・乗り換えの3つは`features/route/useRoutePlanner.ts`がつなぐ（作った候補を結果へ入れる・全消去で両方を消す等。
-`page.tsx`はこの1つを呼び、出来事は1本の`onOutcome`で受ける）。地図のレンズは生成の送信の引数で渡すので、ルートの機能は
+`page.tsx`はこの1つを呼び、出来事は1本の`onOutcome`で受ける）。地図のレンズは生成の要求に載らないので、ルートの機能は
 地図の見え方を読まず、地図の見え方がルートの機能の値（候補を選んだか・「未使用」を分ける重み）を読む一方向になる。「ルート結果」の中身は`features/route/RouteOutcome/RouteOutcome.tsx`が結果・生成・乗り換えの値から描く。
 残り（画面の枠: 区分・シートの開閉と高さ、「ルート設定」のタブ、新着の印）は`page.tsx`が持ち、子コンポーネントへはpropsで渡す
 （子が独自に同じ状態を持たない）。**機能の間の受け渡しには、ある機能の変化が別の機能の振る舞いを変えるものがある**
@@ -501,11 +501,11 @@ direction_label[「経由地ルート」「目的地ルート」]をそのまま
 `conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
 `features/route/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
 同じ入力（`GenerationInput`）から導出する**ため、payloadへフィールドを足したときに比較側へ
-足し忘れることが起きない。比較から外すのは`IGNORED_WHEN_COMPARING`に理由付きで列挙した
-ものだけで、現在は`lens_axis_id`（地図の見え方の選択で候補の選定には影響しない）。
+足し忘れることが起きない。地図のレンズは見え方の選択で、payloadに載らない（区間に載せる値はbackendが
+レンズに依らず決める。[map-axis-coloring.md](map-axis-coloring.md)）ので、切り替えても印は点かない。
 候補数は実際に使う値を送って比べる（`useRouteFormSubmit.ts: fixedRouteCount`——経由地を伴う目的地ルートは
 backendの決まった数）ので、その条件で候補数の入力を変えても印は点かない。利用者が
-出発時刻を選んでいない間は`start_time`も外す——共有時刻は「今」へ5分刻みで追従するので、
+出発時刻を選んでいない間は`start_time`を比べない——共有時刻は「今」へ5分刻みで追従するので、
 放置するだけで値が変わる（何もしていないのに印が点くと、印が合図として機能しなくなる）。
 キーは並び順に依存しない形でJSON化する——`hard_filters`・`route_preference`は保存値からの
 復元やキー整合の補完でプロパティの並びが変わりうるため。

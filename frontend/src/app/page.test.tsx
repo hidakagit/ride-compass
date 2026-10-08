@@ -224,7 +224,7 @@ function section(name: "ルート設定" | "ルート結果") {
 }
 
 describe("ルートを作る", () => {
-  it("生成は地図の色分けを添えて送り、結果が出たら閉じていた「ルート結果」を開く。候補は一覧と地図に出て、選んだ候補が区間を持つかで周りの塗りが決まる。全消去で両方から消える", async () => {
+  it("生成の結果が出たら閉じていた「ルート結果」を開く。候補は一覧と地図に出て、選んだ候補が区間を持つかで周りの塗りが決まる。全消去で両方から消える", async () => {
     const { user } = renderHome();
     await user.click(section("ルート結果"));
     expect(section("ルート結果")).toHaveAttribute("aria-expanded", "false");
@@ -238,7 +238,7 @@ describe("ルートを作る", () => {
 
     const job = heldReplies();
     jobs.answerWith(job.reply);
-    expect((await generate(user)).lens_axis_id).toBe("axis_a");
+    await generate(user);
     expect(screen.getByRole("button", { name: "生成中..." })).toBeInTheDocument();
 
     await job.answer(

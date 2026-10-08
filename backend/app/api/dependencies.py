@@ -112,7 +112,6 @@ async def _open_route_generation_setup(
     max_average_grade_percent: float | None,
     hard_filters: frozenset[str],
     assumed_speed_kmh: float,
-    lens_axis_id: str | None,
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。"""
     async with _open_graph_service() as graph_service:
@@ -124,7 +123,6 @@ async def _open_route_generation_setup(
             max_average_grade_percent=max_average_grade_percent,
             hard_filters=hard_filters,
             assumed_speed_kmh=assumed_speed_kmh,
-            lens_axis_id=lens_axis_id,
         )
 
 
@@ -137,7 +135,6 @@ class RouteGenerationSetupOpener(Protocol):
         max_average_grade_percent: float | None,
         hard_filters: frozenset[str],
         assumed_speed_kmh: float,
-        lens_axis_id: str | None,
     ) -> AbstractAsyncContextManager[RouteGenerationSetup]: ...
 
 

@@ -89,11 +89,10 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 専用配信軸のどちらのレイヤーを出すかは地図側（`scene/applyToMap.ts`）が導く（軸ごとの値を
 持たない）。ルート後も全道路の塗りを残すかは「ルート後も周囲を塗る」（既定ON）。
 **レンズを選ぶと、ルートのレイヤーがOFFならONにする**——選んだ色分けがルート線に出ないまま、
-理由が画面のどこにも無い状態を作らない。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
-載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
-`material_values`への当該材料の封入（`signed_material`種の軸の場合）を行う
-（backend側は`evaluation.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)
-参照）。
+理由が画面のどこにも無い状態を作らない。レンズは生成リクエストに載らず、切り替えてもルートを作り直さない。
+ルート線をどのレンズでも塗れるよう、backendは重み0の軸でも区間に値を載せる——軸の難易度（`axis_difficulties`）は
+どの軸も、`signed_material`種の軸の材料は`material_values`へいつも載せる（backend側は
+`evaluation.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)参照）。
 
 `map_paint.value.kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
 `material_values`からbackendが名指す材料（軸カタログの`map_paint.value.material`。生材料、例: `gradient_percent`）を

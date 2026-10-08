@@ -32,7 +32,7 @@ export interface AxisCatalog {
   /** GET /api/axis-catalogの取得を試みて失敗し、まだ一度も成功していないことを表す。
    * `loaded`とは同時にtrueにならない（未取得=両方false、成功=loadedのみ、失敗=failedのみ）。
    * この状態では他フィールドが空のため、`loaded`を要求する処理
-   * （route_preference・lens_axis_idの送信）は黙って省略される。利用者へ何も知らせないと
+   * （route_preferenceの送信）は黙って省略される。利用者へ何も知らせないと
    * 「重みを設定したのに反映されない」ことに気づけないため、UIはこのフラグで失敗と
    * 再試行導線を見せる（常設ヘッダーの「未取得」の印と、重みタブ）。 */
   failed: boolean;

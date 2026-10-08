@@ -20,7 +20,6 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { heldReplies, onBackend } from "@/testing/backendServer";
 import { TWO_AXIS_CATALOG } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
@@ -62,8 +61,8 @@ function renderGeneration(props: Partial<Props> = {}) {
 
 type Rendered = ReturnType<typeof renderGeneration>;
 
-async function submit({ result }: Rendered, lens: string = LENS_NONE_ID) {
-  await act(() => result.current.generation.submit(lens));
+async function submit({ result }: Rendered) {
+  await act(() => result.current.generation.submit());
 }
 
 function route(id: string, seconds: number | null = null): RouteCandidate {
@@ -119,7 +118,7 @@ afterEach(() => {
 });
 
 describe("送る要求", () => {
-  it("周回は、いまの位置・入力した距離と候補数・走行条件・除外を送り、置いてある地点・重み・塗る軸は送らない", async () => {
+  it("周回は、いまの位置・入力した距離と候補数・走行条件・除外を送り、置いてある地点・重みは送らない", async () => {
     const rendered = renderGeneration();
     const { conditions } = rendered.result.current;
     act(() => conditions.setDistanceInput("42"));
@@ -128,7 +127,7 @@ describe("送る要求", () => {
     act(() => rendered.result.current.conditions.placePin("waypoint", B));
     respond([route("r1")]);
 
-    await submit(rendered, "axis_a");
+    await submit(rendered);
 
     expect(sentRequest()).toEqual({
       latitude: ORIGIN.latitude,
@@ -165,25 +164,6 @@ describe("送る要求", () => {
     await submit(rendered);
 
     expect(sentRequest()).toMatchObject({ max_routes: routeGenerateConfig.routes_with_waypoints, waypoints: [B, A] });
-  });
-
-  it("塗る軸は、軸カタログが届いていてレンズが軸を指すときだけ送り、作った入力にも残す", async () => {
-    const rendered = renderGeneration();
-    respond([route("r1")]);
-    await submit(rendered, "axis_a");
-    expect(sentRequest()).not.toHaveProperty("lens_axis_id");
-
-    await loadCatalog(rendered);
-    for (const lens of [LENS_NONE_ID, LENS_DIFFICULTY_ID]) {
-      respond([route("r1")]);
-      await submit(rendered, lens);
-      expect(sentRequest()).not.toHaveProperty("lens_axis_id");
-    }
-
-    respond([route("r1")]);
-    await submit(rendered, "axis_a");
-    expect(sentRequest()).toMatchObject({ lens_axis_id: "axis_a" });
-    expect(rendered.result.current.generation.generatedInput?.lensAxisId).toBe("axis_a");
   });
 });
 
@@ -222,7 +202,7 @@ describe("進み方", () => {
     const flush = () => act(() => vi.advanceTimersByTimeAsync(0));
     let done: Promise<void> = Promise.resolve();
     act(() => {
-      done = rendered.result.current.generation.submit(LENS_NONE_ID);
+      done = rendered.result.current.generation.submit();
     });
     expect(rendered.result.current.generation.running).toBe(true);
     expect(rendered.result.current.generation.progressLabel).toBeUndefined();
@@ -300,7 +280,7 @@ describe("生成の結果", () => {
 
     jobs.keepRunning();
     act(() => {
-      void rendered.result.current.generation.submit(LENS_NONE_ID);
+      void rendered.result.current.generation.submit();
     });
     expect(rendered.result.current.generation.failure).toBeNull();
     expect(rendered.result.current.generation.outcome).toBeNull();
@@ -329,7 +309,7 @@ describe("生成の結果", () => {
     jobs.answerWith(job.reply);
     let generating: Promise<void> = Promise.resolve();
     act(() => {
-      generating = rendered.result.current.generation.submit(LENS_NONE_ID);
+      generating = rendered.result.current.generation.submit();
     });
 
     const moved: Coordinates = { latitude: 35.72, longitude: 139.82 };
@@ -407,7 +387,7 @@ describe("消す", () => {
 
     jobs.keepRunning();
     act(() => {
-      void rendered.result.current.generation.submit(LENS_NONE_ID);
+      void rendered.result.current.generation.submit();
     });
     act(() => rendered.result.current.generation.clearNotice());
     expect(rendered.result.current.generation.running).toBe(true);

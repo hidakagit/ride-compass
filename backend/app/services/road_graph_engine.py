@@ -256,12 +256,8 @@ class RoadGraphEngine:
         max_average_grade_percent: float | None,
         hard_filters: frozenset[str],
         assumed_speed_kmh: float,
-        lens_axis_id: str | None,
     ):
         self._graph_service = graph_service
-        # 地図のレンズが表示を要求している軸id（無ければNone）。区間に載せる材料の集合
-        # （`displayed_material_ids`）を決めるのにだけ使う（探索コストには影響しない）。
-        self._lens_axis_id = lens_axis_id
         # 仮定巡航速度（km/h、リクエスト単位で上書き可）。各Edgeの通過予定時刻・区間の
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
@@ -1237,7 +1233,7 @@ class RoadGraphEngine:
         segment_categories: list[dict[str, str]] = []
         segment_raw_values: list[dict[str, float]] = []
         cumulative_km = 0.0
-        active_material_ids = displayed_material_ids(context.composer.weights, self._lens_axis_id)
+        active_material_ids = displayed_material_ids(context.composer.weights)
         passages = self._route_passages(context, edges, path, leg_of_edge)
         rows = [_slice_row(context, index) for index in path]
         timed = _values_at_passages(context, rows, leg_of_edge, passages)

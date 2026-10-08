@@ -1621,8 +1621,6 @@ export interface components {
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
             destination?: components["schemas"]["Coordinates"] | null;
-            /** Lens Axis Id */
-            lens_axis_id?: string | null;
             /**
              * Start Time
              * Format: date-time
