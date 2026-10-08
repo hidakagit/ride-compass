@@ -485,11 +485,16 @@ export default function MapView({
       // MapLibreのPopupへ直接載せる。
       const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
       // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。
-      const pointLngLat =
-        feature.geometry.type === "Point"
-          ? { lng: feature.geometry.coordinates[0], lat: feature.geometry.coordinates[1] }
-          : e.lngLat;
-      const pointContent = point === undefined ? null : buildPointPopupContent(point, feature.properties, pointLngLat);
+      const pointContent =
+        point === undefined
+          ? null
+          : buildPointPopupContent(
+              point,
+              feature.properties,
+              feature.geometry.type === "Point"
+                ? { lng: feature.geometry.coordinates[0], lat: feature.geometry.coordinates[1] }
+                : e.lngLat,
+            );
 
       popupRef.current?.remove();
       popupRef.current = null;
