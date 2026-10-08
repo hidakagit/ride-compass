@@ -47,7 +47,7 @@ function DescriptionRows({ rows }: { rows: [term: string, detail: React.ReactNod
 
 // 「ルート設定」区分の「保存」タブ。タブには保存の窓を開くボタンと保存した一覧だけを置き、保存の前に窓で、残るもの
 // （条件・出発地の扱い・重みの割合・除外）だけを並べる（スマホではパネルの高さが限られ、走行中に使う一覧を上に見せる
-// ため。残らないものや重みを変えたかは書かない）。一覧の行は名前と条件の1行とアイコンの操作だけで、呼び出すと窓で同じ
+// ため。残らないものや重みを変えたかは書かない）。一覧の行は名前とアイコンの操作だけで、呼び出すと窓で同じ
 // 中身を見せ、「反映する」で各タブの値と地図のピンが入れ替わる。生成はいつもの「ルート生成」で行う（入れ替えたあとに値を
 // 確かめたり少し変えたりできる）。
 export default function SavedConditionsPanel({
@@ -151,15 +151,15 @@ export default function SavedConditionsPanel({
         </DialogContent>
       </DialogRoot>
 
-      <p role="status" className={textVariants({ variant: "hint" })}>
+      {/* 知らせの行は読み上げが変化を拾えるよう常に置き、空の間は上の隙間ごと畳む。 */}
+      <p role="status" className={cn(textVariants({ variant: "hint" }), "empty:-mt-3")}>
         {recalled !== null && saved.some((entry) => entry.name === recalled.name)
-          ? `「${recalled.name}」を呼び出しました。出発地は${recalled.origin === null ? "今いる場所" : "保存した地点"}です。`
+          ? `「${recalled.name}」を反映しました。`
           : ""}
       </p>
 
-      <h3 className={textVariants({ variant: "heading" })}>保存した設定</h3>
       {saved.length === 0 ? (
-        <p className={textVariants({ variant: "hint" })}>まだありません。</p>
+        <p className={textVariants({ variant: "hint" })}>保存した設定はまだありません。</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {saved.map((entry) => (
@@ -167,12 +167,7 @@ export default function SavedConditionsPanel({
               key={entry.name}
               className="flex items-center gap-1 rounded-sm border border-[var(--color-border)] px-1.5 py-1"
             >
-              <span className="flex min-w-0 flex-auto flex-col">
-                <span className="truncate font-semibold">{entry.name}</span>
-                <span className={cn(textVariants({ variant: "hint" }), "truncate")}>
-                  {describeConditions(entry, catalog).route}
-                </span>
-              </span>
+              <span className="min-w-0 flex-auto truncate font-semibold">{entry.name}</span>
               <Button
                 size="panelIcon"
                 aria-label={`「${entry.name}」を呼び出す`}
