@@ -7,8 +7,8 @@ export const USAGE_GUIDE_ATTRIBUTE = "data-usage-guide";
 /** 押すと浮きパネルを開く部品の印（`components/ui/Popover/Popover.tsx: PopoverTrigger`が付ける）。 */
 const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
 
-/** 押すと浮きパネルを開く部品か。開いたものは、外の部品を押したときと終えるときに閉じる。 */
-export function isPopoverOpener(element: Element): boolean {
+/** 押すと浮きパネルを開く部品か。 */
+function isPopoverOpener(element: Element): boolean {
   return element.hasAttribute(USAGE_OPENS_ATTRIBUTE);
 }
 
