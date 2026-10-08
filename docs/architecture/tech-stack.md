@@ -43,7 +43,7 @@
 （`isStyleLoaded()`が`true`にならない）。
 
 そこで**Workerの実体を`public/`から配り、`setWorkerUrl`でそこを指す**。複製は
-`frontend/scripts/copy-maplibre-worker.mjs`が`predev`/`prebuild`で`node_modules`から行い、
+`frontend/scripts/copy-maplibre-worker.mjs`が`predev`/`prebuild`/`prebuild:e2e`で`node_modules`から行い、
 リポジトリには置かない。Workerはsharedチャンクを**自分のURLからの相対**でimportするため、
 2本を同じディレクトリへ置く。代償は**sharedチャンクを二重に配る**こと（バンドル内と
 静的配信で1本ずつ）。
