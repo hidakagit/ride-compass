@@ -29,8 +29,8 @@ async def test_fetches_and_places_the_dictionary_with_its_readme(address_diction
 
     assert fetch_address_dictionary.main() == 0
 
-    candidates = await address_dictionary.search_addresses("東京都新宿区西新宿2-8-1", EVERYWHERE)
-    assert [c.name for c in candidates] == ["東京都新宿区西新宿二丁目8番"]
+    found = await address_dictionary.search_addresses("東京都新宿区西新宿2-8-1", EVERYWHERE)
+    assert [c.name for c in [*found.whole, *found.partial]] == ["東京都新宿区西新宿二丁目8番"]
     assert (address_dictionary_dir / "README.md").read_text(encoding="utf-8") == README
 
 

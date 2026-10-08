@@ -377,7 +377,7 @@ describe("ルートを作る", () => {
 describe("地図で扱えること", () => {
   it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、住所の検索の欄も同じ間だけ出す。周回の間は目的地を地図へ出さない", async () => {
     const { user } = renderHome();
-    const searchBox = () => screen.queryByRole("searchbox", { name: "住所で探す" });
+    const searchBox = () => screen.queryByRole("searchbox", { name: "住所・施設で探す" });
     expect(searchBox()).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "目的地" }));
     clickMap(DESTINATION);
@@ -417,7 +417,7 @@ describe("地図で扱えること", () => {
     } as const;
     onBackend("GET", "/api/place-search", () => Response.json({ candidates: [candidate] }));
     const { user } = renderHome();
-    const searchBox = screen.getByRole("searchbox", { name: "住所で探す" });
+    const searchBox = screen.getByRole("searchbox", { name: "住所・施設で探す" });
     await user.type(searchBox, "丸の内");
     // 置くと候補の一覧が閉じるので、置くたびに引き直して候補を選ぶ。
     const chooseCandidate = async () => {
@@ -428,11 +428,11 @@ describe("地図で扱えること", () => {
     for (let placed = 0; placed < routeGenerateConfig.max_waypoints; placed++) {
       await chooseCandidate();
       await user.click(
-        within(screen.getByRole("list", { name: "住所の候補" })).getByRole("button", { name: "経由地へ" }),
+        within(screen.getByRole("list", { name: "地点の候補" })).getByRole("button", { name: "経由地へ" }),
       );
     }
     await chooseCandidate();
-    const candidates = screen.getByRole("list", { name: "住所の候補" });
+    const candidates = screen.getByRole("list", { name: "地点の候補" });
     expect(within(candidates).getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
   });
 
@@ -593,12 +593,12 @@ describe("画面の枠", () => {
     const originMark = () => mapOnScreen().markers()[0];
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(originMark().draggable).toBe(false);
-    expect(screen.queryByRole("searchbox", { name: "住所で探す" })).toBeNull();
+    expect(screen.queryByRole("searchbox", { name: "住所・施設で探す" })).toBeNull();
 
     await user.click(settingsTab());
     const settingsSheet = screen.getByRole("dialog", { name: "ルート設定" });
     // 住所の検索の欄はシートの中ではなく地図の上端に出す（候補の一覧がシートの高さに縛られない）。
-    expect(screen.getByRole("searchbox", { name: "住所で探す" })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "住所・施設で探す" })).toBeInTheDocument();
     expect(within(settingsSheet).queryByRole("searchbox")).toBeNull();
     await user.click(within(settingsSheet).getByRole("button", { name: "ルート生成" }));
     expect(within(settingsSheet).getByText(/^現在地が分かりません/)).toBeInTheDocument();

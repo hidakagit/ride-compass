@@ -151,6 +151,10 @@ export const vocabulary = {
     {
       "key": "address",
       "label": "住所"
+    },
+    {
+      "key": "facility",
+      "label": "施設"
     }
   ],
   "placeMatchLevels": [
@@ -185,6 +189,10 @@ export const vocabulary = {
     {
       "key": "building",
       "label": "号"
+    },
+    {
+      "key": "point",
+      "label": "地点"
     }
   ]
 } as const;
