@@ -161,3 +161,10 @@ async def test_the_same_chain_close_together_in_a_group_becomes_its_most_confide
     assert set(await _stop_places(derive_conn, overture_dir, places)) == {
         "セブンイレブン 南浦和駅西口店", "ファミリーマート 東上野店", "Cafe A 2", "ローソン 1", "ローソン 2", "ローソン 3",
         "ローソンストア100 3", "個店1", "個店2", "セブン-イレブン ホテル", "セブン-イレブン 店"}
+
+
+async def test_each_place_keeps_its_name_without_variations_in_notation(derive_conn, overture_dir):
+    """地点の検索が名前を引く形。全角・半角・大文字・空白・ハイフン・中点の揺れを除く。"""
+    await _stop_places(derive_conn, overture_dir, [_place("セブン-イレブン　新宿・西口店 ＣＡＦＥ", LON, FOOD)])
+
+    assert await derive_conn.fetchval("SELECT search_name FROM stop_places") == "セブンイレブン新宿西口店cafe"

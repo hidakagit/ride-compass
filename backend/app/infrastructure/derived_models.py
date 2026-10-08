@@ -288,6 +288,8 @@ class StopPlaceRow(Base):
     #: そのソースでの識別子（Overtureの地点のID等）。
     source_key: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    #: 名前の表記の揺れを除いた形（`domain/stop_place.py: normalized_sql`）。地点の検索が引く。
+    search_name: Mapped[str] = mapped_column(String, nullable=False)
     place_group: Mapped[str] = mapped_column(String, nullable=False)
     #: 地点が実在する見込み（0〜1）。地図で重なった点のどれを残すかに使う。
     confidence: Mapped[float] = mapped_column(REAL, nullable=False)
