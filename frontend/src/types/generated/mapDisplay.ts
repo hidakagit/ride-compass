@@ -265,7 +265,7 @@ export const mapDisplay = {
         "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置を種別ごとに色分け表示"
       ],
       "panelHint": [
-        "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置です。自販機は飲み物が買えると分かっているものだけを「飲料自販機」として出し、売っているものが分からないものは「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・給水・駐輪場は閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。"
+        "コンビニ、飲料自販機、自販機(中身不明)、トイレ、給水、駐輪場の位置です。自販機は飲み物が買えると分かっているものだけを「飲料自販機」として出し、売っているものが分からないものは「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。コンビニはOverture Mapsの地点のうちチェーンの店を、ほかはOSMのデータを出します。どれも閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。"
       ]
     },
     {
@@ -782,7 +782,9 @@ export const mapDisplay = {
     "気象庁メソ数値予報モデル(MSM)を加工して作成。配布: <a href=\"https://open-meteo.com/\" target=\"_blank\" rel=\"noreferrer\">Weather data by Open-Meteo.com</a> (<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noreferrer\">CC BY 4.0</a>)",
     "暑さ指数: 出典 <a href=\"https://www.wbgt.env.go.jp/\" target=\"_blank\" rel=\"noreferrer\">環境省熱中症予防情報サイト</a>",
     "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
-    "「位置参照情報（大字町丁目・街区レベル）令和6年」（国土交通省）、「Geolonia 住所データ」（株式会社Geolonia） <a href=\"https://geolonia.github.io/japanese-addresses/\" target=\"_blank\" rel=\"noreferrer\">https://geolonia.github.io/japanese-addresses/</a>、「アドレス・ベース・レジストリ」（デジタル庁） <a href=\"https://www.digital.go.jp/policies/base_registry_address_tos/\" target=\"_blank\" rel=\"noreferrer\">https://www.digital.go.jp/policies/base_registry_address_tos/</a> をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用"
+    "「位置参照情報（大字町丁目・街区レベル）令和6年」（国土交通省）、「Geolonia 住所データ」（株式会社Geolonia） <a href=\"https://geolonia.github.io/japanese-addresses/\" target=\"_blank\" rel=\"noreferrer\">https://geolonia.github.io/japanese-addresses/</a>、「アドレス・ベース・レジストリ」（デジタル庁） <a href=\"https://www.digital.go.jp/policies/base_registry_address_tos/\" target=\"_blank\" rel=\"noreferrer\">https://www.digital.go.jp/policies/base_registry_address_tos/</a> をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用",
+    "立ち寄り先: <a href=\"https://overturemaps.org/\" target=\"_blank\" rel=\"noreferrer\">Overture Maps Foundation</a>の地点を、種類を選び近くの同じ店をまとめて加工。Data from Meta, Microsoft, PinMeTo, DAC (<a href=\"https://cdla.dev/permissive-2-0/\" target=\"_blank\" rel=\"noreferrer\">CDLA Permissive 2.0</a>), AllThePlaces (<a href=\"https://creativecommons.org/publicdomain/zero/1.0/\" target=\"_blank\" rel=\"noreferrer\">CC0 1.0</a>), Foursquare (Copyright 2024 Foursquare Labs, Inc. All rights reserved. Available under <a href=\"/licenses/apache-2.0.txt\" target=\"_blank\" rel=\"noreferrer\">Apache 2.0</a>. Foursquare data was transformed to the Overture schema. <a href=\"/licenses/foursquare-places-NOTICE.txt\" target=\"_blank\" rel=\"noreferrer\">NOTICE</a>)",
+    "寺社: ジャパンサーチ「<a href=\"https://jpsearch.go.jp/database/bunka\" target=\"_blank\" rel=\"noreferrer\">文化遺産オンライン（文化庁・国立情報学研究所）</a>」のメタデータを改変して利用（所有者で寺社ごとにまとめた）"
   ],
   "noDataDash": [
     1,

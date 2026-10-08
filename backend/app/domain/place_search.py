@@ -41,7 +41,7 @@ PlaceQuery = Annotated[str, StringConstraints(min_length=1, max_length=PLACE_QUE
 
 #: 入力の続き（打ちかけの語を頭に持つ住所）を候補に足す最短の長さ（空白を除いた文字数）。画面が打ちかけで引き始める
 #: 長さも同じ。根拠は docs/modules/backend/place-search.md「引き方」。
-PLACE_PREDICTION_MIN_LENGTH = 2
+PLACE_PREDICTION_MIN_LENGTH = 1
 #: 足す続きの候補の数の上限。
 PLACE_PREDICTION_LIMIT = 10
 #: 画面が、打つのが止まってから引くまでの間。打ち続けたときの1分あたりの回数の最大がこれで決まり、口の回数制限
@@ -76,7 +76,7 @@ class PlaceCandidate(StrictModel):
 
 class PlaceSearchResult(StrictModel):
     """当たった候補。並びは当たりの良い順（入力のより長い部分に当たったものが先。入力の続きは入力の全部に当たったものと
-    して数え、入力の全部に当たった候補の後に短い表記から並ぶ）。何も当たらなければ空。"""
+    して数え、入力の全部に当たった候補の後に短い表記から（同じ長さなら粗い段から）並ぶ）。何も当たらなければ空。"""
 
     candidates: list[PlaceCandidate]
 

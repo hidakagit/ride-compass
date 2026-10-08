@@ -68,6 +68,7 @@ def _matrix(n: int, *, distance=1000.0, gradient=0.0, bearing=NORTH, surface="pa
         material_ids=list(materials), material_values=stacked(materials),
         categorical_material_ids=list(categories),
         categorical_material_columns=[CategoricalColumn.encode(v) for v in categories.values()],
+        density_axes={},
     )
 
 

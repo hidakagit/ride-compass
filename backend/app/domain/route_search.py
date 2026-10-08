@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from app.domain.cycling_speed import top_speed_kmh
-from app.domain.difficulty import DIFFICULTY_QUANTUM, distance_weighted_difficulty, round_difficulty_array
+from app.domain.difficulty import DIFFICULTY_QUANTUM, round_difficulty_array
 from app.domain.evaluation import difficulty_from_cost
 from app.domain.loop_routing import TracedLoop
 from app.domain.geo import (
@@ -17,7 +17,7 @@ from app.domain.geo import (
     km_per_degree_longitude,
 )
 from app.domain.leg_costs import LegCostArrays
-from app.domain.route import RouteCandidate
+from app.domain.route import RouteCandidate, merge_difficulty
 from app.domain.routing import TurnExpandedStructure, pareto_layer_index, time_bin_of
 from app.domain.wind import cruise_hours, kmh_to_ms
 
@@ -360,7 +360,7 @@ def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     最終候補へ付ける`overall_difficulty`と同じ計算だが、あちらは採否が確定した後の
     後処理で、こちらはその採否自体を決めるために呼ぶ。
     """
-    return distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in candidate.segments])
+    return merge_difficulty(candidate.segments)
 
 
 def pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:

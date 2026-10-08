@@ -19,7 +19,7 @@ PrimaryAttributeGeometry = Literal["line", "point", "area"]
 
 #: DBから焼いて配るタイルの系統。配信のパス・世代の表（`services/tile_version_service.py: TILE_SHAPES`）・
 #: ディスクの鍵・点のレイヤーの名前（`infrastructure/point_tile_layers.py`）が、この名前でつながる。
-TileKind = Literal["road_surface", "poi", "accident"]
+TileKind = Literal["road_surface", "poi", "accident", "stop_place"]
 
 
 class DisplayCategorySpec(StrictModel):

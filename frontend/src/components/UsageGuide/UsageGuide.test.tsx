@@ -8,15 +8,14 @@
  * 値を動かすキー）、説明の✕・部品の外・説明の外へのフォーカスのどれでも説明だけを閉じて部品を選ぶ続きへ戻り、終えるのは「やめる」とEscだけなこと、
  * 案内と説明の面の上の操作は止めないこと、説明している部品を囲む枠と測り直し、
  * マウスの操作は既定の動きまで止め、タッチは既定の動き（スクロール）を残すこと、終えたら部品が動くこと、
- * 閉じた展開する部品の説明の「中を見る」（出す部品と出さない部品）、それで開いた浮きパネルの中の部品も説明し、外の部品・外の押し操作・
- * 終える操作で閉じること。
+ * 閉じた展開する部品・選ばれていないタブの説明の「中を見る」（出す部品と出さない部品）、それで開いた浮きパネルの中の部品も説明し、説明の✕と
+ * 終える操作では閉じないこと。
  *
  * ここで見ないもの:
  * - 案内の文言——部品の宣言で、書き写して突き合わせるだけになる
  * - 共有部品が使い方の文を印に書くこと → それぞれの部品（`components/ui/Button/Button.tsx`等）。ここでは本物の
  *   `Button`で1つだけ通す
- * - 説明の面の置き方 → 選び方は`usagePlacement.test.ts`、実際の画面でほかの部品に重ならないことは
- *   e2e（`e2e/usage-guide.spec.ts`）。テスト環境に実寸もヒットテストも無い
+ * - 説明の面の置き方 → Radixの位置取り（`side`・`collisionPadding`）に任せている
  * - 案内をつまみで動かすこと → `components/FloatingPanel/FloatingPanel.tsx`（react-rndの振る舞い）
  *
  * 部品の実寸はテスト環境に無いレイアウトの値なので、枠を見るテストだけ`getBoundingClientRect`をテストが決める。
@@ -29,6 +28,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import UsageGuide from "./UsageGuide";
 
 function renderScreen() {
@@ -408,37 +408,17 @@ describe("UsageGuide", () => {
       expect(onEnd).not.toHaveBeenCalled();
     });
 
-    it("外の部品を押すと、浮きパネルを閉じてその部品を説明する", async () => {
-      renderPopoverScreen();
-      await openInside();
-
-      await userEvent.click(screen.getByRole("button", { name: "生成" }));
-
-      expect(popover()).toBeNull();
-      expect(explanation()).toHaveTextContent("いまの条件で候補を作ります。");
-    });
-
-    it("部品の外を押すと、浮きパネルを閉じて続ける", async () => {
-      const { onEnd } = renderPopoverScreen();
-      await openInside();
-
-      await userEvent.click(screen.getByText("本文の文字"));
-
-      expect(popover()).toBeNull();
-      expect(onEnd).not.toHaveBeenCalled();
-    });
-
     it.each([
       ["「やめる」で", async () => userEvent.click(screen.getByRole("button", { name: "やめる" }))],
       ["Escで", async () => userEvent.keyboard("{Escape}")],
-    ])("%s終えると、浮きパネルも閉じる", async (_, operate) => {
+    ])("%s終えても、浮きパネルは開いたまま残る", async (_, operate) => {
       const { onEnd } = renderPopoverScreen();
       await openInside();
 
       await operate();
 
       expect(onEnd).toHaveBeenCalledTimes(1);
-      expect(popover()).toBeNull();
+      expect(popover()).toBeInTheDocument();
     });
   });
 
@@ -461,8 +441,36 @@ describe("UsageGuide", () => {
       expect(explanation()).toHaveTextContent("距離を決めます。");
     });
 
+    it("選ばれていないタブは「中を見る」で切り替わり、中の部品も説明する", async () => {
+      render(
+        <>
+          <Tabs defaultValue="generate">
+            <TabsList>
+              <TabsTrigger value="generate">条件</TabsTrigger>
+              <TabsTrigger value="weights" usage="重みを決めます。">
+                重み
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="generate" />
+            <TabsContent value="weights">
+              <Button usage="評価軸の重さを変えます。">勾配</Button>
+            </TabsContent>
+          </Tabs>
+          <UsageGuide onEnd={vi.fn()} />
+        </>,
+      );
+      await userEvent.click(screen.getByRole("tab", { name: "重み" }));
+      expect(screen.queryByRole("button", { name: "勾配" })).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "中を見る" }));
+      await userEvent.click(screen.getByRole("button", { name: "勾配" }));
+
+      expect(explanation()).toHaveTextContent("評価軸の重さを変えます。");
+    });
+
     it.each([
       ["開いている部品", { "aria-expanded": true }],
+      ["選ばれているタブ", { role: "tab", "aria-selected": true }],
       ["別の面を開く部品（確かめのダイアログ等）", { "aria-expanded": false, "aria-haspopup": "dialog" as const }],
     ])("%sには出さない", async (_, attributes) => {
       render(
@@ -474,7 +482,7 @@ describe("UsageGuide", () => {
         </>,
       );
 
-      await userEvent.click(screen.getByRole("button", { name: "対象" }));
+      await userEvent.click(screen.getByText("対象"));
 
       expect(explanation()).toHaveTextContent("対象");
       expect(screen.queryByRole("button", { name: "中を見る" })).toBeNull();

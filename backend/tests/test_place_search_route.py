@@ -1,8 +1,9 @@
 """`api/routers/place_search.py`——地点の検索の経路。
 
 経路から、サービス（`services/place_search_service.py`）と住所の辞書を引く層（`infrastructure/address_dictionary.py`）の
-判断を見る: 候補の種類・段・表示名・位置、入力の空白を除くこと、何も当たらない入力は空、旧い市の名前を今の住所で出すこと、
-対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・最短の長さ・件数の上限・位置を持たない節）、
+判断を見る: 候補の種類・段・表示名・位置、入力の空白を除くこと、何も当たらない入力は空、旧い市の名前を今の住所で出すこと
+（大字の無い区域はその市区町村で）、今は無い区画を落とすこと、
+対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・1文字から・件数の上限・位置を持たない節）、
 辞書が無ければ503、対象範囲を読めなければ502、回数制限。
 辞書はテストの足場が数件の節で書いたもの（`tests/address_dictionary_fixture.py`）を本物の検索で引き、対象範囲は
 地域サービスのフェイクで与える。
@@ -95,7 +96,7 @@ def _address(place: Place, name: str, level: str) -> dict:
         _address(NISHI_SHINJUKU, "東京都新宿区西新宿", "oaza"),
         _address(NEW_SHINJUKU_WARD, "東京都新宿区", "city"),
     ], id="打ちかけの続き"),
-    pytest.param("西", [], id="1文字には続きを足さない"),
+    pytest.param("西", [_address(NISHI_SHINJUKU, "東京都新宿区西新宿", "oaza")], id="1文字にも続きを足す"),
 ])
 def test_returns_the_candidates_within_the_area(dictionary, query, candidates):
     _serve_area(AREA)
@@ -125,6 +126,22 @@ def test_continuations_are_the_shortest_ones_up_to_the_limit(address_dictionary_
     ]}
 
 
+def test_continuations_of_the_same_length_put_the_coarser_level_first(address_dictionary_dir):
+    """同じ長さの表記（「柏下」と「柏市」）は、市区町村が大字より先（打ちかけの「柏」で柏市が上限から漏れない）。"""
+    oaza = Place("柏下", AddressLevel.OAZA, 139.96, 35.87)
+    city = Place("柏市", AddressLevel.CITY, 139.975, 35.8676, (oaza,))
+    write_dictionary(address_dictionary_dir, (Place("千葉県", AddressLevel.PREF, 140.1233, 35.6047, (city,)),))
+    _serve_area(AREA)
+
+    response = client.get("/api/place-search", params={"q": "柏"})
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [
+        _address(city, "千葉県柏市", "city"),
+        _address(oaza, "千葉県柏市柏下", "oaza"),
+    ]}
+
+
 def test_continuations_borrow_the_position_of_a_child_or_are_left_out(address_dictionary_dir):
     """配布の辞書の索引は、位置を持たない節（位置の値が範囲の外の999.9）も指す。"""
     unknown = 999.9
@@ -133,7 +150,8 @@ def test_continuations_borrow_the_position_of_a_child_or_are_left_out(address_di
         Place("丸の内", AddressLevel.OAZA, unknown, unknown, (child,)),
     ))
     tokyo = Place("東京都", AddressLevel.PREF, 139.69178, 35.68963, (
-        ward, Place("千代田区", AddressLevel.CITY, unknown, unknown),
+        # 今の区画（郵便番号を持つ）にして、今は無い区画として落ちるのではなく、位置で落ちることを見る。
+        ward, Place("千代田区", AddressLevel.CITY, unknown, unknown, note="postcode:1000000"),
     ))
     write_dictionary(address_dictionary_dir, (tokyo,))
     _serve_area(AREA)
@@ -145,6 +163,47 @@ def test_continuations_borrow_the_position_of_a_child_or_are_left_out(address_di
         _address(ward, "東京都千代田区", "city"),
         _address(child, "東京都千代田区丸の内", "oaza"),
     ]}
+
+
+def test_divisions_that_no_longer_exist_are_left_out(address_dictionary_dir):
+    """配布の辞書は、市区町村の段までを今は無い名前でも持ち、`ref:`を付けずに今の区画と並べる（東京府渋谷区等）。
+    今の区画は郵便番号か、今の住所のデータの子を持つ（政令市・郡・都道府県は子の区・市区町村が郵便番号を持つ）。"""
+    shibuya = Place("渋谷区", AddressLevel.CITY, 139.697948, 35.663982, (SHIBUYA_HONMACHI,), "postcode:1500000")
+    former_shibuya = Place("渋谷区", AddressLevel.CITY, 139.697948, 35.663982)
+    write_dictionary(address_dictionary_dir, (
+        Place("東京府", AddressLevel.PREF, 139.69178, 35.68963, (
+            Place("東京市", AddressLevel.CITY, 139.69178, 35.68963, (former_shibuya,)),
+            former_shibuya,
+        )),
+        Place("東京都", AddressLevel.PREF, 139.69178, 35.68963, (
+            Place("東京市", AddressLevel.CITY, 139.69178, 35.68963, (former_shibuya,)),
+            shibuya,
+        )),
+    ))
+    _serve_area(AREA)
+
+    response = client.get("/api/place-search", params={"q": "渋谷区"})
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [
+        _address(shibuya, "東京都渋谷区", "city"),
+        _address(SHIBUYA_HONMACHI, "東京都渋谷区本町", "oaza"),
+    ]}
+
+
+def test_a_former_address_in_the_area_without_oaza_is_the_city(address_dictionary_dir):
+    """旧い字の今の住所が、大字の無い区域（名前の無い大字の節。`ref:`では`<市区町村>.`）のときは、その市区町村を出す。"""
+    city = Place("龍ケ崎市", AddressLevel.CITY, 140.182265, 35.911594, (
+        Place(".", AddressLevel.OAZA, 140.178339, 35.92477),
+        Place("柏ケ作", AddressLevel.OAZA, 140.178339, 35.92477, note="ref:茨城県龍ケ崎市."),
+    ), "postcode:3010000")
+    write_dictionary(address_dictionary_dir, (Place("茨城県", AddressLevel.PREF, 140.446793, 36.341813, (city,)),))
+    _serve_area(AREA)
+
+    response = client.get("/api/place-search", params={"q": "柏ケ作"})
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [_address(city, "茨城県龍ケ崎市", "city")]}
 
 
 def test_the_search_is_unavailable_without_the_dictionary(address_dictionary_dir):

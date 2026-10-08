@@ -7,6 +7,7 @@ from collections import Counter
 
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PointFactSpec, PrimaryAttributeSpec
 from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_description
+from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, kinds_shown_as, stop_kind_sql
 
 #: 元のタグの値をこの数より多く持つ種別は、説明でタグの名前だけを言う（値を並べると説明が値の一覧になる）。
@@ -309,7 +310,14 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 hue_slot=1,
                 tone="light",
                 categories=(
-                    _kind_row("convenience", "コンビニ", ("convenience",), "コンビニエンスストア", glyph="bag"),
+                    # コンビニだけは OpenStreetMap でなく Overture の地点（立ち寄り先の群「コンビニ」）から出す。
+                    DisplayCategorySpec(
+                        key="convenience",
+                        label="コンビニ",
+                        values=(StopPlaceGroup.CONVENIENCE.value,),
+                        glyph="bag",
+                        description="コンビニのチェーンの店[Overture Maps の地点のコンビニの分類のうち、チェーンの名前に当たるもの]。",
+                    ),
                     # 自販機は「ここで飲み物が買える」という約束として読まれる。中身が
                     # 分からないものを同じ確からしさに見せない。
                     DisplayCategorySpec(

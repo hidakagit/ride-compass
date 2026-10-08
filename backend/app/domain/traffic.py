@@ -99,8 +99,8 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
 )
 
 # 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（_SupplyPoiKind）も同じ
-# `node_materials.kind`に入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
-# 自販機を誤算入する。停止要因を数える・まとめるSQLは必ずこの集合でフィルタする。
+# `node_materials.kind`に入っているため、kindを絞らないCOUNTは停止密度へ自販機・
+# トイレを誤算入する。停止要因を数える・まとめるSQLは必ずこの集合でフィルタする。
 #
 # **型の宣言から導く。** 集合を別に並べると、型に無いkindを集合へ入れられてしまい、
 # その分だけ停止密度が静かに増える（引き当ての表と突き合わせる検査が要らなくなる）。
@@ -218,9 +218,9 @@ def place_count_sql(inside_ends: str) -> str:
     return f"CASE {inside_ends} WHEN 0 THEN 1.0 WHEN 1 THEN {PLACE_SHARE_PER_END} ELSE 0 END"
 
 
-_SupplyPoiKind = Literal[
-    "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
-]
+# コンビニは OpenStreetMap からは取らない——補給の点のコンビニは Overture の地点（`domain/stop_place.py`の群
+# 「コンビニ」）から出し、1つの種類を2つの出どころから出さない。
+_SupplyPoiKind = Literal["vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"]
 
 #: `node_materials.kind`の語彙。`tag_kind_sql`が付けうる種別で、表の検査制約もここから作る。
 NODE_KINDS: frozenset[str] = STOP_POI_KINDS | frozenset(get_args(_SupplyPoiKind))
@@ -291,7 +291,6 @@ _TAG_KIND_GROUPS: tuple[tuple[str, dict[str, str]], ...] = (
     ("highway", dict(_HIGHWAY_STOP_KINDS)),
     ("barrier", {value: "barrier" for value in sorted(_BARRIER_STOP_VALUES)}),
     ("traffic_calming", {v: "traffic_calming" for v in sorted(_TRAFFIC_CALMING_VALUES)}),
-    ("shop", {"convenience": "convenience"}),
     ("amenity", dict(_AMENITY_SUPPLY_KINDS)),
 )
 

@@ -59,6 +59,7 @@ from app.domain.rain import StationRainMaterials, rain_material_columns
 from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute, material_arrays_of
 from app.domain.route import (
     Coordinates,
+    DensityScoreInput,
     RouteCandidate,
     RouteSegmentDetail,
     DISTANCE_KM_DECIMALS,
@@ -1270,6 +1271,18 @@ class RoadGraphEngine:
                 if not math.isnan(arr[value_row])
             }
             axis_contributions = values.axis_contributions_at(value_row)
+            # 密度の軸は、ビンと候補で得点を作り直すために横軸の値を載せる（点数と同じ区間が欠損になる）。
+            weight_shares = values.axis_weight_shares_at(value_row)
+            density_inputs = {
+                axis_id: DensityScoreInput(
+                    value=float(column.inputs[row]),
+                    distance_km=distance_km,
+                    weight_share=weight_shares.get(axis_id),
+                    shape=column.shape,
+                )
+                for axis_id, column in leg.density_axes.items()
+                if not math.isnan(column.inputs[row])
+            }
             # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
             # （動的材料を参照する軸は行列側で除外済み）。
             segment_raw_values.append({
@@ -1320,7 +1333,7 @@ class RoadGraphEngine:
                     material_values=material_values,
                     difficulty=composite_difficulty_value,
                     wind=winds[index],
-                )
+                ).with_density_inputs(density_inputs)
             )
             cumulative_km += distance_km
 

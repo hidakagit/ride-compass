@@ -35,7 +35,7 @@
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`。並べるidは生成物`route-generate-config.json`に在るものだけを型が通す）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/catalogAxis.ts` | 軸カタログの1行を画面が読む形へ移す型（`CatalogAxis`）と唯一の変換（`catalogAxisFromEntry`）。重み一覧の1行はこの型そのもので、ramp軸・専用配信の軸・地図のチップの軸はこれに用途の項目を足した型。文へ評価の名前を差し込む形（「A」「B」。`axisNamesInText`・走る条件で値の変わる軸に絞る`axisNamesUsing`）もここが持つ |
-| `features/route/DifficultyProfile/DifficultyProfile.tsx`・`profileGeometry.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。区間はbackendがEdgeを約500mのビンへ畳んだもの（`aggregate_segments_into_bins`）で、Edge 1本ずつではない。**塗った面積がルートの負荷にほぼ一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。ほぼなのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるため。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
+| `features/route/DifficultyProfile/DifficultyProfile.tsx`・`profileGeometry.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。区間はbackendがEdgeを約500mのビンへ畳んだもの（`aggregate_segments_into_bins`）で、Edge 1本ずつではない。**塗った面積がルートの負荷にほぼ一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。ほぼなのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるためと、1kmあたりの回数で測る評価軸はルート全体の回数の平均から点数にし直すため（backend: `domain/route.py: merge_difficulty`）。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
 | `features/route/geoDistance.ts` | 座標列の距離計算（`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う。2点の距離がbackendと合うことは、`cardinalLabel`と同じ表をテストが通して確かめる |
 | `features/route/ErrorText/ErrorText.tsx` | 操作した箇所の直下に出すエラー文言（`role=alert`）。ルート結果と区間の乗り換えの面が使う |
 | `features/route/routePreferenceSync.ts` | 重みのキー集合を軸カタログの公開軸へ揃える関数（`useGenerationConditions.ts`が読むときに1回だけ通す）と、生成リクエストへ重みを載せるかの判定 |
@@ -89,8 +89,9 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - 重み配分バー（帯グラフ）は表示専用ではなく、
   隣り合う2区間の境界（`role="slider"`のハンドル、幅16px）をポインタドラッグまたは
   矢印キーで操作すると、その両隣の2軸間でだけ重みが移動する（他の軸・2軸の合計は
-  変わらない、`clampBoundaryDrag`が範囲[`WEIGHT_STEP`, 上限]内へクランプする。上限はbackendの
-  `domain/route_preference.py: MAX_AXIS_WEIGHT`が生成物`route-generate-config.json`で配る）。
+  変わらない、`clampBoundaryDrag`が重み`WEIGHT_STEP`以上・割合の上限以下へクランプする。割合は有効な軸の重みの
+  合計に対する比で、上限はbackendの`domain/route_preference.py: MAX_AXIS_SHARE`が生成物`route-generate-config.json`で
+  配る。既に上限を超えている軸は増やす向きでだけ止め、割り直さない）。
   ハンドル自身だけに`touch-action: none`を絞ってあり、帯グラフの他の部分（セグメント
   本体）はスクロールジェスチャーを妨げない。**重みの調整手段はこの帯グラフの
   ドラッグ・矢印キー操作のみ**。ドラッグ中の値は帯の区間とチップの%がその場で動いて
@@ -249,7 +250,8 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
   （このコンポーネント自身が持つ、負荷の説明と同じ形）を置く。
 - **軸別内訳（重み付き寄与度）**: `RouteCandidate.axis_contributions`（axis_id→重み付き
   寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
-  全体へ距離加重平均で集約した値。評価できなかった軸（データ欠損）はキー自体が無く非表示。
+  全体へ距離加重平均で集約した値。1kmあたりの回数で測る軸は、回数を平均してから得点にした値に重みの割合を掛けたもの
+  （backend: `domain/route.py: merge_axis_contributions`）。評価できなかった軸（データ欠損）はキー自体が無く非表示。
   重み0の軸はキー自体は残り値が常に0.0になる（backend:
   `domain/difficulty.py: axis_contributions_at_row`参照。frontend側で値0を除外する、
   下記`AxisContributionBar.tsx`参照）を、「総合難易度」の数字の
@@ -504,7 +506,7 @@ page-composition.md「生成に関するフィードバックの置き場」）�
   `MapView.tsx: flyToVisible`がルートを収めるときと同じ覆いの測り方で寄せる）——シートの陰に寄せると、直すピンが見えない。
   寄せたら一覧を閉じて「「…」を目的地にしました」を出す。
 - **住所の位置は当たった段の代表点で、行きたい所そのものではない**。街区より粗い段（字・丁目から都道府県まで）で当たったときは、
-  案内を注意の形にして、ピンがその範囲の代表の位置なのでつかんで動かすように出す。ピンを直すのは地図のタップで置いたピンと
+  案内を注意の形にして、ピンがその段の代表の位置でつかんで動かせることを短く出す（案内は地図に重なるので、行を取らない）。ピンを直すのは地図のタップで置いたピンと
   同じドラッグ（上記）。
 - 辞書が無い等で口が使えないときは口の文（「住所の検索は今は使えません」）を、当たらないときは「当たる住所がありません。」を
   帯の下の重なりに出す。

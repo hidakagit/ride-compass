@@ -4,6 +4,7 @@ import * as RadixPopover from "@radix-ui/react-popover";
 import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef } from "react";
 import { cn } from "@/lib/cn";
+import { USAGE_GUIDE_ATTRIBUTE } from "@/components/UsageGuide/usageTarget";
 
 // 押すと開く浮きパネル。開閉・位置取り・外側を押したら閉じる・Escで閉じるはRadix Popoverが持つ。
 // 中身はdocument.body直下へ描く（呼び出し側がoverflowで切り取る容器の中にあっても欠けない）。
@@ -50,7 +51,7 @@ interface PopoverContentProps
   extends React.ComponentPropsWithoutRef<typeof RadixPopover.Content>, VariantProps<typeof contentVariants> {}
 
 export const PopoverContent = forwardRef<HTMLDivElement, PopoverContentProps>(function PopoverContent(
-  { className, layer, tone, sideOffset = 6, ...props },
+  { className, layer, tone, sideOffset = 6, onInteractOutside, ...props },
   ref,
 ) {
   return (
@@ -59,6 +60,12 @@ export const PopoverContent = forwardRef<HTMLDivElement, PopoverContentProps>(fu
         ref={ref}
         sideOffset={sideOffset}
         className={cn(contentVariants({ layer, tone }), className)}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          // 説明を見る状態の案内・説明の面を押しても、そこへフォーカスが移っても閉じない（開いたまま、中の部品の説明を見られる）。
+          if (event.target instanceof Element && event.target.closest(`[${USAGE_GUIDE_ATTRIBUTE}]`))
+            event.preventDefault();
+        }}
         {...props}
       />
     </RadixPopover.Portal>

@@ -116,7 +116,7 @@ HILLSHADE_LAYER_ID = "hillshade"
 #: 出典も消える）。公共データ利用規約（PDL1.0）とCC BY 4.0は出典とは別に加工した旨を求め、標高からは勾配を、事故の点から
 #: は区間ごとの件数を、アメダスの観測からは雨の材料を、アメダスと推計気象分布からは天気を、区域の境界は簡略化して、配信タイルは欠けたズームを隣の
 #: ズームから補い降水の色を塗り替えて、MSMの格子は地点・時刻へ補間して使っている。気象レイヤーの出典もここが持つ（気象庁のデータは常設の表示
-#: で常に使うため）。住所の辞書は地点の検索で常に使い、文言は同梱のREADMEが決めたもの。基礎地図は配信元のTileJSONが出典を持つので
+#: で常に使うため）。住所の辞書は地点の検索で常に使い、文言は同梱のREADMEが決めたもの。立ち寄り先は出典を1か所にまとめるためここに置く。基礎地図は配信元のTileJSONが出典を持つので
 #: 入れない（入れると2回並ぶ）。データ源を足したら、利用条件（docs/architecture/data-sources.md）と合わせてここも見る。
 ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">'
@@ -135,6 +135,21 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
     "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
     ADDRESS_DICTIONARY_ATTRIBUTION,
+    # Overture の地点は出どころごとに表示が要る（公式の文書 https://docs.overturemaps.org/attribution/ ）。
+    # Foursquare の行は Apache 2.0 で、ライセンスの写し・変えた旨・NOTICE の全文を渡す（frontend/public/licenses/）。
+    '立ち寄り先: <a href="https://overturemaps.org/" target="_blank" rel="noreferrer">Overture Maps Foundation</a>'
+    "の地点を、種類を選び近くの同じ店をまとめて加工。"
+    "Data from Meta, Microsoft, PinMeTo, DAC "
+    '(<a href="https://cdla.dev/permissive-2-0/" target="_blank" rel="noreferrer">CDLA Permissive 2.0</a>), '
+    "AllThePlaces "
+    '(<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0 1.0</a>), '
+    "Foursquare (Copyright 2024 Foursquare Labs, Inc. All rights reserved. Available under "
+    '<a href="/licenses/apache-2.0.txt" target="_blank" rel="noreferrer">Apache 2.0</a>. '
+    "Foursquare data was transformed to the Overture schema. "
+    '<a href="/licenses/foursquare-places-NOTICE.txt" target="_blank" rel="noreferrer">NOTICE</a>)',
+    # ジャパンサーチのサイトポリシーの出典の記載例（編集・加工して使う場合）の形。
+    '寺社: ジャパンサーチ「<a href="https://jpsearch.go.jp/database/bunka" target="_blank" rel="noreferrer">'
+    "文化遺産オンライン（文化庁・国立情報学研究所）</a>」のメタデータを改変して利用（所有者で寺社ごとにまとめた）",
 )
 
 
@@ -404,9 +419,8 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             f"{_point_kind_list('supply_poi')}の位置です。自販機は飲み物が買えると分かって"
             f"いるものだけを「{_row_label('supply_poi', 'vending_drinks')}」として出し、売っているものが分からないものは"
             f"「{_row_label('supply_poi', 'vending_unknown')}」として区別します[たばこ・切符の機械は出しません]。"
-            f"{_row_label('supply_poi', 'convenience')}はOSMデータの更新が比較的新しく目安として使いやすい一方、"
-            f"自販機・{'・'.join(_row_label('supply_poi', key) for key in ('toilets', 'drinking_water', 'bicycle_parking'))}は"
-            "閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
+            f"{_row_label('supply_poi', 'convenience')}はOverture Mapsの地点のうちチェーンの店を、ほかはOSMのデータを出します。"
+            "どれも閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
         ),
     ),
     "accident_point": _tile_layer(

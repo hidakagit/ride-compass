@@ -43,6 +43,8 @@ class Source(StrEnum):
     OSM_WAY = "osm_way"
     OSM_NODE = "osm_node"
     ACCIDENT = "accident"
+    OVERTURE_PLACE = "overture_place"
+    BUNKA_HERITAGE = "bunka_heritage"
     DEM = "dem"
     LULC = "lulc"
 
@@ -257,6 +259,26 @@ ACCIDENTS_SOURCE_SQL = (
     f" {_party_type_sql('当事者種別（当事者B）')} AS party_type_b,"
     " (attrs->>'発生日時　　年')::int AS occurred_year"
     f" FROM {_TABLE} WHERE source = '{Source.ACCIDENT}')"
+)
+
+
+#: Overture の地点の生データ（1件=1点）。群の判断（`domain/stop_place.py`）が読む列へ読み替える。配布の列の
+#: 入れ子（`names.primary` 等）はここだけが名指す。
+OVERTURE_PLACES_SOURCE_SQL = (
+    "(SELECT natural_key AS overture_id, geom,"
+    " attrs->'names'->>'primary' AS name,"
+    " attrs->'brand'->'names'->>'primary' AS brand,"
+    " (attrs->>'confidence')::float8 AS confidence,"
+    " attrs->'taxonomy'->'hierarchy' AS hierarchy"
+    f" FROM {_TABLE} WHERE source = '{Source.OVERTURE_PLACE}')"
+)
+
+#: 国の指定・登録の文化財の建造物（1件=1つの建物）。寺社の判断（`domain/stop_place.py`）が読む列へ読み替える。
+#: ジャパンサーチの項目の列（文化遺産オンラインの所有者の項目`bunka-14-s`）はここだけが名指す。
+BUNKA_HERITAGES_SOURCE_SQL = (
+    "(SELECT natural_key AS heritage_id, geom,"
+    " attrs->>'bunka-14-s' AS owners"
+    f" FROM {_TABLE} WHERE source = '{Source.BUNKA_HERITAGE}')"
 )
 
 

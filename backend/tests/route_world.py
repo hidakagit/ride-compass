@@ -58,11 +58,13 @@ def _coordinates(osm_node_id: int) -> tuple[float, float]:
 
 
 def grid_network(
-    *, bad_ways=(), unknown_ways=(), oneway_ways=(), motorway_ways=(), island=False, no_gradient_ways=(), no_stop_count_ways=()
+    *, bad_ways=(), unknown_ways=(), oneway_ways=(), motorway_ways=(), island=False, no_gradient_ways=(), no_stop_count_ways=(),
+    stop_density_of=None,
 ) -> RoadNetwork:
     """3×3の格子。`bad_ways`は避けたい材料が1（それ以外は0）、`unknown_ways`はその材料のデータが無い、
     `oneway_ways`は始点→終点だけ走れる、`motorway_ways`は高速道路。`island`で格子とつながらない道を足す。
     勾配はどの道も平ら（0%）で、`no_gradient_ways`だけ値が無い。停止要因（信号・一時停止等）はどの道にも無い（0件）で、`no_stop_count_ways`だけ件数の値が無い。
+    `stop_density_of`（道→1kmあたりの回数）の道だけ、どの種類の停止要因もその密度で持つ。
     路面はどの道も、路面のタグの無い一般の道（取込んだ道の大半がこれ）。"""
     ways = dict(WAYS)
     if island:
@@ -91,6 +93,8 @@ def grid_network(
     bad[np.isin(ways, list(unknown_ways))] = np.nan
     gradient = np.where(np.isin(ways, list(no_gradient_ways)), np.nan, 0.0)
     stop_count = np.where(np.isin(ways, list(no_stop_count_ways)), np.nan, 0.0)
+    for way, density in (stop_density_of or {}).items():
+        stop_count[ways == way] = density
     return RoadNetwork(
         revision=1,
         node_osm_id=node_ids, node_lat=lat, node_lon=lon,

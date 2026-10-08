@@ -222,8 +222,8 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
             <Callout role="status" tone={PRECISE_LEVELS.has(placed.candidate.level) ? "neutral" : "warning"}>
               「{placed.candidate.name}」を{placed.message}。
               {PRECISE_LEVELS.has(placed.candidate.level)
-                ? "地図のピンをつかんで動かすと直せます。"
-                : `当たったのは「${LEVEL_LABELS[placed.candidate.level]}」までなので、ピンはその範囲の代表の位置です。地図のピンをつかんで、行きたい所へ動かしてください。`}
+                ? "ピンはつかんで動かせます。"
+                : `ピンは${LEVEL_LABELS[placed.candidate.level]}の代表の位置です。つかんで動かせます。`}
             </Callout>
           )}
         </div>

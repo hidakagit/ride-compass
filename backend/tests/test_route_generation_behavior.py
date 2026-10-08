@@ -29,6 +29,7 @@ from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.domain.time_zone import JST
+from app.domain.traffic import stop_count_material_ids
 from tests import rain_history_fake
 from tests.axis_system_fixture import replaced_axis_definitions
 from tests.route_world import (
@@ -380,6 +381,29 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
     assert [segment.axis_difficulties["rain_and_bad"] for segment in fastest.segments] == [30.0, 10.0]
     assert fastest.axis_raw_values["rain"] == pytest.approx(
         3.0 * fastest.segments[0].distance_km / sum(segment.distance_km for segment in fastest.segments), rel=1e-3)
+
+
+#: 信号の密度（回/km）を、上に凸の折れ線で点数にする軸（本番の停止密度の軸と同じ折れ線）。
+STOP_AXIS = AxisDefinition(
+    axis_id="stops", label="停止", default_weight=0.0, is_published=True,
+    shape=BreakpointLinearShape(
+        terms=[MaterialTerm(material=stop_count_material_ids()[0])],
+        breakpoints=[(0.0, 0.0), (0.5, 15.0), (1.5, 40.0), (3.0, 60.0), (7.0, 82.0), (12.0, 100.0)],
+    ),
+)
+
+
+async def test_a_route_scores_a_density_axis_from_its_mean_count_rather_than_the_mean_of_segment_scores(engine_over):
+    """1kmあたりの回数で測る軸は、ルートの値を回数の距離平均から点数にする。南西→南東の最速は同じ長さの道100（2回/km）と
+    道101（0回/km）で、区間の点数（46.7点と0点）の平均は23.3点だが、回数の平均（1回/km）の点数は27.5点。"""
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, "stops": STOP_AXIS}):
+        candidates = await engine_over(grid_network(stop_density_of={100: 2.0})).generate_via_waypoints(
+            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+
+    fastest = fastest_of(candidates)
+    assert ways_of(fastest) == [100, 101]
+    assert [segment.axis_difficulties["stops"] for segment in fastest.segments] == [46.7, 0.0]
+    assert fastest.axis_difficulties["stops"] == 27.5
 
 
 async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, fake_redis):

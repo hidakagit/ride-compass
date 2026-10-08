@@ -7,16 +7,23 @@ export const USAGE_GUIDE_ATTRIBUTE = "data-usage-guide";
 /** 押すと浮きパネルを開く部品の印（`components/ui/Popover/Popover.tsx: PopoverTrigger`が付ける）。 */
 const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
 
-/** 押すと浮きパネルを開く部品か。開いたものは、外の部品を押したときと終えるときに閉じる。 */
-export function isPopoverOpener(element: Element): boolean {
+/** 押すと浮きパネルを開く部品か。 */
+function isPopoverOpener(element: Element): boolean {
   return element.hasAttribute(USAGE_OPENS_ATTRIBUTE);
 }
 
+/** 選ばれていないタブか。Radix のタブは click でなく mousedown で切り替わる。 */
+export function isUnselectedTab(element: Element): boolean {
+  return element.getAttribute("role") === "tab" && element.getAttribute("aria-selected") === "false";
+}
+
 /**
- * 押すと中を展開する、閉じた部品か（`aria-expanded="false"`。浮きパネル・折りたたみ・下部シートのタブ等）。
- * 浮きパネルのほかの、別の面を開く部品（`aria-haspopup`。消す前の確かめのダイアログ等）は、開くと画面を塞ぐので除く。
+ * 押すと中を展開する、閉じた部品か（`aria-expanded="false"`。浮きパネル・折りたたみ・下部シートのタブ等）か、選ばれていない
+ * タブ（押すと中身へ切り替わる）か。浮きパネルのほかの、別の面を開く部品（`aria-haspopup`。消す前の確かめのダイアログ等）は、
+ * 開くと画面を塞ぐので除く。
  */
 function opensInside(element: Element): boolean {
+  if (isUnselectedTab(element)) return true;
   if (element.getAttribute("aria-expanded") !== "false") return false;
   return isPopoverOpener(element) || !element.hasAttribute("aria-haspopup");
 }

@@ -1,11 +1,16 @@
 """`domain/route.py`——区間（交差点の間）を`SEGMENT_BIN_DISTANCE_KM`ごとのビンへ束ねる`aggregate_segments_into_bins`と、
 区間の値を候補全体へ畳む`merge_*`と、Edge単位の軸の生値を候補全体へ畳む`route_axis_raw_values`。
 
-入口は`aggregate_segments_into_bins`・`merge_axis_difficulties`・`merge_axis_contributions`・
-`merge_material_values`・`merge_material_category_shares`・`route_axis_raw_values`。応答の型（`RouteCandidate`等）の検証はPydanticが持つ。
+入口は`aggregate_segments_into_bins`・`merge_axis_difficulties`・`merge_axis_contributions`・`merge_difficulty`・
+`merge_overall_difficulty`・`merge_material_values`・`merge_material_category_shares`・`route_axis_raw_values`。
+応答の型（`RouteCandidate`等）の検証はPydanticが持つ。
+
+密度の軸（区間が`DensityScoreInput`を持つ軸）は、本番の停止密度の軸と同じ上に凸の折れ線で確かめる——直線の折れ線では、
+点数の平均と回数の平均の点数が同じになり、畳み方の違いが出ない。
 
 ここで見ないもの:
 - 区間の値をコスト配列から読んで区間を組み立てること → `test_route_generation_behavior.py`
+- どの軸が密度の軸か → `test_evaluation.py`
 - 候補全体へ畳んだ値を候補へ載せること → `test_route_generator.py`
 """
 
@@ -14,9 +19,15 @@ from hypothesis import example, given
 from hypothesis import strategies as st
 
 from app.domain import route
-from app.domain.route import RouteSegmentDetail
+from app.domain.axis_definitions import BreakpointLinearShape, MaterialTerm
+from app.domain.route import DensityScoreInput, RouteSegmentDetail
 
 WIDTH = route.SEGMENT_BIN_DISTANCE_KM
+#: 本番の停止密度の軸の折れ線（1kmあたりの回数 → 点数）。
+STOP_SHAPE = BreakpointLinearShape(
+    terms=[MaterialTerm(material="signals_per_km")],
+    breakpoints=[(0.0, 0.0), (0.5, 15.0), (1.5, 40.0), (3.0, 60.0), (7.0, 82.0), (12.0, 100.0)],
+)
 
 
 def _segments(distances: list[float], **fields_per_segment) -> list[RouteSegmentDetail]:
@@ -36,6 +47,72 @@ def _segments(distances: list[float], **fields_per_segment) -> list[RouteSegment
 
 def test_no_segments_make_no_bins():
     assert route.aggregate_segments_into_bins([]) == []
+
+
+def _signal_segments(distances: list[float], signals: list[int], share: float | None = None) -> list[RouteSegmentDetail]:
+    """信号の数で決まる停止密度の軸（`stops`）と、どの区間も20点の軸（`other`）を持つ区間。`share`は停止密度の軸の
+    重みの割合（`other`が残り）で、Noneなら合成に入らない。区間の値はエンジンと同じく区間の点数・寄与度・合成から作る。"""
+    segments = []
+    for distance, count in zip(distances, signals, strict=True):
+        density = count / distance
+        score = STOP_SHAPE.score_at(density)
+        fields = {"axis_difficulties": {"stops": score, "other": 20.0}}
+        if share is not None:
+            fields |= {
+                "axis_contributions": {"stops": score * share, "other": 20.0 * (1 - share)},
+                "difficulty": score * share + 20.0 * (1 - share),
+            }
+        segments.append((distance, fields, DensityScoreInput(
+            value=density, distance_km=distance, weight_share=share, shape=STOP_SHAPE)))
+    built = _segments(
+        [round(distance, route.DISTANCE_KM_DECIMALS) for distance, _, _ in segments],
+        **{name: [fields.get(name) for _, fields, _ in segments] for name in segments[0][1]},
+    )
+    return [segment.with_density_inputs({"stops": density}) for segment, (_, _, density) in zip(built, segments)]
+
+
+def test_a_bin_scores_a_density_axis_from_the_mean_count_and_rebuilds_its_contribution_and_difficulty():
+    """60mの区間で信号1つと0が交互に並ぶ500m（8回/km）。区間の点数は100点と0点で平均は50点だが、ビンは8回/kmの点数
+    （82 + 18 × 1/5 = 85.6点）。寄与度はその点数×重みの割合、合成の難しさは寄与度の和のまま。"""
+    bins = route.aggregate_segments_into_bins(_signal_segments([0.0625] * 8, [1, 0] * 4, share=0.5))
+
+    merged = bins[0]
+    assert merged.axis_difficulties == {"stops": 85.6, "other": 20.0}
+    assert merged.axis_contributions == {"stops": 42.8, "other": 10.0}
+    assert merged.difficulty == pytest.approx(52.8)
+
+
+def test_a_short_segment_rounded_to_zero_length_still_counts_its_signals():
+    """応答の区間の距離は10m単位に丸めるので、信号の脇の4mの区間は長さ0で来る。回数は丸めない距離で平均する
+    （500mで信号1つ＝2回/kmの点数 40 + 20 × 1/3 = 46.7点。丸めた距離で平均すると0点）。"""
+    bins = route.aggregate_segments_into_bins(_signal_segments([0.004, 0.496], [1, 0]))
+
+    assert bins[0].axis_difficulties["stops"] == 46.7
+
+
+def test_a_route_scores_a_density_axis_from_the_mean_count_over_its_bins():
+    """候補はビンからもう一度畳む。信号の集まった500m（8回/km、85.6点）と信号の無い500m（0点）の候補は、点数の平均
+    （42.8点）ではなく4回/kmの点数（60 + 22 × 1/4 = 65.5点）。"""
+    bins = route.aggregate_segments_into_bins(_signal_segments([0.0625] * 16, [1, 0] * 4 + [0] * 8, share=0.5))
+
+    assert route.merge_axis_difficulties(bins)["stops"] == 65.5
+    assert route.merge_axis_contributions(bins)["stops"] == pytest.approx(32.8)
+    overall = route.merge_overall_difficulty(bins)
+    assert overall is not None
+    assert overall.average == pytest.approx(42.8)
+
+
+def test_a_route_without_a_difficulty_has_no_overall_difficulty():
+    assert route.merge_overall_difficulty(_segments([1.0])) is None
+
+
+def test_the_load_of_a_route_is_its_rounded_average_over_every_segment_including_those_without_a_value():
+    """欠損の区間を飛ばして積むと、データの無い区間が多いルートほど楽に見える。"""
+    overall = route.merge_overall_difficulty(_segments([1.0, 1.0, 2.0], difficulty=[10.0, None, 20.0]))
+
+    assert overall is not None
+    # 平均 50/3 は 16.7 に丸め、総量はその 16.7 に全区間の 4km を掛ける（丸める前の平均なら 66.7）。
+    assert (overall.average, overall.load) == (16.7, 66.8)
 
 
 @pytest.mark.parametrize(
