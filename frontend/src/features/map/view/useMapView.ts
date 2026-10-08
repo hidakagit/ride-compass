@@ -27,6 +27,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDedicatedWayValues } from "@/features/map/useDedicatedWayValues";
 import { useDynamicWeatherLayers } from "@/features/map/useDynamicWeatherLayers";
 import { useStoredBooleanState, useStoredState } from "@/hooks/useStoredState";
+import type { Coordinates } from "@/types/route";
 import { useMapAxisCatalog } from "@/features/map/useMapAxisCatalog";
 
 import {
@@ -77,6 +78,8 @@ interface MapViewState {
   bulk: ComponentProps<typeof MapResetMenu>;
   /** いまのレンズ。生成リクエストの`lens_axis_id`はここから作る。 */
   lens: LensId;
+  /** 地図の見えている範囲の真ん中。地図がまだ範囲を知らせていなければnull。 */
+  center: Coordinates | null;
 }
 
 export function useMapView({
@@ -108,6 +111,14 @@ export function useMapView({
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [mapLayerStatus, setMapLayerStatus] = useState<LayerDataStatusByLayer>({});
   const [refreshToken, setRefreshToken] = useState(0);
+  const center = useMemo<Coordinates | null>(
+    () =>
+      viewport && {
+        latitude: (viewport.south + viewport.north) / 2,
+        longitude: (viewport.west + viewport.east) / 2,
+      },
+    [viewport],
+  );
 
   // チップ配下の名前付きソースの表示切替は、チップidを凡例の保存先の鍵にする（`scene/legends.ts`）。
   const hiddenWeatherSources = useMemo(
@@ -216,5 +227,6 @@ export function useMapView({
       redraw: () => setRefreshToken((token) => token + 1),
     },
     lens,
+    center,
   };
 }
