@@ -484,7 +484,12 @@ export default function MapView({
       // 道はルート結果と同じ「軸ごとの効き方」を見せるためReactの部品で描く。点（事故・POI）は数行の事実だけなので
       // MapLibreのPopupへ直接載せる。
       const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
-      const pointContent = point === undefined ? null : buildPointPopupContent(point, feature.properties);
+      // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。
+      const pointLngLat =
+        feature.geometry.type === "Point"
+          ? { lng: feature.geometry.coordinates[0], lat: feature.geometry.coordinates[1] }
+          : e.lngLat;
+      const pointContent = point === undefined ? null : buildPointPopupContent(point, feature.properties, pointLngLat);
 
       popupRef.current?.remove();
       popupRef.current = null;

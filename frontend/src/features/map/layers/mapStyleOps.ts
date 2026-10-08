@@ -45,18 +45,48 @@ function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[],
 /** 基礎地図のベクタタイルが店・施設の点を収めているレイヤー名（OpenMapTilesスキーマ）。 */
 const POI_SOURCE_LAYER = "poi";
 
-/** 基礎地図に出さない店・施設の`subclass`（OpenMapTilesスキーマで、元のOSMのタグの値）。このアプリの点の層が
- * 同じ種類をOSMでない出どころから出すもの——同じ種類を基礎地図（OSM）と混ぜて出すと、ODbLの共有の義務がかかる。
- * `class`で絞らないのは、`class`が粗いため（コンビニは店全体の`shop`に入る）。
- * - `convenience`: 補給の点のコンビニはOverture Mapsの地点から出す */
-const BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE: readonly string[] = ["convenience"];
+/** 基礎地図に出さない店・施設の種類（OpenMapTilesのスキーマの`poi`の値）。このアプリの点の層が同じ種類をOSMでない
+ * 出どころから出すもの——同じ種類を基礎地図（OSM）と混ぜて出すと、ODbLの共有の義務がかかる。`class`はスキーマが束ねた
+ * 種類（束ねる先の無い値は`subclass`と同じ値）で、`class`が粗すぎる種類だけ`subclass`で名指す（コンビニは店全体の`shop`に入る）。
+ * 病院・銀行・郵便局・学校と駅・バス・空港（`poi_transit`）は出したまま残す。 */
+const BASEMAP_POIS_SHOWN_ELSEWHERE: { readonly class: readonly string[]; readonly subclass: readonly string[] } = {
+  class: [
+    // 立ち寄り先の飲食店
+    "restaurant",
+    "fast_food",
+    "cafe",
+    "bar",
+    "beer",
+    "ice_cream",
+    // 立ち寄り先の自転車（店・貸し自転車）
+    "bicycle",
+    "bicycle_rental",
+    // 立ち寄り先の景色・名所（公園・庭園・城・博物館・観光地と展望地）
+    "park",
+    "garden",
+    "castle",
+    "museum",
+    "attraction",
+    // 立ち寄り先の宿（ホテル・旅館の類とキャンプ場）
+    "lodging",
+    "campsite",
+    // 立ち寄り先の寺社は文化財の一覧から出す
+    "place_of_worship",
+  ],
+  // 補給の点のコンビニはOverture Mapsの地点から出す
+  subclass: ["convenience"],
+};
 
-/** 基礎地図の店・施設を描く全部のレイヤーの絞りに「`subclass`が`BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE`でない」を足す。
+/** 基礎地図の店・施設を描く全部のレイヤーの絞りに「`BASEMAP_POIS_SHOWN_ELSEWHERE`の種類でない」を足す。
  * 基礎地図の絞りは式の形（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。 */
 function hideBasemapPoisShownElsewhere(map: MapLibreMap, layers: StyleSpecification["layers"]): void {
   const notShownElsewhere: ExpressionSpecification = [
     "!",
-    ["in", ["get", "subclass"], ["literal", BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE]],
+    [
+      "any",
+      ["in", ["get", "class"], ["literal", BASEMAP_POIS_SHOWN_ELSEWHERE.class]],
+      ["in", ["get", "subclass"], ["literal", BASEMAP_POIS_SHOWN_ELSEWHERE.subclass]],
+    ],
   ];
   const hidden: string[] = [];
   for (const layer of layers) {
@@ -69,10 +99,7 @@ function hideBasemapPoisShownElsewhere(map: MapLibreMap, layers: StyleSpecificat
     );
     hidden.push(layer.id);
   }
-  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", {
-    layers: hidden,
-    subclasses: BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE,
-  });
+  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", { layers: hidden, ...BASEMAP_POIS_SHOWN_ELSEWHERE });
 }
 
 interface StyleReadyTag {

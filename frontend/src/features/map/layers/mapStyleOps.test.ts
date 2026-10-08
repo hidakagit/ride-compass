@@ -121,15 +121,34 @@ describe("基礎地図の店・施設", () => {
       );
   }
 
-  it("コンビニ（補給の点が別の出どころから出す）は描かず、ほかの店・施設と駅はそのまま描く", () => {
+  // OpenMapTilesのスキーマの値（`class`は束ねた種類、`subclass`は元のOSMのタグの値）。
+  it.each([
+    ["コンビニ（補給の点）", { class: "shop", subclass: "convenience" }],
+    ["飲食店", { class: "restaurant", subclass: "restaurant" }],
+    ["カフェ", { class: "cafe", subclass: "cafe" }],
+    ["酒場", { class: "beer", subclass: "pub" }],
+    ["自転車の店", { class: "bicycle", subclass: "bicycle" }],
+    ["公園", { class: "park", subclass: "park" }],
+    ["展望地", { class: "attraction", subclass: "viewpoint" }],
+    ["宿", { class: "lodging", subclass: "hotel" }],
+    ["キャンプ場", { class: "campsite", subclass: "camp_site" }],
+    ["礼拝の場所（寺社は文化財から出す）", { class: "place_of_worship", subclass: "place_of_worship" }],
+  ])("%s は、アプリの点の層が別の出どころから出すので、どの順位でも描かない", (_, kind) => {
     const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
 
-    // OpenMapTilesのスキーマで、OSMの`shop=convenience`は`class=shop`・`subclass=convenience`になる。
-    expect(drawnBy(map, { class: "shop", subclass: "convenience", rank: 3 })).toEqual([]);
-    expect(drawnBy(map, { class: "shop", subclass: "convenience", rank: 25 })).toEqual([]);
+    for (const rank of [3, 8, 25]) expect(drawnBy(map, { ...kind, rank })).toEqual([]);
+  });
+
+  it("病院・銀行・郵便局・学校・ほかの店と駅は、そのまま描く", () => {
+    const { map } = drawMap(POI_LAYERS);
+    prepareBasemap(map);
+
     expect(drawnBy(map, { class: "shop", subclass: "bakery", rank: 3 })).toEqual(["poi_r1"]);
     expect(drawnBy(map, { class: "hospital", subclass: "hospital", rank: 8 })).toEqual(["poi_r7"]);
+    expect(drawnBy(map, { class: "bank", subclass: "bank", rank: 8 })).toEqual(["poi_r7"]);
+    expect(drawnBy(map, { class: "post", subclass: "post_office", rank: 8 })).toEqual(["poi_r7"]);
+    expect(drawnBy(map, { class: "school", subclass: "school", rank: 8 })).toEqual(["poi_r7"]);
     expect(drawnBy(map, { class: "rail", subclass: "station", rank: 25 })).toEqual(["poi_r20", "poi_transit"]);
   });
 

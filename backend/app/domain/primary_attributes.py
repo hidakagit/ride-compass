@@ -5,7 +5,13 @@
 
 from collections import Counter
 
-from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PointFactSpec, PrimaryAttributeSpec
+from app.domain.registry import (
+    DisplayAxisSpec,
+    DisplayCategorySpec,
+    PointFactSpec,
+    PointThinningSpec,
+    PrimaryAttributeSpec,
+)
 from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_description
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, kinds_shown_as, stop_kind_sql
@@ -346,6 +352,8 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 ),
             ),
         ),
+        # 名前を持つのはコンビニの点だけ（OpenStreetMap の点の名前は焼かない）。
+        point_name_property="name",
     ),
     # 群「コンビニ」は補給の点に出すので、ここの行に入れない。
     PrimaryAttributeSpec(
@@ -358,18 +366,19 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 key="group",
                 property="group",
                 palette="nominal",
-                hue_slot=7,
+                hue_slot=6,
+                tone="vivid",
                 categories=(
                     DisplayCategorySpec(
                         key=StopPlaceGroup.EAT_DRINK.value,
-                        label="食べる・飲む",
+                        label="飲食店",
                         values=(StopPlaceGroup.EAT_DRINK.value,),
                         glyph="cup",
                         description="飲食店・カフェ・酒場[Overture Maps の地点の飲食の分類]。",
                     ),
                     DisplayCategorySpec(
                         key=StopPlaceGroup.BATH.value,
-                        label="入浴",
+                        label="銭湯・温泉",
                         values=(StopPlaceGroup.BATH.value,),
                         glyph="steam",
                         description="銭湯・温泉・サウナ[Overture Maps の地点の分類]。",
@@ -390,7 +399,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                     ),
                     DisplayCategorySpec(
                         key=StopPlaceGroup.LODGING.value,
-                        label="泊まる",
+                        label="宿",
                         values=(StopPlaceGroup.LODGING.value,),
                         glyph="bed",
                         description="ホテル・旅館・民宿・キャンプ場の類[Overture Maps の地点の分類]。",
@@ -405,6 +414,19 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 ),
             ),
         ),
+        # 街中は飲食店で埋まるので、地点の少ない群から残す（並びは都内の件数の少ない順）。
+        point_thinning=PointThinningSpec(
+            rows=(
+                StopPlaceGroup.TEMPLE_SHRINE.value,
+                StopPlaceGroup.BATH.value,
+                StopPlaceGroup.BICYCLE.value,
+                StopPlaceGroup.LODGING.value,
+                StopPlaceGroup.SCENIC.value,
+                StopPlaceGroup.EAT_DRINK.value,
+            ),
+            ratio_property="confidence",
+        ),
+        point_name_property="name",
     ),
 )
 # 読む側はidで1件を引く（`next(...)`）ため、同じidを2度宣言すると後の宣言が黙って消える。

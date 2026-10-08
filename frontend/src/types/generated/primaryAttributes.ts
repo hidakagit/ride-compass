@@ -6,6 +6,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "highway",
@@ -85,6 +87,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -93,6 +97,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -101,6 +107,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -109,6 +117,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "surface",
@@ -171,6 +181,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "tracktype",
@@ -233,6 +245,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -241,6 +255,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -249,6 +265,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "tunnel",
@@ -275,6 +293,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "oneway",
@@ -301,6 +321,8 @@ export const primaryAttributes = [
     "geometry": "area",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -309,6 +331,8 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": "poi",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "kind",
@@ -395,6 +419,8 @@ export const primaryAttributes = [
       }
     ],
     "tile_kind": "accident",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "party",
@@ -456,6 +482,8 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -464,6 +492,8 @@ export const primaryAttributes = [
     "geometry": "area",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -472,6 +502,8 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": "poi",
+    "point_thinning": null,
+    "point_name_property": "name",
     "display_axes": [
       {
         "key": "kind",
@@ -549,6 +581,18 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": "stop_place",
+    "point_thinning": {
+      "rows": [
+        "temple_shrine",
+        "bath",
+        "bicycle",
+        "lodging",
+        "scenic",
+        "eat_drink"
+      ],
+      "ratio_property": "confidence"
+    },
+    "point_name_property": "name",
     "display_axes": [
       {
         "key": "group",
@@ -557,23 +601,23 @@ export const primaryAttributes = [
         "categories": [
           {
             "key": "eat_drink",
-            "label": "食べる・飲む",
+            "label": "飲食店",
             "values": [
               "eat_drink"
             ],
             "description": "飲食店・カフェ・酒場[Overture Maps の地点の飲食の分類]。",
             "glyph": "cup",
-            "color": "#807e4d"
+            "color": "#9f7439"
           },
           {
             "key": "bath",
-            "label": "入浴",
+            "label": "銭湯・温泉",
             "values": [
               "bath"
             ],
             "description": "銭湯・温泉・サウナ[Overture Maps の地点の分類]。",
             "glyph": "steam",
-            "color": "#48886f"
+            "color": "#59884a"
           },
           {
             "key": "bicycle",
@@ -583,7 +627,7 @@ export const primaryAttributes = [
             ],
             "description": "自転車の店・修理・貸し自転車[Overture Maps の地点の分類]。",
             "glyph": "wrench",
-            "color": "#25879d"
+            "color": "#018b89"
           },
           {
             "key": "scenic",
@@ -593,17 +637,17 @@ export const primaryAttributes = [
             ],
             "description": "公園・庭園・湖・滝・山・浜・城・展望台・博物館の類[Overture Maps の地点の分類]。",
             "glyph": "mountain",
-            "color": "#6d7aaa"
+            "color": "#0984ba"
           },
           {
             "key": "lodging",
-            "label": "泊まる",
+            "label": "宿",
             "values": [
               "lodging"
             ],
             "description": "ホテル・旅館・民宿・キャンプ場の類[Overture Maps の地点の分類]。",
             "glyph": "bed",
-            "color": "#a36b89"
+            "color": "#956cad"
           },
           {
             "key": "temple_shrine",
@@ -613,7 +657,7 @@ export const primaryAttributes = [
             ],
             "description": "国の指定・登録の文化財の建造物を持つ寺社[文化遺産オンライン]。",
             "glyph": "gate",
-            "color": "#a66e5b"
+            "color": "#bd606c"
           }
         ],
         "missing_semantics": null
