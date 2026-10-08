@@ -347,6 +347,65 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
+    # 群「コンビニ」は補給の点に出すので、ここの行に入れない。
+    PrimaryAttributeSpec(
+        attr_id="stop_place",
+        tile_kind="stop_place",
+        label="立ち寄り先",
+        geometry="point",
+        display_axes=(
+            DisplayAxisSpec(
+                key="group",
+                property="group",
+                palette="nominal",
+                hue_slot=7,
+                categories=(
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.EAT_DRINK.value,
+                        label="食べる・飲む",
+                        values=(StopPlaceGroup.EAT_DRINK.value,),
+                        glyph="cup",
+                        description="飲食店・カフェ・酒場[Overture Maps の地点の飲食の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.BATH.value,
+                        label="入浴",
+                        values=(StopPlaceGroup.BATH.value,),
+                        glyph="steam",
+                        description="銭湯・温泉・サウナ[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.BICYCLE.value,
+                        label="自転車",
+                        values=(StopPlaceGroup.BICYCLE.value,),
+                        glyph="wrench",
+                        description="自転車の店・修理・貸し自転車[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.SCENIC.value,
+                        label="景色・名所",
+                        values=(StopPlaceGroup.SCENIC.value,),
+                        glyph="mountain",
+                        description="公園・庭園・湖・滝・山・浜・城・展望台・博物館の類[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.LODGING.value,
+                        label="泊まる",
+                        values=(StopPlaceGroup.LODGING.value,),
+                        glyph="bed",
+                        description="ホテル・旅館・民宿・キャンプ場の類[Overture Maps の地点の分類]。",
+                    ),
+                    DisplayCategorySpec(
+                        key=StopPlaceGroup.TEMPLE_SHRINE.value,
+                        label="寺社",
+                        values=(StopPlaceGroup.TEMPLE_SHRINE.value,),
+                        glyph="gate",
+                        description="国の指定・登録の文化財の建造物を持つ寺社[文化遺産オンライン]。",
+                    ),
+                ),
+            ),
+        ),
+    ),
 )
 # 読む側はidで1件を引く（`next(...)`）ため、同じidを2度宣言すると後の宣言が黙って消える。
 _REPEATED_ATTR_IDS = sorted(attr_id for attr_id, n in Counter(a.attr_id for a in PRIMARY_ATTRIBUTES).items() if n > 1)

@@ -542,5 +542,82 @@ export const primaryAttributes = [
         "missing_semantics": null
       }
     ]
+  },
+  {
+    "attr_id": "stop_place",
+    "label": "立ち寄り先",
+    "geometry": "point",
+    "point_facts": [],
+    "tile_kind": "stop_place",
+    "display_axes": [
+      {
+        "key": "group",
+        "label": "",
+        "property": "group",
+        "categories": [
+          {
+            "key": "eat_drink",
+            "label": "食べる・飲む",
+            "values": [
+              "eat_drink"
+            ],
+            "description": "飲食店・カフェ・酒場[Overture Maps の地点の飲食の分類]。",
+            "glyph": "cup",
+            "color": "#807e4d"
+          },
+          {
+            "key": "bath",
+            "label": "入浴",
+            "values": [
+              "bath"
+            ],
+            "description": "銭湯・温泉・サウナ[Overture Maps の地点の分類]。",
+            "glyph": "steam",
+            "color": "#48886f"
+          },
+          {
+            "key": "bicycle",
+            "label": "自転車",
+            "values": [
+              "bicycle"
+            ],
+            "description": "自転車の店・修理・貸し自転車[Overture Maps の地点の分類]。",
+            "glyph": "wrench",
+            "color": "#25879d"
+          },
+          {
+            "key": "scenic",
+            "label": "景色・名所",
+            "values": [
+              "scenic"
+            ],
+            "description": "公園・庭園・湖・滝・山・浜・城・展望台・博物館の類[Overture Maps の地点の分類]。",
+            "glyph": "mountain",
+            "color": "#6d7aaa"
+          },
+          {
+            "key": "lodging",
+            "label": "泊まる",
+            "values": [
+              "lodging"
+            ],
+            "description": "ホテル・旅館・民宿・キャンプ場の類[Overture Maps の地点の分類]。",
+            "glyph": "bed",
+            "color": "#a36b89"
+          },
+          {
+            "key": "temple_shrine",
+            "label": "寺社",
+            "values": [
+              "temple_shrine"
+            ],
+            "description": "国の指定・登録の文化財の建造物を持つ寺社[文化遺産オンライン]。",
+            "glyph": "gate",
+            "color": "#a66e5b"
+          }
+        ],
+        "missing_semantics": null
+      }
+    ]
   }
 ] as const;
