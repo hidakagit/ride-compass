@@ -70,6 +70,18 @@ def degrees_covering_m(radius_m: float) -> float:
     """
     return radius_m / (km_per_degree_longitude(COVERED_LATITUDE_LIMIT) * 1000.0)
 
+
+#: 地面の m で測る平面（日本の中ほどを中心にした正距方位図法）。中心から1,500km（北海道・沖縄）でも、近くの2点の間の
+#: 距離の誤差は1%に満たない。経度・緯度を点ごとの緯度の cos で縮める形は、縮めが原点のまわりにかかるため、南北に
+#: ずれた2点の間に原点からの遠さに比例した横のずれが乗る（関東で南北に20mの2点が約31mになる）。
+_GROUND_M_PROJ = "+proj=aeqd +lat_0=36 +lon_0=138 +datum=WGS84 +units=m +no_defs"
+
+
+def ground_m_sql(geom_expr: str) -> str:
+    """経度・緯度の幾何（SRID 4326）を、2点の間が地面の m になる平面へ写す式。`ST_ClusterDBSCAN`等の平面の演算へ渡す。"""
+    return f"ST_Transform({geom_expr}, '{_GROUND_M_PROJ}')"
+
+
 #: 16方位の呼び名（0=北から時計回り）。8方位の呼び名はこの1つおきで、別に持たない——
 #: 片方だけ直すと、同じ向きを場所によって違う名前で出す。
 SIXTEEN_POINT_LABELS = [

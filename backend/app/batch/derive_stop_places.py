@@ -1,4 +1,4 @@
-"""立ち寄り先（`stop_places`）を、地点の生データから作り直す。
+"""立ち寄り先（`stop_places`）を、地点の生データ（Overture の地点・国の文化財の建造物）から作り直す。
 
 **群はここで付ける**。取込は外部が持っていた列をそのまま入れるだけで、「どの群か」は派生の側の判断である。
 語の表は`domain/stop_place.py`が持ち、このバッチはそれをSQLへ渡すだけで、行を取り出さない。
@@ -9,6 +9,11 @@
 当たる地点だけを入れる（`kept_sql`）。店の中の ATM の地点は、名前を店の名前へ直してから群とチェーンを決める
 （`store_name_sql`）——店の隣にあれば店とまとまり、無ければ店として残る。
 
+寺社は文化財の建造物の所有者から出す。所有者の欄の1人ずつのうち寺社の名前（`temple_shrine_owner_sql`）を持つ建物を、
+同じ名前（表記の揺れを除いた形）で`HERITAGE_MERGE_RADIUS_M`以内に連なるものごとに1つの寺社にする。位置はまとまりの
+重心に最も近い建物（重心は境内の外に落ちることがある）、名前は所有者の名前。1つの建物に寺社の所有者が2人いれば、
+両方の寺社に入る。
+
 道の網とは何も読み合わないので、どの段の後ろに置いてもよい。
 """
 
@@ -17,22 +22,24 @@ import time
 
 import asyncpg
 
+from app.domain.geo import ground_m_sql
 from app.domain.stop_place import (
+    HERITAGE_MERGE_RADIUS_M,
     MERGE_RADIUS_M,
+    StopPlaceGroup,
     chain_sql,
     chain_text_sql,
     kept_sql,
     normalized_sql,
     overture_group_sql,
+    owner_lines_sql,
+    owner_name_sql,
     store_name_sql,
+    temple_shrine_owner_sql,
 )
-from app.infrastructure.source_models import OVERTURE_PLACES_SOURCE_SQL, Source
+from app.infrastructure.source_models import BUNKA_HERITAGES_SOURCE_SQL, OVERTURE_PLACES_SOURCE_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_stop_places")
-
-#: 地面の m で測る平面の座標。Web Mercator の座標をその点の緯度の cos 倍すると、近くの2点の間は地面の m に
-#: なる（Mercator はその緯度で 1/cos 倍に伸びる。まとめる距離の中で緯度はほぼ変わらない）。
-_GROUND_M_GEOM = "ST_Scale(ST_Transform(o.geom, 3857), cos(radians(ST_Y(o.geom))), cos(radians(ST_Y(o.geom))))"
 
 _GROUPED = f"""
 CREATE TEMP TABLE _grouped_places ON COMMIT DROP AS
@@ -58,13 +65,42 @@ SELECT DISTINCT ON (place_group, chain, merge_key)
        '{Source.OVERTURE_PLACE}', overture_id, name, normalized_name, place_group, confidence, brand, geom
 FROM (
     -- まとまりの番号は群・チェーンごとに0から振られるので、鍵は群・チェーンと組にして使う。
-    SELECT o.*, 'c' || ST_ClusterDBSCAN({_GROUND_M_GEOM}, eps := $1, minpoints := 1)
+    SELECT o.*, 'c' || ST_ClusterDBSCAN({ground_m_sql("o.geom")}, eps := $1, minpoints := 1)
                        OVER (PARTITION BY o.place_group, o.chain) AS merge_key
     FROM _grouped_places o WHERE o.chain IS NOT NULL
     UNION ALL
     SELECT o.*, 'p' || o.overture_id FROM _grouped_places o WHERE o.chain IS NULL
 ) keyed
 ORDER BY place_group, chain, merge_key, confidence DESC, overture_id
+"""
+
+#: 寺社の所有者ごとの建物（1つの建物に寺社の所有者が2人いれば2行）。
+_TEMPLE_BUILDINGS = f"""
+CREATE TEMP TABLE _temple_buildings ON COMMIT DROP AS
+SELECT h.heritage_id, h.geom, o.name, {normalized_sql("o.name")} AS normalized_name
+FROM {BUNKA_HERITAGES_SOURCE_SQL} h
+CROSS JOIN LATERAL (
+    SELECT DISTINCT {owner_name_sql("line")} AS name FROM {owner_lines_sql("h.owners")} AS line
+) o
+WHERE {temple_shrine_owner_sql("o.name")}
+"""
+
+# 鍵は名前とまとまりの中の最も小さい文化財の ID の組（1つの建物が2つの寺社に入ると、ID だけでは重なる）。
+_INSERT_TEMPLES = f"""
+INSERT INTO stop_places (source, source_key, name, search_name, place_group, confidence, brand, geom)
+SELECT DISTINCT ON (normalized_name, merge_key)
+       '{Source.BUNKA_HERITAGE}', first_id || ' ' || normalized_name, name, normalized_name,
+       '{StopPlaceGroup.TEMPLE_SHRINE}', 1, NULL, geom
+FROM (
+    SELECT c.*, min(c.heritage_id) OVER temple AS first_id, ST_Centroid(ST_Collect(c.geom) OVER temple) AS center
+    FROM (
+        SELECT b.*, ST_ClusterDBSCAN({ground_m_sql("b.geom")}, eps := $1, minpoints := 1)
+                    OVER (PARTITION BY b.normalized_name) AS merge_key
+        FROM _temple_buildings b
+    ) c
+    WINDOW temple AS (PARTITION BY c.normalized_name, c.merge_key)
+) centered
+ORDER BY normalized_name, merge_key, ST_Distance({ground_m_sql("geom")}, {ground_m_sql("center")}), heritage_id
 """
 
 
@@ -76,7 +112,10 @@ async def derive(conn: asyncpg.Connection) -> int:
         await conn.execute(_GROUPED)
         grouped = await conn.fetchval("SELECT count(*) FROM _grouped_places")
         inserted = int((await conn.execute(_INSERT, MERGE_RADIUS_M)).split()[-1])
+        await conn.execute(_TEMPLE_BUILDINGS)
+        temple_buildings = await conn.fetchval("SELECT count(*) FROM _temple_buildings")
+        temples = int((await conn.execute(_INSERT_TEMPLES, HERITAGE_MERGE_RADIUS_M)).split()[-1])
     await conn.execute("ANALYZE stop_places")
-    logger.info("立ち寄り先: 群に入った %d件 → まとめて %d件 / %.1f秒",
-                grouped, inserted, time.perf_counter() - started)
-    return inserted
+    logger.info("立ち寄り先: 群に入った %d件 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件 / %.1f秒",
+                grouped, inserted, temple_buildings, temples, time.perf_counter() - started)
+    return inserted + temples
