@@ -1,6 +1,6 @@
 /**
- * 「保存」タブ（`SavedConditionsPanel.tsx`）——保存の前に、保存する条件・重みの割合・除外と出発地の扱いを並べ、名前の欄に
- * 仮の名前を入れて出し、そのまま・書き換えて保存できる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
+ * 「保存」タブ（`SavedConditionsPanel.tsx`）——タブには保存の窓を開くボタンだけを置き、窓で保存する条件・重みの割合・除外と
+ * 出発地の扱いを並べ、名前の欄に仮の名前を入れて出し、そのまま・書き換えて保存でき、保存すると窓を閉じる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
  * 同じ名前があれば上書きと分かるように出す。保存した設定を並べ、開くと中身を読め、「呼び出す」で呼び出し、✕は確認の窓で
  * 「消す」を押したときだけ消す。
  *
@@ -59,6 +59,12 @@ function renderPanel(
   return handlers;
 }
 
+/** 「いまの設定を保存」の窓を開いて、窓を返す。 */
+async function openSaveDialog() {
+  await userEvent.click(screen.getByRole("button", { name: "いまの設定を保存" }));
+  return screen.getByRole("dialog", { name: "いまの設定を保存" });
+}
+
 beforeEach(() => {
   serveAxisCatalog(
     catalogResponse([
@@ -69,35 +75,44 @@ beforeEach(() => {
 });
 
 describe("保存", () => {
-  it("保存の前に、いまの設定の条件と重みの割合を並べる", async () => {
+  it("タブには窓を開くボタンだけを置き、窓で、いまの設定の条件と重みの割合を並べる", async () => {
     renderPanel();
+    expect(screen.queryByText("周回 40km・候補 8本")).not.toBeInTheDocument();
 
-    expect(screen.getByText("周回 40km・候補 8本")).toBeInTheDocument();
-    expect(await screen.findByText("軸A 50%・軸B 50%")).toBeInTheDocument();
+    const dialog = await openSaveDialog();
+
+    expect(within(dialog).getByText("周回 40km・候補 8本")).toBeInTheDocument();
+    expect(await within(dialog).findByText("軸A 50%・軸B 50%")).toBeInTheDocument();
   });
 
-  it("仮の名前が入った欄をそのまま保存でき、書き換えればその名前で保存する", async () => {
+  it("仮の名前が入った欄をそのまま保存でき、書き換えればその名前で保存し、保存すると窓を閉じる", async () => {
     const { onSave } = renderPanel();
-    const nameField = screen.getByRole("textbox", { name: "保存する名前" });
-    expect(nameField).toHaveValue("周回 40km");
+    let dialog = await openSaveDialog();
+    expect(within(dialog).getByRole("textbox", { name: "保存する名前" })).toHaveValue("周回 40km");
 
-    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     expect(onSave).toHaveBeenLastCalledWith("周回 40km", false);
+    expect(screen.queryByRole("dialog")).toBeNull();
 
+    dialog = await openSaveDialog();
+    const nameField = within(dialog).getByRole("textbox", { name: "保存する名前" });
     await userEvent.clear(nameField);
     await userEvent.type(nameField, "夕方{Enter}");
     expect(onSave).toHaveBeenLastCalledWith("夕方", false);
-    expect(nameField).toHaveValue("周回 40km");
+
+    dialog = await openSaveDialog();
+    expect(within(dialog).getByRole("textbox", { name: "保存する名前" })).toHaveValue("周回 40km");
   });
 
   it("同じ名前の設定があれば、保存のボタンが上書き保存になる", async () => {
     renderPanel([LOOP]);
-    const nameField = screen.getByRole("textbox", { name: "保存する名前" });
+    const dialog = await openSaveDialog();
+    const nameField = within(dialog).getByRole("textbox", { name: "保存する名前" });
 
     await userEvent.clear(nameField);
     await userEvent.type(nameField, "朝の荒川");
 
-    expect(screen.getByRole("button", { name: "上書き保存" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "上書き保存" })).toBeInTheDocument();
   });
 
   it.each([
@@ -106,21 +121,26 @@ describe("保存", () => {
     ["分からない出発地は、地図で置いても固定できない", { originManual: true, originKnown: false }, false, true],
   ])("出発地: %s", async (_, origin, fixed, fixDisabled) => {
     const { onSave } = renderPanel([], origin);
+    const dialog = await openSaveDialog();
 
-    expect(screen.getByRole("radio", { name: fixed ? "今の出発地に固定" : "呼び出した時の現在地" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "今の出発地に固定" })).toHaveProperty("disabled", fixDisabled);
-    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(
+      within(dialog).getByRole("radio", { name: fixed ? "今の出発地に固定" : "呼び出した時の現在地" }),
+    ).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: "今の出発地に固定" })).toHaveProperty("disabled", fixDisabled);
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     expect(onSave).toHaveBeenLastCalledWith("周回 40km", fixed);
   });
 
   it("現在地のままでも出発地を固定して保存でき、保存すると選び直す前の既定へ戻る", async () => {
     const { onSave } = renderPanel();
+    let dialog = await openSaveDialog();
 
-    await userEvent.click(screen.getByRole("radio", { name: "今の出発地に固定" }));
-    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    await userEvent.click(within(dialog).getByRole("radio", { name: "今の出発地に固定" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
 
     expect(onSave).toHaveBeenLastCalledWith("周回 40km", true);
-    expect(screen.getByRole("radio", { name: "呼び出した時の現在地" })).toBeChecked();
+    dialog = await openSaveDialog();
+    expect(within(dialog).getByRole("radio", { name: "呼び出した時の現在地" })).toBeChecked();
   });
 });
 
