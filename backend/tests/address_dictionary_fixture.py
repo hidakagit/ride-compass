@@ -25,8 +25,16 @@ class Place(NamedTuple):
     longitude: float
     latitude: float
     children: tuple["Place", ...] = ()
-    #: 旧い行政区画の節は`ref:<今の住所>`を持ち、配布の辞書と同じく並びの優先が最も高い（0）。
+    #: 配布の辞書の注記。旧い住所の節は`ref:<今の住所>`を持ち、今の市区町村は郵便番号（`postcode:`）を持つ。
     note: str = ""
+
+    @property
+    def priority(self) -> int:
+        """配布の辞書と同じく、節の出どころのデータセットの番号（`dataset`の表）: 旧い住所の節（`ref:`）は住所変更履歴（0）、
+        市区町村の段までは歴史的行政区域データセット（1）、大字から下は今の住所のデータ（Geolonia 住所データ、2）。"""
+        if self.note.startswith("ref:"):
+            return 0
+        return 1 if self.level <= AddressLevel.WARD else 2
 
 
 #: 東京都新宿区西新宿二丁目8番。
@@ -46,19 +54,19 @@ KAWAGUCHI_OAZA = Place("大字", AddressLevel.OAZA, 139.741148, 35.862285)
 
 PLACES = (
     Place("東京都", AddressLevel.PREF, 139.69178, 35.68963, (
-        Place("新宿区", AddressLevel.CITY, 139.703463, 35.69389, (NISHI_SHINJUKU,)),
-        Place("渋谷区", AddressLevel.CITY, 139.697948, 35.663982, (SHIBUYA_HONMACHI,)),
+        Place("新宿区", AddressLevel.CITY, 139.703463, 35.69389, (NISHI_SHINJUKU,), "postcode:1600000"),
+        Place("渋谷区", AddressLevel.CITY, 139.697948, 35.663982, (SHIBUYA_HONMACHI,), "postcode:1500000"),
     )),
     Place("埼玉県", AddressLevel.PREF, 139.649, 35.85736, (
         Place("さいたま市", AddressLevel.CITY, 139.645502, 35.861515, (
-            Place("岩槻区", AddressLevel.WARD, 139.694182, 35.949882, (IWATSUKI_HONMACHI,)),
+            Place("岩槻区", AddressLevel.WARD, 139.694182, 35.949882, (IWATSUKI_HONMACHI,), "postcode:3390000"),
         )),
         Place("岩槻市", AddressLevel.CITY, 139.694182, 35.949882, (FORMER_IWATSUKI_HONMACHI,)),
-        Place("川口市", AddressLevel.CITY, 139.724171, 35.807741, (KAWAGUCHI_OAZA,)),
+        Place("川口市", AddressLevel.CITY, 139.724171, 35.807741, (KAWAGUCHI_OAZA,), "postcode:3320000"),
     )),
     Place("大阪府", AddressLevel.PREF, 135.51931, 34.68692, (
         Place("大阪市", AddressLevel.CITY, 135.502046, 34.693891, (
-            Place("中央区", AddressLevel.WARD, 135.509687, 34.681225, (OSAKA_HONMACHI,)),
+            Place("中央区", AddressLevel.WARD, 135.509687, 34.681225, (OSAKA_HONMACHI,), "postcode:5390000"),
         )),
     )),
 )
@@ -77,7 +85,7 @@ def write_dictionary(path: Path, places: tuple[Place, ...] = PLACES) -> None:
     def add(place: Place, parent_id: int, ancestors: list[str]) -> None:
         record = AddressNode(
             id=len(records), name=place.name, name_index=converter.standardize(place.name),
-            x=place.longitude, y=place.latitude, level=place.level, priority=0 if place.note else place.level,
+            x=place.longitude, y=place.latitude, level=place.level, priority=place.priority,
             note=place.note, parent_id=parent_id,
         ).to_record()
         records.append(record)
