@@ -39,7 +39,8 @@ def _readable(path: Path) -> bool:
     """Parquet として開け、1行以上あるか。"""
     try:
         with duckdb.connect() as conn:
-            return conn.execute("SELECT count(*) FROM read_parquet(?)", [str(path)]).fetchone()[0] > 0
+            [(count,)] = conn.execute("SELECT count(*) FROM read_parquet(?)", [str(path)]).fetchall()
+            return count > 0
     except duckdb.Error:
         return False
 
