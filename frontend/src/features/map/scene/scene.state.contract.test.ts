@@ -7,11 +7,12 @@
 import { latest, validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
-import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
+import { matchesFilter } from "@/testing/mapExpressions";
+import { createRecordingMap, type StyleLayer } from "@/testing/mapTrace/recordingMap";
 import { catalogEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
-import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, POINT_TILE_SOURCES, pointAxisKey } from "@/features/map/scene/groups/points";
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/roadLines";
 import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
@@ -122,6 +123,117 @@ describe("状態を地図へ伝えた結果", () => {
       expect(stop?.visibility).toBe("visible");
       // 停止要因と補給は同じタイルを分け合う。分ける条件を持たないと、補給の点が停止要因の色で出る。
       expect(stop?.filter).toBeDefined();
+    });
+  });
+  describe("基礎地図の店・施設の印", () => {
+    // libertyの店・施設のレイヤーの絞り（OpenFreeMapのスタイルから写した）。点を順位で3段に分け、駅・バス・空港は別に描く。
+    const POINT = ["match", ["geometry-type"], ["MultiPoint", "Point"], true, false];
+    const POI_LAYERS: readonly StyleLayer[] = [
+      { id: "road_minor", type: "line", "source-layer": "transportation" },
+      { id: "poi_r20", type: "symbol", "source-layer": "poi", filter: ["all", POINT, [">=", ["get", "rank"], 20]] },
+      {
+        id: "poi_r7",
+        type: "symbol",
+        "source-layer": "poi",
+        filter: ["all", POINT, [">=", ["get", "rank"], 7], ["<", ["get", "rank"], 20]],
+      },
+      {
+        id: "poi_r1",
+        type: "symbol",
+        "source-layer": "poi",
+        filter: ["all", POINT, [">=", ["get", "rank"], 1], ["<", ["get", "rank"], 7]],
+      },
+      {
+        id: "poi_transit",
+        type: "symbol",
+        "source-layer": "poi",
+        filter: ["match", ["get", "class"], ["airport", "bus", "rail"], true, false],
+      },
+    ];
+
+    // OpenMapTilesのスキーマの値（`class`は束ねた種類、`subclass`は元のOSMのタグの値）と、それを出す立ち寄り先の群。
+    const STOP_PLACE_KINDS = [
+      ["飲食店", "eat_drink", { class: "restaurant", subclass: "restaurant" }],
+      ["カフェ", "eat_drink", { class: "cafe", subclass: "cafe" }],
+      ["酒場", "eat_drink", { class: "beer", subclass: "pub" }],
+      ["自転車の店", "bicycle", { class: "bicycle", subclass: "bicycle" }],
+      ["公園", "scenic", { class: "park", subclass: "park" }],
+      ["展望地", "scenic", { class: "attraction", subclass: "viewpoint" }],
+      ["宿", "lodging", { class: "lodging", subclass: "hotel" }],
+      ["キャンプ場", "lodging", { class: "campsite", subclass: "camp_site" }],
+      ["礼拝の場所", "temple_shrine", { class: "place_of_worship", subclass: "place_of_worship" }],
+    ] as const;
+    const CONVENIENCE = { class: "shop", subclass: "convenience" };
+    const RANKS = [3, 8, 25];
+
+    /** 基礎地図を読んだ地図へ、状態を伝える。 */
+    function drawBasemap() {
+      const recording = createRecordingMap();
+      recording.handle.loadStyle(POI_LAYERS);
+      return recording;
+    }
+
+    /** その種類の地物（点）を、どれかの順位で基礎地図が描くか。 */
+    function drawsAnyRank(map: { getStyle: () => { layers: StyleLayer[] } | undefined }, kind: object): boolean {
+      const layers = map.getStyle()!.layers.filter((layer) => layer["source-layer"] === "poi");
+      return RANKS.some((rank) => layers.some((layer) => matchesFilter(layer.filter, { ...kind, rank }, 1)));
+    }
+
+    const stopPlace = POINT_LAYERS.find((layer) => layer.attr_id === "stop_place")!;
+    const stopPlaceAxisKey = pointAxisKey(stopPlace, stopPlace.display_axes[0]);
+
+    it("立ち寄り先・補給休憩を出していないときは、基礎地図の店・施設を全部描く", () => {
+      const { map } = drawBasemap();
+
+      rebuild(map, shown({}));
+
+      for (const [, , kind] of STOP_PLACE_KINDS) expect(drawsAnyRank(map, kind)).toBe(true);
+      expect(drawsAnyRank(map, CONVENIENCE)).toBe(true);
+    });
+
+    it.each(STOP_PLACE_KINDS)("立ち寄り先を出している間は、%s を基礎地図に描かない", (_, _group, kind) => {
+      const { map } = drawBasemap();
+
+      rebuild(map, shown({ stop_place: true }));
+
+      expect(drawsAnyRank(map, kind)).toBe(false);
+    });
+
+    it("立ち寄り先を出しても、病院・銀行・郵便局・学校・ほかの店・駅と、補給休憩のコンビニは基礎地図に描く", () => {
+      const { map } = drawBasemap();
+
+      rebuild(map, shown({ stop_place: true }));
+
+      for (const kind of [
+        { class: "hospital", subclass: "hospital" },
+        { class: "bank", subclass: "bank" },
+        { class: "post", subclass: "post_office" },
+        { class: "school", subclass: "school" },
+        { class: "shop", subclass: "bakery" },
+        { class: "rail", subclass: "station" },
+        CONVENIENCE,
+      ])
+        expect(drawsAnyRank(map, kind)).toBe(true);
+    });
+
+    it("凡例で隠した群の種類は、立ち寄り先を出していても基礎地図に描く", () => {
+      const { map } = drawBasemap();
+
+      rebuild(map, shown({ stop_place: true }, { hiddenLegendKeys: { [stopPlaceAxisKey]: ["eat_drink"] } }));
+
+      expect(drawsAnyRank(map, { class: "restaurant", subclass: "restaurant" })).toBe(true);
+      expect(drawsAnyRank(map, { class: "park", subclass: "park" })).toBe(false);
+    });
+
+    it("補給休憩を出している間だけ、コンビニを基礎地図に描かない", () => {
+      const { map } = drawBasemap();
+
+      applyScene(map as never, buildMapScene(sceneInputsFrom(shown({ supply_poi: true }))));
+      expect(drawsAnyRank(map, CONVENIENCE)).toBe(false);
+      expect(drawsAnyRank(map, { class: "restaurant", subclass: "restaurant" })).toBe(true);
+
+      applyScene(map as never, buildMapScene(sceneInputsFrom(shown({ supply_poi: false }))));
+      expect(drawsAnyRank(map, CONVENIENCE)).toBe(true);
     });
   });
 

@@ -9,6 +9,8 @@
  */
 import type { FilterSpecification, LayerSpecification } from "maplibre-gl";
 
+import type { BasemapPoiKinds } from "@/features/map/layers/mapStyleOps";
+
 import { orderedSceneLayers } from "./mapScene";
 import type { MapScene, MapSceneFeatureStates, MapSceneLayer, MapSceneSource, MapSceneTier } from "./mapScene";
 import { geojsonContent, layerSpec, sceneLayerId, type SceneSourceId, tilesContent } from "./sceneBuilders";
@@ -31,6 +33,8 @@ export type SceneLayerEntry = {
   /** 押したときに拾う対象。空なら押せない。 */
   readonly hitTargets?: readonly string[];
   readonly filter?: FilterSpecification;
+  /** 出ている間、基礎地図から隠す店・施設の種類。 */
+  readonly hidesBasemapPois?: BasemapPoiKinds;
 };
 
 /** ソース1本ぶんの宣言。同じ id を複数のグループが名乗ってもよい——束ねる側が1本へ畳む。 */
@@ -93,6 +97,7 @@ function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
     visible: entry.visible,
     hitTargets: entry.hitTargets ?? [],
     ...(entry.filter === undefined ? {} : { filter: entry.filter }),
+    ...(entry.hidesBasemapPois === undefined ? {} : { hidesBasemapPois: entry.hidesBasemapPois }),
   };
 }
 

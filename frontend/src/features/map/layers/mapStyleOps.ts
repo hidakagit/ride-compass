@@ -3,7 +3,7 @@
  * ここに置くのは「特定のレイヤー種を知らない」ものだけ。レイヤー固有の描画は
  * それぞれの担当ファイル（`features/map/scene/groups/*.ts`）が持つ。
  */
-import type { ExpressionSpecification, Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
+import type { ExpressionSpecification, FilterSpecification, Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 import { debugLog } from "@/lib/debugLog";
 
 /** 「面で塗る」レイヤー種。地図の一区画を色で覆い、下にあるものを隠す描き方をまとめて指す
@@ -55,61 +55,37 @@ function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[],
 /** 基礎地図のベクタタイルが店・施設の点を収めているレイヤー名（OpenMapTilesスキーマ）。 */
 const POI_SOURCE_LAYER = "poi";
 
-/** 基礎地図に出さない店・施設の種類（OpenMapTilesのスキーマの`poi`の値）。このアプリの点の層が同じ種類をOSMでない
- * 出どころから出すもの——同じ種類を基礎地図（OSM）と混ぜて出すと、ODbLの共有の義務がかかる。`class`はスキーマが束ねた
- * 種類（束ねる先の無い値は`subclass`と同じ値）で、`class`が粗すぎる種類だけ`subclass`で名指す（コンビニは店全体の`shop`に入る）。
- * 病院・銀行・郵便局・学校と駅・バス・空港（`poi_transit`）は出したまま残す。 */
-const BASEMAP_POIS_SHOWN_ELSEWHERE: { readonly class: readonly string[]; readonly subclass: readonly string[] } = {
-  class: [
-    // 立ち寄り先の飲食店
-    "restaurant",
-    "fast_food",
-    "cafe",
-    "bar",
-    "beer",
-    "ice_cream",
-    // 立ち寄り先の自転車（店・貸し自転車）
-    "bicycle",
-    "bicycle_rental",
-    // 立ち寄り先の景色・名所（公園・庭園・城・博物館・観光地と展望地）
-    "park",
-    "garden",
-    "castle",
-    "museum",
-    "attraction",
-    // 立ち寄り先の宿（ホテル・旅館の類とキャンプ場）
-    "lodging",
-    "campsite",
-    // 立ち寄り先の寺社は文化財の一覧から出す
-    "place_of_worship",
-  ],
-  // 補給の点のコンビニはOverture Mapsの地点から出す
-  subclass: ["convenience"],
-};
+/** 基礎地図の店・施設の種類（OpenMapTilesのスキーマの`poi`の値）。`class`はスキーマが束ねた種類（束ねる先の無い値は
+ * `subclass`と同じ値）で、`class`が粗すぎる種類だけ`subclass`（元のOSMのタグの値）で名指す。 */
+export type BasemapPoiKinds = { readonly class: readonly string[]; readonly subclass: readonly string[] };
 
-/** 基礎地図の店・施設を描く全部のレイヤーの絞りに「`BASEMAP_POIS_SHOWN_ELSEWHERE`の種類でない」を足す。
- * 基礎地図の絞りは式の形（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。 */
-function hideBasemapPoisShownElsewhere(map: MapLibreMap, layers: StyleSpecification["layers"]): void {
-  const notShownElsewhere: ExpressionSpecification = [
-    "!",
-    [
-      "any",
-      ["in", ["get", "class"], ["literal", BASEMAP_POIS_SHOWN_ELSEWHERE.class]],
-      ["in", ["get", "subclass"], ["literal", BASEMAP_POIS_SHOWN_ELSEWHERE.subclass]],
-    ],
-  ];
-  const hidden: string[] = [];
-  for (const layer of layers) {
-    if (!("source-layer" in layer) || layer["source-layer"] !== POI_SOURCE_LAYER) continue;
-    map.setFilter(
-      layer.id,
-      layer.filter === undefined
-        ? notShownElsewhere
-        : ["all", layer.filter as ExpressionSpecification, notShownElsewhere],
-    );
-    hidden.push(layer.id);
+export const NO_BASEMAP_POI_KINDS: BasemapPoiKinds = { class: [], subclass: [] };
+
+/** 基礎地図の店・施設を描くレイヤーのうち、`kinds`の種類だけを描かないようにする。種類が空なら配信元の絞りへ戻す。
+ * 何を隠すかは呼ぶ側が決める（このアプリの点の層が、同じ種類を出している間だけ隠す）。`prepareBasemap`が記録した
+ * 配信元の絞りへ足すので、何度当てても絞りを重ねない。基礎地図の絞りは式の形（libertyはそう書いている）を前提にする
+ * ——旧い形の絞りと式は1つの`all`に混ぜられない。 */
+export function hideBasemapPois(map: MapLibreMap, kinds: BasemapPoiKinds): void {
+  const tagged = map as unknown as StyleReadyTag;
+  const original = tagged.__rcBasemapPoiFilters;
+  if (original === undefined) return;
+  const notHidden: ExpressionSpecification | null =
+    kinds.class.length === 0 && kinds.subclass.length === 0
+      ? null
+      : [
+          "!",
+          [
+            "any",
+            ["in", ["get", "class"], ["literal", kinds.class]],
+            ["in", ["get", "subclass"], ["literal", kinds.subclass]],
+          ],
+        ];
+  for (const [layerId, filter] of original) {
+    if (notHidden === null) map.setFilter(layerId, filter ?? null);
+    else
+      map.setFilter(layerId, filter === undefined ? notHidden : ["all", filter as ExpressionSpecification, notHidden]);
   }
-  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", { layers: hidden, ...BASEMAP_POIS_SHOWN_ELSEWHERE });
+  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", { layers: [...original.keys()], ...kinds });
 }
 
 interface StyleReadyTag {
@@ -117,10 +93,12 @@ interface StyleReadyTag {
   __rcBasemapPrepared?: boolean;
   __rcAreaLayerAnchorId?: string;
   __rcLabelLayerAnchorId?: string;
+  /** 基礎地図の店・施設を描くレイヤーの配信元の絞り（id → 絞り）。 */
+  __rcBasemapPoiFilters?: ReadonlyMap<string, FilterSpecification | undefined>;
 }
 
 /** 基礎地図をこのアプリの層を重ねられる形にする。同じスタイルに対しては1度しか実行しない。
- * - 店・施設のうち、このアプリの点の層が別の出どころから出す種類を隠す（`hideBasemapPoisShownElsewhere`）
+ * - 店・施設を描くレイヤーの配信元の絞りを記録する（隠すのは`hideBasemapPois`）
  * - 面レイヤーの差し込み位置を求めて記録し、基礎地図が道路より後ろに置いている面をその手前へ動かす
  * - 文字に場所を譲る点の差し込み位置を求めて記録する
  *
@@ -140,7 +118,11 @@ export function prepareBasemap(map: MapLibreMap): void {
   tagged.__rcBasemapPrepared = true;
 
   const { layers } = style;
-  hideBasemapPoisShownElsewhere(map, layers);
+  tagged.__rcBasemapPoiFilters = new Map(
+    layers.flatMap((layer) =>
+      "source-layer" in layer && layer["source-layer"] === POI_SOURCE_LAYER ? [[layer.id, layer.filter] as const] : [],
+    ),
+  );
   tagged.__rcLabelLayerAnchorId = layers[labelLayerAnchorIndex(layers)]?.id;
   debugLog("map:lifecycle", "文字に場所を譲る点の差し込み位置", { anchorId: tagged.__rcLabelLayerAnchorId ?? null });
   const anchorIndex = areaLayerAnchorIndex(layers);
@@ -171,10 +153,16 @@ export function labelLayerAnchor(map: MapLibreMap): string | undefined {
   return recordedAnchor(map, (map as unknown as StyleReadyTag).__rcLabelLayerAnchorId);
 }
 
-/** スタイルが差し替わった（`map.setStyle()`）ときに呼ぶ。次の`prepareBasemap`が
- * 新しいスタイルに対して改めて走るようにする。 */
-export function resetBasemapPreparation(map: MapLibreMap): void {
-  (map as unknown as StyleReadyTag).__rcBasemapPrepared = false;
+/** スタイルを`url`から取り直し、新しいスタイルが読み込まれたら（`style.load`）、次の`prepareBasemap`が新しいスタイルに
+ * 対して改めて走るようにしてから`onLoaded`を呼ぶ。準備を解くのは読み込まれたあと——MapLibreの`setStyle`は既定で今の
+ * スタイルとの差分を当て、差分が届くまで`getStyle()`は今の（このアプリの層を足し、店・施設を隠した）スタイルを返すので、
+ * その間に準備し直すと、隠した後の絞りを配信元の絞りとして記録する。 */
+export function reloadStyle(map: MapLibreMap, url: string, onLoaded: () => void): void {
+  map.once("style.load", () => {
+    (map as unknown as StyleReadyTag).__rcBasemapPrepared = false;
+    onLoaded();
+  });
+  map.setStyle(url);
 }
 
 // map.isStyleLoaded()はタイル読み込み中も一時的にfalseを返すため、

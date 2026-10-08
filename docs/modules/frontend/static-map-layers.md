@@ -202,9 +202,10 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 位置は`applyScene`がsceneを当てる直前に`prepareBasemap`がスタイルごとに1度だけ
 決める。呼ぶ時機に縛りは無い——このアプリのレイヤーは`transportation`を名乗らないため、既に
 載っていても位置は変わらず、道路網より後ろに積まれていたこのアプリの面も一緒に手前へ入る。
-`map.setStyle()`で作り直すときは`resetBasemapPreparation`で解決済みの記録を落として
-から差し替える。差し替えから`style.load`までは`getStyle()`が読めないため解決を見送り、
-作り直しの`applyScene`で決まる。
+スタイルを取り直すときは`reloadStyle`で取り直し、新しいスタイルの`style.load`で解決済みの記録を落としてから
+作り直しの`applyScene`を呼ぶ。記録を落とすのは読み込まれたあと——`map.setStyle()`は既定で今のスタイルとの差分を当て、
+差分が届くまで`getStyle()`は今の（このアプリの層を足し、店・施設を隠した）スタイルを返すので、その間に決め直すと
+隠した後の絞りを配信元の絞りとして記録する（`maplibre-gl`の`Map.setStyle`は、`diff: false`を渡さなければ取ったスタイルを今のスタイルとの差分として当てる）。
 
 **暗黙の前提**: 建物を道路の手前へ動かすと、面レイヤーを1枚も出していないときの基礎地図も
 「建物の上に道路」へ変わる。この地図はpitchを持たないため影響は小さい。
@@ -219,12 +220,17 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 `map.setStyle()`はこのアプリのレイヤーごと差し替えるので、どちらの時機でも載っていない。
 
 同じ`prepareBasemap`が、基礎地図の店・施設（`source-layer`が`poi`のレイヤー全部。libertyでは`poi_r1`・`poi_r7`・
-`poi_r20`・`poi_transit`）の絞りに「`BASEMAP_POIS_SHOWN_ELSEWHERE`の種類でない」を足す。このアプリの
-点の層が同じ種類をOpenStreetMapでない出どころから出すもの（立ち寄り先の飲食店・自転車・景色・名所・宿と寺社、補給休憩のコンビニ）で、
-基礎地図（OpenStreetMap）と混ぜて出すとODbLの共有の義務がかかる（[データソース](../../architecture/data-sources.md)）。
-値はOpenMapTilesのスキーマの値で、種類はスキーマが束ねた`class`（束ねる先の無い値は`subclass`と同じ値）で名指し、
-`class`が粗すぎる種類だけ`subclass`（元のOSMのタグの値）で名指す（コンビニは店全体の`class=shop`に入る）。
-病院・銀行・郵便局・学校と駅・バス・空港は隠さない。立ち寄り先・補給休憩のチップを出していないときも隠す。基礎地図の絞りが
+`poi_r20`・`poi_transit`）の配信元の絞りを記録する。**このアプリの点の層の行が出ている間だけ、同じ種類の基礎地図の印を隠す**
+（`applyScene`が scene を当てるたびに`mapStyleOps.ts: hideBasemapPois`へ、出ているレイヤーが名指した種類の和を渡す。
+`scene/mapScene.ts: hiddenBasemapPois`）。立ち寄り先・補給休憩のチップを出していないとき・凡例でその群を隠したときは、基礎地図の
+印と名前をそのまま出す。点の層の行（立ち寄り先の飲食店・自転車・景色・名所・宿と寺社、補給休憩のコンビニ）はOpenStreetMapでない
+出どころから出すので、同じ種類を基礎地図（OpenStreetMap）と同時に出すとODbLの共有の義務がかかる（[データソース](../../architecture/data-sources.md)）。
+出している間だけ隠す形は、OpenStreetMap財団の指針（Horizontal Map Layers Guideline）が共有の要らない例に名指した形（基礎地図から
+同じ種類を除く）ではなく、同時に出さないので要らないと読んだ推測に立つ（法の専門家の判断ではない）。
+行ごとに隠す種類は点の層の宣言の隣（`groups/points.ts: BASEMAP_POIS_BY_ROW`。鍵は源泉の点の属性と行の鍵で型を縛る）が持ち、
+`mapStyleOps.ts`は種類を知らない。値はOpenMapTilesのスキーマの値で、種類はスキーマが束ねた`class`（束ねる先の無い値は
+`subclass`と同じ値）で名指し、`class`が粗すぎる種類だけ`subclass`（元のOSMのタグの値）で名指す（コンビニは店全体の`class=shop`に入る）。
+銭湯・温泉はスキーマに値が無いので隠さない。病院・銀行・郵便局・学校と駅・バス・空港はどの行も名指さない。基礎地図の絞りが
 式の形であること（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。
 
 重なり順は**宣言だけ**が決める（段の並びは`scene/mapScene.ts: MAP_SCENE_TIERS`）。
