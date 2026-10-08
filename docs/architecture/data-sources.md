@@ -99,9 +99,8 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
    `ALWAYS_SHOWN_ATTRIBUTIONS`の行と`frontend/public/licenses/foursquare-places-NOTICE.txt`を合わせる（生成物`mapDisplay.ts`を作り直す）。
    上の表の行の確認日も直す。
 3. `rows.release`を新しい版へ書き換えてマージする。
-4. 本番 VM で、別のコンテナ（[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」と同じ`docker run`）から
-   `python scripts/fetch_overture_places.py`（範囲の地点を写す。関東の枠で約190MB。Actions のランナーで17秒）→ `python -m app.batch.ingest_cli --source overture_place`
-   → `python -m app.batch.derive_cli`の順に打つ。本番 DB へ書くので、Claude は自分で打たず問いで頼む（[flow.md](../conventions/flow.md)「自動で進めないもの」）。
+4. 本番の操作の「取って取り込んで作り直す」をソース`overture_place`で流す（`fetch_overture_places.py`で範囲の地点を写し（関東の枠で
+   約190MB。Actions のランナーで17秒）、取り込み、派生を作り直す。頼み方は[flow.md](../conventions/flow.md)「自動で進めないもの」の「本番の操作」）。
 5. 群ごとの件数（`SELECT place_group, count(*) FROM stop_places GROUP BY 1`）を前の版と比べ、大きく動いた群があれば 1 の変更を疑う。
 
 ### 文化財の建造物（文化遺産オンライン）
@@ -120,9 +119,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 1. [紹介ページ](https://jpsearch.go.jp/database/bunka)のメタデータの条件と、[サイトポリシー](https://jpsearch.go.jp/policy)の
    出典の記載例を読み、変わっていれば`ALWAYS_SHOWN_ATTRIBUTIONS`の行を合わせる（生成物`mapDisplay.ts`を作り直す）。上の表の行の確認日も直す。
 2. `rows.snapshot`を取る日へ書き換えてマージする。
-3. 本番 VM で、別のコンテナ（[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」と同じ`docker run`）から
-   `python scripts/fetch_bunka_heritages.py` → `python -m app.batch.ingest_cli --source bunka_heritage` → `python -m app.batch.derive_cli`
-   の順に打つ。本番 DB へ書くので、Claude は自分で打たず問いで頼む（[flow.md](../conventions/flow.md)「自動で進めないもの」）。
+3. 本番の操作の「取って取り込んで作り直す」をソース`bunka_heritage`で流す（頼み方は[flow.md](../conventions/flow.md)「自動で進めないもの」の「本番の操作」）。
 4. 寺社の数（`SELECT count(*) FROM stop_places WHERE place_group = 'temple_shrine'`。関東の範囲で 2026-10-08 に194）を前と比べ、
    大きく動いていれば、取込が読む項目（指定の別`bunka-11-s`・所有者`bunka-14-s`・`common.coordinates`）の名前か、
    所有者の書き方（`backend/app/domain/stop_place.py`の寺社の語）が変わっていないかを見る。

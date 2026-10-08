@@ -5,7 +5,7 @@
 含めるべきか」という運用ルールのみ。
 
 本番DBを失ったときの作り直しは付録の「本番DBを失ったとき」（その材料は付録の「管理データのバックアップ」）、
-派生データの作り直しは「派生データの作り直し」。
+派生データの作り直しは「派生データの作り直し」（それを流す本番の操作の用意は付録の「本番の操作の承認の用意」）。
 
 ## コミットと同時に揃えるもの
 
@@ -52,25 +52,16 @@
 
 - 対象: 管理画面の「派生データの鮮度」が作り直し待ちを出したとき（古い理由がどれであっても打つのは同じ
   1コマンド。`app/batch/derive_cli.py`が段の順に作り直す単一の入口）。
-- ルール: **本番VM（SSHで入る）で、稼働中のbackendコンテナではなく別のコンテナをメモリ上限付きで立てて**
-  打つ:
-
-  ```
-  sudo docker run --rm --network=host --memory=4g \
-    -v /home/ubuntu/ridecompass-cache-data:/app/data \
-    --env-file /home/ubuntu/ridecompass-backend.env \
-    ridecompass-backend:latest \
-    python -m app.batch.derive_cli
-  ```
-
+- ルール: 本番の操作（`.github/workflows/prod-ops.yml`）の「作り直す」で流す（取り直してからなら「取って取り込んで作り直す」）。
+  頼み方は[flow.md](flow.md)「自動で進めないもの」の「本番の操作」で、ユーザーは承認を押すだけ。ワークフローは本番VMで、
+  **稼働中のbackendコンテナではなく別のコンテナをメモリ上限付きで立てて**、`python -m app.batch.derive_cli`を打つ。
 - 同じ入口が、作り直した表から道路網全体の配列（ルート生成が読む。`data/road_network/`）を作ってから
   表を入れ替える（配列は本番で数分）。**`/app/data`のマウントを外さない**——外すと配列がコンテナと一緒に
   消え、表だけが入れ替わってルート生成は古い配列を読み続ける。途中で落ちたとき（配列を作れなかったときを
   含む）は何も入れ替わらず、backendは前の表と配列を読み続けるので、原因を直して打ち直す。
-- 分布の前後: 作り直すたびに、上のコマンドを打つ前と終わった後に、派生の表の全部の値の列の分布を本番で測る
-  （開発機の`backend`から`python scripts/run_probe.py scripts/derived_distribution.py`。`--column`を付けなければ
-  全部の派生の表の全部の値の列を1回で測る。表と列は宣言から導くので、表・列が増えても打つものは変わらない）。
-  前と後の出力を、作り直しを頼んだタスクの issue にコメントで書く。前後で大きく動いた列があれば、その作り直しに
+- 分布の前後: 作り直すたびに、打つ前と終わった後に、派生の表の全部の値の列の分布を本番で測る
+  （`scripts/derived_distribution.py`。表と列は宣言から導くので、表・列が増えても打つものは変わらない）。
+  本番の操作が前と後に流し、出力を、起こしたときに渡したタスクの issue にコメントで書く。前後で大きく動いた列があれば、その作り直しに
   含まれた変更（前の作り直しの後に master へ入った、派生の値に届く変更）を疑う。値を変える目的の変更も、
   値を変えるつもりのない変更も、この同じ記録で確かめる——落ちた絞り込み・二重に数えた値はエラーにもテストの
   失敗にもならず値の偏りとしてだけ現れ、タスクの作業ではこれを測らない（[flow.md](flow.md)「分布の前後」）。
@@ -82,7 +73,10 @@
   （後から始めた方が止まる。終わってから打ち直す）、途中の段から流す`--from`は、生データか派生の表の列が前の
   作り直しの記録から変わっていれば止まる（`--from`を外して最初から流す）。
   仕組みは[静的道路属性](../modules/backend/static-road-attributes.md)「派生」。
-- なぜ: 手元の端末で打つと、そこから見えるのは開発用のDBで、本番は古いまま変わらない。稼働中のbackendの
+- なぜ承認を通すか: 本番DBへ書くのはユーザーの判断で、Claude は自分で書かない（[flow.md](flow.md)「自動で進めないもの」）。
+  承認はGitHubのenvironmentの承認で、承認されるまで本番VMへ入る鍵（environmentの秘密の値）をジョブが読めない（公式の文書
+  「Deployments and environments」）。照らしを自前で持たず、スマホのGitHubのアプリから押せる。用意は付録の「本番の操作の承認の用意」。
+- なぜ別のコンテナか: 手元の端末で打つと、そこから見えるのは開発用のDBで、本番は古いまま変わらない。稼働中のbackendの
   コンテナの中で走らせると、そのコンテナのメモリ上限まで使い切ったときにコンテナごとOOM killされ、
   サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、上限を超えても止まるのはバッチだけで済む。
 
@@ -126,6 +120,29 @@
 ## 付録
 
 作業の前には読まない。一度きりの準備（登録）と、災害時の手順。
+
+### 本番の操作の承認の用意
+
+本番の操作（`.github/workflows/prod-ops.yml`）を流せるようにする、ユーザーが一度だけする操作。
+
+1. environmentを作る: hidakagit/ride-compass の Settings → Environments → New environment で名前を`prod-ops`にする。
+   - Deployment protection rules の Required reviewers に hidakagit を入れる。Prevent self-review は付けない（実行を起こすのは
+     hidakagit のトークンなので、付けると誰も承認できない）。
+   - Deployment branches and tags を Selected branches and tags にし、`master`だけを足す（作業ブランチのワークフローから鍵を読ませない）。
+   - Save protection rules を押す。
+2. 本番の操作だけが使う鍵を作り、VMに入れ、environmentの秘密の値に置く（デプロイの鍵・開発機の鍵を写さない。止めるときは
+   VMの`~/.ssh/authorized_keys`からこの鍵の行を消す）。開発機の Git Bash で:
+
+   ```
+   ssh-keygen -t ed25519 -N "" -C ridecompass-prod-ops -f prod-ops-key
+   cat prod-ops-key.pub | <開発機の .env.oracle.local の SSH_COMMAND> "cat >> ~/.ssh/authorized_keys"
+   gh secret set PROD_OPS_SSH_KEY --env prod-ops -R hidakagit/ride-compass < prod-ops-key
+   rm prod-ops-key prod-ops-key.pub
+   ```
+
+   VMの宛先はリポジトリの秘密の値`ORACLE_VM_HOST`（デプロイと同じ）を読むので、置き直さない。
+3. 確かめる: Actions の Prod Ops → Run workflow で、issue に置き場の番号・操作に「読む」を入れて起こし、届いた承認を押す。
+   issue に版と分布の出力が書かれれば通っている。
 
 ### 管理データのバックアップ
 
