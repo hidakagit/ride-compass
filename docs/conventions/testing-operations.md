@@ -229,10 +229,12 @@ DBを使うテストを手元で回さずに実装を変えてテストを直し
 
 - **`npm run test:e2e`**（`npm run build`→`playwright test`）。CIのe2eジョブも同じ
   コマンドを使う。
-- **全状態の走査（`e2e/all-states.spec.ts`）は、CIでは幅ごとの別ジョブ（`e2e-scan`）で走らせ、
-  それ以外のspecは`e2e`ジョブで走らせる。** 走査は1本の中で画面の状態を辿るので、分けられる単位は幅に
-  なる。masterへのpushとPull Requestのどちらでも走る。CIで落ちた走査を手元で再現するときは
-  `./node_modules/.bin/playwright test e2e/all-states.spec.ts -g "全状態の走査: <幅>"`を回す。
+- **全状態の走査（`e2e/all-states.spec.ts`）は、CIでは別ジョブ（`e2e-scan`）で走らせ、
+  それ以外のspecは`e2e`ジョブで走らせる。** 走査は幅 × 段階ごとに1本で、`e2e-scan`は幅ごとに段階の数のジョブへ
+  分ける（`--shard`）。masterへのpushとPull Requestのどちらでも走る。CIで落ちた走査を手元で再現するときは
+  `./node_modules/.bin/playwright test e2e/all-states.spec.ts -g "全状態の走査: <幅> / <段階>"`を回す。
+- CIの`e2e`と`e2e-scan`は、Playwrightの公式のcontainerのimageの中で走り、ブラウザを取り込まない。imageの版は
+  `frontend/package-lock.json`の`@playwright/test`の版に揃う（決め方は`ci.yml`の先頭）。
 - 起動するのは、本番Dockerfileと同じ`node .next/standalone/server.js`
   （`npm run start:standalone`。`scripts/prepare-standalone.mjs`がDockerfileのCOPYと同じ
   静的ファイルの配置を作る）。`next start`・`next dev`は使わない——standalone構成に固有の
