@@ -262,9 +262,13 @@ export function expectNoOwnFailures(watch: Watch): void {
     .toEqual([]);
 }
 
-/** レンズを選ぶ（ピルを押して選択肢を押す。選ぶとポップオーバーは閉じる）。選択肢の名前には「ルート後のみ」等の印が続くので、ラベルの要素で当てる。 */
+/** レンズを選ぶ（ピルを押して選択肢を押す。選ぶとポップオーバーは閉じる）。選択肢の名前には「ルート後のみ」等の印が続くので、ラベルの要素で当てる。
+ *  選び済みの選択肢を押しても閉じないので、ピルが既にそのレンズを出していれば押さない（選んだレンズは localStorage に残り、開き直しても選ばれたまま）。
+ *  ピルの名前には印や条件が続くので、名前ではなくラベルの要素で当てる。 */
 export async function chooseLens(page: Page, label: string): Promise<void> {
-  await page.getByRole("button", { name: /^地図の色分け: / }).click();
+  const pill = page.getByRole("button", { name: /^地図の色分け: / });
+  if (await pill.getByText(label, { exact: true }).isVisible()) return;
+  await pill.click();
   const group = page.getByRole("radiogroup", { name: "地図の色分け" });
   await group
     .getByRole("radio")
