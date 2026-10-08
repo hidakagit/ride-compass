@@ -3,7 +3,7 @@
  * ここに置くのは「特定のレイヤー種を知らない」ものだけ。レイヤー固有の描画は
  * それぞれの担当ファイル（`features/map/scene/groups/*.ts`）が持つ。
  */
-import type { Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
+import type { ExpressionSpecification, Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 import { debugLog } from "@/lib/debugLog";
 
 /** 「面で塗る」レイヤー種。地図の一区画を色で覆い、下にあるものを隠す描き方をまとめて指す
@@ -42,14 +42,48 @@ function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[],
     .map((layer) => layer.id);
 }
 
+/** 基礎地図のベクタタイルが店・施設の点を収めているレイヤー名（OpenMapTilesスキーマ）。 */
+const POI_SOURCE_LAYER = "poi";
+
+/** 基礎地図に出さない店・施設の`subclass`（OpenMapTilesスキーマで、元のOSMのタグの値）。このアプリの点の層が
+ * 同じ種類をOSMでない出どころから出すもの——同じ種類を基礎地図（OSM）と混ぜて出すと、ODbLの共有の義務がかかる。
+ * `class`で絞らないのは、`class`が粗いため（コンビニは店全体の`shop`に入る）。
+ * - `convenience`: 補給の点のコンビニはOverture Mapsの地点から出す */
+const BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE: readonly string[] = ["convenience"];
+
+/** 基礎地図の店・施設を描く全部のレイヤーの絞りに「`subclass`が`BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE`でない」を足す。
+ * 基礎地図の絞りは式の形（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。 */
+function hideBasemapPoisShownElsewhere(map: MapLibreMap, layers: StyleSpecification["layers"]): void {
+  const notShownElsewhere: ExpressionSpecification = [
+    "!",
+    ["in", ["get", "subclass"], ["literal", BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE]],
+  ];
+  const hidden: string[] = [];
+  for (const layer of layers) {
+    if (!("source-layer" in layer) || layer["source-layer"] !== POI_SOURCE_LAYER) continue;
+    map.setFilter(
+      layer.id,
+      layer.filter === undefined
+        ? notShownElsewhere
+        : ["all", layer.filter as ExpressionSpecification, notShownElsewhere],
+    );
+    hidden.push(layer.id);
+  }
+  debugLog("map:lifecycle", "基礎地図の店・施設から隠す種類", {
+    layers: hidden,
+    subclasses: BASEMAP_POI_SUBCLASSES_SHOWN_ELSEWHERE,
+  });
+}
+
 interface StyleReadyTag {
   __rcStyleReady?: boolean;
-  __rcAreaLayerAnchorResolved?: boolean;
+  __rcBasemapPrepared?: boolean;
   __rcAreaLayerAnchorId?: string;
 }
 
-/** 差し込み位置を求めて記録し、基礎地図が道路より後ろに置いている面をその手前へ動かす。
- * 同じスタイルに対しては1度しか実行しない。
+/** 基礎地図をこのアプリの層を重ねられる形にする。同じスタイルに対しては1度しか実行しない。
+ * - 店・施設のうち、このアプリの点の層が別の出どころから出す種類を隠す（`hideBasemapPoisShownElsewhere`）
+ * - 面レイヤーの差し込み位置を求めて記録し、基礎地図が道路より後ろに置いている面をその手前へ動かす
  *
  * 建物を道路より前へ動かすと、基礎地図そのものの見た目も「建物の上に道路」へ変わる。
  * この地図はpitchを持たない（建物は平面の足元だけが描かれる）ため影響は小さく、面レイヤーが
@@ -57,16 +91,17 @@ interface StyleReadyTag {
  *
  * 位置が求まらないスタイルでは面が最前面へ戻る＝面の濃さだけで下の情報の読みやすさが
  * 決まる状態に落ちるため、黙って続けずログへ残す。 */
-export function prepareBasemapForAreaLayers(map: MapLibreMap): void {
+export function prepareBasemap(map: MapLibreMap): void {
   const tagged = map as unknown as StyleReadyTag;
-  if (tagged.__rcAreaLayerAnchorResolved) return;
+  if (tagged.__rcBasemapPrepared) return;
   // `setStyle()`から新しいスタイルの`style.load`までは`getStyle()`がundefinedを返す。その間は
   // 解決済みにせず、読めるようになった後の呼び出しへ回す。
   const style: StyleSpecification | undefined = map.getStyle();
   if (style === undefined) return;
-  tagged.__rcAreaLayerAnchorResolved = true;
+  tagged.__rcBasemapPrepared = true;
 
   const { layers } = style;
+  hideBasemapPoisShownElsewhere(map, layers);
   const anchorIndex = areaLayerAnchorIndex(layers);
   const anchorId = anchorIndex < 0 ? undefined : layers[anchorIndex].id;
   tagged.__rcAreaLayerAnchorId = anchorId;
@@ -79,17 +114,17 @@ export function prepareBasemapForAreaLayers(map: MapLibreMap): void {
   debugLog("map:lifecycle", "面レイヤーの差し込み位置", { anchorId, lowered });
 }
 
-/** `prepareBasemapForAreaLayers`が記録した位置。記録が無い・今のスタイルに無いときは
+/** `prepareBasemap`が記録した位置。記録が無い・今のスタイルに無いときは
  * undefined（差し込まず最前面へ）——**今のスタイルに無いidを`addLayer`へ渡すと例外になる**。 */
 export function areaLayerAnchor(map: MapLibreMap): string | undefined {
   const anchorId = (map as unknown as StyleReadyTag).__rcAreaLayerAnchorId;
   return anchorId !== undefined && map.getLayer(anchorId) ? anchorId : undefined;
 }
 
-/** スタイルが差し替わった（`map.setStyle()`）ときに呼ぶ。次の`prepareBasemapForAreaLayers`が
+/** スタイルが差し替わった（`map.setStyle()`）ときに呼ぶ。次の`prepareBasemap`が
  * 新しいスタイルに対して改めて走るようにする。 */
-export function resetBasemapAreaLayerPreparation(map: MapLibreMap): void {
-  (map as unknown as StyleReadyTag).__rcAreaLayerAnchorResolved = false;
+export function resetBasemapPreparation(map: MapLibreMap): void {
+  (map as unknown as StyleReadyTag).__rcBasemapPrepared = false;
 }
 
 // map.isStyleLoaded()はタイル読み込み中も一時的にfalseを返すため、

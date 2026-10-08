@@ -84,7 +84,7 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 取り直さずに流し直せる）。
 
 ノードのソースが採る行は、採ったwayの頂点と、`rows.standalone_supply_poi`なら道の頂点でない
-補給・休憩の点である。コンビニ・自販機・トイレ等は道から離れた単独のノードや建物・敷地の面で
+補給・休憩の点である。自販機・トイレ等は道から離れた単独のノードや建物・敷地の面で
 描かれることが多く、頂点だけでは補給・休憩のレイヤーがほぼ空になる。どのタグが補給・休憩かは
 `domain/traffic.py: SUPPLY_POI_TAGS`が種別の引き当て（`TAG_KIND_RULES`の補給の群と自販機）から
 導くので、補給の種別を足せば取込の母集団も一緒に広がる（反映には取り直しが要る）。値の比べ方も
@@ -252,7 +252,14 @@ Overtureの地点を、分類の道筋（`taxonomy.hierarchy`）の語で群（`
 
 - **チェーンは名前とブランドの両方から見る**（`chain_sql`）。ブランドの列は出どころによって空か表記がばらばらなので、
   表記の揺れを除いた名前かブランドが`CHAIN_WORDS`の語を含めばそのチェーン、含まなければブランドの一致で見る。
-  チェーンの分からない地点はまとめない。
+  チェーンの分からない地点はまとめない。語は濁点・半濁点を外した形どうしで当てる（`chain_text_sql`。濁点が空白に化けた
+  「セフ ンイレフ ン」があり、正規化では戻らない）。
+- **群「コンビニ」はコンビニのチェーンだけを入れる**（`kept_sql`）。`CHAIN_WORDS`はコンビニのチェーン（小さなチェーン・駅の
+  売店と、看板を替えた店の旧名を含む）だけを並べ、群「コンビニ」はそこに当たる地点だけを表へ入れる。Overtureの
+  `convenience_store`には100円ショップ・ドラッグストア・小さなスーパー・個人の商店・駐車場等も入っているため。
+  ほかの群はチェーンを問わない。この群は補給休憩の点のタイル（`poi`）のコンビニにもなる。
+- **店の中のATMの地点は店の名前に直す**（`store_name_sql`）。「セブン銀行ATM セブン-イレブン ○○店 共同出張所」の形の名前を
+  中の店の名前にしてから群とチェーンを決めるので、店の隣にあれば店とまとまり、ATMの地点しか無い店も店として残る。
 - **OpenStreetMap由来の値を持たない**（最寄りの道・道へ寄せた座標）。経由地へ寄せるのは要求のたびに計算する。
 - 出どころの違う地点も同じ表へ`source`で分けて入れられる。
 - **名前の表記の揺れを除いた形（`search_name`）も入れる**（`normalized_sql`）。地点の検索が名前を部分一致で引く列で、
@@ -557,6 +564,8 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
   `covered`を常に真にする。読み出しは`RoadGraphRepository.get_tile_mvt`の1つで、路面タイルも同じ口を通る。
 - **世代はレイヤーごとに独立する**。形の署名はそのレイヤーのSQLとsource-layer名だけから作る（`PointTileLayer.shape`）ので、
   1つのSQLを変えても他のレイヤーのキャッシュは捨てない。source-layer名を変えたときも鍵が変わる。
+- POIのタイルは`node_materials`の種別に、補給休憩のコンビニとして立ち寄り先の群「コンビニ」の行（`stop_places`）を足して焼く
+  （コンビニの出どころはOverture。上の「立ち寄り先」）。取込範囲の判定はPOIのまま当てる。
 - レジストリに無い名前は404。
 - 古い世代・名前を変えた系統（例: `region/accidents/…`）のキャッシュは、定期の掃除が消す（下の「旧世代の掃除」）。
 
@@ -652,14 +661,15 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 |---|---|
 | `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`、tracktypeの等級`TRACK_GRADES`と、2つを合成した路面の見込み`SURFACE_ESTIMATES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名・走行モデルの転がり抵抗が共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`（同じ地形を逆方向に走った値も自分で導く`reversed_as`）・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
-| `stop_place.py` | 立ち寄り先の群（`StopPlaceGroup`。点のタイルの属性`group`の値）・Overtureの分類の語から群への表と式（`OVERTURE_GROUP_WORDS`・`overture_group_sql`。取込が落とす地点を決める`OVERTURE_GROUPED_WORDS`も）・同じ店をまとめる距離とチェーンの見分け方（`MERGE_RADIUS_M`・`CHAIN_WORDS`・`chain_sql`）。配布の列の読み替えは`infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`が持つ |
+| `stop_place.py` | 立ち寄り先の群（`StopPlaceGroup`。点のタイルの属性`group`の値）・Overtureの分類の語から群への表と式（`OVERTURE_GROUP_WORDS`・`overture_group_sql`。取込が落とす地点を決める`OVERTURE_GROUPED_WORDS`も）・同じ店をまとめる距離とチェーンの見分け方（`MERGE_RADIUS_M`・`CHAIN_WORDS`・`chain_text_sql`・`chain_sql`）・表へ入れる地点（`kept_sql`）・ATMの地点の名前の直し（`store_name_sql`）。配布の列の読み替えは`infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`が持つ |
 | `accident.py` | 警察庁の事故を道路へ帰属させ数えるときの判断。生データの列から判定を組み立てるSQL断片・自転車とみなす当事者種別・帰属の距離・重み付けの定数（本票の度分秒の読み取りは取込のアダプタ`npa_honhyo.py`が、本票の列名と当事者種別のコードの読み替えは`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`が持つ） |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、取込が道の頂点でなくても採る補給・休憩のタグ（`SUPPLY_POI_TAGS`・`has_supply_poi_tag`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`・`kinds_shown_as`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）と片方向にだけ通れるかの式（`one_way_sql`）・道の形の向きと逆向きのそれぞれに通れるか（`travel_allowed`）、交差点判定の次数しきい値、停止要因の場所・交差点を端で分け持つ割合（`PLACE_SHARE_PER_END`・`place_count_sql`）、交差点の階級（`HIGHWAY_RANK`）。取込のタグ（取込のアダプタが1件ずつ当てる）を除き、派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かのしきい値と判定のSQL式（`divided_sql`）。材料`oneway`の値式（`oneway_material_sql`。地図の一方通行と評価が同じ式を読む）は、片方向にだけ通れる道（`traffic.py: one_way_sql`）から上下線の片側を外す |
 
 `traffic.py: TAG_KIND_RULES`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
 （`railway=*`）・車止め（`barrier=*`）・減速構造（`traffic_calming=*`）を停止要因として、
-コンビニ・トイレ・給水・駐輪場を補給休憩として引き当てる。優先順位は表の群の並び
+トイレ・給水・駐輪場を補給休憩として引き当てる（コンビニは引き当てない。補給休憩のコンビニはOvertureの地点から出す。
+下の「立ち寄り先」）。優先順位は表の群の並び
 （`_TAG_KIND_GROUPS`）が持ち、停止要因を補給休憩より先に当てる。複数の
 タグが同一nodeに付きうるため停止要因の順は railway → highway → barrier → traffic_calming で、
 止まる度合いが強い方を先に見る（踏切は信号・横断歩道より自転車にとって一時停止の法的

@@ -38,6 +38,7 @@ M = 1 / (km_per_degree_longitude(LAT) * 1000)
 APART = 1000 * M
 
 FOOD = ["food_and_drink", "restaurant", "asian_restaurant"]
+STORE = ["shopping", "convenience_store"]
 
 
 def _place(place_id: str, lon: float, hierarchy: list[str], *, confidence: float = 0.9,
@@ -86,7 +87,7 @@ async def test_each_place_goes_to_the_group_of_its_category(derive_conn, overtur
         "bike_rental": (["sports_and_recreation", "recreational_equipment_rental", "bike_rental"], "bicycle"),
         "castle": (["cultural_and_historic", "historic_site", "castle"], "scenic"),
         "hotel": (["lodging", "hotel"], "lodging"),
-        "convenience": (["shopping", "convenience_store"], "convenience"),
+        "ローソン": (STORE, "convenience"),
     }
 
     places = [_place(name, LON + i * APART, hierarchy) for i, (name, (hierarchy, _)) in enumerate(samples.items())]
@@ -133,7 +134,7 @@ async def test_places_outside_the_import_area_are_not_taken(derive_conn, overtur
 async def test_the_same_chain_close_together_in_a_group_becomes_its_most_confident_place(derive_conn, overture_dir):
     """同じ店が出どころごとに表記を変えて少しずれて入っているのを1つにする。別の店（チェーンが違う・分からない・
     群が違う・遠い）は残す。"""
-    store = ["shopping", "convenience_store"]
+    store = STORE
     places = [
         # 表記の揺れ（ハイフン・店名の有無）で20m → 確からしさの高いほうだけ
         _place("セブン-イレブン", LON, store, confidence=0.8),
@@ -168,3 +169,53 @@ async def test_each_place_keeps_its_name_without_variations_in_notation(derive_c
     await _stop_places(derive_conn, overture_dir, [_place("セブン-イレブン　新宿・西口店 ＣＡＦＥ", LON, FOOD)])
 
     assert await derive_conn.fetchval("SELECT search_name FROM stop_places") == "セブンイレブン新宿西口店cafe"
+
+
+async def test_the_convenience_group_takes_only_convenience_chains(derive_conn, overture_dir):
+    """Overture のコンビニの分類には、コンビニでない店・個人の店も入っている。群「コンビニ」はコンビニのチェーンの名前か
+    ブランドに当たる店（小さなチェーン・駅の売店を含む）だけを入れる。ほかの群はチェーンを問わない。"""
+    kept = [
+        _place("ローソン 渋谷店", LON, STORE),
+        _place("スリーエフ 平塚店", LON + APART, STORE),
+        _place("トモニー 小平駅店", LON + 2 * APART, STORE),
+        _place("FM", LON + 3 * APART, STORE, brand="FamilyMart"),
+    ]
+    dropped = [
+        _place("ダイソー 渋谷店", LON + 4 * APART, STORE),
+        _place("根岸屋酒店", LON + 5 * APART, STORE),
+        _place("まいばすけっと 渋谷店", LON + 6 * APART, STORE),
+        _place("U Co-op", LON + 7 * APART, STORE, brand="Co-op"),
+    ]
+
+    assert await _stop_places(derive_conn, overture_dir, [*kept, *dropped, _place("個店", LON - APART, FOOD)]) == {
+        "ローソン 渋谷店": "convenience", "スリーエフ 平塚店": "convenience", "トモニー 小平駅店": "convenience",
+        "FM": "convenience", "個店": "eat_drink"}
+
+
+async def test_a_chain_name_whose_voiced_marks_turned_into_spaces_is_still_the_chain(derive_conn, overture_dir):
+    """濁点が空白に化けた名前（「セフ ンイレフ ン」）も、そのチェーンとして入り、隣の同じ店とまとまる。"""
+    places = [
+        _place("セフ ンイレフ ン相生店", LON, STORE, confidence=0.95),
+        _place("セブン-イレブン 相生店", LON + 20 * M, STORE, confidence=0.8),
+        _place("テ イリーヤマサ キ 遠い店", LON + APART, STORE),
+    ]
+
+    assert await _stop_places(derive_conn, overture_dir, places) == {
+        "セフ ンイレフ ン相生店": "convenience", "テ イリーヤマサ キ 遠い店": "convenience"}
+
+
+async def test_an_atm_in_a_store_is_the_store(derive_conn, overture_dir):
+    """店の中の ATM の地点は、名前を店の名前に直す。店の隣にあれば店とまとまり、ATM の地点しか無い店も店として残る。
+    店でない所の ATM（チェーンに当たらない）は入らない。"""
+    places = [
+        _place("セブン銀行ATM セブン-イレブン 渋谷本町1丁目店 共同出張所", LON, STORE, confidence=0.95),
+        _place("セブン-イレブン 渋谷本町1丁目店", LON + 10 * M, STORE, confidence=0.8),
+        _place("銀行ATM | イーネット ファミリーマート横須賀長井一丁目 共同出張所", LON + APART, STORE),
+        _place("イーネットATM ファミリーマート宇佐美246号溝の口【ASD】 共同出張所", LON + 2 * APART, STORE),
+        _place("セブン銀行ATM ヤオコー 川口SKIPシティ店 共同出張所", LON + 3 * APART, STORE),
+    ]
+
+    assert await _stop_places(derive_conn, overture_dir, places) == {
+        "セブン-イレブン 渋谷本町1丁目店": "convenience",
+        "ファミリーマート横須賀長井一丁目": "convenience",
+        "ファミリーマート宇佐美246号溝の口【ASD】": "convenience"}

@@ -58,8 +58,8 @@ async def test_values_are_matched_ignoring_case_and_surrounding_spaces(road_grap
     [
         # 道路の横断歩道でもあり線路の踏切でもある点は、線路を渡る点として数える。
         ({"highway": "crossing", "railway": "crossing"}, "railway_crossing"),
-        # 停止要因は補給・休憩より先に当たる。信号のあるコンビニの角は信号として数える。
-        ({"highway": "traffic_signals", "shop": "convenience"}, "traffic_signals"),
+        # 停止要因は補給・休憩より先に当たる。信号のある交差点の角のトイレは信号として数える。
+        ({"highway": "traffic_signals", "amenity": "toilets"}, "traffic_signals"),
         ({"traffic_calming": "hump", "amenity": "vending_machine", "vending": "drinks"}, "traffic_calming"),
     ],
 )
@@ -71,6 +71,8 @@ async def test_points_that_neither_stop_nor_supply_are_not_returned(road_graph_e
     assert await _kinds(road_graph_engine, {
         1: {},
         2: {"amenity": "vending_machine", "vending": "cigarettes"},
+        # コンビニは OpenStreetMap からは取らない（Overture の地点から出す）。
+        3: {"shop": "convenience"},
     }) == {}
 
 
@@ -133,7 +135,7 @@ async def _read_kinds(engine, expression, kind: str, has_traffic_signals: bool):
         # 読み替えるのは信号と横断歩道だけ。近くに信号があっても一時停止は一時停止。
         ("stop", True, "stop", "stop"),
         # 補給・休憩は地図には出るが、停止の回数には入らない。
-        ("convenience", True, "convenience", None),
+        ("toilets", True, "toilets", None),
     ],
 )
 async def test_the_map_and_the_count_read_the_same_signal(road_graph_engine, kind, has_traffic_signals, on_map, counted_as):

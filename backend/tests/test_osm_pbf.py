@@ -29,17 +29,19 @@ BASE_LAT, BASE_LON = 35.69, 139.70
 NODES: dict[int, tuple[float, float, dict[str, str]]] = {
     # 採る道の頂点。タグの無い頂点も、補給・休憩のタグを持つ頂点も採る。
     1: (0.0, 0.0, {}),
-    3: (0.0, 0.002, {"shop": "convenience"}),
+    3: (0.0, 0.002, {"amenity": "drinking_water"}),
     # 採らない道（自転車の通れない歩道）の頂点。
     4: (0.001, 0.0, {}),
     5: (0.001, 0.001, {}),
     # 道の頂点でない点。
-    10: (0.0005, 0.0005, {"shop": "convenience"}),
+    10: (0.0005, 0.0005, {"amenity": "drinking_water"}),
     11: (0.0005, 0.0006, {"amenity": "vending_machine", "vending": "cigarettes"}),
     12: (0.0005, 0.0007, {"shop": "bakery"}),
+    # コンビニは OpenStreetMap からは取らない（Overture の地点から出す）。
+    15: (0.0005, 0.0009, {"shop": "convenience"}),
     13: (0.0005, 0.0008, {"amenity": " Toilets "}),
-    14: (5.0, 0.0, {"shop": "convenience"}),
-    # 面で描かれたコンビニの輪郭。
+    14: (5.0, 0.0, {"amenity": "drinking_water"}),
+    # 面で描かれたトイレの輪郭。
     20: (-0.001, 0.0, {}),
     21: (-0.001, 0.0004, {}),
     22: (-0.0014, 0.0004, {}),
@@ -50,7 +52,7 @@ NODES: dict[int, tuple[float, float, dict[str, str]]] = {
 WAYS: dict[int, tuple[list[int], dict[str, str]]] = {
     1: ([1, 3], {"highway": "residential"}),
     2: ([4, 5], {"highway": "footway"}),
-    3: ([20, 21, 22, 23, 20], {"building": "yes", "shop": "convenience", "name": "店"}),
+    3: ([20, 21, 22, 23, 20], {"building": "yes", "amenity": "toilets", "name": "公衆便所"}),
 }
 
 
@@ -93,7 +95,7 @@ async def test_road_vertices_and_supply_points_off_the_road_are_taken(tmp_path, 
     taken = await _read(tmp_path, monkeypatch)
 
     assert set(taken) == {"1", "3", "10", "11", "13", "-3"}
-    assert taken["10"][1] == {"shop": "convenience"}
+    assert taken["10"][1] == {"amenity": "drinking_water"}
 
 
 async def test_supply_area_becomes_one_point_inside_it_keyed_by_the_negated_way_id(tmp_path, monkeypatch):

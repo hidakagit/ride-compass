@@ -6,6 +6,7 @@
 
 寺社・宗教施設と、補給の点のうちコンビニ以外（自販機・トイレ・給水・駐輪場）に当たる分類は、どの群の語にも
 入れない——寺社は文化財の一覧から、補給の点は OpenStreetMap から出す（1つの種類を2つの出どころから出さない）。
+補給の点のコンビニは、群「コンビニ」の行から出す（`infrastructure/point_tile_layers.py`の`poi`）。
 """
 
 from enum import StrEnum
@@ -50,18 +51,46 @@ MERGE_RADIUS_M = 30.0
 #: 先に当たったチェーンに入れる（`ローソンストア100`を`ローソン`より先に置く）。ブランドの列は出どころによって
 #: 空か表記がばらばら（「FamilyMart」「ローソン Lawson Japan」）で、同じ店が「セブン-イレブン」と
 #: 「セブンイレブン 南浦和駅西口店」のように入るので、表記の揺れをここで寄せる。ほかのチェーンはブランドの一致で見る。
-#: 旧名（サンクス・サークルK）は、看板を替えた店の古い地点が今の店の隣に残っている。
+#: 旧名（サンクス・サークルK・セーブオン等）は、看板を替えた店の古い地点が今の店の隣に残っているので、今のチェーンへ寄せる。
+#:
+#: **ここに並ぶのはコンビニのチェーンだけで、群「コンビニ」はここに当たる地点だけを入れる**（`kept_sql`）。Overture の
+#: `convenience_store`には、100円ショップ・ドラッグストア・小さなスーパー・個人の商店・駐車場等も入っている。
+#: 語は関東の地点（2026-09-23.1）で当たらなかった名前から足した。1件ずつの打ち間違い（「ロ−ソン」等）は足さない。
 CHAIN_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("seven_eleven", ("セブンイレブン", "7eleven", "seveneleven")),
-    ("familymart", ("ファミリーマート", "familymart", "ファミマ", "サンクス", "サークルk", "circlek")),
-    ("lawson_store100", ("ローソンストア100", "lawsonstore100")),
+    ("familymart", (
+        "ファミリーマート", "familymart", "ファミマ", "サンクス", "サークルk", "circlek", "サークルケイ", "サークルケー",
+        "ココストア", "エーエムピーエム")),
+    ("lawson_store100", ("ローソンストア100", "lawsonstore100", "ストア100", "store100", "ショップ99")),
     ("natural_lawson", ("ナチュラルローソン", "naturallawson")),
-    ("lawson", ("ローソン", "lawson")),
+    ("lawson", ("ローソン", "lawson", "セーブオン")),
     ("ministop", ("ミニストップ", "ministop")),
-    ("daily_yamazaki", ("デイリーヤマザキ", "dailyyamazaki")),
+    # ヤマザキデイリーストア・ニューヤマザキデイリーストアは同じ会社の旧い看板。
+    ("daily_yamazaki", ("デイリーヤマザキ", "dailyyamazaki", "デイリーストア")),
+    ("yamazaki_shop", ("ヤマザキショップ", "yショップ")),
     ("newdays", ("ニューデイズ", "newdays")),
     ("seicomart", ("セイコーマート", "seicomart")),
+    ("three_f", ("スリーエフ",)),
+    ("poplar", ("ポプラ",)),
+    ("seikatsu_saika", ("生活彩家",)),
+    ("community_store", ("コミュニティストア",)),
+    ("mon_mart", ("モンマート",)),
+    ("hot_spar", ("ホットスパー",)),
+    ("rieven_house", ("リーベンハウス", "rievenhouse")),
+    # 駅の売店。
+    ("kiosk", ("キヨスク", "kiosk")),
+    ("bellmart", ("ベルマート", "bellmart")),
+    ("plusta", ("plusta",)),
+    ("tomony", ("トモニー",)),
+    ("toks", ("toks",)),
+    ("odakyu_shop", ("odakyushop", "odakyumart")),
 )
+
+#: 濁点・半濁点の付いたかな → 外した形。チェーンの語は外した形どうしで当てる——濁点が空白に化けた名前
+#: （「セフ ンイレフ ン」。元の文字で濁点の場所が空白になっていて、正規化では戻らない）があるため。
+_VOICED_KANA = "ガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポヴ"
+_UNVOICED_KANA = "カキクケコサシスセソタチツテトハヒフヘホハヒフヘホウ"
+_DEVOICE = str.maketrans(_VOICED_KANA, _UNVOICED_KANA)
 
 
 def normalized_sql(text_expr: str) -> str:
@@ -69,13 +98,31 @@ def normalized_sql(text_expr: str) -> str:
     return f"lower(regexp_replace(normalize({text_expr}, NFKC), '[[:space:]\\-‐‑–—−・･]', '', 'g'))"
 
 
+def store_name_sql(name_expr: str) -> str:
+    """店の中の ATM の地点の名前（「セブン銀行ATM セブン-イレブン ○○店 共同出張所」「銀行ATM | イーネット
+    ファミリーマート○○ 共同出張所」）を、中にある店の名前へ直す式。ほかの名前はそのまま。"""
+    return (f"regexp_replace({name_expr},"
+            " '^(?:(?:セブン)?銀行|イーネット)(?:ATM)?\\s*(?:\\|\\s*イーネット)?\\s*(.*?)\\s*共同出張所$', '\\1')")
+
+
+def chain_text_sql(normalized_expr: str) -> str:
+    """チェーンの語を当てる形（`normalized_sql`で正規化した式から、濁点・半濁点を外した形）を出す式。"""
+    return f"translate({normalized_expr}, '{_VOICED_KANA}', '{_UNVOICED_KANA}')"
+
+
 def chain_sql(name: str, brand: str) -> str:
-    """地点のチェーンを出す式。`name`・`brand`は`normalized_sql`で正規化した式（ブランドはNULLがある）。
+    """地点のチェーンを出す式。`name`・`brand`は`chain_text_sql`の形の式（ブランドはNULLがある）。
     `CHAIN_WORDS`に当たらなければブランド、ブランドも無ければNULL。"""
     whens = " ".join(
-        f"WHEN {' OR '.join(f'strpos({text}, {word!r}) > 0' for text in (name, brand) for word in words)} THEN {chain!r}"
+        f"WHEN {' OR '.join(f'strpos({text}, {word.translate(_DEVOICE)!r}) > 0' for text in (name, brand) for word in words)} THEN {chain!r}"
         for chain, words in CHAIN_WORDS)
     return f"CASE {whens} ELSE nullif({brand}, '') END"
+
+
+def kept_sql(group: str, chain: str) -> str:
+    """群に入った地点を表へ入れるかの式。群「コンビニ」は`CHAIN_WORDS`のチェーンだけ、ほかの群は全部。"""
+    chains = ", ".join(repr(chain_key) for chain_key, _ in CHAIN_WORDS)
+    return f"({group} <> '{StopPlaceGroup.CONVENIENCE}' OR {chain} IN ({chains}))"
 
 
 def overture_group_sql(hierarchy: str) -> str:

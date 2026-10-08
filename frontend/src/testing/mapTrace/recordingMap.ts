@@ -44,6 +44,7 @@ export interface StyleLayer {
   readonly id: string;
   readonly type: string;
   readonly "source-layer"?: string;
+  readonly filter?: unknown;
 }
 
 /**
@@ -93,10 +94,11 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
       styleLoading
         ? undefined
         : {
-            layers: layers.map(({ id, type, sourceLayer }) => ({
+            layers: layers.map(({ id, type, sourceLayer, filter }) => ({
               id,
               type,
               ...(sourceLayer === undefined ? {} : { "source-layer": sourceLayer }),
+              ...(filter === undefined ? {} : { filter }),
             })),
           },
     getLayer: (id: string) => layers[indexOf(id)],
@@ -238,6 +240,7 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
         id: layer.id,
         type: layer.type,
         sourceLayer: layer["source-layer"],
+        ...(layer.filter === undefined ? {} : { filter: layer.filter }),
         visibility: "visible",
         paint: {},
         layout: {},
