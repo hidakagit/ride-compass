@@ -12,7 +12,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { FrontendVersion, getDebugStats } from "@/features/admin/adminApi";
+import type { getDebugStats } from "@/features/admin/adminApi";
+import type { FrontendVersion } from "@/services/versionApi";
 import { heldReplies, inTurn, onBackend, onSameOrigin } from "@/testing/backendServer";
 
 import SystemStatusPanel from "./SystemStatusPanel";
@@ -45,7 +46,7 @@ function debugStats(overrides: Partial<DebugStats> = {}): DebugStats {
   };
 }
 
-const frontendVersion: FrontendVersion = { commit: null, started_at: "2026-09-24T00:00:00Z" };
+const frontendVersion: FrontendVersion = { commit: null, started_at: "2026-09-24T00:00:00Z", recent: [] };
 
 const STATS = "/api/debug/stats";
 const VERSION = "/api/version";
