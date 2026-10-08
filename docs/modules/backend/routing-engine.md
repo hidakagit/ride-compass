@@ -518,7 +518,8 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
 Nodeを「リング」として抽出する。**距離は最短実距離ではなく軸コスト最適経路の実距離で
 定義する**——重みを極端に振った設定ほど往路が遠回りするため。
 
-層の中の並びは往路の距離加重平均difficulty（`overall_difficulty`と同じ物差し）の昇順、同点は
+層の中の並びは往路の距離加重平均difficulty（`overall_difficulty`と同じ物差し。ただし密度の軸を回数の平均から得点にし直すのは
+候補の集約だけで、ここは区間の得点のまま）の昇順、同点は
 リング中心に近い順。リングの範囲と中心は`domain/route_search.py: turnaround_ring_m`が決める。**リング中心は上下限の算術平均ではなく目標距離から決める**——許容が
 目標以上で下限が0へクランプされる場合、算術平均だと中心が0付近まで下がる。
 
@@ -634,7 +635,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 周回候補（waypoints指定でない場合）は、順方向の探索結果から逆方向候補を
 **追加のDB/API呼び出し無しに代数的に導出**する: 標高の獲得/喪失を入れ替え、勾配の符号を
 反転し、既にhydrate済みのgeometryを再利用する（`_reverse_traced_edges`/
-`domain/attributes.py: ElevationAttribute.reversed_as`・`reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
+`domain/attributes.py: ElevationAttribute.reversed_as`・`reverse_elevation_by_edge`）。両方向の`merge_difficulty`（候補の`overall_difficulty`の平均と同じ計算）を比較し、
 小さい方を採用する（`pick_better_candidate`）。`TracedLoop.bearing is None`
 （waypoints指定ルート）ではこの逆回り合成をスキップする——ユーザーが指定した訪問順序を
 尊重する必要があるため。
@@ -828,8 +829,10 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
   ルート線の色分けがこの符号を読む）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
-  `merge_axis_contributions`・`merge_material_values`・
-  `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。**`RouteSegmentDetail`の
+  `merge_axis_contributions`・`merge_difficulty`・`merge_overall_difficulty`・`merge_material_values`・
+  `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。密度の軸は、得点ではなく
+  区間の器の内部の値（`DensityScoreInput`）の回数を平均してから得点にする（[評価・スコアリング](evaluation-scoring.md)
+  「ルート単位の集約」の「密度の軸」）。**`RouteSegmentDetail`の
   フィールドは、ビンへの畳み方（`BIN_FIELD_MERGERS`）を必ず宣言する**。`_merge_segment_bin`は
   この表だけからビンを組み立て、辞書フィールドの畳み方（キーごとの距離加重平均、
   `BIN_DICT_FIELD_MERGERS`）も、形・位置・距離のように個別に畳むものも同じ表に載る。

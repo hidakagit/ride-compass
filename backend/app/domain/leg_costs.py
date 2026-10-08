@@ -29,9 +29,14 @@ from app.domain.cycling_speed import (
     SegmentSpeedModel,
     crr_for_surface,
 )
-from app.domain.difficulty import axis_contributions_at_row, axis_weighted_sums
+from app.domain.difficulty import axis_contributions_at_row, axis_weight_shares_at_row, axis_weighted_sums
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
-from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix, compose_costs_from_axis_matrix
+from app.domain.evaluation import (
+    AxisComposition,
+    DensityAxisColumn,
+    StaticEdgeScoreMatrix,
+    compose_costs_from_axis_matrix,
+)
 from app.domain.route import Coordinates, SegmentWind
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
 from app.domain.twilight import night_mask
@@ -66,6 +71,8 @@ class LegCostArrays:
     # 折れ点を通す前の生値（切り出した区間の順）。静的スコア行列の列をそのまま指すため
     # レグ間で同じ配列を共有する（風のようにレグごとに変わる値は持たない）。
     axis_raw_arrays: dict[str, np.ndarray]
+    # 密度の軸の横軸の値の列（切り出した区間の順。`StaticEdgeScoreMatrix.density_axes`をそのまま指し、レグ間で共有する）。
+    density_axes: dict[str, DensityAxisColumn]
     # 切り出した区間の順の材料id→配列。動的材料（`evaluate_dynamic_material_arrays`が返す
     # 全材料が対象、全行NaNの材料はキーを持たない）と、内訳表示用の静的材料
     # （`route_facing_material_ids`、静的スコア行列の列）の両方を持つ。区間表示・
@@ -97,6 +104,10 @@ class LegCostArrays:
         """その区間の軸別寄与度（切り出した区間の順の行番号で引く）。"""
         return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
 
+    def axis_weight_shares_at(self, row: int) -> dict[str, float]:
+        """その区間の、データのある軸の重みの割合（切り出した区間の順の行番号で引く）。"""
+        return axis_weight_shares_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
+
 
 @dataclass
 class RowValues:
@@ -112,6 +123,9 @@ class RowValues:
 
     def axis_contributions_at(self, row: int) -> dict[str, float]:
         return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
+
+    def axis_weight_shares_at(self, row: int) -> dict[str, float]:
+        return axis_weight_shares_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
 
 
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
@@ -359,6 +373,7 @@ class LegCostComposer:
             weight_sums=representative.weight_sums,
             weights=representative.weights,
             axis_raw_arrays=self._axis_raw_arrays,
+            density_axes=self._score_matrix.density_axes,
             material_arrays=representative.material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
             travel_seconds_full=representative.travel_seconds_full,
@@ -598,6 +613,7 @@ class LegCostComposer:
             weight_sums=composed.weight_sums,
             weights=evaluated.weights,
             axis_raw_arrays=self._axis_raw_arrays,
+            density_axes=self._score_matrix.density_axes,
             material_arrays=material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
             travel_seconds_full=travel,
