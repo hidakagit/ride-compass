@@ -203,7 +203,8 @@ export const pointGroup = declareGroup<PointState>((state) => {
     const filter = layerFilter(layer, state.hiddenKeys);
     return {
       role: layer.attr_id,
-      tier: "point",
+      // 重なった絵を省く層は、基礎地図の文字に場所を譲る（文字と重なった絵のほうを省く）。
+      tier: layer.point_thinning === null ? "point" : "pointUnderLabels",
       source: POINT_TILE_SOURCES[layer.tile_kind].sourceId,
       sourceLayer: POINT_TILE_SOURCES[layer.tile_kind].sourceLayer,
       ...(glyphs.length === 0

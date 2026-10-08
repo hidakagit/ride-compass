@@ -22,7 +22,12 @@ import type {
   DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
 import { withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
-import { areaLayerAnchor, prepareBasemap, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import {
+  areaLayerAnchor,
+  labelLayerAnchor,
+  prepareBasemap,
+  runWhenStyleReady,
+} from "@/features/map/layers/mapStyleOps";
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import type { LensId, RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
@@ -296,7 +301,7 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
     applyMapScene(map, {
       scene,
       previous: options.reset === true ? EMPTY_MAP_SCENE : (appliedScene.get(map) ?? EMPTY_MAP_SCENE),
-      areaLayerBeforeId: areaLayerAnchor(map),
+      basemapAnchors: { roads: areaLayerAnchor(map), labels: labelLayerAnchor(map) },
     });
     appliedScene.set(map, scene);
   });

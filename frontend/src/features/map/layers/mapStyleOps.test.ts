@@ -7,7 +7,13 @@ import type { StyleLayer } from "@/testing/mapTrace/recordingMap";
 
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { areaLayerAnchor, prepareBasemap, resetBasemapPreparation, runWhenStyleReady } from "./mapStyleOps";
+import {
+  areaLayerAnchor,
+  labelLayerAnchor,
+  prepareBasemap,
+  resetBasemapPreparation,
+  runWhenStyleReady,
+} from "./mapStyleOps";
 
 /** スタイル`layers`を読み込んだ地図（undefined なら読み込み中）。 */
 function drawMap(layers: readonly StyleLayer[] | undefined) {
@@ -81,6 +87,24 @@ describe("面レイヤーの差し込み位置", () => {
     prepareBasemap(map);
     screen.loadStyle([{ id: "background", type: "background" }]);
     expect(areaLayerAnchor(map)).toBeUndefined();
+  });
+});
+
+describe("文字に場所を譲る点の差し込み位置", () => {
+  it("基礎地図が最後まで続けて描く記号の並びの頭にする（途中の記号の後ろに線・面があれば、その後ろ）", () => {
+    // libertyの並び: 道路網の途中に一方通行の矢印（記号）があり、その後ろに橋の線・建物・境界を描いてから文字が続く。
+    const { map } = drawMap([
+      { id: "road_minor", type: "line", "source-layer": "transportation" },
+      { id: "road_one_way_arrow", type: "symbol", "source-layer": "transportation" },
+      { id: "bridge_street", type: "line", "source-layer": "transportation" },
+      { id: "building", type: "fill", "source-layer": "building" },
+      { id: "boundary_2", type: "line", "source-layer": "boundary" },
+      { id: "water_name_point_label", type: "symbol", "source-layer": "water_name" },
+      { id: "poi_r1", type: "symbol", "source-layer": "poi" },
+      { id: "label_city", type: "symbol", "source-layer": "place" },
+    ]);
+    prepareBasemap(map);
+    expect(labelLayerAnchor(map)).toBe("water_name_point_label");
   });
 });
 

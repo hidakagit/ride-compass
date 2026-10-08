@@ -5,19 +5,26 @@ import type { FilterSpecification, LayerSpecification, SourceSpecification } fro
  * （scene を組み立てる側が配列へ挿す位置では決まらない）。
  * 並びは「後から前面へ積まれる側が、先に積まれた側を塗り潰さない」ように決める。
  * 面の塗りは下にあるものを隠すため、基礎地図の道路網より下へ潜らせる。
+ * 重なった絵を省く点は、基礎地図の文字より下へ潜らせる——MapLibre は前面の層の記号から場所を取るので、
+ * 下にあれば文字が先に置かれ、文字と重なった絵のほうが省かれる。
  */
 const MAP_SCENE_TIERS = [
-  { id: "area", underBasemapRoads: true },
-  { id: "observedLine", underBasemapRoads: false },
-  { id: "lensLine", underBasemapRoads: false },
-  { id: "point", underBasemapRoads: false },
-  { id: "route", underBasemapRoads: false },
+  { id: "area", under: "roads" },
+  { id: "pointUnderLabels", under: "labels" },
+  { id: "observedLine", under: null },
+  { id: "lensLine", under: null },
+  { id: "point", under: null },
+  { id: "route", under: null },
 ] as const;
 
 export type MapSceneTier = (typeof MAP_SCENE_TIERS)[number]["id"];
 
-export function isTierUnderBasemapRoads(tier: MapSceneTier): boolean {
-  return MAP_SCENE_TIERS.some((entry) => entry.id === tier && entry.underBasemapRoads);
+/** 段を潜らせる基礎地図の位置。 */
+export type BasemapAnchor = NonNullable<(typeof MAP_SCENE_TIERS)[number]["under"]>;
+
+/** 段が潜る基礎地図の位置。null なら基礎地図より前面に積む。 */
+export function basemapAnchorOf(tier: MapSceneTier): BasemapAnchor | null {
+  return MAP_SCENE_TIERS.find((entry) => entry.id === tier)!.under;
 }
 
 /** feature-state へ載せられる値。 */

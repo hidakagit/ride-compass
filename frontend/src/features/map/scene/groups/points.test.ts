@@ -1,9 +1,11 @@
 // @vitest-environment node
-/** 重なった点の絵を間引くレイヤーが、源泉の宣言の順（先に並ぶ行・同じ行の中では割合の大きい点）で点を残すこと。
+/** 重なった点の絵を間引くレイヤーが、源泉の宣言の順（先に並ぶ行・同じ行の中では割合の大きい点）で点を残し、
+ * 基礎地図の文字と重なれば文字に場所を譲ること。
  *
  * ここで見ないもの:
  * - 凡例の見本と地図の点の色・絵の一致、凡例の行ごとの絞り込み → `scene/legends.test.ts`
- * - 地図が重なった絵を実際に省くこと（MapLibreの置き方そのもの）
+ * - 地図が重なった絵を実際に省くこと（MapLibreの置き方そのもの。上の層の記号から置く）
+ * - 文字に場所を譲る段が基礎地図の文字の下へ入ること → `scene/applyMapScene.test.ts`
  */
 import { describe, expect, it } from "vitest";
 
@@ -21,10 +23,14 @@ const TILES = {
   maxZoom: 14,
 };
 
-function layoutOf(role: string): Record<string, unknown> {
+function layerOf(role: string) {
   const layer = pointGroup.build({ tiles: TILES, visible: {}, hiddenKeys: {} }).layers.find((l) => l.role === role);
   if (layer === undefined) throw new Error(`${role} の層が無い`);
-  return layer.layout as Record<string, unknown>;
+  return layer;
+}
+
+function layoutOf(role: string): Record<string, unknown> {
+  return layerOf(role).layout as Record<string, unknown>;
 }
 
 const THINNED = POINT_LAYERS.flatMap((layer) =>
@@ -54,6 +60,10 @@ describe("重なった点の間引き", () => {
     const keys = thinning.rows.flatMap((rowKey) => [sortKey(rowKey, 1), sortKey(rowKey, 0.5), sortKey(rowKey, 0)]);
     expect(keys).toEqual([...keys].sort((a, b) => a - b));
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it.each(THINNED)("%s は、基礎地図の文字に場所を譲る（文字より下に積み、文字が先に置かれる）", (attrId) => {
+    expect(layerOf(attrId).tier).toBe("pointUnderLabels");
   });
 
   it("間引かない絵の点は、重なっても全部描く", () => {
