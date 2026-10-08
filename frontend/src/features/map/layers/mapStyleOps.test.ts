@@ -8,7 +8,9 @@ import type { StyleLayer } from "@/testing/mapTrace/recordingMap";
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
 import {
+  NO_BASEMAP_POI_KINDS,
   areaLayerAnchor,
+  hideBasemapPois,
   labelLayerAnchor,
   prepareBasemap,
   resetBasemapPreparation,
@@ -145,43 +147,58 @@ describe("基礎地図の店・施設", () => {
       );
   }
 
-  // OpenMapTilesのスキーマの値（`class`は束ねた種類、`subclass`は元のOSMのタグの値）。
-  it.each([
-    ["コンビニ（補給の点）", { class: "shop", subclass: "convenience" }],
-    ["飲食店", { class: "restaurant", subclass: "restaurant" }],
-    ["カフェ", { class: "cafe", subclass: "cafe" }],
-    ["酒場", { class: "beer", subclass: "pub" }],
-    ["自転車の店", { class: "bicycle", subclass: "bicycle" }],
-    ["公園", { class: "park", subclass: "park" }],
-    ["展望地", { class: "attraction", subclass: "viewpoint" }],
-    ["宿", { class: "lodging", subclass: "hotel" }],
-    ["キャンプ場", { class: "campsite", subclass: "camp_site" }],
-    ["礼拝の場所（寺社は文化財から出す）", { class: "place_of_worship", subclass: "place_of_worship" }],
-  ])("%s は、アプリの点の層が別の出どころから出すので、どの順位でも描かない", (_, kind) => {
+  const RESTAURANT = { class: "restaurant", subclass: "restaurant" };
+  const CONVENIENCE = { class: "shop", subclass: "convenience" };
+  const HIDE = { class: ["restaurant"], subclass: ["convenience"] };
+
+  it("名指した種類（束ねた種類か元のタグの値）だけを、どの順位でも描かない", () => {
     const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
 
-    for (const rank of [3, 8, 25]) expect(drawnBy(map, { ...kind, rank })).toEqual([]);
-  });
+    hideBasemapPois(map, HIDE);
 
-  it("病院・銀行・郵便局・学校・ほかの店と駅は、そのまま描く", () => {
-    const { map } = drawMap(POI_LAYERS);
-    prepareBasemap(map);
-
+    for (const rank of [3, 8, 25]) {
+      expect(drawnBy(map, { ...RESTAURANT, rank })).toEqual([]);
+      expect(drawnBy(map, { ...CONVENIENCE, rank })).toEqual([]);
+    }
     expect(drawnBy(map, { class: "shop", subclass: "bakery", rank: 3 })).toEqual(["poi_r1"]);
-    expect(drawnBy(map, { class: "hospital", subclass: "hospital", rank: 8 })).toEqual(["poi_r7"]);
-    expect(drawnBy(map, { class: "bank", subclass: "bank", rank: 8 })).toEqual(["poi_r7"]);
-    expect(drawnBy(map, { class: "post", subclass: "post_office", rank: 8 })).toEqual(["poi_r7"]);
-    expect(drawnBy(map, { class: "school", subclass: "school", rank: 8 })).toEqual(["poi_r7"]);
     expect(drawnBy(map, { class: "rail", subclass: "station", rank: 25 })).toEqual(["poi_r20", "poi_transit"]);
   });
 
-  it("同じスタイルへ何度当てても絞りを重ねない", () => {
+  it("種類を空にすると、配信元の絞りへ戻す", () => {
     const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
-    const once = map.getStyle().layers;
+    const original = map.getStyle().layers;
+
+    hideBasemapPois(map, HIDE);
+    hideBasemapPois(map, NO_BASEMAP_POI_KINDS);
+
+    expect(map.getStyle().layers).toEqual(original);
+  });
+
+  it("何度当てても絞りを重ねない", () => {
+    const { map } = drawMap(POI_LAYERS);
     prepareBasemap(map);
+    hideBasemapPois(map, HIDE);
+    const once = map.getStyle().layers;
+
+    hideBasemapPois(map, { class: ["park"], subclass: [] });
+    hideBasemapPois(map, HIDE);
+
     expect(map.getStyle().layers).toEqual(once);
+  });
+
+  it("スタイルを差し替えたら、新しいスタイルの絞りへ当て直す", () => {
+    const { map, screen } = drawMap(POI_LAYERS);
+    prepareBasemap(map);
+    hideBasemapPois(map, HIDE);
+
+    resetBasemapPreparation(map);
+    screen.loadStyle(POI_LAYERS);
+    prepareBasemap(map);
+    hideBasemapPois(map, HIDE);
+
+    expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual([]);
   });
 });
 

@@ -13,9 +13,12 @@
  * 点の形も源泉が決める。先頭の軸の行が絵記号（`glyph`）を持つレイヤーは、行の色の角丸四角に絵記号を載せた
  * 記号で描き、持たないレイヤーは丸い点で描く。重なった絵を間引くか・どれを残すかも源泉（`point_thinning`）が決める。
  *
+ * 行が出ている間は、同じ種類の基礎地図の店・施設の印を隠す（`BASEMAP_POIS_BY_ROW`）。
+ *
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
+import type { BasemapPoiKinds } from "@/features/map/layers/mapStyleOps";
 import type { PointTileLayer } from "@/features/map/regionApi";
 import { sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
@@ -79,6 +82,45 @@ export type PointState = {
   /** 軸の鍵ごとの、凡例で隠した行の鍵。 */
   readonly hiddenKeys: Readonly<Record<string, readonly string[]>>;
 };
+
+/** 行が出ている間、基礎地図から隠す店・施設の種類（点の属性 → 行の鍵 → 種類）。OpenStreetMap でない出どころから
+ * 出す行が、同じ種類を基礎地図（OpenStreetMap）と同時に出さないためのもの——同じ種類を混ぜて出すと、ODbL の
+ * 共有の義務がかかる。行を出していないときは基礎地図の印をそのまま出す。種類は OpenMapTiles のスキーマの`poi`の値で、
+ * 行の中身（一次属性の行の説明）に当たる値を名指す。銭湯・温泉はスキーマに値が無いので隠さない。鍵は源泉の点の属性と
+ * 行の鍵で縛る（行の鍵が変わると型検査で落ちる。黙って基礎地図の印が出たままになるのを防ぐ）。 */
+const BASEMAP_POIS_BY_ROW: {
+  readonly [L in PointLayer as L["attr_id"]]?: {
+    readonly [K in L["display_axes"][number]["categories"][number]["key"]]?: BasemapPoiKinds;
+  };
+} = {
+  supply_poi: {
+    // コンビニは店全体の`class=shop`に入るので`subclass`で名指す
+    convenience: { class: [], subclass: ["convenience"] },
+  },
+  stop_place: {
+    eat_drink: { class: ["restaurant", "fast_food", "cafe", "bar", "beer", "ice_cream"], subclass: [] },
+    bicycle: { class: ["bicycle", "bicycle_rental"], subclass: [] },
+    // 公園・庭園・城・博物館・観光地と展望地
+    scenic: { class: ["park", "garden", "castle", "museum", "attraction"], subclass: [] },
+    // ホテル・旅館の類とキャンプ場
+    lodging: { class: ["lodging", "campsite"], subclass: [] },
+    // 寺社は文化財の一覧から出す
+    temple_shrine: { class: ["place_of_worship"], subclass: [] },
+  },
+};
+
+/** 出ている行が隠す基礎地図の店・施設の種類。凡例で隠した行のぶんは隠さない。 */
+function basemapPoisHiddenBy(layer: PointLayer, hiddenKeys: PointState["hiddenKeys"]): BasemapPoiKinds | undefined {
+  const byRow: Readonly<Record<string, BasemapPoiKinds | undefined>> | undefined = BASEMAP_POIS_BY_ROW[layer.attr_id];
+  const axis = layer.display_axes[0];
+  if (byRow === undefined || axis === undefined) return undefined;
+  const hidden = hiddenKeys[pointAxisKey(layer, axis)] ?? [];
+  const shown = axis.categories.filter((c) => !hidden.includes(c.key)).flatMap((c) => byRow[c.key] ?? []);
+  return {
+    class: shown.flatMap((kinds) => kinds.class),
+    subclass: shown.flatMap((kinds) => kinds.subclass),
+  };
+}
 
 /** 押したときに拾う対象。**どの点も共通の`point`を名乗る**ので、点を1枚足しても
  * 拾う側の判定は変わらない。 */
@@ -201,6 +243,7 @@ export const pointGroup = declareGroup<PointState>((state) => {
     const glyphs = glyphCategories(layer);
     const opacity = POINT.opacityByLayer[layer.attr_id];
     const filter = layerFilter(layer, state.hiddenKeys);
+    const hidesBasemapPois = basemapPoisHiddenBy(layer, state.hiddenKeys);
     return {
       role: layer.attr_id,
       // 重なった絵を省く層は、基礎地図の文字に場所を譲る（文字と重なった絵のほうを省く）。
@@ -237,6 +280,7 @@ export const pointGroup = declareGroup<PointState>((state) => {
       visible: state.visible[layer.attr_id] === true,
       hitTargets: [POINT_HIT_TARGET],
       ...(filter === undefined ? {} : { filter }),
+      ...(hidesBasemapPois === undefined ? {} : { hidesBasemapPois }),
     };
   });
 

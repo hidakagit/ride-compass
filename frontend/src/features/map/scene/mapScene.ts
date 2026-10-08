@@ -1,5 +1,7 @@
 import type { FilterSpecification, LayerSpecification, SourceSpecification } from "maplibre-gl";
 
+import { NO_BASEMAP_POI_KINDS, type BasemapPoiKinds } from "@/features/map/layers/mapStyleOps";
+
 /**
  * 重なりの段。背面から前面の順に並べ、地図上の重なりはこの宣言だけが決める
  * （scene を組み立てる側が配列へ挿す位置では決まらない）。
@@ -86,6 +88,8 @@ export type MapSceneLayer = {
   readonly hitTargets: readonly string[];
   /** 省略は「絞り込み無し」。前回あった絞り込みは解除される。 */
   readonly filter?: FilterSpecification;
+  /** このレイヤーが出ている間、基礎地図から隠す店・施設の種類。省略は「隠さない」。 */
+  readonly hidesBasemapPois?: BasemapPoiKinds;
 };
 
 /**
@@ -107,6 +111,15 @@ export function orderedSceneLayers(scene: MapScene): readonly MapSceneLayer[] {
     .map((layer, index) => ({ layer, index }))
     .sort((a, b) => tierIndex(a.layer.tier) - tierIndex(b.layer.tier) || a.index - b.index)
     .map((entry) => entry.layer);
+}
+
+/** 基礎地図から隠す店・施設の種類。出ているレイヤーが名指した種類を合わせる——出ていないレイヤーの種類は隠さない。 */
+export function hiddenBasemapPois(scene: MapScene): BasemapPoiKinds {
+  const shown = scene.layers
+    .filter((layer) => layer.visible)
+    .map((layer) => layer.hidesBasemapPois ?? NO_BASEMAP_POI_KINDS);
+  const union = (pick: (kinds: BasemapPoiKinds) => readonly string[]) => [...new Set(shown.flatMap(pick))].sort();
+  return { class: union((kinds) => kinds.class), subclass: union((kinds) => kinds.subclass) };
 }
 
 /** 押せるレイヤーの id。MapLibre へ渡すのは呼び出し側で、ここは宣言から導くだけ。 */
