@@ -4269,7 +4269,10 @@
         "properties": {
           "kind": {
             "type": "string",
-            "const": "address",
+            "enum": [
+              "address",
+              "facility"
+            ],
             "title": "Kind"
           },
           "level": {
@@ -4282,7 +4285,8 @@
               "oaza",
               "aza",
               "block",
-              "building"
+              "building",
+              "point"
             ],
             "title": "Level"
           },

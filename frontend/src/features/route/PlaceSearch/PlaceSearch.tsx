@@ -30,8 +30,8 @@ const LEVEL_LABELS = Object.fromEntries(vocabulary.placeMatchLevels.map((l) => [
 // 打ちかけで引き始める長さ（空白を除いた文字数）と、打つのが止まってから引くまでの間。口の回数制限はこの間から決まる。
 const PREDICTION_MIN_LENGTH = routeGenerateConfig.place_prediction_min_length;
 const PREDICTION_DELAY_MS = routeGenerateConfig.place_prediction_delay_seconds * 1000;
-// 街区より粗い段で当たった地点は、その範囲の代表の位置にすぎず、行きたい所から離れうる。
-const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["block", "building"]);
+// 街区より粗い段で当たった地点は、その範囲の代表の位置にすぎず、行きたい所から離れうる。施設はその施設の位置。
+const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["block", "building", "point"]);
 
 const ROLE_CHOICES: { role: PinRole; label: string; placed: string; usage: string }[] = [
   {
@@ -57,7 +57,7 @@ interface PlaceSearchProps {
 }
 
 /**
- * 住所で地点を探し、候補を目的地・出発地・経由地のどれかとして置く。欄は地図の上端の帯で、候補の一覧と置いたあとの案内は
+ * 住所か施設の名前で地点を探し、候補を目的地・出発地・経由地のどれかとして置く。欄は地図の上端の帯で、候補の一覧と置いたあとの案内は
  * 帯の下へ地図に重ねて出す（面の中に置くと、一覧が面の高さに縛られて地図を隠す）。
  */
 export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps) {
@@ -130,8 +130,8 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
       >
         <Input
           type="search"
-          aria-label="住所で探す"
-          placeholder="住所で探す（例: 千代田区丸の内1-9）"
+          aria-label="住所・施設で探す"
+          placeholder="住所・施設で探す（例: 千代田区丸の内1-9、浅草寺）"
           className="min-w-0 flex-auto"
           value={text}
           onChange={(event) => {
@@ -139,9 +139,9 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
             if (!(event.nativeEvent as InputEvent).isComposing) scheduleLookUp(event.target.value);
           }}
           onCompositionEnd={(event) => scheduleLookUp(event.currentTarget.value)}
-          data-usage={`住所を入れて探します。${PREDICTION_MIN_LENGTH}文字から、打つのを止めると続きの候補が出ます。候補を選ぶと、目的地・出発地・経由地のどれにするかを選べます。`}
+          data-usage={`住所か施設の名前を入れて探します。${PREDICTION_MIN_LENGTH}文字から、打つのを止めると続きの候補が出ます。候補を選ぶと、目的地・出発地・経由地のどれにするかを選べます。`}
         />
-        <Button type="submit" size="sm" className="flex-none" usage="入れた住所で地点の候補を探します。">
+        <Button type="submit" size="sm" className="flex-none" usage="入れた住所・施設の名前で地点の候補を探します。">
           検索
         </Button>
       </form>
@@ -173,10 +173,10 @@ export default function PlaceSearch({ onPlace, waypointsFull }: PlaceSearchProps
               <ErrorText>{search.error.message}</ErrorText>
             ) : candidates.length === 0 ? (
               <p role="status" className={textVariants({ variant: "hint" })}>
-                当たる住所がありません。
+                当たる住所・施設がありません。
               </p>
             ) : (
-              <ul aria-label="住所の候補" className="flex flex-col gap-0.5">
+              <ul aria-label="地点の候補" className="flex flex-col gap-0.5">
                 {candidates.map((candidate, index) => {
                   const selected = selectedIndex === index;
                   return (

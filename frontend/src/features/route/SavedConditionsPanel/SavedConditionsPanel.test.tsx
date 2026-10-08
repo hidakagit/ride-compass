@@ -1,7 +1,7 @@
 /**
  * 「保存」タブ（`SavedConditionsPanel.tsx`）——タブには保存の窓を開くボタンだけを置き、窓で保存する条件・重みの割合・除外と
  * 出発地の扱いを並べ、名前の欄に仮の名前を入れて出し、そのまま・書き換えて保存でき、保存すると窓を閉じる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
- * 同じ名前があれば上書きと分かるように出す。保存した設定を名前と条件の1行で並べ、「呼び出す」は窓で中身を見せて「反映する」を
+ * 同じ名前があれば上書きと分かるように出す。保存した設定を名前だけで並べ、「呼び出す」は窓で中身を見せて「反映する」を
  * 押したときだけ呼び出し、「消す」は確認の窓で「消す」を押したときだけ消す。
  *
  * ここで見ないもの:
@@ -148,27 +148,25 @@ describe("保存した設定", () => {
   it("無いうちはまだ無いと出す", () => {
     renderPanel();
 
-    expect(screen.getByText("まだありません。")).toBeInTheDocument();
+    expect(screen.getByText("保存した設定はまだありません。")).toBeInTheDocument();
   });
 
-  it("行は名前と条件の1行だけを出し、出発地・重み・除外は呼び出しの窓で読める", async () => {
+  it("行は名前だけを出し、条件・出発地・重み・除外は呼び出しの窓で読める", async () => {
     renderPanel([LOOP, TRIP]);
 
     const trip = screen.getAllByRole("listitem")[1];
-    expect(trip).toHaveTextContent("目的地へ・経由 2地点・候補 8本");
-    expect(screen.queryByText("保存した地点に固定")).not.toBeInTheDocument();
+    expect(trip.textContent).toBe("週末");
 
     await userEvent.click(screen.getByRole("button", { name: "「週末」を呼び出す" }));
 
     const dialog = screen.getByRole("dialog", { name: "「週末」を反映します" });
+    expect(within(dialog).getByText("目的地へ・経由 2地点・候補 8本")).toBeInTheDocument();
     expect(within(dialog).getByText("保存した地点に固定")).toBeInTheDocument();
     expect(await within(dialog).findByText("軸B 75%・軸A 25%")).toBeInTheDocument();
   });
 
-  it.each([
-    ["固定しない設定", LOOP, "「朝の荒川」を呼び出しました。出発地は今いる場所です。"],
-    ["出発地を固定した設定", TRIP, "「週末」を呼び出しました。出発地は保存した地点です。"],
-  ])("窓の「反映する」を押したときだけ%sを呼び出し、呼び出したことと出発地を出す", async (_, entry, expected) => {
+  it("窓の「反映する」を押したときだけ呼び出し、反映したことを出す", async () => {
+    const entry = TRIP;
     const { onRecall } = renderPanel([LOOP, TRIP]);
     const recallDialog = () => screen.getByRole("dialog", { name: `「${entry.name}」を反映します` });
 
@@ -182,7 +180,7 @@ describe("保存した設定", () => {
 
     expect(onRecall).toHaveBeenCalledExactlyOnceWith(entry);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent(expected);
+    expect(screen.getByRole("status")).toHaveTextContent("「週末」を反映しました。");
   });
 
   it("「消す」で、確認の窓の「消す」を押したときだけその行の名前を消す", async () => {

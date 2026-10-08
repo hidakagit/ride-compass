@@ -12,6 +12,7 @@
 """
 
 import asyncio
+from dataclasses import dataclass
 from itertools import groupby, islice
 from operator import itemgetter
 from pathlib import Path
@@ -52,6 +53,15 @@ _HISTORICAL_DATASETS = frozenset({0, 1})
 
 #: 続きを引くときに見る節の数の上限。範囲の外ばかりに当たる語でも、見る節を区切って時間を抑える。
 _PREDICTION_SCAN_LIMIT = 500
+
+
+@dataclass(frozen=True)
+class AddressMatches:
+    """当たった住所（どちらも当たりの良い順）。入力の全部に当たったもの（続きを含む）と、入力の一部にだけ当たったもの。
+    施設の候補は2つの間に並ぶ（`domain/place_search.py: PlaceSearchResult`）。"""
+
+    whole: list[PlaceCandidate]
+    partial: list[PlaceCandidate]
 
 
 class AddressDictionaryUnavailableError(Exception):
@@ -147,7 +157,7 @@ def _continuations(tree: AddressTree, query: str, area: BoundingBox) -> list[Add
     return list(found.values())
 
 
-def _search(path: Path, query: str, area: BoundingBox) -> list[PlaceCandidate]:
+def _search(path: Path, query: str, area: BoundingBox) -> AddressMatches:
     tree = open_dictionary(path)
     whole: list[AddressNode] = []
     partial: list[AddressNode] = []
@@ -159,14 +169,21 @@ def _search(path: Path, query: str, area: BoundingBox) -> list[PlaceCandidate]:
         (whole if len(result.matched) == len(query) else partial).extend(_current_nodes(tree, result.node))
     # 旧い節を置き換えた今の節は、同じ入力でそのまま当たっていることがあり、続きにも同じ節が出る。
     nodes: dict[int, AddressNode] = {}
-    for node in [*whole, *_continuations(tree, query, area), *partial]:
+    for node in [*whole, *_continuations(tree, query, area)]:
         nodes.setdefault(node.id, node)
-    return [candidate for candidate in map(_candidate, nodes.values()) if area.contains(candidate)]
+    whole_count = len(nodes)
+    for node in partial:
+        nodes.setdefault(node.id, node)
+    found = list(nodes.values())
+
+    def within_area(found_nodes: list[AddressNode]) -> list[PlaceCandidate]:
+        return [candidate for candidate in map(_candidate, found_nodes) if area.contains(candidate)]
+
+    return AddressMatches(whole=within_area(found[:whole_count]), partial=within_area(found[whole_count:]))
 
 
-async def search_addresses(query: str, area: BoundingBox) -> list[PlaceCandidate]:
-    """対象範囲の中の住所の候補（当たりの良い順、`PlaceSearchResult`の並び）。辞書を開けなければ
-    `AddressDictionaryUnavailableError`を送出する。"""
+async def search_addresses(query: str, area: BoundingBox) -> AddressMatches:
+    """対象範囲の中の住所の候補。辞書を開けなければ`AddressDictionaryUnavailableError`を送出する。"""
     try:
         return await asyncio.to_thread(_search, DICTIONARY_DIR, query, area)
     except AddressDictionaryUnavailableError:

@@ -1,6 +1,7 @@
 """地点の検索（入力した文字列から、出発地・経由地・目的地にできる地点の候補を引く）の語彙と答えの形。
 
-候補は種類（何から引いたか）と、当たった段（住所ならどこまで細かく当たったか）を持つ。種類を足すときは
+候補は種類（何から引いたか。住所の辞書か、立ち寄り先の表の施設か）と、当たった段（住所ならどこまで細かく当たったか。
+施設は施設そのものの点）を持つ。種類を足すときは
 `PlaceKind`と`PLACE_KIND_LABELS`へ1つずつ足し、口と答えの形は変えない。表示名は語彙と同じ並びで
 生成物（`vocabulary.ts`）が画面へ届ける。
 
@@ -19,11 +20,12 @@ from app.domain.geo import Latitude, Longitude
 from app.domain.strict_model import StrictModel
 
 #: 候補の種類。
-PlaceKind = Literal["address"]
-PLACE_KIND_LABELS: dict[PlaceKind, str] = {"address": "住所"}
+PlaceKind = Literal["address", "facility"]
+PLACE_KIND_LABELS: dict[PlaceKind, str] = {"address": "住所", "facility": "施設"}
 
-#: 当たった段（粗い→細かい）。住所の辞書の段（`jageocoder.address.AddressLevel`）をそのまま名前にしたもの。
-PlaceMatchLevel = Literal["prefecture", "county", "city", "ward", "oaza", "aza", "block", "building"]
+#: 当たった段（粗い→細かい）。住所の段は住所の辞書の段（`jageocoder.address.AddressLevel`）をそのまま名前にしたもの。
+#: 最後の`point`は施設そのものの点（範囲の代表点ではない）。
+PlaceMatchLevel = Literal["prefecture", "county", "city", "ward", "oaza", "aza", "block", "building", "point"]
 PLACE_MATCH_LEVEL_LABELS: dict[PlaceMatchLevel, str] = {
     "prefecture": "都道府県",
     "county": "郡",
@@ -33,6 +35,7 @@ PLACE_MATCH_LEVEL_LABELS: dict[PlaceMatchLevel, str] = {
     "aza": "字・丁目",
     "block": "街区・地番",
     "building": "号",
+    "point": "地点",
 }
 
 #: 入力の長さの上限。住所の1行（都道府県から号まで・建物名つき）が収まる長さ。
@@ -42,7 +45,7 @@ PlaceQuery = Annotated[str, StringConstraints(min_length=1, max_length=PLACE_QUE
 #: 入力の続き（打ちかけの語を頭に持つ住所）を候補に足す最短の長さ（空白を除いた文字数）。画面が打ちかけで引き始める
 #: 長さも同じ。根拠は docs/modules/backend/place-search.md「引き方」。
 PLACE_PREDICTION_MIN_LENGTH = 1
-#: 足す続きの候補の数の上限。
+#: 足す続きの候補の数の上限。施設の候補の数の上限も同じ。
 PLACE_PREDICTION_LIMIT = 10
 #: 画面が、打つのが止まってから引くまでの間。打ち続けたときの1分あたりの回数の最大がこれで決まり、口の回数制限
 #: （`config.py: place_search_rate_limit_per_minute`）はそれに当たらないようにこの値から導く。
@@ -65,7 +68,8 @@ ADDRESS_DICTIONARY_ATTRIBUTION = (
 
 
 class PlaceCandidate(StrictModel):
-    """検索の候補1件。`name`は都道府県から当たった段までをつないだ表示名、位置はその段の代表点。"""
+    """検索の候補1件。住所なら`name`は都道府県から当たった段までをつないだ表示名で、位置はその段の代表点。
+    施設なら施設の名前と、施設の位置。"""
 
     kind: PlaceKind
     level: PlaceMatchLevel
@@ -75,8 +79,10 @@ class PlaceCandidate(StrictModel):
 
 
 class PlaceSearchResult(StrictModel):
-    """当たった候補。並びは当たりの良い順（入力のより長い部分に当たったものが先。入力の続きは入力の全部に当たったものと
-    して数え、入力の全部に当たった候補の後に短い表記から（同じ長さなら粗い段から）並ぶ）。何も当たらなければ空。"""
+    """当たった候補。並びは当たりの良い順で、入力の全部に当たった住所（続きを含む）→ 施設 → 入力の一部にだけ当たった
+    住所。住所は入力のより長い部分に当たったものが先で、入力の続きは入力の全部に当たったものとして数え、入力の全部に
+    当たった住所の後に短い表記から（同じ長さなら粗い段から）並ぶ。施設の中の並びは`infrastructure/stop_place_search.py`。
+    何も当たらなければ空。"""
 
     candidates: list[PlaceCandidate]
 

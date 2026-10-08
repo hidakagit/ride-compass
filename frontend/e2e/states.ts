@@ -14,7 +14,7 @@ import {
 
 // 走査する画面の状態（docs/conventions/testing.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後・区間を乗り換えた後）。
 // 土台の上では、画面がARIAで宣言している開閉の部品（`aria-expanded`・`role="tab"`）のうち、最前面で
-// 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅ごとに1枚のページで辿り、開いたものは閉じて戻す。
+// 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅 × 段階ごとに1枚のページで辿り、開いたものは閉じて戻す。
 
 export const WIDTHS = {
   mobile: MOBILE_VIEWPORT,
@@ -23,7 +23,7 @@ export const WIDTHS = {
 export type WidthName = keyof typeof WIDTHS;
 
 /** アプリの段階。ルートを生成する前と後、区間を乗り換えた後で、画面に出る部品の集合が入れ替わる。 */
-export type Phase = "生成前" | "生成後" | "乗り換え後";
+export const PHASES = ["生成前", "生成後", "乗り換え後"] as const;
 
 /** 幅の分岐はCSSのブレークポイント1つだけで、WIDTHSはその両側に1つずつ置く。 */
 export async function assertWidthsStraddleBreakpoint(page: Page): Promise<void> {

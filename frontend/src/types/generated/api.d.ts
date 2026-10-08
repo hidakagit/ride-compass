@@ -1454,14 +1454,14 @@ export interface components {
         PlaceCandidate: {
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "address";
+            kind: "address" | "facility";
             /**
              * Level
              * @enum {string}
              */
-            level: "prefecture" | "county" | "city" | "ward" | "oaza" | "aza" | "block" | "building";
+            level: "prefecture" | "county" | "city" | "ward" | "oaza" | "aza" | "block" | "building" | "point";
             /** Name */
             name: string;
             /** Latitude */
