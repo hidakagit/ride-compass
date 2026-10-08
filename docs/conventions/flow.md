@@ -229,6 +229,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      （宛先は docs/architecture/tech-stack.md「本番の宛先」。backend は、Pull Request の差分に `scripts/deploy_backend_gate.py: DEPLOY_PATHS`
      に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>` が 0 で終われば出ている
      （本番の commit が手元に無ければ先に `git fetch origin`）。
+     変更が frontend に届くなら、出ていてもいなくても、判断材料の先頭に画面での見分け方を書く: 「画面右上のメニュー（︙）の
+     『バージョン表示』で、『… までのマージ』の時刻がこのマージの時刻（日本時間 <M/D HH:MM>）以降か、『入っている直近の変更』に
+     この件名が並んでいれば修正を含む版」（マージの時刻は `gh pr view <番号> -R hidakagit/ride-compass --json mergedAt`。master は
+     squash のマージだけが1本に並ぶので、後のマージの時刻は前より後になる）。窓に時刻が出ない（件名を取れなかった）ときは
+     下の見分け方で見る、と添える。backend にだけ届く変更は、窓に出ないので下の見分け方だけを書く。
      - 出ていれば、開く URL と見た時点の `started_at` を書き、「`started_at` がこの時刻以降なら修正を含む版」とする。
      - 出ていなければ、master の CI の一覧（`https://github.com/hidakagit/ride-compass/actions/workflows/ci.yml?query=branch%3Amaster`）と
        マージのコミットの件名（Pull Request の題名。一覧の実行の名前になる）を書き、「この名前の実行か、それより上に並ぶ（後の）実行が

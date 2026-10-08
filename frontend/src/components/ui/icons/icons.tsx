@@ -14,6 +14,7 @@ import {
   EllipsisVertical,
   Eraser,
   Gauge,
+  GitCommitHorizontal,
   Import,
   Info,
   Layers,
@@ -536,5 +537,7 @@ export const MenuIcon = fromLucide(EllipsisVertical);
 export const DownloadIcon = fromLucide(Download);
 export const SpeedGaugeIcon = fromLucide(Gauge);
 export const HelpIcon = fromLucide(CircleQuestionMark);
+/** 動いている版（コミット）。 */
+export const VersionIcon = fromLucide(GitCommitHorizontal);
 /** 地図で選んでいる区間の地点。 */
 export const SelectedSpotIcon = fromLucide(MapPin);

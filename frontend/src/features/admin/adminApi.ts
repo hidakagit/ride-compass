@@ -1,4 +1,4 @@
-import { adminApiClient, backendApi, fetchJson, getOptions, requestApi } from "@/lib/apiClient";
+import { adminApiClient, backendApi, getOptions, requestApi } from "@/lib/apiClient";
 import {
   CATALOG_API_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
@@ -201,20 +201,6 @@ export function getDebugStats() {
     (init) => backendApi.GET("/api/debug/stats", init),
     getOptions({ timeoutMs: STATUS_API_TIMEOUT_MS, category: "api:debug-stats", errorLabel: "システム状況" }),
   );
-}
-
-/** `app/api/version/route.ts`の応答。 */
-export interface FrontendVersion {
-  commit: string | null;
-  started_at: string;
-}
-
-export function getFrontendVersion() {
-  return fetchJson<FrontendVersion>("/api/version", {
-    timeoutMs: STATUS_API_TIMEOUT_MS,
-    category: "api:version",
-    errorLabel: "フロントエンドのバージョン",
-  });
 }
 
 /** backendへ疎通できるか。画面は「OK/接続できません」の2値しか出さないため失敗の種類は返さないが、中身は
