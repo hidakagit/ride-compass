@@ -11,7 +11,7 @@ import glob
 import json
 import sys
 
-called = set()
+called: set[str | None] = set()
 
 
 def visit(node, in_func):

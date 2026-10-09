@@ -41,7 +41,7 @@ stats = json.load(open("mutmut-stats.json", encoding="utf-8"))
 tbf = stats["tests_by_mangled_function_name"]
 dur = stats["duration_by_test"]
 
-q = queue.Queue()
+q: queue.Queue[str] = queue.Queue()
 for n in names:
     if n not in done:
         q.put(n)
@@ -80,21 +80,21 @@ def run_child(cmd, env, limit, err_path):
             import resource
             import signal
 
-            p = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=err_file, start_new_session=True)
-            resource.prlimit(p.pid, resource.RLIMIT_DATA, (DATA_LIMIT, DATA_LIMIT))
+            proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=err_file, start_new_session=True)
+            resource.prlimit(proc.pid, resource.RLIMIT_DATA, (DATA_LIMIT, DATA_LIMIT))
             deadline = time.time() + limit
             while True:
-                pid, wstatus, usage = os.wait4(p.pid, os.WNOHANG)
+                pid, wstatus, usage = os.wait4(proc.pid, os.WNOHANG)
                 if pid:
                     code = os.waitstatus_to_exitcode(wstatus)
                     maxrss = round(usage.ru_maxrss / 1024)
-                    p.returncode = code
+                    proc.returncode = code
                     break
                 if time.time() > deadline:
-                    os.killpg(p.pid, signal.SIGKILL)
-                    _, _, usage = os.wait4(p.pid, 0)
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    _, _, usage = os.wait4(proc.pid, 0)
                     code, maxrss = None, round(usage.ru_maxrss / 1024)
-                    p.returncode = -9
+                    proc.returncode = -9
                     break
                 time.sleep(0.2)
         err_file.seek(0)

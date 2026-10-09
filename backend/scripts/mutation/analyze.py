@@ -80,7 +80,7 @@ if RECHECK_ART:
                 if res.get(r["mutant"]) == "survived" and r["status"] != "survived":
                     res[r["mutant"]] = "full"
 print("状態", dict(collections.Counter(res.values())))
-by = collections.defaultdict(collections.Counter)
+by: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
 for m in done:
     by[layer(m)][res[m]] += 1
     by["全体"][res[m]] += 1
@@ -104,7 +104,7 @@ odd = {m: results[m] for m in done if res[m] not in ("killed", "survived", "time
 killed = [m for m in done if res[m] == "killed"]
 print("\n落ちたが失敗の記録が無い", sum(1 for m in killed if not kills.get(m)), "／ ほかの終わり方", len(odd))
 
-covering = collections.defaultdict(int)
+covering: dict[str, int] = collections.defaultdict(int)
 for m in done:
     for t in tbf.get(m.partition("__mutmut_")[0], ()):
         covering[t] += 1
@@ -113,7 +113,7 @@ for m in killed:
     for t in kills.get(m, ()):
         found[t].add(m)
 
-fn_lines = {}
+fn_lines: dict[tuple[str, str], int] = {}
 
 
 def func_of(nodeid):
@@ -133,7 +133,7 @@ def lines_of(path, name):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == p:
                     if i == len(parts) - 1:
                         start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-                        n = node.end_lineno - start + 1
+                        n = (node.end_lineno or node.lineno) - start + 1
                     body = node.body
                     break
         fn_lines[key] = n
@@ -147,7 +147,7 @@ def total_lines(tests):
 no_cover_any = {t for t in all_tests if not any(t in v for v in tbf.values())}
 covered = {t for t in all_tests if covering[t] > 0}
 zero = {t for t in covered if not found.get(t)}
-finders = collections.Counter()
+finders: collections.Counter[str] = collections.Counter()
 for t in found:
     for m in found[t]:
         finders[m] += 1
@@ -172,7 +172,7 @@ for name, s in groups:
 print("1本だけが見つけた変異", sum(1 for v in finders.values() if v == 1), "／ 見つけたテストの本数の中央",
       sorted(finders.values())[len(finders) // 2] if finders else 0)
 
-per_file = collections.defaultdict(collections.Counter)
+per_file: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
 for t in all_tests:
     r = per_file[func_of(t)[0]]
     r["テスト"] += 1

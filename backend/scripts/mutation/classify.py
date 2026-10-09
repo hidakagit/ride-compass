@@ -43,23 +43,24 @@ for m in surv:
     orig = cst.Module([pair[0]]).code.strip()
     mut = cst.Module([pair[1]]).code.strip()
     o_lines, m_lines = orig.split("\n"), mut.split("\n")
-    changed = set()
+    changed: set[int] = set()
     for tag, i1, i2, _j1, _j2 in difflib.SequenceMatcher(None, o_lines, m_lines).get_opcodes():
         if tag != "equal":
             changed.update(range(i1 + 1, max(i2, i1 + 1) + 1))
     tree = ast.parse(orig)
-    best = None
+    best: ast.stmt | None = None
     for node in ast.walk(tree):
         if isinstance(node, ast.stmt) and not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if any(node.lineno <= ln <= node.end_lineno for ln in changed):
+            end = node.end_lineno or node.lineno
+            if any(node.lineno <= ln <= end for ln in changed):
                 # 複合文（if・for・with 等）は、書き換えが頭の行にあるときだけその文とする
                 if isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try)):
                     head_end = node.body[0].lineno - 1
                     if not any(node.lineno <= ln <= head_end for ln in changed):
                         continue
-                if best is None or (node.end_lineno - node.lineno) <= (best.end_lineno - best.lineno):
+                if best is None or end - node.lineno <= (best.end_lineno or best.lineno) - best.lineno:
                     best = node
-    text = ast.get_source_segment(orig, best) if best is not None else ""
+    text = (ast.get_source_segment(orig, best) or "") if best is not None else ""
     if isinstance(best, ast.Raise):
         kind = "例外の文"
     elif any(mark in text for mark in LOG_MARKS):
