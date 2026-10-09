@@ -38,9 +38,6 @@ postgres-data/
 # 永続キャッシュ（標高/路面/地図タイル）
 backend/data/
 
-# 住所の辞書（scripts/fetch_address_dictionary.pyが配布元から入れる）
-backend/address_dictionary/
-
 # 変異テスト（backend/scripts/mutation/）が作る差し込んだ版と、そこへ写す設定
 backend/mutants/
 backend/setup.cfg
