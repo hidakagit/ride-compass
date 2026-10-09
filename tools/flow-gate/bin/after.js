@@ -13,7 +13,7 @@ const { dry, rest: [number, kind, file, url, jobStatus] } = args("node tools/flo
 const messages = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
 const gh = bot();
 const done = [];
-const note = (line) => (console.log(`${dry ? "（試し）" : ""}${line}`), done.push(line));
+const note = (line) => (console.log(line), done.push(line));
 const task = (await readTask(gh, config, { number: Number(number) })).issue;
 const step = settle({ messages, url, jobStatus });
 
@@ -22,7 +22,7 @@ if (step.pause) {
   const { pauseVariable: name, pauseMinutes } = config.coordinator;
   const until = new Date(Date.now() + pauseMinutes * 60e3).toISOString();
   const path = `/repos/${config.code.repository}/actions/variables`;
-  note(dry ? `振り出しを ${until} まで止めた` : await repo.rest("PATCH", `${path}/${name}`, { name, value: until })
+  note(dry ? `（試し）振り出しを ${until} まで止めた` : await repo.rest("PATCH", `${path}/${name}`, { name, value: until })
     .catch(() => repo.rest("POST", path, { name, value: until }))
     .then(() => `振り出しを ${until} まで止めた`, (e) => `振り出しを止められなかった（${e.message}）`));
 }
