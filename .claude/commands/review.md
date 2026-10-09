@@ -20,7 +20,7 @@ $ARGUMENTS があればそれを対象範囲とする。
 | タスクの置き場の開いているタスク（[flow.md](../../docs/conventions/flow.md)） | |
 | `backend/`・`frontend/`・`scripts/`・`.github/`・`.claude/` | |
 
-記録を見ない理由は CLAUDE.md「ドキュメント階層」の表の`docs/records/`の行。
+`docs/records/` は維持しない記録なので見ない（CLAUDE.md）。
 
 ## 産出物
 
