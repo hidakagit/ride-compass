@@ -71,3 +71,28 @@ test("PC: 地図の右の列のボタンはほかの部品の下に潜らず、�
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
   await expectColumnSound(page);
 });
+
+// 「表示」の一覧は画面の下端まで伸びるので、スマホではシート・タブバーと重なる。重なった所でも一覧が上にあり、末尾まで押せること
+// （重なりの順番で決まり、単体テストでは見えない）。末尾がシートの上端より下にあることを先に見て、重なっていない配置で素通りさせない。
+test("スマホ: ルート設定のシートを開いたまま「表示」の一覧を末尾まで送っても、末尾の操作がシートの下に潜らず押せる", async ({
+  page,
+}) => {
+  await openMobileApp(page);
+  await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
+  const sheet = await openMobileSheet(page, "ルート設定");
+  await page.getByRole("button", { name: "地図に出す情報", exact: true }).click();
+  const last = page
+    .getByRole("dialog", { name: "地図に出す情報", exact: true })
+    .getByRole("button", { name: "絞り込みをすべて解除" });
+  await last.scrollIntoViewIfNeeded();
+
+  const sheetTop = (await sheet.boundingBox())!.y;
+  const lastBox = (await last.boundingBox())!;
+  expect(lastBox.y + lastBox.height / 2).toBeGreaterThan(sheetTop);
+  const onTop = await last.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit !== null && el.contains(hit);
+  });
+  expect(onTop).toBe(true);
+});

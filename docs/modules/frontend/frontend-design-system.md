@@ -73,7 +73,7 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 | `--z-bottom-sheet` | 45 | モバイルのBottomSheet・下部タブバー |
 | `--z-header-popover` | 46 | ヘッダー由来のポップオーバー（メニュー・警報バッジ・「今日」のパネル） |
 | `--z-floating-panel` | 50 | 開発者向けFloatingPanel・`ui/Dialog` |
-| `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/Popover`の既定・レンズ一覧・走行条件） |
+| `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/Popover`の既定・「表示」の一覧・レンズ一覧・走行条件） |
 | `--z-usage-guide` | 70 | 使い方の説明（案内の小窓・説明・部品の枠。開いているどの浮きパネルの部品を押しても、その上に出す） |
 
 1つの部品の内側だけで重なる要素（読み込みオーバーレイ・sticky列見出し等）はこのスケールの
