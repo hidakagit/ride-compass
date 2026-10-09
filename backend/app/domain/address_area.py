@@ -4,7 +4,7 @@
 区画の表（`address_areas`）・鍵の表（`address_search_keys`）・街区の表（`address_blocks`）は派生の段
 （`batch/derive_addresses.py`）が作り、ここは段と街区の種類の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・
 区画の名前から鍵を作る形（`search_keys`）・番地付きの残りから街区の番号を取る形（`BLOCK_NUMBER_PATTERN`）・
-区画と街区の表示の名前（施設の辺りと、地点の検索の住所の表示名。`area_label`・`block_label`）を持つ。
+区画と街区の表示の名前（地点の検索の住所の表示名。`area_label`・`block_label`）を持つ。
 アドレス・ベース・レジストリ（ABR）の列の読み方は`infrastructure/source_models.py`が持ち、ここへは名前で届く。
 """
 
@@ -90,14 +90,12 @@ def chome_name(number: str, written: str) -> str:
     return digits + ("丁" if written.endswith("丁") else "丁目")
 
 
-def area_label(chain: Iterable[tuple[str, str]], *, full: bool = False) -> str:
-    """区画の表示の名前。既定は施設の辺りの名前（「川口市元郷四丁目」「さいたま市岩槻区本町」）で、`full`なら都道府県から
-    書いた地点の検索の住所の表示名（「東京都新宿区西新宿二丁目」）。
+def area_label(chain: Iterable[tuple[str, str]]) -> str:
+    """区画の表示の名前（地点の検索の住所の表示名「東京都新宿区西新宿二丁目」）。
 
-    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。辺りは市区町村から先の名前をつなぎ、都道府県は持たない
-    （政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない）。
+    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない。
     """
-    return "".join(name for level, name in chain if full or level != "prefecture")
+    return "".join(name for _, name in chain)
 
 
 def block_label(area: str, number: str, kind: str) -> str:

@@ -20,9 +20,8 @@
 重心に最も近い建物（重心は境内の外に落ちることがある）、名前は所有者の名前。1つの建物に寺社の所有者が2人いれば、
 両方の寺社に入る。
 
-辺り（`area`）は、入れた地点の位置を含む小地域の境界に結んだ住所の区画（`infrastructure/address_area_lookup.py`）の、
-市区町村から先の名前（`domain/address_area.py: area_label`）。区画の表を読むので、住所の段（`derive_addresses.py`）の
-後ろに置く。それ以外に道の網とは何も読み合わない。
+辺り（`area`）は、入れた地点の位置を含む小地域の境界の名前（`infrastructure/place_area_query.py: area_label_sql`）。
+ほかの段の表も道の網も読まない。
 """
 
 import logging
@@ -30,7 +29,6 @@ import time
 
 import asyncpg
 
-from app.domain.address_area import area_label
 from app.domain.geo import ground_m_sql
 from app.domain.stop_place import (
     CONTACT_MERGE_RADIUS_M,
@@ -49,7 +47,7 @@ from app.domain.stop_place import (
     store_name_sql,
     temple_shrine_owner_sql,
 )
-from app.infrastructure.address_area_lookup import area_chains_sql, boundary_area_sql
+from app.infrastructure.place_area_query import area_label_sql
 from app.infrastructure.source_models import BUNKA_HERITAGES_SOURCE_SQL, OVERTURE_PLACES_SOURCE_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_stop_places")
@@ -156,36 +154,7 @@ FROM (
 ORDER BY normalized_name, merge_key, ST_Distance({ground_m_sql("geom")}, {ground_m_sql("center")}), heritage_id
 """
 
-
-#: 入れた地点ごとの、位置を含む小地域の境界に結んだ区画（結べなければNULL）。一時の表は統計を持たないので、書き戻しで
-#: 結ぶ前に`ANALYZE`する。
-_PLACE_AREAS = f"""
-CREATE TEMP TABLE _place_areas ON COMMIT DROP AS
-SELECT s.source, s.source_key, {boundary_area_sql("s.geom")} AS area_id FROM stop_places s;
-ANALYZE _place_areas
-"""
-
-_AREA_CHAINS = area_chains_sql("SELECT area_id FROM _place_areas WHERE area_id IS NOT NULL")
-
-_AREA_LABELS = "CREATE TEMP TABLE _area_labels (area_id text, label text) ON COMMIT DROP"
-
-_SET_AREAS = """
-ANALYZE _area_labels;
-UPDATE stop_places s SET area = l.label
-FROM _place_areas p JOIN _area_labels l ON l.area_id = p.area_id
-WHERE s.source = p.source AND s.source_key = p.source_key
-"""
-
-
-async def _fill_areas(conn: asyncpg.Connection) -> int:
-    """入れた地点の辺りを入れ、辺りの付いた地点の数を返す。取り出すのは地点に当たった区画の祖先だけで、地点は取り出さない。"""
-    await conn.execute(_PLACE_AREAS)
-    chains = await conn.fetch(_AREA_CHAINS)
-    await conn.execute(_AREA_LABELS)
-    await conn.copy_records_to_table("_area_labels", records=[
-        (row["area_id"], area_label(zip(row["levels"], row["names"], strict=True))) for row in chains])
-    await conn.execute(_SET_AREAS)
-    return await conn.fetchval("SELECT count(*) FROM stop_places WHERE area IS NOT NULL")
+_SET_AREAS = f"UPDATE stop_places s SET area = {area_label_sql('s.geom')}"
 
 
 async def derive(conn: asyncpg.Connection) -> int:
@@ -201,7 +170,8 @@ async def derive(conn: asyncpg.Connection) -> int:
         await conn.execute(_TEMPLE_BUILDINGS)
         temple_buildings = await conn.fetchval("SELECT count(*) FROM _temple_buildings")
         temples = int((await conn.execute(_INSERT_TEMPLES, HERITAGE_MERGE_RADIUS_M)).split()[-1])
-        located = await _fill_areas(conn)
+        await conn.execute(_SET_AREAS)
+        located = await conn.fetchval("SELECT count(*) FROM stop_places WHERE area IS NOT NULL")
     await conn.execute("ANALYZE stop_places")
     logger.info("立ち寄り先: 群に入った %d件 → 連絡先で寄せて %d件減 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件、"
                 "辺りの付いた %d件 / %.1f秒", grouped, merged_by_contact, inserted, temple_buildings, temples, located,

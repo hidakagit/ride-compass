@@ -320,10 +320,11 @@ ABR_BLOCKS_SOURCE_SQL = _abr_sql(
     {"lg_code": "city_code", "machiaza_id": "town_id", "blk_num": "number", "ablt_date": "abolished"},
     "attrs ? 'blk_id'")
 
-#: e-Stat の小地域の境界（1件=1つの小地域の多角形）。`city_code`は都道府県＋市区町村の5桁、`name`は小地域の名前
-#: （町丁・字等。名前の無い小地域は空）。配布の dbf の列の名前はここだけが名指す。
+#: e-Stat の小地域の境界（1件=1つの小地域の多角形）。`city_name`は市区町村の名前（郡を含まず、政令市は市と区をつないだ
+#: 「さいたま市岩槻区」）、`name`は小地域の名前（町丁・字等。名前の無い小地域は空）。どちらも配布の表記のまま。配布の dbf の
+#: 列の名前はここだけが名指す。
 ESTAT_SMALL_AREAS_SOURCE_SQL = (
-    "(SELECT natural_key AS key_code, (attrs->>'PREF') || (attrs->>'CITY') AS city_code,"
+    "(SELECT natural_key AS key_code, coalesce(attrs->>'CITY_NAME', '') AS city_name,"
     " coalesce(attrs->>'S_NAME', '') AS name, geom"
     f" FROM {_TABLE} WHERE source = '{Source.ESTAT_SMALL_AREA}')"
 )

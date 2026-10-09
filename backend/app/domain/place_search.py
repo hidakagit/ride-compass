@@ -46,7 +46,7 @@ PLACE_PREDICTION_LIMIT = 10
 #: （`config.py: place_search_rate_limit_per_minute`）はそれに当たらないようにこの値から導く。
 PLACE_PREDICTION_DELAY_SECONDS = 0.4
 
-#: 住所の区画の表（`domain/address_area.py`）の元データの出典。アドレス・ベース・レジストリは CC BY 4.0、e-Stat の境界は
+#: 地点の検索の住所（`domain/address_area.py`）と辺りの元データの出典。アドレス・ベース・レジストリは CC BY 4.0、e-Stat の境界は
 #: 政府標準利用規約（第2.0版）で、どちらも出典と加工した旨を書く。街区レベル位置参照情報は位置参照情報利用約款の第2条で、
 #: 加工したものにも出典を書く（docs/architecture/data-sources.md）。
 ADDRESS_AREA_ATTRIBUTIONS: tuple[str, ...] = (
@@ -86,6 +86,6 @@ class PlaceSearchResult(StrictModel):
 class PlaceArea(StrictModel):
     """位置の辺り（地図で置いた地点・現在地の詳しくに出す）。"""
 
-    #: 位置を含む小地域の境界に結んだ町字の、市区町村から字・丁目までの名前（施設の辺りと同じ形。「新宿区西新宿二丁目」）。
-    #: 区画に結んだ境界に含まれなければ持たない（海の上・範囲の外・結べなかった境界の中）。
+    #: 位置を含む小地域の境界の、市区町村から町丁・字までの名前（施設の辺りと同じ形。「新宿区西新宿二丁目」）。
+    #: 名前を持つ境界に含まれなければ持たない（海の上・取り込んだ境界の外・名前の無い境界の中）。
     area: str | None

@@ -36,6 +36,6 @@ async def place_area(
     longitude: Longitude,
     service: PlaceSearchService = Depends(get_place_search_service),
 ) -> PlaceArea:
-    """位置の辺り（市区町村から字・丁目まで）。区画に結んだ境界に含まれなければ`area`が空。"""
+    """位置の辺り（市区町村から字・丁目まで）。名前を持つ小地域の境界に含まれなければ`area`が空。"""
     enforce_rate_limit(http_request, "place-area", settings.place_area_rate_limit_per_minute)
     return await service.area_at(LatLonPoint(latitude, longitude))

@@ -134,7 +134,7 @@ async def world(road_graph_engine, road_network_root):
             await _ingest_landcover(conn)
             await _ingest_addresses(conn)
             west, south = _point(1)
-            await ingest_records("estat_small_area", [estat_small_area_record("13104002400", "西新宿", [
+            await ingest_records("estat_small_area", [estat_small_area_record("13104002400", "新宿区", "西新宿", [
                 (west, south - 0.001), (west, south + 0.002), (west + 0.003, south + 0.002),
                 (west + 0.003, south - 0.001), (west, south - 0.001)])], conn=conn)
             await _ingest_places(conn)
@@ -236,9 +236,9 @@ CHANGES = [
     Change("ノードを取り直した", _reingest(_ingest_nodes), ("nodes", "counts")),
     Change("標高を取り直した", _reingest(_ingest_elevations), ("elevation",)),
     Change("土地被覆を取り直した", _reingest(_ingest_landcover), ("landcover",)),
-    # 住所の段は道路の取込の範囲を読む。
-    Change("道を取り直した", _reingest(_ingest_ways), tuple(STAGE_NAMES)),
-    Change("住所を取り直した", _reingest(_ingest_addresses), ("addresses", "stop_places")),
+    # 住所の段は道路の取込の範囲を読む。立ち寄り先の段は道路を読まない。
+    Change("道を取り直した", _reingest(_ingest_ways), (*ROAD_STAGES, "addresses")),
+    Change("住所を取り直した", _reingest(_ingest_addresses), ("addresses",)),
     Change("地点を取り直した", _reingest(_ingest_places), ("stop_places",)),
     Change("信号とみなす半径を変えた", _set_signal_radius, ("nodes", "counts")),
     Change("道1本の表に列を足した", _add_column("way_materials"), ROAD_STAGES),

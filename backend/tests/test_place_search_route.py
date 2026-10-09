@@ -7,16 +7,16 @@
 件数の上限、入力の一部にだけ当たった住所を出さないこと、施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の
 真ん中に近い店から上限まで）、施設に添える辺り、住所と施設を並べる順、対象範囲を読めなければ502、回数制限。
 置いた位置の辺りの口（`GET /api/place-area`）も、同じ注入から本物を通して見る。
-住所の区画の表は、アドレス・ベース・レジストリの行（街区を含む。地番は街区レベル位置参照情報の行、施設の辺りは小地域の境界も）
-を取り込んで住所の派生の段を本物のまま流して作る。対象範囲は道路の取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、
+住所の区画の表は、アドレス・ベース・レジストリの行（街区を含む。地番は街区レベル位置参照情報の行）を取り込んで住所の派生の段を
+本物のまま流して作る。辺りは小地域の境界の行を取り込んで引く。対象範囲は道路の取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、
 注入から本物を通す。
 
 ここで見ないもの:
 - 対象範囲を読むこと（どの取込の記録の範囲か） → `test_ingested_area.py`
 - 住所の区画・鍵・街区の作り方（範囲・祖先・鍵の別形・地番を区画に結ぶ名前・住居表示の区域で ABR を採る） → `test_address_areas.py`、表記の揃え方の1つずつ → `test_address_area.py`
 - 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
-- 施設の辺りの決め方（辺の上・境界の外・結べない境界） → `test_stop_place_areas.py`。置いた位置の辺りも同じ SQL の部品
-  （`infrastructure/address_area_lookup.py: boundary_area_sql`）で決めるので、ここでは境界の中と外の両側だけを見る
+- 辺りの決め方（辺の上・境界の外・名前の無い境界・配布の境界の読み方） → `test_stop_place_areas.py`。置いた位置の辺りも
+  同じ SQL の部品（`infrastructure/place_area_query.py: area_label_sql`）で決めるので、ここでは境界の中と外の両側だけを見る
 - 回数制限の窓 → `test_rate_limiter.py`
 - Cache-Control の値と、失敗の応答に付けないこと → `test_cache_policy.py`
 - 入力の長さ（`domain/place_search.py: PlaceQuery`の制約で、FastAPIが422で返す）
@@ -369,36 +369,22 @@ async def test_addresses_come_before_facilities():
 # --- 施設の辺り ------------------------------------------------------------------
 
 
-async def _ingest_areas() -> None:
-    """新宿区西新宿二丁目（`LON`・`LAT`の周り）とさいたま市岩槻区本町（経度139.70・緯度35.95の周り）の町字と小地域の境界を
-    取り込み、住所の区画の表を作る派生の段を流す。"""
-    shinjuku, iwatsuki = ("東京都", "新宿区", ""), ("埼玉県", "さいたま市", "岩槻区")
-    await ingest_records("abr", [
-        abr_prefecture_record("130001", "東京都", 139.69, 35.69),
-        abr_prefecture_record("110001", "埼玉県", 139.65, 35.86),
-        abr_city_record("131041", "東京都", "新宿区", 139.70, 35.69),
-        abr_city_record("111007", "埼玉県", "さいたま市", 139.645, 35.86),
-        abr_city_record("111104", "埼玉県", "さいたま市", 139.69, 35.95, ward="岩槻区"),
-        abr_town_record("131041", "0024000", "1", shinjuku, LON - 0.01, LAT, oaza="西新宿"),
-        abr_town_record("131041", "0024002", "2", shinjuku, LON, LAT, oaza="西新宿", chome="二丁目"),
-        abr_town_record("111104", "0001000", "1", iwatsuki, 139.70, 35.95, oaza="本町"),
-    ])
+async def _ingest_boundaries() -> None:
+    """新宿区西新宿二丁目（`LON`・`LAT`の周り）とさいたま市岩槻区本町（経度139.70・緯度35.95の周り）の小地域の境界を取り込む。"""
     await ingest_records("estat_small_area", [
-        estat_small_area_record("13104002402", "西新宿２丁目", [
+        estat_small_area_record("13104002402", "新宿区", "西新宿二丁目", [
             (LON - 0.002, LAT - 0.002), (LON - 0.002, LAT + 0.002), (LON + 0.002, LAT + 0.002),
             (LON + 0.002, LAT - 0.002), (LON - 0.002, LAT - 0.002)]),
-        estat_small_area_record("11110000100", "本町", [
+        estat_small_area_record("11110000100", "さいたま市岩槻区", "本町", [
             (139.69, 35.94), (139.69, 35.96), (139.71, 35.96), (139.71, 35.94), (139.69, 35.94)]),
     ])
-    async with raw_connection() as conn:
-        await derive_addresses.derive(conn)
 
 
 @pytest.mark.usefixtures("area")
 async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
-    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（店の位置を含む小地域の境界に結んだ町字の、市区町村から先の
-    名前）で見分ける。"""
-    await _ingest_areas()
+    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（店の位置を含む小地域の境界の、市区町村から先の名前）で
+    見分ける。"""
+    await _ingest_boundaries()
     await _ingest_facilities([
         _facility_record(1, "ファミリーマート", LON, LAT),
         _facility_record(2, "ファミリーマート", 139.70, 35.95),
@@ -424,13 +410,12 @@ async def _area_at(longitude: float, latitude: float) -> httpx.Response:
 
 @pytest.mark.parametrize(("longitude", "latitude", "expected"), [
     pytest.param(LON + 0.001, LAT, "新宿区西新宿二丁目", id="境界の中"),
-    pytest.param(OUTSIDE_LON, OUTSIDE_LAT, None, id="区画に結んだ境界の外"),
+    pytest.param(OUTSIDE_LON, OUTSIDE_LAT, None, id="境界の外"),
 ])
 @pytest.mark.usefixtures("area")
 async def test_a_placed_point_shows_the_area_it_is_in(longitude, latitude, expected):
-    """地図で置いた地点・現在地にも、施設の辺りと同じ形の辺り（位置を含む小地域の境界に結んだ町字の、市区町村から先の名前）を
-    出す。"""
-    await _ingest_areas()
+    """地図で置いた地点・現在地にも、施設の辺りと同じ形の辺り（位置を含む小地域の境界の、市区町村から先の名前）を出す。"""
+    await _ingest_boundaries()
 
     response = await _area_at(longitude, latitude)
 
