@@ -7,6 +7,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import weatherScales from "@/types/generated/weather-scales.json";
 
+import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
   buildMapLayers,
   deriveFetchLayerStatus,
@@ -67,6 +68,16 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
     expect(layer(axes, "route").description).toContain("[坂・風・総合難易度]");
   });
 
+  it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {
+    const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
+    expect(block.legend.map((entry) => entry.label)).toEqual(LANDCOVER_PAINTED_CLASSES.map((cls) => cls.label));
+  });
+
+  it("土地被覆の凡例の行は、どれも（i）から開く説明を持つ", () => {
+    const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
+    for (const entry of block.legend) expect(entry.description?.trim()).toBeTruthy();
+  });
+
   it("災害の凡例は、要素が塗る段ごとに1つ並び、見出しにその段で塗る要素の名前が入る", () => {
     const blocks = layer(withoutAxes, "disaster").readOnlyLegend ?? [];
     const scaled = mapDisplay.weatherElements.filter((element) => element.group === "disaster" && element.levelScale);
@@ -90,7 +101,7 @@ describe("出せない理由の案内", () => {
   it("タイル世代が届くまで描けないのは、世代を持つ配信を読むレイヤー（ramp軸を含む）", () => {
     const gated = tileVersionGatedLayerIds(catalog.rampAxes);
     expect(gated).toContain("axis:ramp_a");
-    expect(gated).not.toContain("hillshade");
+    expect(gated).not.toContain("elevation");
   });
 
   it("タイルの最小ズーム未満のレイヤーだけを、ズーム不足として出す", () => {

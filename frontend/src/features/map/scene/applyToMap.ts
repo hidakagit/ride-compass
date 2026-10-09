@@ -38,6 +38,7 @@ import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
+  landcoverTileUrl,
   pointTileUrl,
   roadSurfaceTileUrl,
   type PointTileLayer,
@@ -246,6 +247,7 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
     area: {
       visible,
       tileOrigin: tileBaseUrl(),
+      landcoverTileUrl: landcoverTileUrl(),
     },
     road: {
       tiles: versions

@@ -15,6 +15,16 @@ from app.domain.registry import PrimaryAttributeSpec
 #: ——これより明るい分類色は「薄い＝対象外」の表現と見分けられない。
 _MAX_LIGHTNESS = 58.0
 
+#: 順序のある分類（幹線→細街路）。明度で順序を示し、色相も並びに沿って動かす（明度だけの濃淡は、上限の明度の下では
+#: 隣どうしが近く、どれも暗い灰に見える）。色相は評価の配色（緑〜赤）を避けて紫→水色に限る——観測された事実の
+#: 分類を良し悪しの色で読ませない。暗い端は黒と見分けられる所で止める。
+_ORDERED_HUE_RANGE_DEG = (305.0, 205.0)
+_ORDERED_LIGHTNESS_RANGE = (26.0, 56.0)
+#: 上の範囲の両端（並びの先頭・末尾の行）の色を、画面で呼ぶ名前。地図の説明の文が差し込む。範囲を変えたら、ここも変える。
+ORDERED_END_COLOR_NAMES: tuple[str, str] = ("濃い紫", "明るい水色")
+#: 目標の彩度。暗い側の色相によってはsRGBに収まらないので、収まるところまで下げる（`_fit_chroma`）。
+_ORDERED_CHROMA = 45.0
+
 #: 順序を持たない列挙。明度と彩度は軸の中で1つに固定し（軸の`tone`の段）、**軸の行へ色相環を等分して配る**——連番の
 #: 色相を当てると、同じ軸の行どうしが最も見分けにくい隣の色相になる。起点は軸が
 #: `hue_slot`（12分割の枠）で宣言する。
@@ -63,6 +73,17 @@ def _fit_chroma(lightness: float, chroma: float, hue_deg: float) -> str:
         except ValueError:
             continue
     raise ValueError(f"彩度0でも色域外: L*={lightness} h={hue_deg % 360:.0f}")
+
+
+def ordered_colors(count: int) -> list[str]:
+    """順序のある分類の色。並びの位置が意味を持つので、行数ぶんを一度に作る。"""
+    if count <= 0:
+        return []
+    (l_low, l_high), (h_start, h_end) = _ORDERED_LIGHTNESS_RANGE, _ORDERED_HUE_RANGE_DEG
+    positions = [0.5] if count == 1 else [i / (count - 1) for i in range(count)]
+    return [
+        _fit_chroma(l_low + (l_high - l_low) * p, _ORDERED_CHROMA, h_start + (h_end - h_start) * p) for p in positions
+    ]
 
 
 def nominal_colors(hue_slot: int, count: int, tone: str | None) -> list[str]:
@@ -135,8 +156,10 @@ def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
     axes = []
     for axis in attr.display_axes:
         count = len(axis.categories)
-        if axis.palette == "nominal":
-            colors: list[str | None] = list(nominal_colors(axis.hue_slot or 0, count, axis.tone))
+        if axis.palette == "ordered":
+            colors: list[str | None] = list(ordered_colors(count))
+        elif axis.palette == "nominal":
+            colors = list(nominal_colors(axis.hue_slot or 0, count, axis.tone))
         else:
             colors = [None] * count
         axes.append(

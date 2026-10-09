@@ -1,6 +1,6 @@
 """`domain/map_display.py`——地図に出すものの束ね方（グループ・種別・情報源・レイヤー）の宣言。
 
-入口は`map_layer_label`（レイヤーの名前）・説明の文を宣言から組む`size_sentence`と、生成物として
+入口は`map_layer_label`（レイヤーの名前）・説明の文を宣言から組む`ordered_ends_text`・`size_sentence`と、生成物として
 画面へ配る宣言そのもの。宣言どうしは名前（`key`）で指し合い、型はその名前が実在することを保証しないので、指した先が
 あることを確かめる。描く寸法の値そのものは見ない（宣言の書き写しになる）。レイヤーの説明は、ほかの宣言から差し込む
 部分だけを見る。文を組む関数には架空の行を渡し、宣言を変えると文が追従することを見る。
@@ -16,7 +16,8 @@
 import pytest
 
 from app.domain import map_display
-from app.domain.map_display import MapLayerSpec, map_layer_label, size_sentence
+from app.domain.landcover import LANDCOVER_CLASSES
+from app.domain.map_display import MapLayerSpec, map_layer_label, ordered_ends_text, size_sentence
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec
 from app.domain.weather_elements import WEATHER_ELEMENTS
 
@@ -33,11 +34,12 @@ def keys(declarations) -> list[str]:
     return [declaration.key for declaration in declarations]
 
 
-def axis(*rows: tuple[str, int | None]) -> DisplayAxisSpec:
+def axis(*rows: tuple[str, int | None], palette=None) -> DisplayAxisSpec:
     """架空の行（名前・半径）を並べた見方。"""
     return DisplayAxisSpec(
         key="axis",
         property="prop",
+        palette=palette,
         categories=tuple(
             DisplayCategorySpec(key=f"k{i}", label=label, values=(f"v{i}",), description="架空の行", radius_px=radius)
             for i, (label, radius) in enumerate(rows)
@@ -60,6 +62,20 @@ def test_the_size_sentence_is_refused_when_the_rows_are_not_told_apart_by_size(r
     """大きさで分けていない見方に「大きく表示」と書かない。"""
     with pytest.raises(ValueError, match="違う半径"):
         size_sentence(axis(*rows))
+
+
+def test_the_ordered_colors_are_described_from_the_first_and_the_last_row():
+    """行を足し替えても、説明は濃く塗る先頭の行と明るく塗る末尾の行を名指す。"""
+    dark, light = map_display.ORDERED_END_COLOR_NAMES
+
+    text = ordered_ends_text(axis(("先頭", None), ("中ほど", None), ("末尾", None), palette="ordered"))
+
+    assert text == f"「先頭」ほど{dark}、「末尾」ほど{light}"
+
+
+def test_the_ordered_colors_are_not_described_for_an_unordered_axis():
+    with pytest.raises(ValueError, match="順序のある分類ではない"):
+        ordered_ends_text(axis(("先頭", None), ("末尾", None), palette="nominal"))
 
 
 def test_a_layer_with_its_own_label_is_called_by_it():
@@ -127,6 +143,16 @@ def test_point_layers_list_the_kinds_by_the_names_of_the_legend_rows(layer_id):
 
     for category in attribute.display_axes[0].categories:
         assert category.label in text_of(layer_id, "description")
+
+
+def test_landcover_text_names_the_classes_it_does_not_paint():
+    """塗らない分類を書かないと、その分類の土地が地図で空白に見える理由が分からない。"""
+    unpainted = [cls.label for cls in LANDCOVER_CLASSES if not cls.painted]
+    assert unpainted
+
+    for label in unpainted:
+        assert label in text_of("landcover", "description")
+        assert f"{label}は塗りません" in text_of("landcover", "panel_hint")
 
 
 def test_disaster_text_names_every_element_of_the_disaster_chip():

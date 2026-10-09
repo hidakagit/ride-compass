@@ -76,8 +76,16 @@ export const mapDisplay = {
       "minZoom": 12
     },
     {
+      "key": "gsiRelief",
+      "minZoom": null
+    },
+    {
       "key": "gsiTerrain",
       "minZoom": 2
+    },
+    {
+      "key": "landcoverRaster",
+      "minZoom": 6
     },
     {
       "key": "ownFetch",
@@ -95,6 +103,22 @@ export const mapDisplay = {
   ],
   "layers": [
     {
+      "id": "elevation",
+      "label": "標高図",
+      "dataSource": "gsiRelief",
+      "category": "terrain",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false,
+      "description": [
+        "国土地理院の色別標高図を重ねる"
+      ],
+      "panelHint": [
+        "国土地理院の色別標高図を重ねる"
+      ],
+      "hideMissingRows": false
+    },
+    {
       "id": "hillshade",
       "label": "起伏",
       "dataSource": "gsiTerrain",
@@ -107,6 +131,38 @@ export const mapDisplay = {
       ],
       "panelHint": [
         "国土地理院の標高データから斜面の陰影を作る。平らな所は塗らないため、下の地図の色が残る"
+      ],
+      "hideMissingRows": false
+    },
+    {
+      "id": "landcover",
+      "label": "緑と水",
+      "dataSource": "landcoverRaster",
+      "category": "terrain",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false,
+      "description": [
+        "周囲の緑・水辺・農地を面で重ねる[建物は塗らない]"
+      ],
+      "panelHint": [
+        "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、評価軸が使う「道路の周囲100mの割合」とは違い、混ざらずそのまま見えます。建物は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。地図の道を押して開く内訳には建物も出ます。"
+      ],
+      "hideMissingRows": false
+    },
+    {
+      "id": "highway",
+      "label": "道路の種類",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false,
+      "description": [
+        "道路の種類を色で表示[「幹線道路」ほど濃い紫、「農道・林道」ほど明るい水色]"
+      ],
+      "panelHint": [
+        "OSMのhighwayタグを区分にまとめて色分けしています。「幹線道路」が最も濃く、下位の道ほど明るい色です。ほかの道路のレイヤーと一緒に表示すると、同じ道に線を横へ並べて描きます。"
       ],
       "hideMissingRows": false
     },
@@ -127,6 +183,22 @@ export const mapDisplay = {
       "hideMissingRows": true
     },
     {
+      "id": "tracktype",
+      "label": "農道・林道の等級",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false,
+      "description": [
+        "農道・林道の路面の等級を色で表示[「1 舗装・固く締まる」ほど濃い紫、「5 土・草・砂」ほど明るい水色]"
+      ],
+      "panelHint": [
+        "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」です。"
+      ],
+      "hideMissingRows": false
+    },
+    {
       "id": "tunnel",
       "label": "トンネル",
       "dataSource": "road_surface",
@@ -144,6 +216,22 @@ export const mapDisplay = {
           "before": "評価軸",
           "after": "の材料の1つです。"
         }
+      ],
+      "hideMissingRows": false
+    },
+    {
+      "id": "oneway",
+      "label": "一方通行",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false,
+      "description": [
+        "来た道を戻れない区間を色分け表示"
+      ],
+      "panelHint": [
+        "その向きにしか通れない区間です。上下線が分かれているだけの道[逆方向が数m隣にある]は除いてあります。ルート探索は既に一方通行の向きを守っており[逆走経路自体が生成されません]、このレイヤーは表示のみで評価には影響しません。"
       ],
       "hideMissingRows": false
     },
