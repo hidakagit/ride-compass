@@ -411,8 +411,8 @@ describe("地図で扱えること", () => {
   it("住所の検索で経由地へ置けるのは、置いた経由地が上限に届くまで", async () => {
     const candidate = {
       kind: "address",
-      level: "block",
-      name: "東京都千代田区丸の内一丁目9番",
+      level: "aza",
+      name: "東京都千代田区丸の内一丁目",
       area: null,
       latitude: 35.681,
       longitude: 139.767,
