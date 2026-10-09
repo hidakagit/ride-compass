@@ -18,7 +18,7 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { fixedRouteCount, type RouteMode, useRouteFormSubmit } from "./useRouteFormSubmit";
 
 const ORIGIN_UNKNOWN =
-  "現在地が分かりません。位置情報を許可するか、出発地の「地図で選ぶ」を押して地図をタップしてください。";
+  "現在地が分かりません。位置情報を許可するか、「出発地を地図で選ぶ」を押して地図をタップしてください。";
 const NO_POINT = "地図をタップして目的地か経由地を指定してください。";
 
 interface Options {

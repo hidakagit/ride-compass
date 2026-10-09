@@ -266,7 +266,7 @@ describe("RouteForm 出発地", () => {
     (originLocated, name, color) => {
       renderForm({ originLocated });
 
-      expect(detail("出発地")).toHaveTextContent(`出発地${name}地図で選ぶ`);
+      expect(detail("出発地")).toHaveTextContent(`出発地${name}`);
       expect(originMark()).toHaveStyle({ color });
       expect(screen.queryByRole("button", { name: "出発地を現在地に戻す" })).not.toBeInTheDocument();
     },

@@ -89,7 +89,11 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
       return <p className={textVariants({ variant: "hint" })}>{generation.progressLabel ?? "生成中..."}</p>;
     }
     if (outcome?.kind === "failed") {
-      return <ErrorText>{outcome.message}</ErrorText>;
+      return (
+        <ErrorText>
+          <GuideText text={outcome.message} />
+        </ErrorText>
+      );
     }
     if (outcome?.kind === "empty") {
       return (

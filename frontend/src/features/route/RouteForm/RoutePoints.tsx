@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
-import { ClearPointsIcon } from "@/components/ui/icons/icons";
+import { ClearPointsIcon, LocateIcon, RemovePointIcon } from "@/components/ui/icons/icons";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import { cn } from "@/lib/cn";
@@ -162,12 +162,13 @@ export default function RoutePoints({
           extra={
             originManual ? (
               <Button
-                size="xs"
+                size="panelIcon"
+                className="flex-none"
                 aria-label="出発地を現在地に戻す"
                 onClick={onOriginReset}
                 usage="地図で置いた出発地をやめて、現在地から出発します。"
               >
-                現在地に戻す
+                <LocateIcon />
               </Button>
             ) : undefined
           }
@@ -194,8 +195,14 @@ export default function RoutePoints({
           armLabel={set ? "地図で置き直す" : "地図で選ぶ"}
           extra={
             set ? (
-              <Button size="xs" variant="ghost" aria-label="目的地を消す" onClick={clearDestination}>
-                ✕ 消す
+              <Button
+                size="panelIcon"
+                className="flex-none"
+                aria-label="目的地を消す"
+                onClick={clearDestination}
+                usage="置いた目的地を消します。"
+              >
+                <RemovePointIcon />
               </Button>
             ) : undefined
           }
@@ -250,15 +257,16 @@ export default function RoutePoints({
         armLabel="地図で置き直す"
         extra={
           <Button
-            size="xs"
-            variant="ghost"
+            size="panelIcon"
+            className="flex-none"
             aria-label={`${title}を消す`}
             onClick={() => {
               removeWaypoint(index);
               setChosen(null);
             }}
+            usage={`置いた${title}を消します。ほかの経由地の番号は詰めます。`}
           >
-            ✕ 消す
+            <RemovePointIcon />
           </Button>
         }
         usage={`押してから地図をタップすると、${title}をそこへ置き直します。もう一度押すとやめます。`}

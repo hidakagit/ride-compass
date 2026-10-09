@@ -2,8 +2,9 @@
 
 import type { components } from "@/types/generated/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
-import { WarningTriangleIcon } from "@/components/ui/icons/icons";
+import { RetryIcon, WarningTriangleIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { vocabulary } from "@/types/generated/vocabulary";
 import { cn } from "@/lib/cn";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -98,16 +99,19 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
           {failures.map((failure) => (
             <li key={failure.id} className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>
               <span className="block">{failure.detail ? `${failure.label}: ${failure.detail}` : failure.label}</span>
-              <span className="block">{failure.effect}</span>
+              <span className="block">
+                <GuideText text={failure.effect} />
+              </span>
               {failure.onRetry && (
                 <Button
                   variant="warning"
-                  size="xs"
+                  size="panelIcon"
                   className="mt-0.5"
+                  aria-label="再試行"
                   onClick={failure.onRetry}
                   usage="この情報をもう一度取りに行きます。"
                 >
-                  再試行
+                  <RetryIcon />
                 </Button>
               )}
             </li>
