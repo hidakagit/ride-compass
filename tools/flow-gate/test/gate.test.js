@@ -53,16 +53,19 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで問いをコメントに置く", async () => {
+test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで問いをコメントに置く。段階は優先度の欄が空なら親の値を継ぎ、ほかの欄は書かない", async () => {
   let gh = fakeGitHub({ issue: { number: 1, status: "中" } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.equal(gh.issue.status, "前");
-  gh = fakeGitHub({ issue: { number: 3, author: "c" }, parent: 1 });
+  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", undefined]);
+  gh = fakeGitHub({ issue: { number: 3, author: "c" }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.equal(gh.issue.status, "前");
-  gh = fakeGitHub({ issue: { number: 2, author: "c" } });
+  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "上"]);
+  gh = fakeGitHub({ issue: { number: 3, author: "c", fields: { 重さ: "下" } }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, said(gh).length, Boolean(parseQuestion(said(gh)[0]))], ["答え待ち", 1, true]);
+  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "下"]);
+  gh = fakeGitHub({ issue: { number: 2, author: "c", fields: { 重さ: "下" } } });
+  await deliver("projects_v2_item", item({ action: "created" }));
+  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ, said(gh).length, Boolean(parseQuestion(said(gh)[0]))], ["答え待ち", "下", 1, true]);
 });
 
 test("5 本文の先頭には、回答待ちの間だけ回答フォームへのボタンがある", async () => {

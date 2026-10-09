@@ -1,25 +1,6 @@
 """リポジトリの機械的な検査と計測。
 
-## 検知器の設計要件
-
-検知器はプロジェクト全体への一律チェックとして自動実行され、**実行タイミングも走査範囲も
-こちらで選べない**。したがって置いてよいのは、**どの文脈でも絶対に正しいと保証できる
-事実だけ**である。
-
-この要件から、次が導かれる。
-
-- **走査範囲を絞る仕組みを持たない。** 不変条件なら、全件でも差分でも同じ答えになる。
-  「新しく入った分だけを咎める」必要があるなら、それは不変条件ではない
-- **許可リストを持たない。** 許可リストは誤検知を認めた印である。「この綴りは外部の
-  語彙だから除外する」が必要なら、その検査は事実を見ていない
-- **母集団を手で書かない。** 「どのファイルが対象か」を人が列挙すると、実装が動いた
-  ときに静かにずれる。対象は、その検査が読む対象そのもの（マークダウン全件）
-  から自然に決まるものに限る
-- **実装そのものを検査対象にしない**（コードの書き方・import規則・型・レイヤーの
-  不変条件）。実装側の道具（lint・型検査・テスト）が持つ。検知器が実装の姿を知ろうと
-  すると写し（スナップショット・定数表）を抱え、実装が変わった瞬間に黙って死ぬ
-- **保存した過去の値と比べない。** それは検査ではなく報告である。必要な過去の値は
-  `periodic-review/NNN` タグが指すコミットから導く
+検知器（`docs`）を足す条件は .claude/rules/fixing.md「検知器を足す条件は厳しい」が持つ。
 
 ## 使い方
 
@@ -27,12 +8,12 @@
     python scripts/review_checks.py size      # 規模と前回比
     python scripts/review_checks.py metrics   # 定量メトリクスと総量の前回比
     python scripts/review_checks.py trigger   # 周期レビューの発火判定
-    python scripts/review_checks.py change    # 変更の増減（master との差分から）
+    python scripts/review_checks.py change    # 変更の増減と規模の札（master との差分から）
 
 終了コード: `docs`は違反があれば1。それ以外は表示のみで常に0。
 
 `change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
-（差分の起点を選ぶので、上の設計要件の外にある）。
+（差分の起点を選ぶので、検知器を足す条件の外にある）。
 
 `size`・`metrics`・`trigger`はプロジェクトの今の姿を HEAD から測るので、HEAD が origin/master より
 遅れていれば止まる（`scripts/checkout_freshness.py`）。`docs`は手元の作業ツリーそのものを検査し、
@@ -415,6 +396,8 @@ def cmd_trigger(args: argparse.Namespace) -> int:
 
 # --- 差分の報告（作業者が自分の差分に対して打つ。検査ではない） -----------------
 
+#: .claude/skills/file-issue/SKILL.md「規模の札」の閾値（実装＋テストの変更行の上限）。
+SIZE_LABELS = ((200, "S"), (1000, "M"))
 GENERATED_NAMES = ("package-lock.json",)
 
 
@@ -423,7 +406,7 @@ def merge_base(base: str, head: str) -> str:
 
 
 def change_kind(path: str) -> str:
-    """変更の行数を分ける種別。
+    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる。
 
     実装とテストは総量と同じ分け方（`volume_kind`）で、コードでないファイルは設定。
     """
@@ -456,10 +439,14 @@ def cmd_change(args: argparse.Namespace) -> int:
     for path, added, deleted in rows:
         totals[change_kind(path)][0] += added
         totals[change_kind(path)][1] += deleted
+    measured = sum(totals["実装"]) + sum(totals["テスト"])
+    label = next((name for limit, name in SIZE_LABELS if measured <= limit), "L")
     shown = git("rev-parse", "--short", args.head).strip() if args.head else "作業ツリー（未追跡のファイルを含む）"
     print(f"## 変更の増減（{mb[:8]}..{shown}）")
     print("増減: " + "・".join(f"{kind} +{a:,}/−{d:,}" for kind, (a, d) in totals.items()
                              if kind in ("実装", "テスト", "文書") or a or d))
+    print(f"規模: {label}（実装＋テスト {measured:,}行。{SIZE_LABELS[0][0]}以下 S・"
+          f"{SIZE_LABELS[1][0]}以下 M・超えると L。本番DBへ書くタスクは行数によらず L）")
     return 0
 
 
@@ -474,7 +461,7 @@ def main() -> int:
     ):
         p = sub.add_parser(name, help=help_text)
         p.set_defaults(func=func, measures_head=measures_head)
-    p = sub.add_parser("change", help="変更の増減")
+    p = sub.add_parser("change", help="変更の増減と規模の札")
     p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
     p.add_argument("--head", help="見る版（省くと作業ツリー）")
     p.set_defaults(func=cmd_change, measures_head=False)

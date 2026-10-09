@@ -130,7 +130,8 @@ jobs:
             git push -q origin "HEAD:refs/heads/${wip}"
             echo "GitHub に無い変更を ${wip} へ残した"
           fi
-      # 作る担当のタスクが進行中のままなら未着手へ戻し、利用の上限・認証なら振り出しをしばらく止める（tools/flow-gate/bin/after.js）。
+      # 作る担当のタスクが進行中のままなら終わり方で未着手か保留へ動かし、利用の上限・認証なら振り出しをしばらく止める
+      # （tools/flow-gate/bin/after.js）。手番の記録（実行のファイル）は非公開の置き場のリリースへ置く。
       # 最後に issue へ終わり（担当の最後の発言を含む）を書く。発言は非公開の置き場にだけ書き、この記録には出さない。
       - name: 後始末
         if: always() && steps.claim.outputs.go == 'true'

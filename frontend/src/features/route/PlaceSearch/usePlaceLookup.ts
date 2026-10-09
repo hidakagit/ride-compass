@@ -42,10 +42,14 @@ export function usePlaceLookup(mapCenter: Coordinates) {
     setNear(mapCenter);
   }
 
-  // かな漢字の変換中は呼ばない（変換を確定したときに呼ぶ）。
+  // かな漢字の変換中は呼ばない（変換を確定したときに呼ぶ）。引き始める長さに足りない文字なら、前の候補を下げる（候補が打った
+  // 文字に合わないまま残らない）。
   function scheduleLookUp(value: string) {
     clearTimeout(lookUpTimer.current);
-    if (value.replace(/\s/g, "").length < PREDICTION_MIN_LENGTH) return;
+    if (value.replace(/\s/g, "").length < PREDICTION_MIN_LENGTH) {
+      setQuery("");
+      return;
+    }
     const trimmed = value.trim();
     lookUpTimer.current = setTimeout(() => lookUp(trimmed), PREDICTION_DELAY_MS);
   }

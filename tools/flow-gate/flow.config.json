@@ -1,6 +1,6 @@
 {
   "repository": "ridecompass/ride-compass-tasks",
-  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "startField": "着手可能日", "unsetPriority": "中" },
+  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "sizeField": "規模", "startField": "着手可能日", "unsetPriority": "中" },
   "gate": "ridecompass-gate[bot]",
   "urls": { "gate": "https://ridecompass-gate.h7g4bin.workers.dev", "form": "https://ride-compass-answer.h7g4bin.workers.dev" },
   "installation": 165726503,
@@ -25,6 +25,6 @@
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
     "workflow": "claude-task.yml", "watcher": "claude-dispatch.yml", "slots": { "作る": 6, "確かめる": 4 }, "devLabel": "開発機が要る",
-    "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350, "watchFailMinutes": 30
+    "recent": 30, "recordsSince": "2026-10-04T00:09:49Z", "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350, "watchFailMinutes": 30
   }
 }

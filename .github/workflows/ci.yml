@@ -15,12 +15,8 @@
 #   決める（版が違うとブラウザの実行ファイルが見つからない。公式の文書 https://playwright.dev/docs/docker ）。
 #   @playwright/testを上げる変更（Dependabot等）が、そのままimageも上げる。
 # - e2e-scan: e2eのうち全状態の走査（幅 × 段階ごとに1本）を、幅ごとに段階の数だけの別ジョブ（--shard）で走らせる。
-# - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。文書（docs/**・*.md）・
-#   Claude Codeの設定（.claude/**）・運用の道具（scripts/ のうちテストとデプロイが読まないもの）・タスク管理
-#   （.github/taskflow-paths の置き場。検査と公開は claude-gate.yml）だけの変更では走らせない。飛ばしてよいのは、
-#   このワークフローの検査が読まないものだけで、読む範囲がディレクトリに限られる検査は、そのディレクトリを先に当てて
-#   入れ直す（frontend/src/structure/caseOnlyPaths.test.ts は frontend/src の下の .md も読む）。全ての文書を読む検査（backend/tests/structure/test_named_references.py）と運用の道具の静的検査は、
-#   常に走る docs-consistency.yml が持つ。決め方は docs/architecture/tech-stack.md「CIの実行枠」。
+# - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。飛ばす範囲の決め方は
+#   docs/architecture/tech-stack.md「CIの実行枠」。
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。changes が成功し、重い検査が changes の決めたとおりに
 #   終わった（走らせるなら全部成功、飛ばすなら全部スキップ）ときだけ通し、それ以外は落とす。通す形を列挙するのは、
 #   GitHub Actions の障害でランナーが付かずに取り消されたジョブが、needs の結果に cancelled として渡らないことがあるため
@@ -98,6 +94,7 @@ jobs:
           heavy=false
           while IFS= read -r f; do
             case "$f" in
+              # frontend/src の下の .md も読む検査（frontend/src/structure/caseOnlyPaths.test.ts）があるので、先に当てて入れ直す。
               frontend/src/*) heavy=true; continue ;;
               docs/*|*.md|.claude/*|scripts/size_thresholds.json|scripts/remote_dev/*) continue ;;
             esac

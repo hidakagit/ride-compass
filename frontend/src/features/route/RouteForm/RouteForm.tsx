@@ -213,7 +213,10 @@ export default function RouteForm({
             <TabsTrigger value="places" usage="名前を付けて保存した地点の一覧です。">
               地点
             </TabsTrigger>
-            <TabsTrigger value="conditions" usage="いまの設定に名前を付けて保存し、保存した設定を呼び出します。">
+            <TabsTrigger
+              value="conditions"
+              usage="名前を付けて保存した設定の一覧です。呼び出すと、各タブの値を入れ替えます。"
+            >
               設定
             </TabsTrigger>
           </TabsList>
