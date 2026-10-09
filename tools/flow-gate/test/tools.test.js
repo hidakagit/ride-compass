@@ -1,23 +1,54 @@
-// 約束 18（担当の後始末で振り出しを止めるか。src/after.js: settle）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
+// 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
 // 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
-// src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、26・27・28 は GitHub（網）だけを、30 は gh を
+// src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
 // 打つ口だけを差し替える。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）・
 // 道具（bin/attach.js）が打つ gh。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { settle } from "../src/after.js";
+import { keepLog, settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
 import { askTask, moveTask } from "../src/move.js";
 import { attach } from "../src/attach.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
-test("18 後始末: 利用の上限・認証で止まったときだけ振り出しを止め、一時の失敗と起きる前の落ちは止めない", () => {
+test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開いた Pull Request・待つ理由があれば戻し、それ以外（持ち時間を超えた・Cancel されたも）は保留", () => {
   const said = (error) => [{ type: "assistant", error }];
-  const at = (messages) => settle({ messages, url: "u", jobStatus: "success" }).pause;
-  assert.deepEqual([at(said("rate_limit")), at(said("overloaded")), at(null)], [true, false, false]);
+  const at = (messages, extra = {}) => settle(config, { messages, waits: null, pullRequest: null, url: "u", jobStatus: "success", ...extra });
+  assert.deepEqual([at(said("rate_limit")).to, at(said("rate_limit")).pause], [config.todo, true]);
+  for (const m of [said("overloaded"), null]) assert.deepEqual([at(m).to, at(m).pause], [config.todo, false]);
+  assert.equal(at([], { waits: "開いた前提（blocked by）" }).to, config.todo);
+  assert.equal(at([], { pullRequest: { number: 3, html_url: "p" } }).to, config.todo);
+  assert.equal(at([]).to, config.hold);
+  for (const m of [said("rate_limit"), null]) assert.deepEqual([at(m, { jobStatus: "cancelled" }).to, at(m, { jobStatus: "cancelled" }).pause], [config.hold, false]);
+});
+
+test("24 手番の記録: 日ごとのリリースに付き、無ければ作り、並んで作られて作れなければ先に作られたものへ付ける", async () => {
+  const at = async (releases, { race = false } = {}) => {
+    const uploads = [];
+    globalThis.fetch = async (url, init) => {
+      const { pathname, searchParams } = new URL(url);
+      const found = releases.find((r) => pathname.endsWith(`/tags/${r.tag_name}`));
+      if (init.method === "GET") return found ? Response.json(found) : new Response("{}", { status: 404 });
+      if (pathname.endsWith("/releases")) {
+        const made = { ...JSON.parse(init.body), upload_url: `https://uploads.example/${releases.length}{?name,label}` };
+        releases.push(made);
+        return race ? new Response("{}", { status: 422 }) : Response.json(made);
+      }
+      uploads.push({ to: pathname, name: searchParams.get("name"), type: init.headers["content-type"] });
+      return Response.json({ browser_download_url: `${url}#dl` });
+    };
+    await keepLog(new GitHub("bot-token"), config.repository, { gz: new Uint8Array([1]), name: "a.json.gz", now: new Date("2026-10-04T23:00:00Z") });
+    return { tags: releases.map((r) => r.tag_name), uploads };
+  };
+  const day = { tag_name: "turns-2026-10-04", upload_url: "https://uploads.example/day{?name,label}" };
+  assert.deepEqual(await at([{ tag_name: "turns-2026-10-03", upload_url: "x" }, day]), { tags: ["turns-2026-10-03", "turns-2026-10-04"], uploads: [{ to: "/day", name: "a.json.gz", type: "application/gzip" }] });
+  for (const race of [false, true]) {
+    const r = await at([], { race });
+    assert.deepEqual([r.tags, r.uploads.map((u) => u.to)], [["turns-2026-10-04"], ["/0"]]);
+  }
 });
 
 test("26 GitHub の一時的な失敗（5xx・接続の失敗・GraphQL の「Something went wrong」）は、読むだけの要求なら打ち直して書き終え、書く要求は打ち直さない", async () => {
