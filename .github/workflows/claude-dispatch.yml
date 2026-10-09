@@ -1,7 +1,7 @@
 # 振り出しの見回り。決まった間隔（flow.config.json: coordinator.watchEveryMinutes）ごとに、master の今の道具を取り出し直して
 # tools/flow-gate/bin/dispatch.js を1周打つ（master に入った変更が次の周から効く）。持ち時間（coordinator.watchForMinutes）が
-# 過ぎたら、次の実行を起こしてから終える。止めるときは、このワークフローを Actions の画面で無効にする（Disable workflow）。
-# 動いている実行は次の周で無効と読み（dispatch.js が終わりの値 3 で終える）、次を起こさない。戻すときは Enable workflow のあと Run workflow。
+# 過ぎたら、次の実行を起こしてから終える。止め方・戻し方は docs/conventions/flow.md「担当」の「止める」（無効と読んだ
+# dispatch.js は終わりの値 3 で終え、次を起こさない）。
 name: Claude Dispatch
 
 on:

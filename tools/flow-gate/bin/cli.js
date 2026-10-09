@@ -54,14 +54,21 @@ function userEnv(name) {
 export const bot = () => new GitHub(userEnv("FLOW_BOT_TOKEN")); // 置き場へ書くのは hidakagit-bot だけ
 export const code = () => new GitHub(userEnv("GH_TOKEN")); // コードのリポジトリ（hidakagit のもの）を読み、担当を起こす
 
-// 引数を読む。usage は使い方の1行、ok は引数（--dry-run を除いたもの）が正しいか。正しくなければ使い方を出して終える。
+// 引数を読む。usage は使い方の1行で、試しを持つ道具は `[--dry-run]` を書く。ok は引数（--dry-run を除いたもの）が正しいか。
+// 正しくなければ使い方を出して 2 で終える。試しを持たない道具に --dry-run が付いていれば、本当に書かないよう何もせずに 1 で終える
+// （--dry-run が付くと上で master の版へ打ち直さないので、ここで断るのは作業ツリーの版）。
 export function args(usage, ok) {
   const all = process.argv.slice(2);
+  const dry = all.includes("--dry-run");
+  if (dry && !usage.includes("[--dry-run]")) {
+    console.error(`この道具は試し（--dry-run）を持たないので、何もせずに終える。使い方: ${usage}`);
+    process.exit(1);
+  }
   const rest = all.filter((a) => a !== "--dry-run");
   if (!ok(rest)) {
     console.error(`使い方: ${usage}`);
     process.exit(2);
   }
-  return { dry: all.includes("--dry-run"), rest };
+  return { dry, rest };
 }
 export const isNumber = (s) => /^\d+$/.test(s ?? "");

@@ -1,16 +1,9 @@
-# 文書の整合。文書だけの変更でも走る検査を置く。
-#
-# ci.ymlは文書だけの変更では重い検査を飛ばす（changes のジョブが決める）が、ここの検査はその変更こそが
-# 対象なので、別ワークフローにして常に走らせる。**常に全件**を見る——検知器はどの走査範囲でも
-# 同じ答えになる事実だけを扱うので、差分の起点を解決する必要がない（設計要件は
-# scripts/review_checks.py の冒頭）。
+# 文書の整合。文書だけの変更でも走る検査を置く（ci.yml と分ける理由は docs/architecture/tech-stack.md「CIの実行枠」）。
+# 検知器は常に全件を見る（.claude/rules/fixing.md「検知器を足す条件は厳しい」）。
 #
 # - docs-consistency: scripts/review_checks.py docs。pure pythonで数秒。
-# - doc-reading-tests: 全ての文書を読むbackendのテスト。ci.ymlのbackendジョブでも走るが、
-#   文書だけの変更ではci.ymlが走らないため、ここでも走らせる（起動条件の決め方は
-#   docs/architecture/tech-stack.md「CIの実行枠」）。
-# - repo-wide: ci.ymlが見ない、またはci.ymlを飛ばす変更の入力になる運用の道具（backendの外のPython・
-#   追跡しているsh）の静的検査。依存が軽く数十秒で終わる。
+# - doc-reading-tests: 全ての文書を読むbackendのテスト。
+# - repo-wide: 運用の道具（backendの外のPython・追跡しているsh）の静的検査。依存が軽く数十秒で終わる。
 name: Docs Consistency
 
 on:
