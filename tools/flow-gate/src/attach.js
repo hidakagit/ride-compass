@@ -1,4 +1,4 @@
-// Pull Request へ画像を1枚ずつ貼る（flow.md「作る担当」の5の「貼り方」）。gh は画像を順に上げて最初の失敗で止まり、上がった分だけで
+// Pull Request へ画像を1枚ずつ貼る（.claude/skills/task-work/SKILL.md「作る担当」の5の「貼り方」）。gh は画像を順に上げて最初の失敗で止まり、上がった分だけで
 // コメントを書く（gh のソース internal/attachments/attach.go）ので、1枚ずつ打てば落ちた打ちは何も書かない。貼れなければ止まり、
 // それまでに貼った分と出た文言を返す。
 

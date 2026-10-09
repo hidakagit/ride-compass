@@ -32,7 +32,7 @@
 # - 持ち時間（各ジョブの timeout-minutes）: 2026-10-07 に測った成功した実行（masterへのpushの直近20件と
 #   Pull Requestの直近60件）の、ジョブごとの最長の所要の2倍を5分単位へ切り上げた値（e2e-scan は幅のうち長いほう）。
 #   段が止まったジョブ（playwright install が進まなくなった等）を既定の360分まで待たせず、取り消しで終わらせて、
-#   作る担当・確かめる担当が流し直す（docs/conventions/flow.md「作る担当」の5）。成功する実行が切られるようになったら、同じ決め方で
+#   作る担当・確かめる担当が流し直す（.claude/skills/task-work/SKILL.md「作る担当」の5）。成功する実行が切られるようになったら、同じ決め方で
 #   測り直す。deploy-backend・deploy-frontend の持ち時間は、呼ばれる側の deploy-*.yml が持つ。
 name: CI
 
