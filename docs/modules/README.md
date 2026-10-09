@@ -60,7 +60,7 @@
 | 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表の母集団にも入らない |
 | タスクの流れのゲート（`tools/flow-gate/`） | [conventions/flow.md](../conventions/flow.md)・[ask/SKILL.md](../../.claude/skills/ask/SKILL.md) | ステータスの遷移の表・問いと答えの形・回答フォーム。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
 | クラウドのセッションの用意（`scripts/remote_dev/`） | [architecture/setup.md](../architecture/setup.md)「クラウドのセッション」 | 依存の導入とDB・Redisの起動 |
-| 壊れ方の確かめ（`scripts/break_tests.py`） | [.claude/rules/testing.md](../../.claude/rules/testing.md)「そのテストは要るか（3問を順に）」の消す・まとめる前の段 | 壊れ方の一覧の形・断る条件・前の版のテストの並べ方 |
+| 壊れ方の確かめ（`scripts/break_tests.py`） | [.claude/rules/testing-necessity.md](../../.claude/rules/testing-necessity.md)「そのテストは要るか（3問を順に）」の消す・まとめる前の段 | 壊れ方の一覧の形・断る条件・前の版のテストの並べ方 |
 | チェックアウトの遅れの確かめ（`scripts/checkout_freshness.py`） | [architecture/setup.md](../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」 | どの道具が遅れで止まるか・早送りを打つ条件 |
 
 判断の目安は**「その制約を、コードだけを読んで知れるか」**。知れないならモジュール設計書の

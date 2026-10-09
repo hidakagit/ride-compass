@@ -110,7 +110,7 @@ FastAPI(lifespan=lifespan)
         │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
         ├─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
         │       （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
-        │       タイミングに当たる、.claude/rules/caching.md「無効化」参照）
+        │       タイミングに当たる、.claude/rules/caching-retention.md「無効化」参照）
         └─ (7) 同じくAPSchedulerで地域タイルの旧世代掃除ジョブを登録（interval=24時間＋
                 next_run_time=now。世代は派生の作り直し・取込でも再起動なしに変わるため定期に回す。
                 [静的道路属性](static-road-attributes.md)「共通骨格」の旧世代の掃除）
@@ -292,7 +292,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 ## Redisのcache-aside（`redis_json_cache.py`）
 
-どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[.claude/rules/caching.md](../../../.claude/rules/caching.md)が
+どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[.claude/rules/caching.md](../../../.claude/rules/caching.md)と[.claude/rules/caching-retention.md](../../../.claude/rules/caching-retention.md)が
 正本で、ここは実装の説明に絞る。
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
@@ -312,7 +312,7 @@ JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測�
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
 `jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
-自前の骨格を持ってよい場合は.claude/rules/caching.md「自前で骨格を書いてよい例外」が決める。
+自前の骨格を持ってよい場合は.claude/rules/caching-retention.md「Redisへ持つときは`redis_json_cache`を使う」の「自前で骨格を書いてよい例外」が決める。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

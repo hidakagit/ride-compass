@@ -7,7 +7,7 @@
 # - frontend: prettier → eslint → knip → tsc --noEmit → vitest の順。書式・lint・型エラーは実行の速い順に
 #   先へ置き、失敗を早く返す。knipは本番・テスト・e2eの入口から辿れないファイル・export・依存を見る。
 # - e2e: 本番ビルドを実ブラウザで開き、実機でしか出ないもの（収まる・押せる、ブラウザと地図の
-#   実挙動、カスケード）を見る（対象の定義は .claude/rules/testing.md パターン4）。
+#   実挙動、カスケード）を見る（対象の定義は .claude/rules/testing-patterns-runtime.md パターン4）。
 #   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
 #   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
 #   e2eとe2e-scanは、Playwrightの公式のcontainerのimage（ブラウザとその依存を入れたもの）の中で走らせ、
@@ -145,7 +145,7 @@ jobs:
       - run: lint-imports
       # -n auto（pytest-xdist）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
-      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、.claude/rules/testing.mdパターン2）
+      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、.claude/rules/testing-patterns-runtime.mdパターン2）
       # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
       # 実行順はpytest-randomlyがばらす。-qでは種が見出しに出ないため、runのIDを種に渡す——落ちた並びは
       # 手元で --randomly-seed=<runのID> を付けて同じ順に並べ直せる。

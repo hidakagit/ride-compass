@@ -1,6 +1,6 @@
 r"""起こし直したテストを機械で監査する。報告の自己申告を鵜呑みにしないため。
 
-テストを「実装から起こし直す」手順（.claude/rules/testing.md）は、守ったかどうかが
+テストを「実装から起こし直す」手順（.claude/rules/testing-rewrite.md）は、守ったかどうかが
 成果物の見た目からは分からない。旧版を写しても、他モジュールへ結びついても、テストは
 緑になる。この監査は、守れていれば必ず満たすはずの5点を外から測る。
 
@@ -187,7 +187,7 @@ def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
 
 
 def monkeypatch_seams(tree: ast.AST) -> set[str]:
-    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。testing.mdの seams 数はこのユニーク数。"""
+    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。testing-writing.md の seams 数はこのユニーク数。"""
     return {
         node.args[1].value
         for node in ast.walk(tree)

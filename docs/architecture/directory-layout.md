@@ -92,7 +92,7 @@ CI・フック・開発環境の用意のスクリプト）・`tools/`（アプ�
     `forbidden`契約で`lint-imports`が落ちる。この層のモジュールを通して読むのはよい。
   - **ディスクのキャッシュ（`tile_cache.py`・`tile_persistent_cache.py`）も同じ**で、上の層は鍵・骨格を持つこの層の
     モジュール（例: 地域タイルは`region_tile_cache.py`）を通して読む。例外は管理画面の全消し（`api/routers/basemap.py`）
-    だけで、契約の`ignore_imports`に置く（[caching.md](../../.claude/rules/caching.md)「無効化」の全消し）。
+    だけで、契約の`ignore_imports`に置く（[caching-retention.md](../../.claude/rules/caching-retention.md)「無効化」の全消し）。
 - **`config.py`**: 環境変数から読む設定。`domain/`は読まない。
 - **`domain/`**: 外部I/Oと環境（設定）を持たない純粋なロジックと語彙の正本。評価軸・材料・一次属性の
   レジストリ、スコアリング、地理計算、気象の判定ロジック、入力の値の不変条件が属する。**「同じ
@@ -185,7 +185,7 @@ VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をその�
   タイル世代等の付随生成物。backendと画面が同じ計算を持つところの「入力→答え」の表`*-expectations.json`も）。コミット対象で、CI（`ci.yml`）の`api-contract`ジョブがドリフトを検知する。
   OpenAPIスキーマは**契約だけ**を持ち、docstring由来の散文は載せない。
 - **`testing/`・`structure/`**: 層の外で、テストだけが読む。`testing/`はテストが共有する足場とフェイク、`structure/`は
-  ソースを読む検査（どちらも[testing.md](../../.claude/rules/testing.md)）。アプリのコードはここを読まない。
+  ソースを読む検査（足場は[testing-patterns-data.md](../../.claude/rules/testing-patterns-data.md)「パターン5」、検査は[testing-writing.md](../../.claude/rules/testing-writing.md)「ソースを読む検査は、専用ディレクトリへ置く」）。アプリのコードはここを読まない。
 
 **backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ
 変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422に

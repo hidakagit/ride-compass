@@ -276,7 +276,7 @@ python scripts/review_checks.py docs
 - **実装↔テスト**: 変更に対応するテストがあるか。実装詳細への依存（privateメソッド直叩き）、
   不要になったテスト、過剰なmock、**実質的に意味のないテスト**（実装をなぞるだけで
   壊れ方を検証しない、常にpassする）、DBを使うテストに`postgis`の印が付け忘れられていないか
-  （`.claude/rules/testing.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
+  （`.claude/rules/testing-rewrite.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
   ヘルパー）が複数のテストファイルに写されていないか
 
 #### 文書とコメントが名指しするもの

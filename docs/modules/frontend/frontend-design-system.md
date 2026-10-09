@@ -122,7 +122,7 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
   押したときだけ消す）。押し間違い1回で失わせないため。消した後に戻す知らせ（元に戻す）は持たない——知らせは数秒で消え、
   走行中のスマホでは見落とすと戻せない。すぐ置き直せるもの（経由地・目的地のクリア等）には付けない。
   開くボタンには`aria-haspopup="dialog"`と、窓が開いている間`true`の`aria-expanded`を付ける（全状態の走査がこれで窓を辿る。
-  [testing.md](../../../.claude/rules/testing.md)パターン4「走査する画面の状態は、画面から辿る」）。
+  [testing-patterns-runtime.md](../../../.claude/rules/testing-patterns-runtime.md)パターン4「走査する画面の状態は、画面から辿る」）。
 
 ## 5-1. パネルの操作ボタンの形
 

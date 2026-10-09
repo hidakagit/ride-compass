@@ -2,7 +2,7 @@
 /**
  * `features/route/geoDistance.ts: cumulativeDistancesKm`——座標列（GeoJSONの[経度, 緯度]）の各点までの累積距離（km）。
  *
- * 2点の距離の答えはbackendが出す表（生成物`geo-expectations.json`の`distance_km`）が持つ（testing.md「パターン11」）。
+ * 2点の距離の答えはbackendが出す表（生成物`geo-expectations.json`の`distance_km`）が持つ（testing-patterns-data.md「パターン11」）。
  * ここでは表を全行通すことと、2点の距離を点の順に足し上げることを見る。
  *
  * ここで見ないもの:

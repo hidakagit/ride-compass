@@ -1,4 +1,4 @@
-"""テストが派生の表へ行を直接書かないことの検査（.claude/rules/testing.md パターン8）。
+"""テストが派生の表へ行を直接書かないことの検査（.claude/rules/testing-patterns-data.md パターン8）。
 
 派生の表は本番では派生の段だけが書く。テストが直接書くと、段では作れない行（標高の無い区間の勾配等）ができ、
 その行に合わせた読み手の分岐がテストだけで緑のまま残る。段を通して作れば、表の制約が段の書く値に締まっても
@@ -39,7 +39,7 @@ def test_tests_do_not_write_derived_tables() -> None:
     unexpected = sorted(files_writing_derived_tables(TESTS_ROOT) - ALLOWED.keys())
     assert unexpected == [], (
         "派生の表へ行を直接書いているテストがある（生データを取込の入口から入れ、派生の段を通して作ること。"
-        "testing.md パターン8）:\n  " + "\n  ".join(unexpected)
+        "testing-patterns-data.md パターン8）:\n  " + "\n  ".join(unexpected)
     )
 
 

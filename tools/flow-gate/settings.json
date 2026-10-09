@@ -58,6 +58,9 @@
       "PowerShell(gh run cancel *)",
       "Bash(gh run delete *)",
       "PowerShell(gh run delete *)"
+    ],
+    "ask": [
+      "Edit(scripts/size_thresholds.json)"
     ]
   },
   "autoMode": {

@@ -122,7 +122,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    ルールセットの必須のチェック（`gh api repos/hidakagit/ride-compass/rules/branches/master --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`）
    と揃っていることを見る。揃っていなければまだ起きていない実行があるので、`gh run list` から打ち直す。`gh pr checks --watch` では待たない。
    落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で回す場面と範囲は
-   .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing.md「テストが落ちたときの直し方」）、4 から続ける。
+   .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing-writing.md「テストが落ちたときの直し方」）、4 から続ける。
    取り消し（`cancelled`）で終わったチェックも「落ちたら」と同じに扱う。master を取り込んでも直すものが無ければ（GitHub Actions の
    障害でランナーが付かなかった等）、`gh run rerun <id> --failed -R hidakagit/ride-compass` で流し直して `gh run watch` から待ち直す。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、

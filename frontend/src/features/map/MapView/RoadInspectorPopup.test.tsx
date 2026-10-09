@@ -2,7 +2,7 @@
  * `RoadInspectorPopup.tsx`——押した道の評価を取りに行き、軸ごとの効き方を出すこと。
  *
  * ここで見ないもの:
- * - 評価を利用者のいまの重みで取りに行くこと → 受けた重みをそのまま取得の口へ渡す1行の委譲（testing.md「そのテストは
+ * - 評価を利用者のいまの重みで取りに行くこと → 受けた重みをそのまま取得の口へ渡す1行の委譲（testing-necessity.md「そのテストは
  *   要るか」の1問目）。重みを要求の項目へ載せることは`features/map/regionApi.test.ts`が見る
  */
 import { render, screen, waitFor } from "@testing-library/react";

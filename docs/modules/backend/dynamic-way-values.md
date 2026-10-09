@@ -176,7 +176,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 短く持つ。下の「`RainWayService`」）。風は予報の格子点の風を配列でまとめて引くだけで計算が軽く、
 キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%。タイル中心1点の風を全wayへ配っていた版の
 本番実測）にとどまる一方、1エントリ190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
-809msを節約できるためキャッシュする（[.claude/rules/caching.md](../../../.claude/rules/caching.md)
+809msを節約できるためキャッシュする（[.claude/rules/caching-retention.md](../../../.claude/rules/caching-retention.md)
 「キャッシュしないという選択」参照）。
 
 保持層は**ディスク**（`tile_persistent_cache`＝diskcache）。失っても外部へは取りに行かず
@@ -242,7 +242,7 @@ get_way_values(z, x, y, WindConditions(bearing_deg, speed_kmh, at))
 
 **この値はキャッシュしない**。タイル1枚ぶんを1回のMSM読み出しと配列演算で求めるだけで計算が軽く、
 保持コスト（1エントリ190KB）に見合う節約にならない（下の「キャッシュ」節と
-.claude/rules/caching.md「キャッシュしないという選択」）。
+.claude/rules/caching-retention.md「キャッシュしないという選択」）。
 
 ### `GradientWayService`（`gradient_way_service.py`）
 

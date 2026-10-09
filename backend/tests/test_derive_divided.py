@@ -19,7 +19,7 @@ from app.domain.divided_carriageway import GEOMETRIC_GAP_M, NAMED_GAP_M
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from tests.source_ingest import ingest_records, way_record
 
-# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-patterns-runtime.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

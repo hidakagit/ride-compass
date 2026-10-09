@@ -4,7 +4,7 @@
  *
  * 呼び名と丸めの答えはbackendが出す表（生成物`geo-expectations.json`の`compass_label`）が持つ。表の入力は区分の
  * 境界ちょうどとその少し手前・負の角度・一周を超える角度で、丸めの向き・正規化・呼び名の並びはこの表で決まる
- * （testing.md「パターン11」）。
+ * （testing-patterns-data.md「パターン11」）。
  *
  * ここで見ないもの:
  * - 表の答えが正しいこと → backendのテスト（`domain/geo.py`）
