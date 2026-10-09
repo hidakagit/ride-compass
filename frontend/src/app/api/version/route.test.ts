@@ -8,7 +8,7 @@
  * - この口を読んで画面に出すこと → `features/admin/SystemStatusPanel/SystemStatusPanel.test.tsx`・
  *   `components/HeaderMenu/HeaderMenu.test.tsx`
  *
- * コミットの環境変数はこの口だけが読むので、`vi.stubEnv`で立てて入口を呼ぶ（docs/conventions/testing.md パターン7）。
+ * コミットの環境変数はこの口だけが読むので、`vi.stubEnv`で立てて入口を呼ぶ（.claude/rules/testing.md パターン7）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 

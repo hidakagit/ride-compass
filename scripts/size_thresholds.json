@@ -7,7 +7,7 @@
     "backend/app/domain/routing.py": 1400,
     "backend/app/services/road_graph_engine.py": 2100,
     "backend/tests/test_routing.py": 1500,
-    "docs/conventions/testing.md": 1350,
+    ".claude/rules/testing.md": 1350,
     "docs/modules/backend/routing-engine.md": 1200,
     "frontend/src/app/page.tsx": 800,
     "frontend/src/features/admin/AxisStudio/AxisScoringSection.tsx": 900,
@@ -20,7 +20,7 @@
     "backend/app/domain/evaluation.py": "経路へ運ぶ材料の選び（has_route_facing_raw_value〜displayed_material_ids）を別モジュールへ出す",
     "backend/app/domain/routing.py": "最寄りノードの空間索引（NodeSpatialIndex〜find_nearest_node_indexed）を domain/node_index.py へ出す",
     "docs/conventions/flow.md": "判定が機械で決まる手順（コマンドの出力の文言・件数・回数で分かれるもの）を tools/flow-gate の道具にし、節を道具を打つ1行と失敗したときの扱いにする",
-    "docs/conventions/testing.md": "書き方のパターン（パターン1〜）を別文書へ出す",
+    ".claude/rules/testing.md": "書き方のパターン（パターン1〜）を別文書へ出す",
     "docs/modules/backend/routing-engine.md": "レグ内の時刻ビン・レグ別コスト配列・domain層の節を別文書へ出す",
     "frontend/src/app/page.tsx": "パネルの開閉と地図で扱える操作の決まり・シートの高さを hook へ出す",
     "frontend/src/features/map/MapView/MapView.tsx": "地点の印の effect と ref・初期化の後始末を useMapMarkers へ、ルートを収める計算を lib へ出す"

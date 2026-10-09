@@ -42,7 +42,7 @@ argument-hint: [対象タスク（省略時は直近のセッション内の作�
 ## 提案1: <タイトル>
 - 出来事: （何が起きたか、事実ベース）
 - 一般化: （なぜ今後にも活きるか。一過性のものは提案しない）
-- 置き場所: <CLAUDE.md本体 / docs/conventions/<名前>.md / docs/architecture/<名前>.md>
+- 置き場所: <CLAUDE.md本体 / docs/conventions/<名前>.md / .claude/rules/<名前>.md / .claude/skills/<名前>/SKILL.md / docs/architecture/<名前>.md>
 - 変更案: （具体的な文面、差分が分かる形）
 - 置いた先: #<番号>（起票した issue か、コメントを足した issue）
 

@@ -24,7 +24,7 @@ from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, PARTY_TYPE_CO
 from tests.conftest import empty_ingested_tables
 from tests.source_ingest import WAY_ORIGIN, WAY_STEP, ingest_records, point_record, way_record, zigzag_point
 
-# road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

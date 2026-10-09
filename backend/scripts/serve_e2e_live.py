@@ -10,7 +10,7 @@
     python backend/scripts/serve_e2e_live.py [--port N] [--point 緯度,経度]
 
 本体の`backend/.venv`のPythonで走らせ直すので、どのPythonで呼んでもよい。前提・手順の正本は
-docs/conventions/testing-operations.md「E2E・画面の撮影の走らせ方」。
+.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」。
 """
 
 import argparse

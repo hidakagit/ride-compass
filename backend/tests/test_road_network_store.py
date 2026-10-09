@@ -4,7 +4,7 @@
 `current`（読む）・`prune_other_shapes`（起動後の片付け）。置き場（`ROOT`）はテストごとの一時ディレクトリ（`tests/conftest.py: road_network_root`）。
 
 DBから組むテストは、道とノードを取込の入口から入れ、派生の作り直し（`batch/derive_cli.py: run`）で区間と材料まで
-作ってから組む（本番で作れる行だけを使う。docs/conventions/testing.md パターン8）。置き場を読み書きするテストは、
+作ってから組む（本番で作れる行だけを使う。.claude/rules/testing.md パターン8）。置き場を読み書きするテストは、
 形だけを持つ小さな`RoadNetwork`を組んで渡す。
 
 ここで見ないもの:

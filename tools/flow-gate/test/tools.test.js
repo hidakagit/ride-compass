@@ -108,7 +108,7 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
   s = at([run(9, 7, "開発機", "in_progress", undefined, { refused: true }), run(10, 8, "開発機", "in_progress"), run(11, 7, "作る", "in_progress"), run(12, 7, "開発機", "completed")]);
   await assert.rejects(release(gh, config, 7, 9), /409/);
   assert.equal((await release(gh, config, 7, 12)).status, "completed");
-  for (const id of [10, 11]) await assert.rejects(release(gh, config, 7, id, wait));
+  for (const id of [10, 11]) await assert.rejects(release(gh, config, 7, id));
   assert.deepEqual([s.runs[1].status, s.runs[2].status, s.sent.filter((c) => /runs\/1[012]\/cancel/.test(c))], ["in_progress", "in_progress", []]);
 });
 

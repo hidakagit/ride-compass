@@ -1,5 +1,5 @@
 // backendとの通信を網の層で差し替える足場（msw）。口（`services/*Api.ts`・`features/**/*Api.ts`）も、通信を包むフックも
-// 本物を通し、`lib/apiClient.ts`が`fetch`へ出した要求にここで応える（docs/conventions/testing.md「確かめる高さ」）。
+// 本物を通し、`lib/apiClient.ts`が`fetch`へ出した要求にここで応える（.claude/rules/testing.md「確かめる高さ」）。
 // serverの起動・テストごとの応答の片付け・停止は`vitest.setup.ts`が受け持ち、応答の無い要求はテストを落とす。
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";

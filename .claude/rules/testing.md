@@ -1,8 +1,28 @@
+---
+paths:
+  - "backend/tests/**"
+  - "backend/pytest.ini"
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.test.tsx"
+  - "frontend/src/testing/**"
+  - "frontend/vitest.setup.ts"
+  - "frontend/e2e/**"
+  - "frontend/e2e-live/**"
+  - "frontend/capture/**"
+  - "frontend/playwright*.config.ts"
+  - "frontend/src/structure/**"
+  - "frontend/vitest.config.mts"
+  - "scripts/break_tests.py"
+  - "backend/scripts/audit_test_rewrite.py"
+  - "frontend/scripts/audit-test-rewrite.mjs"
+  - "tools/flow-gate/test/**"
+---
+
 # テスト方針
 
 この文書は2つを持つ。**書く前の判定**（単体で確かめるか・そのテストは要るか・起こし直しの手順・消すべき型）と、
 **書き方**（実行時間・置き場・パターン）である。
-検査とテストを手元・CI・開発機でどう回すかは[testing-operations.md](testing-operations.md)が持つ。
+検査とテストを手元・CI・開発機でどう回すかは[run-checks/SKILL.md](../skills/run-checks/SKILL.md)が持つ。
 
 **新しいテストを追加するときは、以下のパターンに従って実行時間の増加を最小限に抑えること。**
 
@@ -69,7 +89,7 @@
 |---|---|---|
 | 部品（`*.tsx`） | props・利用者の操作（`userEvent`） | 描いたもの（role・名前・表示文言・`aria-*`の状態）と、呼ばれたコールバックの引数 |
 | フック（`use*.ts`） | 引数（`renderHook`の`rerender`で変える）・戻り値の関数を呼ぶこと | 戻り値と、backendへ送ったもの（状態を変える要求だけ。読むだけの要求は応答を与えるだけで、送ったかを見ない。上の差し替えの箇条） |
-| ページ（`app/**/page.tsx`） | 部品と同じ | 部品と同じ。ページの仕事は機能の間の受け渡しなので、ある機能の変化が別の機能の振る舞いを変える受け渡しを見る（[page-composition.md](../modules/frontend/page-composition.md)） |
+| ページ（`app/**/page.tsx`） | 部品と同じ | 部品と同じ。ページの仕事は機能の間の受け渡しなので、ある機能の変化が別の機能の振る舞いを変える受け渡しを見る（[page-composition.md](../../docs/modules/frontend/page-composition.md)） |
 | 純関数（`lib/`等） | 引数 | 戻り値 |
 
 **画面の操作は、利用者の1つの流れを1本のテストにしてよい**（開く→選ぶ→送る、のような流れ。途中で何度
@@ -478,7 +498,7 @@ Edgeが無いのは正常な事実で、欠陥と同じ群に入れない）。
 通りやすいが、対比先（宣言の隣のコメント・docstringが対で読めと指す関数）が現状を選んだ理由を
 その場に書いていることがある。
 
-問いの形と届け方は[flow.md](flow.md)「問い」が正本。テストの欠陥の要確認で判断材料に足すのは次の2つだけ。
+問いの形と届け方は[flow.md](../../docs/conventions/flow.md)「問い」が正本。テストの欠陥の要確認で判断材料に足すのは次の2つだけ。
 
 **設計書・コード・テストが、それぞれ何を主張しているか。** 利用者への約束と場面の次に、3行の表で、
 **同じ粒度・実装の語を使わずに**。「コードはこう実装されている」ではなく「コードはこう主張
@@ -784,7 +804,7 @@ SQLは実DBで確かめる（パターン2）。Repositoryを差し替えてよ�
    束ねられないのは③が足りていない合図で、④へ進む前に③へ戻る。
 5. **④で触った範囲だけを検証する。** テストと**静的検査の両方**を
    その範囲へ当てる。全体を流すと、いま直していない失敗が混ざって何が解けたか読めなくなる。
-6. ④⑤を繰り返す。全部解けたらpushし、全体はCIで見る（[testing-operations.md](testing-operations.md)「手元の検査の回し方」）。
+6. ④⑤を繰り返す。全部解けたらpushし、全体はCIで見る（[run-checks/SKILL.md](../skills/run-checks/SKILL.md)「手元の検査の回し方」）。
 
 **手を動かす前に現物を読む。** 書いた当時の文字列で照合しない——整形（prettier等）が入って
 いると一致せず、置換が黙って空振りする。複数ファイルを直すときは、1ファイルの失敗が残りを
@@ -896,7 +916,7 @@ test_routes_generate.py
 4. ファイル単位で共有するのは接続とスキーマまでにする。**テストが書き換える行（生データ・派生の表）は、
    関数スコープのfixtureで各テストの前に作り直す。** 共有した行を書き換えて後片付けで戻す形は、戻し
    漏れが次のテストの前提を静かに変え、実行順が変わった回にだけ落ちる（実行順は毎回混ぜている。
-   [testing-operations.md](testing-operations.md)「実行順をばらす」）。
+   [run-checks/SKILL.md](../skills/run-checks/SKILL.md)「実行順をばらす」）。
 
 実例: test_material_values.py（road_graph_sessionを直接使う）, test_derive_topology.py（自前の
 module fixtureを重ねる）
@@ -949,7 +969,7 @@ E2Eは、**実ブラウザ・本番ビルドでしか出ず、かつ機械で判
 **対象にしないもの**:
 
 - **読みやすさ・色**（配色が凡例と合っているか、縁取りが見えるか）。人が見る
-  （[frontend-design-system.md](../modules/frontend/frontend-design-system.md)「実機確認の方法」）。
+  （[frontend-design-system.md](../../docs/modules/frontend/frontend-design-system.md)「実機確認の方法」）。
   機械にやらせると画面写真の突き合わせになり、保存した過去の値と比べる形になる。
 - **DOMの状態・ロジックだけの主張**（押すと何が出るか・候補が何件並ぶか・`aria-pressed`が
   反転するか）。vitestで確かめる。E2Eへ置くと同じことを何倍も遅く確かめるだけで、
@@ -1234,7 +1254,7 @@ str(Path("venv") / "Scripts" / "uvicorn.exe")
 
 これは書く人が守るもので、機械では確かめていない。**最終的にはCI（Linux）が判定する**——
 作業ブランチ（`orch/**`）のPull RequestでCIが走り、masterへ入れる前の確かめがその結論を読む
-（[flow.md](flow.md)の検証中）ので、Windowsで通っただけのテストはmasterへ入る前に止まる。
+（[flow.md](../../docs/conventions/flow.md)の検証中）ので、Windowsで通っただけのテストはmasterへ入る前に止まる。
 
 ## パターン11: backendと画面が同じ計算を持つ → backendが「入力→答え」の表を出す
 

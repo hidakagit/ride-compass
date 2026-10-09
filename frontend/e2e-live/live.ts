@@ -6,7 +6,7 @@ import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { installMapFinder } from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
 
-// 実backend・開発DBへ向けて回すe2eの共通の段取りと観測（docs/conventions/testing-operations.md「E2E・画面の撮影の走らせ方」）。
+// 実backend・開発DBへ向けて回すe2eの共通の段取りと観測（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）。
 // 期待値は値そのものではなく性質（1件以上ある・2つの出どころが食い違わない・エラー0件）で書く。
 
 /** 手元のbackend。アプリのビルドが埋め込む向け先（`NEXT_PUBLIC_API_URL`の既定）と同じ。 */

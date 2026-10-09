@@ -119,7 +119,7 @@ python scripts/review_checks.py docs
 2. **性質の語**。短い語で書き（例: 文書の追従漏れ・写経・片側だけの修正・状態が画面に
    届かない・本番データの未反映・検知器の母集団の穴）、同じ性質には毎回同じ語を使う
 3. **事象なら、それを成立させている性質と、その性質で導いた母集団**。母集団は
-   [fixing.md](../../docs/conventions/fixing.md)「直し方」の「範囲は性質から導く」の4つの欄（性質・道具・拾わない形・
+   [fixing.md](../rules/fixing.md)「直し方」の「範囲は性質から導く」の4つの欄（性質・道具・拾わない形・
    検算）で書き、検算には過去の回で漏れた実例を使う。起票案の範囲は母集団で決め、見つけた1箇所でも、道具の取りやすい
    形でも決めない。完了の条件は同じ節の「検証は別の入力で行う」のとおり、母集団を決めた道具の0件だけにしない
 4. **再発か**。過去の回の性質の語を`git tag -n99 -l 'periodic-review/*'`で引き、同じ語があれば
@@ -156,7 +156,7 @@ python scripts/review_checks.py docs
    - 業務判断（分類・閾値・重み）がinfrastructureのSQL文字列に入っている／外部の形
      （SQL文字列・HTTP・ファイルパス）がdomainへ漏れている
    - 本番から到達しない口（テストからしか呼ばれない関数・引数、置き換えられた旧実装。テストが読むことを公開の理由に
-     してよいもの——`docs/conventions/testing.md`「確かめる高さ」の (a)〜(c)——は除く）
+     してよいもの——`.claude/rules/testing.md`「確かめる高さ」の (a)〜(c)——は除く）
    - backendが決めるべき値をfrontendが計算し直している。
      **frontendの層では、読む前に母集団を道具で取る**——読んで探すと回ごとに別の綴りで拾い、別の形が残る。
      `node frontend/scripts/structure-population.mjs --axis-catalog <ファイル>`（軸カタログは本番のbackendの
@@ -275,11 +275,11 @@ python scripts/review_checks.py docs
 - API契約: `openapi.json` / `api.d.ts` が最新か。**同型の手動同期ペアで2回以上の再発が
   観測されたら、対応は「手順の再徹底」ではなく「機械的検知の追加」を第一候補にする**
   （置き場は実装側の道具——テスト・生成物のドリフト検査。`review_checks.py`へ足す条件は
-  [fixing.md](../../docs/conventions/fixing.md)「検知器を足す条件は厳しい」）
+  [fixing.md](../rules/fixing.md)「検知器を足す条件は厳しい」）
 - ドメインルールの正準定義（路面語彙・highway 3スコープ・符号の定義）が、SQL・フロント・
   docsで一致しているか
 - 完了で閉じたタスクと実態（完了条件が実際に成立しているか）
-- ログ方針（`docs/conventions/logging.md`）に新規コードが従っているか
+- ログ方針（`.claude/rules/logging.md`）に新規コードが従っているか
 - **分割元タスクの未起票フォローアップ**: 対象範囲で閉じたタスク（issue。それ以前は記録）を
   「未起票」「別タスク」「スコープ外」「範囲外」等の語で検索し（「範囲外で見つけたもの」の
   見出しは揃っていないので綴りで引く）、各該当箇所が①起票済み番号・既存タスクへ
@@ -311,7 +311,7 @@ python scripts/review_checks.py docs
   不要になったテスト、過剰なmock、**実質的に意味のないテスト**（実装をなぞるだけで
   壊れ方を検証しない、常にpassする）、DBを使うテストに`postgis`の印が付け忘れられていないか
   （DBのテストはスキップせず落とし、DBを使わない実行は印で選ぶ。印の無いDBのテストは`-m "not postgis"`の実行に混ざり、
-  作業ツリーのテストDBが用意されないまま走って落ちる。`docs/conventions/testing.md`「テストの足場で、本来のNGを覆わない」の
+  作業ツリーのテストDBが用意されないまま走って落ちる。`.claude/rules/testing.md`「テストの足場で、本来のNGを覆わない」の
   環境が無いときのスキップの行）。同じ名前・同じ中身のテストの足場（fixture・fake・
   ヘルパー）が複数のテストファイルに写されていないか
 
@@ -325,9 +325,9 @@ python scripts/review_checks.py docs
 |---|---|---|
 | **名指しの実在** | 名前の逆引き。起点は対象範囲で消えた・改名されたもの: ファイル（`git diff --name-status --diff-filter=DR <タグ>..HEAD`）、定義名（関数・クラス・定数・テーブル・環境変数・APIのパスのうち、削除行にあって追加行に無いもの） | 維持する対象全体（`CLAUDE.md`・`docs/`・`.claude/`・ソースのコメントとdocstring。テストも含む）でgrepし、**現在形で名指ししている箇所**。断りつきで経緯を書いているなら、それはタスクの issue へ移すもの。「パス: 名前」の形の名指しと、テストのファイル名・最上位のディレクトリから書いたパス・APIのパスは`backend/tests/structure/test_named_references.py`が常に見るので、ここで拾うのはそれ以外の名指し（最上位から書いていない、テストでないファイルの名前等） |
 | **記載漏れ** | 変更ファイルのうち新設分。起点は`git diff --name-only --diff-filter=A <タグ>..HEAD`の実装ファイルと、ORMの`__tablename__`の差分に現れた表 | 実装ファイルは`docs/modules/*.md`の対象ファイル表のどこかに載っているか。表は`docs/architecture/`がその存在を知っているか |
-| **文書の定数値** | 名前の逆引き。起点は対象範囲で値が変わった定数（削除行と追加行に同じ名前で違う値） | 維持する文書が名前の直後に書いた値が、実装と合うか（単位の読み替えは許す。[documentation.md](../../docs/conventions/documentation.md)「DBの行データ・コードの定数を名指しするとき」） |
+| **文書の定数値** | 名前の逆引き。起点は対象範囲で値が変わった定数（削除行と追加行に同じ名前で違う値） | 維持する文書が名前の直後に書いた値が、実装と合うか（単位の読み替えは許す。[documentation.md](../rules/documentation.md)「DBの行データ・コードの定数を名指しするとき」） |
 | **DBの行データの名指し** | 本番DBの軸定義（`GET /api/axis-catalog`）を起点にする | 維持する文書・コメントが、本番DBに無い軸id・材料idを現行として名指ししていないか |
-| **書き方** | 追加行（維持する文書とソースのコメント） | 文書: 個数・全件の一覧（[documentation.md](../../docs/conventions/documentation.md)）、経緯・タスク番号へのリンク・レビュー指摘に上げるべきもの（[docs/modules/README.md](../../docs/modules/README.md)「記載粒度」）。コメント: 経緯（[comments.md](../../docs/conventions/comments.md)の判定木）と、相手のレイヤーの挙動を断定する文（相手が変わっても書いた側は気づけない） |
+| **書き方** | 追加行（維持する文書とソースのコメント） | 文書: 個数・全件の一覧（[documentation.md](../rules/documentation.md)）、経緯・タスク番号へのリンク・レビュー指摘に上げるべきもの（[docs/modules/README.md](../../docs/modules/README.md)「記載粒度」）。コメント: 経緯（[comments.md](../rules/comments.md)の判定木）と、相手のレイヤーの挙動を断定する文（相手が変わっても書いた側は気づけない） |
 
 grepは**綴りそのもの**で行い、記法で絞らない。名前はバッククォートの外（裸の綴り）、長い
 パスやURLの一部、行をまたいだ折り返し、日本語のラベルでも現れる（ファイル名が他と同じ
@@ -391,7 +391,7 @@ UI（`next dev` のインジケータ・コンパイル遅延）でないかを�
     適用されるかを**着手前に**点検する
 14. **性能の主張は実測とセット**: `benchmarks/`・本番ログを伴わない性能最適化はpremature
 15. **docsは「現状」と「経緯」を分ける**: 現状は正本（`architecture/`・`modules/`・
-    `conventions/`）、経緯はタスクの issue（[documentation.md](../../docs/conventions/documentation.md)「用語集」の「経緯」）
+    `conventions/`）、経緯はタスクの issue（[documentation.md](../rules/documentation.md)「用語集」の「経緯」）
 16. **「実害が無い」を理由に構造的欠陥を放置しない**: early return・一度だけの初期化・
     クロージャでの値固定等は、「現在の呼び出し元は動的な値を渡していないから今は壊れない」
     という理由だけでは許容しない。利用者に暗黙のタイミング制約を強いる実装を作らないことを、
@@ -427,5 +427,5 @@ UI（`next dev` のインジケータ・コンパイル遅延）でないかを�
 - 「◯◯を一掃する」型の起票案で、対象をタスク本文へ列挙しない（列挙した瞬間に古くなる。
   **対象の導出方法**を書く）
 - 新しい自己申告のチェックを増やさない。思いついた確認は起票案にして人が見る。
-  `scripts/review_checks.py` の検知器にするのは、[fixing.md](../../docs/conventions/fixing.md)「検知器を足す条件は厳しい」の
+  `scripts/review_checks.py` の検知器にするのは、[fixing.md](../rules/fixing.md)「検知器を足す条件は厳しい」の
   基準を満たし、既存の検知器と母集団が重ならないときだけ
