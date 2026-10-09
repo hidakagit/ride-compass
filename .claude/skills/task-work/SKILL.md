@@ -91,9 +91,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    画面の変更は、修正前後のキャプチャを Pull Request のコメントに貼る（`node tools/flow-gate/bin/attach.js <Pull Request の番号> '<画像>#<見出し>' ...`。
    見出しに画面・幅など、何を撮ったかを書く。下の「貼り方」。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は
-     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。キャプチャの
-     あとのコメントに、`<details>` で畳んだコードの囲みで脚本の全文と打った `capture.mjs` の引数を貼る。モックへ
-     足した応答も脚本の `patch` ごと貼る）。前は本番を撮り（`--app production`。ビルドしない）、後は
+     `frontend/capture/examples/`。脚本は作業ツリーの外に置いてよい。外に置いた脚本は確かめる担当に届かないので、キャプチャの
+     あとのコメントに、`<details>` で畳んだコードの囲みで脚本の全文と打った `capture.mjs` の引数を貼る。脚本は何も読み込まないので、モックへ
+     足した応答も脚本の `patch` ごと貼れる）。前は本番を撮り（`--app production`。ビルドしない）、後は
      `--api <本番の backend>`（作業ツリーの版を手元でビルドし、本番の backend へ向ける。宛先は docs/architecture/tech-stack.md「本番の宛先」）で、
      前と同じ脚本で撮る。backend の応答も変わる変更は、変わる経路が DB を読まない（タイルの中継等）なら
      `--backend <パスの頭>`（例: `--backend /api/jma-tile/`）でその経路だけを作業ツリーの backend に返させ、DB を読む経路なら変わる応答を脚本の `patch`
@@ -107,7 +107,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      名義の誤りで止まったら `GH_TOKEN` を見直す。ほかの文言で止まったら、出た行を 6 の報告に書いて進める。
      画面に出ない変更は、確かめ方と根拠（実行したコマンドと出た値・読んだ公式の文書）を検証に書く。
    Pull Request の題名・本文・コメントには、打ったコマンドを写すときも本番の宛先の値を書かず、
-   `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く。
+   `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
+   `[Excess Sensitive Detail]` で断られうる。`--attach` の付いた書き込みそのものは断られない）。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `attach.js` で足す。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
    `gh pr view` は、組織を読む権限の無いトークンでは断られる）。
