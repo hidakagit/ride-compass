@@ -172,6 +172,20 @@ describe("地点", () => {
     expect(result.current.destination).toBeNull();
   });
 
+  it("経由地と目的地は一度に消せ、出発地はそのまま残し、次のタップで目的地を置ける", () => {
+    const { result, onOriginPlace } = renderConditions();
+    act(() => result.current.placePin("waypoint", A));
+    act(() => result.current.placePin("waypoint", B));
+    act(() => result.current.placePin("destination", C));
+
+    act(() => result.current.clearPoints());
+
+    expect(result.current.waypoints).toEqual([]);
+    expect(result.current.destination).toBeNull();
+    expect(result.current.armedPinRole).toBe("destination");
+    expect(onOriginPlace).not.toHaveBeenCalled();
+  });
+
   it("何番目かを指して経由地を置ける役割にすると、次のタップはその経由地を置き直し、置ける役割を解く", () => {
     const { result } = renderConditions();
     act(() => result.current.placePin("waypoint", A));

@@ -99,6 +99,7 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
     changeRouteMode: vi.fn(),
     removeWaypoint: vi.fn(),
     clearDestination: vi.fn(),
+    clearPoints: vi.fn(),
     onOriginReset: vi.fn(),
     armPinRole: vi.fn(),
     onPlaceFound: vi.fn(),
@@ -262,14 +263,14 @@ describe("RouteForm 出発地", () => {
     (originLocated, name, color) => {
       renderForm({ originLocated });
 
-      expect(detail("出発地")).toHaveTextContent(`出発地・現在地${name}`);
+      expect(detail("出発地")).toHaveTextContent(`出発地${name}地図で選ぶ`);
       expect(originMark()).toHaveStyle({ color });
       expect(screen.queryByRole("button", { name: "出発地を現在地に戻す" })).not.toBeInTheDocument();
     },
   );
 
   it.each([
-    [null, "出発地を地図で選ぶ", "false", "住所・施設で探して置き直す", "origin"],
+    [null, "出発地を地図で選ぶ", "false", "住所・施設で置き直す", "origin"],
     ["origin", "出発地の指定をやめる", "true", "地図をタップ", null],
   ] as const)(
     "置ける役割が%sなら地図で置く操作を「%s」とし、押すと置ける状態を切り替える",
@@ -285,14 +286,15 @@ describe("RouteForm 出発地", () => {
   );
 
   it.each([
-    [null, "出発地・地図で選んだ地点地図で選んだ地点"],
-    [FACILITY, `出発地・探して選んだ地点${FACILITY.name}`],
+    [null, "出発地地図で選んだ地点", "地図で選んだ地点"],
+    [FACILITY, `出発地${FACILITY.name}探して選んだ地点`, "探して選んだ地点"],
   ])(
     "置いた出発地は、探して置いたときの位置のままなら名前、ほかは「地図で選んだ地点」と出し、現在地に戻す操作を出す",
-    async (originFound, text) => {
+    async (originFound, text, once) => {
       const { onOriginReset } = renderForm({ originManual: true, originFound });
 
       expect(detail("出発地").textContent).toContain(text);
+      expect(detail("出発地").textContent?.split(once)).toHaveLength(2);
       await userEvent.click(button("出発地を現在地に戻す"));
 
       expect(onOriginReset).toHaveBeenCalledOnce();
@@ -318,7 +320,7 @@ describe("RouteForm 地点の並び", () => {
       `目的地: ${AZA.name}`,
     ]);
     expect(button(`目的地: ${AZA.name}`)).toHaveAttribute("aria-pressed", "true");
-    expect(detail("目的地").textContent).toContain(`目的地・探して選んだ地点${AZA.name}`);
+    expect(detail("目的地").textContent).toContain(`目的地${AZA.name}探して選んだ地点`);
   });
 
   it("押した地点の詳しくを出し、地図で置く状態なら解く", async () => {
@@ -329,7 +331,7 @@ describe("RouteForm 地点の並び", () => {
     });
 
     await userEvent.click(button(`経由地2: ${FACILITY.name}`));
-    expect(detail("経由地2").textContent).toContain(`経由地2・探して選んだ地点${FACILITY.name}`);
+    expect(detail("経由地2").textContent).toContain(`経由地2${FACILITY.name}探して選んだ地点`);
     expect(button(`経由地2: ${FACILITY.name}`)).toHaveAttribute("aria-pressed", "true");
     expect(armPinRole).not.toHaveBeenCalled();
 
@@ -376,6 +378,32 @@ describe("RouteForm 地点の並び", () => {
     renderForm({ routeMode: "destination", waypoints: waypointsOf(waypointCount) });
 
     expect(button(name)).toHaveProperty("disabled", full);
+  });
+
+  it.each([
+    [0, null, true],
+    [1, null, false],
+    [0, DESTINATION, false],
+  ])("経由地が%i件・目的地が%oなら、全部消す操作を押せない（%s）", (waypointCount, destination, disabled) => {
+    renderForm({ routeMode: "destination", waypoints: waypointsOf(waypointCount), destination });
+
+    expect(button("経由地と目的地を全部消す")).toHaveProperty("disabled", disabled);
+  });
+
+  it("全部消す操作を押すと上げ、押していた地点の詳しくを閉じて目的地の詳しくに戻す", async () => {
+    const { clearPoints, showWith } = renderForm({
+      routeMode: "destination",
+      waypoints: waypointsOf(2),
+      destination: DESTINATION,
+    });
+    await userEvent.click(button("経由地1: 地図で選んだ地点"));
+
+    await userEvent.click(button("経由地と目的地を全部消す"));
+    showWith({ waypoints: [], destination: null });
+
+    expect(clearPoints).toHaveBeenCalledOnce();
+    expect(detail("目的地")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "経由地1" })).not.toBeInTheDocument();
   });
 });
 
@@ -441,11 +469,11 @@ describe("RouteForm 目的地", () => {
   });
 
   it.each([
-    [null, "目的地・地図で選んだ地点地図で選んだ地点"],
-    [FACILITY, `目的地・探して選んだ地点${FACILITY.name}`],
+    [null, "目的地地図で選んだ地点", "地図で選んだ地点"],
+    [FACILITY, `目的地${FACILITY.name}探して選んだ地点`, "探して選んだ地点"],
   ])(
     "置いた目的地は、探して置いたときの位置のままなら名前、ほかは「地図で選んだ地点」と出して置き直せるようにし、消す操作を押すと上げる",
-    async (found, text) => {
+    async (found, text, once) => {
       const { clearDestination } = renderForm({
         routeMode: "destination",
         destination: DESTINATION,
@@ -453,6 +481,7 @@ describe("RouteForm 目的地", () => {
       });
 
       expect(detail("目的地").textContent).toContain(text);
+      expect(detail("目的地").textContent?.split(once)).toHaveLength(2);
       expect(button("目的地を地図で置き直す")).toBeInTheDocument();
 
       await userEvent.click(button("目的地を消す"));
