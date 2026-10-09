@@ -80,7 +80,6 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 4. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
    `python scripts/fetch_overture_places.py`（範囲の地点を写す。関東の枠で約190MB。Actions のランナーで17秒）→ `python -m app.batch.ingest_cli --source overture_place`
    → `python -m app.batch.derive_cli`の順に打つ。本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[dev-session/SKILL.md](../../.claude/skills/dev-session/SKILL.md)「本番へ書く」）。
-5. 群ごとの件数（`SELECT place_group, count(*) FROM stop_places GROUP BY 1`）を前の版と比べ、大きく動いた群があれば 1 の変更を疑う。
 
 ### 文化財の建造物（文化遺産オンライン）
 
@@ -101,9 +100,6 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 3. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
    `python scripts/fetch_bunka_heritages.py` → `python -m app.batch.ingest_cli --source bunka_heritage` → `python -m app.batch.derive_cli`
    の順に打つ。本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[dev-session/SKILL.md](../../.claude/skills/dev-session/SKILL.md)「本番へ書く」）。
-4. 寺社の数（`SELECT count(*) FROM stop_places WHERE place_group = 'temple_shrine'`。関東の範囲で 2026-10-08 に194）を前と比べ、
-   大きく動いていれば、取込が読む項目（指定の別`bunka-11-s`・所有者`bunka-14-s`・`common.coordinates`）の名前か、
-   所有者の書き方（`backend/app/domain/stop_place.py`の寺社の語）が変わっていないかを見る。
 
 ### 住所の区画の元データ（アドレス・ベース・レジストリ・e-Stat の小地域の境界）
 
@@ -126,9 +122,6 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
    `python scripts/fetch_abr.py` → `python scripts/fetch_estat_small_areas.py`（都道府県を ABR の市区町村の代表点から決めるので、この順）
    → `python -m app.batch.ingest_cli --source abr --source estat_small_area` → `python -m app.batch.derive_cli`の順に打つ。
    本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[dev-session/SKILL.md](../../.claude/skills/dev-session/SKILL.md)「本番へ書く」）。
-4. 段ごとの区画の数（`SELECT level, count(*) FROM address_areas GROUP BY 1`）と、境界の結び付きの数（`SELECT count(*) FROM address_boundary_links`）を
-   前と比べ、大きく動いていれば、取込が読む列（`backend/app/infrastructure/source_models.py`の`ABR_*_SOURCE_SQL`・`ESTAT_SMALL_AREAS_SOURCE_SQL`）の
-   名前か、町字区分の意味（`backend/app/domain/address_area.py: MACHIAZA_TYPE_LEVELS`）が変わっていないかを見る。
 
 ## 気象業務法の予報業務許可
 

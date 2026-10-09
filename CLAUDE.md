@@ -59,7 +59,7 @@ docs/conventions/ にある（.claude/rules/・.claude/skills/ のものはパ�
 | テストや検査を回す | .claude/skills/run-checks/SKILL.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／.claude/rules/testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
 | 画面を撮る | .claude/skills/task-work/SKILL.md: 作る担当（5 の画面の変更のキャプチャ） |
 | コミットする | flow.md: コミット／.claude/rules/fixing.md: 報告と段取り（実装の増減）／.claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
-| PR を出す | .claude/skills/task-work/SKILL.md: 作る担当（4〜6）・分布の前後 |
+| PR を出す | .claude/skills/task-work/SKILL.md: 作る担当（4〜6） |
 | PR を確かめてマージする | .claude/skills/task-work/SKILL.md: 確かめる担当・Pull Request のあと・競合を解く |
 | 本番へ書く | flow.md: 自動で進めないもの／.claude/skills/dev-session/SKILL.md: 本番へ書く／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
