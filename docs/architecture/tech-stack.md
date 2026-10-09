@@ -70,6 +70,15 @@
 **上げるときは、上げた先でタプルを含む応答（例: `/api/admin/axis-definitions/preview-distribution`の`bins`）の
 推論した型がタプルのままかを`tsc --noEmit`で確かめる。**
 
+## DependabotのPull Requestは、同じ版を取り込んだタスクが閉じる
+
+Dependabotは、masterが同じ版になってもPull Requestを閉じないことがあり、閉じる条件は公式の文書に無い。依存の版上げを
+取り込むタスクは、同じ版を出しているDependabotのPull Requestをissueの本文に番号で名指し、完了の条件に
+「dependabot の #<番号> が閉じている」を書く（判定役は、issueが名指したDependabotのPull Requestだけを担当が閉じてよいものと
+読む。`tools/flow-gate/settings.json`の`autoMode`）。閉じるのは作る担当で、マージのあとの残りとして済ませる:
+`gh pr view <番号> -R hidakagit/ride-compass --json state`が`OPEN`なら
+`gh pr close <番号> -R hidakagit/ride-compass --comment "<取り込んだ Pull Request> で同じ版を取り込んだ"`で閉じる。
+
 ## Windows: `uvicorn --reload`の多重プロセス
 
 Windowsでは`uvicorn --reload`がリローダー親プロセスとワーカー子プロセス
