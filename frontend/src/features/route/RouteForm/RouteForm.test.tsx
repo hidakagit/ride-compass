@@ -99,6 +99,7 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
     changeRouteMode: vi.fn(),
     removeWaypoint: vi.fn(),
     clearDestination: vi.fn(),
+    clearPoints: vi.fn(),
     onOriginReset: vi.fn(),
     armPinRole: vi.fn(),
     onPlaceFound: vi.fn(),
@@ -269,7 +270,7 @@ describe("RouteForm 出発地", () => {
   );
 
   it.each([
-    [null, "出発地を地図で選ぶ", "false", "住所・施設で探して置き直す", "origin"],
+    [null, "出発地を地図で選ぶ", "false", "住所・施設で置き直す", "origin"],
     ["origin", "出発地の指定をやめる", "true", "地図をタップ", null],
   ] as const)(
     "置ける役割が%sなら地図で置く操作を「%s」とし、押すと置ける状態を切り替える",

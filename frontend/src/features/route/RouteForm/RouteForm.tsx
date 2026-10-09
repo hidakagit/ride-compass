@@ -32,6 +32,7 @@ type RouteFormConditions = Pick<
   | "removeWaypoint"
   | "destination"
   | "clearDestination"
+  | "clearPoints"
   | "armedPinRole"
   | "waypointToReplace"
   | "armPinRole"
