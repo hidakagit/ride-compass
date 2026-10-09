@@ -898,7 +898,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 作る。向きごとに通れるかは`domain/traffic.py: travel_allowed`が決める）。DBへ向きを伝えるのは`(osm_way_id, segment_index, forward)`の3つ組で、向きで変わる値
 （方位・標高）はSQLが入れ替え・符号反転して返す（`reversed_material_expression`）。材料の値の
 求め方は`domain/material_sql.py`・`domain/material_catalog.py`が持ち、リポジトリは式が前提に
-する別名（`w`/`re`/`em`/`wm`）のFROM句を組み立てるだけで式を書かない。
+する別名（`w`/`re`/`em`/`wm`）のFROM句を組み立てるだけで式を書かない（`em`・`wm`は`material_from_clause`）。
 
 探索用グラフは形を持たない。実ジオメトリが要る確定した経路だけを
 `get_edges_with_geometry`が取り直す（逆向きの枝は形状点列を逆順にする）。

@@ -149,9 +149,8 @@ class WayMaterialCoverageSpec:
 class EdgeMaterialCoverageSpec:
     """`road_edges`全行を母集団とする材料。
 
-    `present_condition`は`edge_materials`（別名`em`）の1行が「値を持つ」ときに真になるSQL条件式。
-    Edge単位の材料は同じ表の列に並ぶため、way母集団と同じく全材料を1回の走査で数えられる
-    （FK CASCADEにより行は必ず既存Edgeに対応する）。"""
+    `present_condition`は区間の値（別名`em`）が「値を持つ」ときに真になるSQL条件式。
+    区間の値は区間1本につき1行に結ばれるため、way母集団と同じく全材料を1回の走査で数えられる。"""
 
     present_condition: str
     source: str
