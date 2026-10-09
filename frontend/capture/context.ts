@@ -220,7 +220,8 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       if (!(await trigger.isVisible())) {
         throw new Error(`凡例「${layer}」を開けない。選べる凡例: ${(await ariaLabels(list, "の凡例")).join(" / ")}`);
       }
-      const panel = page.getByRole("dialog", { name: `${layer}の内訳` });
+      // 内訳は一覧の行のすぐ下に開く。
+      const panel = page.getByRole("region", { name: `${layer}の内訳` });
       if (!(await panel.isVisible())) await trigger.click();
       await expect(panel).toBeVisible();
       if (row !== undefined) {

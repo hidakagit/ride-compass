@@ -1,6 +1,7 @@
 "use client";
 
-import type { CSSProperties, ReactElement, ReactNode } from "react";
+import { useId, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useStoredState } from "@/hooks/useStoredState";
 import {
   LAYER_DATA_STATUS_LABELS,
   layerDataStatusNotice,
@@ -18,10 +19,13 @@ import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckbox
 import LegendRow from "@/features/map/LegendCheckboxList/LegendRow";
 import { PointIconSwatch } from "@/features/map/layers/pointIcon";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import {
+  ChooseItemsIcon,
+  ClearAllFiltersIcon,
+  ClearAllLayersIcon,
   EnvironmentDataIcon,
   DisplayItemsIcon,
+  InfoIcon,
   RoadIcon,
   SpotDataIcon,
   type MapIconComponent,
@@ -54,8 +58,7 @@ export interface OverlayLayerChip {
   label: string;
   icon: MapIconComponent;
   on: boolean;
-  disabled?: boolean;
-  /** 行のtitle（ONにすると何が出るか、disabledなら使えない理由）。 */
+  /** 行のtitle（ONにすると何が出るか）。 */
   title?: string;
   /** ▶を開いたとき**凡例の代わりに**出す案内（例:「ズームインすると表示されます」）。案内が出るのは
    * 「ONにしても何も出ない」状態だけで、そのときの凡例は地図に無い色見本の表になるため。 */
@@ -76,6 +79,12 @@ interface MapOverlayControlsProps {
   onLegendEntryToggle: (axisId: string, key: string) => void;
   /** ▶の中の1軸をまとめて表示/非表示にする。 */
   onLegendAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void;
+  /** 一覧の行を全部OFFにする（既定へ戻すのではない）。 */
+  onHideAllLayers: () => void;
+  /** 地図に出しているもの（色分けと、出しているレイヤー）の凡例で隠している行があるか。色分けの凡例は一覧の外にあるため、呼ぶ側が数える。 */
+  anyLegendHidden: boolean;
+  /** 凡例で隠した行を全部戻す。 */
+  onShowAllLegendRows: () => void;
 }
 
 const MAP_OVERLAY_GROUP_ICONS: Record<MapOverlayGroup, (props: { size?: number }) => ReactElement> = {
@@ -214,13 +223,37 @@ function LegendDetails({
   );
 }
 
-/** 地図の上に浮かせるパネル（一覧・内訳）。画面の端・下端に収まる大きさはRadixが測る。 */
+/** 地図の上に浮かせる一覧。画面の端・下端に収まる大きさはRadixが測り、ⓘと▶は一覧の中の行の下に開く——一覧の上に
+ * 別の浮きパネルを重ねると、スマホの幅では行そのものを覆い、下端で切れる。 */
 const FLOATING_PANEL_CLASS = cn(
   cardVariants({ variant: "glass" }),
   "z-[var(--z-map-detail)] max-w-[min(calc(100vw-2*var(--space-3)),var(--radix-popover-content-available-width))] overflow-y-auto px-3 py-2",
 );
 
 const FILTERED_LABEL = "絞り込み中";
+
+// たたんだ群と、「表示する項目を選ぶ」で外した項目は次の訪問でも保つ。ⓘ・▶の開閉は一時の確かめなので保たない。
+const COLLAPSED_GROUPS_STORAGE_KEY = "ridecompass:map-overlay-collapsed-groups";
+const HIDDEN_IDS_STORAGE_KEY = "ridecompass:map-overlay-hidden-ids";
+
+/** 外した項目の保存の形は`<群>:<レイヤーid>`。 */
+function hiddenKeyOf(group: MapOverlayGroup, id: MapLayerId): string {
+  return `${group}:${id}`;
+}
+
+function readStringArray(raw: string): string[] | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+const storedStringArray = {
+  serialize: (values: readonly string[]) => JSON.stringify(values),
+  deserialize: readStringArray,
+};
 
 /** 凡例の絞り込みで一部を隠している合図（漏斗の形）。絞り込みは保存されるため、欠けた地図を「データが無い」と読ませない。 */
 function FilteredMark({ className }: { className?: string }) {
@@ -237,12 +270,12 @@ function FilteredMark({ className }: { className?: string }) {
 
 /** ONのレイヤーが凡例の絞り込みで一部を隠しているか。OFFの間は地図に何も出さないため数えない。 */
 function isLegendFiltered(layer: OverlayLayerChip): boolean {
-  return layer.on && !layer.disabled && (layer.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0);
+  return layer.on && (layer.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0);
 }
 
 /** 状態のドットの意味を文で読ませる置き場は▶の中（`title`はスマホでは出ない）。 */
 function dataStatusNotice(layer: OverlayLayerChip): string | null {
-  if (!layer.on || layer.disabled) return null;
+  if (!layer.on) return null;
   return layerDataStatusNotice(layer.dataStatus);
 }
 
@@ -251,7 +284,6 @@ function panelContentFor(
   layer: OverlayLayerChip,
   handlers: Pick<MapOverlayControlsProps, "onLegendEntryToggle" | "onLegendAxisSetHidden">,
 ): ReactNode {
-  if (layer.disabled) return null;
   if (layer.notice)
     return <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--foreground)]">{layer.notice}</p>;
   const status = dataStatusNotice(layer);
@@ -273,44 +305,8 @@ function panelContentFor(
   );
 }
 
-/** 行の横の丸い▶から開く、凡例の内訳。 */
-function LegendPopover({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="float"
-          size="iconRound"
-          className="group text-[var(--color-neutral)] shadow-none aria-expanded:border-[var(--color-accent)] aria-expanded:text-[var(--foreground)]"
-          aria-label={`${label}の凡例`}
-          title="凡例"
-          usage="凡例を開きます。チェックを外した段階は地図から隠れます。"
-        >
-          <span
-            aria-hidden="true"
-            className="inline-block text-[0.6rem] leading-none transition-transform duration-150 group-aria-expanded:rotate-90"
-          >
-            ▶
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="right"
-        align="start"
-        collisionPadding={POPOVER_COLLISION_PADDING_PX}
-        aria-label={`${label}の内訳`}
-        className={cn(
-          FLOATING_PANEL_CLASS,
-          "max-h-[min(45vh,16rem,var(--radix-popover-content-available-height))] w-72",
-        )}
-      >
-        {children}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/** 一覧の1行。チェックで地図に出し入れし、ⓘで説明を、▶で凡例を開く。 */
+/** 一覧の1行。チェックで地図に出し入れし、ⓘで説明を、▶で凡例を行のすぐ下に開く。ⓘ・▶はチェックの`label`の外に
+ * 置く——中に置くと、押したときに出し入れまで切り替わる。 */
 function LayerRow({
   layer,
   panel,
@@ -321,8 +317,11 @@ function LayerRow({
   panel: ReactNode;
   onToggle: (id: MapLayerId, on: boolean) => void;
 }) {
-  const on = layer.on && !layer.disabled;
-  const showStatusDot = on && layer.dataStatus != null;
+  const [hintOpen, setHintOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const hintId = useId();
+  const panelId = useId();
+  const showStatusDot = layer.on && layer.dataStatus != null;
   const filtered = isLegendFiltered(layer);
   const notes = [
     showStatusDot ? LAYER_DATA_STATUS_LABELS[layer.dataStatus!] : undefined,
@@ -332,34 +331,107 @@ function LayerRow({
     .join("・");
   const title = notes ? (layer.title ? `${layer.title}[${notes}]` : notes) : layer.title;
   return (
-    <li className="flex items-center gap-1 text-[length:var(--font-size-sm)]">
-      <label
-        className={cn(
-          "flex min-w-0 flex-1 items-center gap-1.5 py-0.5",
-          layer.disabled ? "text-[var(--color-neutral)]" : "cursor-pointer",
+    <li className="flex flex-col text-[length:var(--font-size-sm)]">
+      <div className="flex items-center gap-1">
+        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-0.5" title={title}>
+          <Checkbox checked={layer.on} onCheckedChange={() => onToggle(layer.id, !layer.on)} aria-label={layer.label} />
+          <span aria-hidden="true" className="inline-flex w-5 flex-shrink-0 justify-center">
+            <layer.icon size={16} />
+          </span>
+          <span className="min-w-0 flex-1">{layer.label}</span>
+          {showStatusDot && <Dot aria-hidden="true" tone={layer.dataStatus} />}
+          {filtered && <FilteredMark />}
+        </label>
+        {layer.panelHint && (
+          <Button
+            variant="info"
+            size="bare"
+            aria-expanded={hintOpen}
+            aria-controls={hintOpen ? hintId : undefined}
+            aria-label={`${layer.label}の説明を${hintOpen ? "隠す" : "表示"}`}
+            onClick={() => setHintOpen((current) => !current)}
+            usage="この情報の説明を、行のすぐ下に開きます。"
+          >
+            <InfoIcon />
+          </Button>
         )}
-        title={title}
-      >
-        <Checkbox
-          checked={on}
-          disabled={layer.disabled}
-          onCheckedChange={() => onToggle(layer.id, !layer.on)}
-          aria-label={layer.label}
-        />
-        <span aria-hidden="true" className="inline-flex w-5 flex-shrink-0 justify-center">
-          <layer.icon size={16} />
-        </span>
-        <span className="min-w-0 flex-1">{layer.label}</span>
-        {showStatusDot && <Dot aria-hidden="true" tone={layer.dataStatus} />}
-        {filtered && <FilteredMark />}
-      </label>
-      {layer.panelHint && (
-        <InfoPopover triggerAriaLabel={`${layer.label}の説明`} side="right">
+        {panel && (
+          <Button
+            variant="float"
+            size="iconRound"
+            className="group text-[var(--color-neutral)] shadow-none aria-expanded:border-[var(--color-accent)] aria-expanded:text-[var(--foreground)]"
+            aria-expanded={panelOpen}
+            aria-controls={panelOpen ? panelId : undefined}
+            aria-label={`${layer.label}の凡例`}
+            title="凡例"
+            onClick={() => setPanelOpen((current) => !current)}
+            usage="凡例を行のすぐ下に開きます。チェックを外した段階は地図から隠れます。"
+          >
+            <span
+              aria-hidden="true"
+              className="inline-block text-[0.6rem] leading-none transition-transform duration-150 group-aria-expanded:rotate-90"
+            >
+              ▶
+            </span>
+          </Button>
+        )}
+      </div>
+      {hintOpen && (
+        <p
+          id={hintId}
+          className="mb-1 pl-6 text-[length:var(--font-size-xs)] whitespace-normal text-[var(--color-neutral)]"
+        >
           {layer.panelHint}
-        </InfoPopover>
+        </p>
       )}
-      {panel && <LegendPopover label={layer.label}>{panel}</LegendPopover>}
+      {panel && panelOpen && (
+        <div
+          id={panelId}
+          role="region"
+          aria-label={`${layer.label}の内訳`}
+          className="mt-0.5 mb-1.5 ml-6 border-l-2 border-[var(--color-border)] pl-2"
+        >
+          {panel}
+        </div>
+      )}
     </li>
+  );
+}
+
+/** 群の中で一覧に並べる項目を選ぶ。外した項目は、群を開いても並べない。 */
+function ItemChooser({
+  members,
+  isHidden,
+  onToggleHidden,
+}: {
+  members: readonly OverlayLayerChip[];
+  isHidden: (member: OverlayLayerChip) => boolean;
+  onToggleHidden: (member: OverlayLayerChip) => void;
+}) {
+  return (
+    <ul
+      className="m-0 flex list-none flex-col gap-0.5 py-0.5 pl-0"
+      data-usage="チェックを外した項目は、この一覧に並べません。地図に出していれば消えます。"
+    >
+      {members.map((member) => {
+        const hidden = isHidden(member);
+        return (
+          <li key={member.id}>
+            <label className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[length:var(--font-size-sm)]">
+              <Checkbox
+                checked={!hidden}
+                onCheckedChange={() => onToggleHidden(member)}
+                aria-label={`${member.label}を一覧に並べる`}
+              />
+              <span aria-hidden="true" className="inline-flex w-5 flex-shrink-0 justify-center">
+                <member.icon size={16} />
+              </span>
+              <span className="min-w-0 flex-1">{member.label}</span>
+            </label>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -370,10 +442,32 @@ export default function MapOverlayControls({
   onToggle,
   onLegendEntryToggle,
   onLegendAxisSetHidden,
+  onHideAllLayers,
+  anyLegendHidden,
+  onShowAllLegendRows,
 }: MapOverlayControlsProps) {
   const handlers = { onLegendEntryToggle, onLegendAxisSetHidden };
-  const shownCount = layers.filter((layer) => layer.on && !layer.disabled).length;
+  const shownCount = layers.filter((layer) => layer.on).length;
   const anyFiltered = layers.some(isLegendFiltered);
+  const [collapsedGroups, setCollapsedGroups] = useStoredState<readonly string[]>(
+    COLLAPSED_GROUPS_STORAGE_KEY,
+    [],
+    storedStringArray,
+  );
+  const [hiddenIds, setHiddenIds] = useStoredState<readonly string[]>(HIDDEN_IDS_STORAGE_KEY, [], storedStringArray);
+  const [choosingGroup, setChoosingGroup] = useState<MapOverlayGroup | null>(null);
+
+  function toggleCollapsed(group: MapOverlayGroup) {
+    setCollapsedGroups((prev) => (prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]));
+  }
+
+  /** 外した項目のレイヤーがONならOFFにする（一覧から消えるとOFFにする手段が無くなる）。並べ直してもONにはしない。 */
+  function toggleHidden(group: MapOverlayGroup, member: OverlayLayerChip) {
+    const key = hiddenKeyOf(group, member.id);
+    const hiding = !hiddenIds.includes(key);
+    setHiddenIds((prev) => (hiding ? [...prev, key] : prev.filter((id) => id !== key)));
+    if (hiding && member.on) onToggle(member.id, false);
+  }
 
   const groups = MAP_OVERLAY_GROUP_ORDER.flatMap((group) => {
     const members = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
@@ -382,26 +476,67 @@ export default function MapOverlayControls({
     if (members.length === 0) return [];
     const label = MAP_OVERLAY_GROUP_LABELS[group];
     const Icon = MAP_OVERLAY_GROUP_ICONS[group];
+    const collapsed = collapsedGroups.includes(group);
+    const choosing = choosingGroup === group;
+    const isHidden = (member: OverlayLayerChip) => hiddenIds.includes(hiddenKeyOf(group, member.id));
     return [
       <section key={group} aria-label={label} className="flex flex-col">
-        <h3
-          className="mx-0 mt-1.5 mb-0 flex items-center gap-1.5 text-[length:var(--font-size-xs)] font-bold"
-          style={GROUP_COLORS[group]}
-        >
-          <Icon size={14} />
-          {label}
-        </h3>
-        <ul className="m-0 flex list-none flex-col p-0" data-usage={LIST_USAGE}>
-          {members.map((member) => (
-            // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
-            <LayerRow key={member.id} layer={member} panel={panelContentFor(member, handlers)} onToggle={onToggle} />
-          ))}
-        </ul>
+        <div className="mt-1.5 flex items-center gap-1">
+          <h3 className="m-0 min-w-0 flex-1 text-[length:var(--font-size-xs)] font-bold" style={GROUP_COLORS[group]}>
+            <Button
+              variant="ghost"
+              size="bare"
+              className="w-full justify-start gap-1.5 py-0.5 font-bold text-inherit hover:enabled:bg-transparent hover:enabled:text-inherit"
+              aria-expanded={!collapsed}
+              onClick={() => toggleCollapsed(group)}
+              usage="押すと、この群の中身をたたみ、もう一度押すと開きます。"
+            >
+              <Icon size={14} />
+              {label}
+              {/* たたんでいる間は行が見えないため、見出しが行の絞り込みを示す。 */}
+              {collapsed && members.some(isLegendFiltered) && <FilteredMark />}
+              <span
+                aria-hidden="true"
+                className={cn("text-[0.6rem] transition-transform duration-150", !collapsed && "rotate-90")}
+              >
+                ▶
+              </span>
+            </Button>
+          </h3>
+          <Button
+            variant="info"
+            size="bare"
+            aria-pressed={choosing}
+            aria-label={`${label}の表示項目を選ぶ`}
+            title="表示する項目を選ぶ"
+            onClick={() => setChoosingGroup(choosing ? null : group)}
+            usage="この群の一覧に並べる項目を選びます。"
+          >
+            <ChooseItemsIcon size={14} />
+          </Button>
+        </div>
+        {choosing ? (
+          <ItemChooser members={members} isHidden={isHidden} onToggleHidden={(member) => toggleHidden(group, member)} />
+        ) : (
+          !collapsed && (
+            <ul className="m-0 flex list-none flex-col p-0" data-usage={LIST_USAGE}>
+              {members
+                .filter((member) => !isHidden(member))
+                .map((member) => (
+                  // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
+                  <LayerRow
+                    key={member.id}
+                    layer={member}
+                    panel={panelContentFor(member, handlers)}
+                    onToggle={onToggle}
+                  />
+                ))}
+            </ul>
+          )
+        )}
       </section>,
     ];
   });
-  // どの群にも属さないレイヤー（ルート等）は区切って最後に並べる。凡例は地図に出ている間だけ開ける（ルートの凡例は今の色分けの段）。
-  const singles = layers.filter((layer) => !mapOverlayGroupFor(layer));
 
   return (
     <Popover>
@@ -434,25 +569,32 @@ export default function MapOverlayControls({
         align="start"
         collisionPadding={POPOVER_COLLISION_PADDING_PX}
         aria-label={LIST_SCREEN_NAME}
-        className={cn(FLOATING_PANEL_CLASS, "max-h-[var(--radix-popover-content-available-height)] w-64")}
+        className={cn(FLOATING_PANEL_CLASS, "max-h-[var(--radix-popover-content-available-height)] w-72")}
       >
         <p className="m-0 font-semibold">{LIST_SCREEN_NAME}</p>
         {groups}
-        {singles.length > 0 && (
-          <ul
-            className="mx-0 mt-1.5 mb-0 flex list-none flex-col border-t border-[var(--color-border)] px-0 pt-1 pb-0"
-            data-usage={LIST_USAGE}
+        <div className="mt-1.5 flex flex-col border-t border-[var(--color-border)] pt-1">
+          <Button
+            variant="menu"
+            size="sm"
+            onClick={onHideAllLayers}
+            disabled={shownCount === 0}
+            usage="この一覧でONにした情報を、まとめてOFFにします。"
           >
-            {singles.map((layer) => (
-              <LayerRow
-                key={layer.id}
-                layer={layer}
-                panel={layer.on ? panelContentFor(layer, handlers) : null}
-                onToggle={onToggle}
-              />
-            ))}
-          </ul>
-        )}
+            <ClearAllLayersIcon size={15} />
+            表示中のレイヤーをすべて非表示
+          </Button>
+          <Button
+            variant="menu"
+            size="sm"
+            onClick={onShowAllLegendRows}
+            disabled={!anyLegendHidden}
+            usage="凡例のチェックを外して隠した段階を、まとめて地図に戻します（地図の色分けの凡例も）。"
+          >
+            <ClearAllFiltersIcon size={15} />
+            絞り込みをすべて解除
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
