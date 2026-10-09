@@ -252,17 +252,37 @@ def _party_type_sql(column: str) -> str:
     return f"CASE WHEN {raw} IS NOT NULL THEN CASE {raw} {whens} ELSE '{PartyType.OTHER}' END END"
 
 
-#: 事故の生データ（1件=1点）。判定の式（`domain/accident.py`）が読む別名`a`の中身。本票CSVの列名（日本語。
-#: 取込は列を捨てずに`attrs`へ入れる）はここだけが名指し、式へは読み替えた列で渡す。死者数と発生年は
-#: ゼロ埋めの数字列で入っている。
-ACCIDENTS_SOURCE_SQL = (
-    "(SELECT geom,"
-    " (attrs->>'死者数')::int AS deaths,"
-    f" {_party_type_sql('当事者種別（当事者A）')} AS party_type_a,"
-    f" {_party_type_sql('当事者種別（当事者B）')} AS party_type_b,"
-    " (attrs->>'発生日時　　年')::int AS occurred_year"
-    f" FROM {_TABLE} WHERE source = '{Source.ACCIDENT}')"
-)
+def _accidents_sql(rows: str) -> str:
+    """事故の生データの行（`FROM`の後ろ。`geom`と`attrs`を持つ）を、判定の式が読む列へ読み替える副問い合わせ。
+
+    本票CSVの列名（日本語。取込は列を捨てずに`attrs`へ入れる）はここだけが名指し、式へは読み替えた列で渡す。
+    死者数と発生年はゼロ埋めの数字列で入っている。
+    """
+    return (
+        "(SELECT geom,"
+        " (attrs->>'死者数')::int AS deaths,"
+        f" {_party_type_sql('当事者種別（当事者A）')} AS party_type_a,"
+        f" {_party_type_sql('当事者種別（当事者B）')} AS party_type_b,"
+        " (attrs->>'発生日時　　年')::int AS occurred_year"
+        f" FROM {rows})"
+    )
+
+
+#: 事故の生データ（1件=1点）。判定の式（`domain/accident.py`）が読む別名`a`の中身。
+ACCIDENTS_SOURCE_SQL = _accidents_sql(f"{_TABLE} WHERE source = '{Source.ACCIDENT}'")
+
+
+def accidents_within_sql(envelope: str) -> str:
+    """範囲（`envelope`はgeometryの式）に交わる事故の生データ。列は`ACCIDENTS_SOURCE_SQL`と同じ。
+
+    `attrs`は圧縮して置かれることがあり、外へ畳まれると読み替える列ごとに解凍し直す。そこで内側で1行1回だけ展開してから
+    読み替える: `OFFSET 0`だけでは圧縮のまま外へ渡り、`'{}'::jsonb ||`だけでは畳まれて列ごとに展開する。
+    範囲の絞りは空間の索引が効くよう内側に置く。
+    """
+    return _accidents_sql(
+        f"(SELECT geom, '{{}}'::jsonb || attrs AS attrs FROM {_TABLE}"
+        f" WHERE source = '{Source.ACCIDENT}' AND ST_Intersects(geom, {envelope}) OFFSET 0) expanded"
+    )
 
 
 #: Overture の地点の生データ（1件=1点）。群の判断（`domain/stop_place.py`）が読む列へ読み替える。配布の列の

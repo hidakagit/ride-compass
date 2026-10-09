@@ -36,7 +36,8 @@ BICYCLE_PARTY_TYPES: frozenset[PartyType] = frozenset({PartyType.BICYCLE, PartyT
 # --- 生データの列から判定する式 -----------------------------------------------
 #
 # 判定の規則をここだけが持つ。読む側は都度これを使う——同じ判定をタイルと集計で別々に書くとずれる。
-# 別名`a`は事故の生データの行（`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`）を指す。
+# 別名`a`は事故の生データの行（`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`か、範囲で絞った
+# `infrastructure/source_models.py: accidents_within_sql`。列は同じ）を指す。
 
 FATAL_SQL = "coalesce(a.deaths, 0) > 0"
 
