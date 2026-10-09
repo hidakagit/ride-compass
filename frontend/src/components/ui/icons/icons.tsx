@@ -24,6 +24,7 @@ import {
   Moon,
   Play,
   RotateCw,
+  Save,
   Shield,
   SlidersHorizontal,
   Snowflake,
@@ -525,6 +526,8 @@ export const ClearRoutesIcon = fromLucide(Trash);
 export const DeleteSavedIcon = fromLucide(Trash);
 /** 保存した設定を各タブへ呼び出す（取り込む）。 */
 export const RecallSavedIcon = fromLucide(Import);
+/** いまの設定を名前を付けて保存する。 */
+export const SaveConditionsIcon = fromLucide(Save);
 /** 地点を保存する（まだ保存していない地点）。 */
 export const SavePlaceIcon = fromLucide(Star);
 /** 保存した地点（塗った星。保存していない地点の`SavePlaceIcon`と対で、保存したかを形で見分ける）。 */

@@ -316,9 +316,8 @@ describe("ルートを作る", () => {
   it("保存した条件は地図で置いた出発地を持ち、呼び出すとその出発地から生成する", async () => {
     const PLACED: Coordinates = { latitude: 35.65, longitude: 139.75 };
     const { user } = renderHome();
+    // 保存は見出しのアイコンで、どのタブを見ていてもできる。
     const saveAs = async (name: string) => {
-      await user.click(screen.getByRole("tab", { name: "保存" }));
-      await user.click(screen.getByRole("tab", { name: "設定" }));
       await user.click(screen.getByRole("button", { name: "いまの設定を保存" }));
       const dialog = screen.getByRole("dialog", { name: "いまの設定を保存" });
       const nameInput = within(dialog).getByRole("textbox", { name: "保存する名前" });
@@ -341,7 +340,6 @@ describe("ルートを作る", () => {
     await user.click(screen.getByRole("button", { name: "出発地を地図で選ぶ" }));
     clickMap(PLACED);
     await saveAs("置いた所");
-    await user.click(screen.getByRole("tab", { name: "条件" }));
     await user.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
 
     jobs.respond([FIRST], LOOP_CONDITIONS);
