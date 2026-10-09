@@ -85,6 +85,14 @@ async def _ingest_elevations(conn: asyncpg.Connection) -> None:
                                                  lambda lon, lat: 10 + (lon - BASE_LON) * 1000), conn=conn)
 
 
+async def _ingest_landcover(conn: asyncpg.Connection) -> None:
+    await ingest_records("lulc", [tile_record(
+        "tile", LULC_ZOOM, LULC_X, LULC_Y,
+        tile_raster_wkb(bytes([PERCENT_CLASSES[0][1]]) * LULC_SIZE ** 2, zoom=LULC_ZOOM, x=LULC_X, y=LULC_Y,
+                        width=LULC_SIZE, height=LULC_SIZE, dtype="uint8", nodata=0),
+        {"z": LULC_ZOOM, "x": LULC_X, "y": LULC_Y, "width": LULC_SIZE})], conn=conn)
+
+
 async def _ingest_addresses(conn: asyncpg.Connection) -> None:
     await ingest_records("abr", [
         abr_prefecture_record("130001", "東京都", *_point(1)),
@@ -112,11 +120,7 @@ async def world(road_graph_engine, road_network_root):
             await _ingest_nodes(conn)
             await _ingest_accidents(conn)
             await _ingest_elevations(conn)
-            await ingest_records("lulc", [tile_record(
-                "tile", LULC_ZOOM, LULC_X, LULC_Y,
-                tile_raster_wkb(bytes([PERCENT_CLASSES[0][1]]) * LULC_SIZE ** 2, zoom=LULC_ZOOM, x=LULC_X, y=LULC_Y,
-                                width=LULC_SIZE, height=LULC_SIZE, dtype="uint8", nodata=0),
-                {"z": LULC_ZOOM, "x": LULC_X, "y": LULC_Y, "width": LULC_SIZE})], conn=conn)
+            await _ingest_landcover(conn)
             await _ingest_addresses(conn)
             west, south = _point(1)
             await ingest_records("estat_small_area", [estat_small_area_record("13104002400", "西新宿", [
@@ -215,11 +219,12 @@ class Change:
     runs: tuple[str, ...]
 
 
-ROAD_STAGES = ("topology", "nodes", "counts", "raster", "ways")
+ROAD_STAGES = ("topology", "nodes", "counts", "elevation", "landcover", "ways")
 CHANGES = [
     Change("事故を取り直した", _reingest(_ingest_accidents), ("counts",)),
     Change("ノードを取り直した", _reingest(_ingest_nodes), ("nodes", "counts")),
-    Change("標高を取り直した", _reingest(_ingest_elevations), ("raster",)),
+    Change("標高を取り直した", _reingest(_ingest_elevations), ("elevation",)),
+    Change("土地被覆を取り直した", _reingest(_ingest_landcover), ("landcover",)),
     # 住所の段は道路の取込の範囲を読む。
     Change("道を取り直した", _reingest(_ingest_ways), tuple(STAGE_NAMES)),
     Change("住所を取り直した", _reingest(_ingest_addresses), ("addresses", "stop_places")),
@@ -227,9 +232,9 @@ CHANGES = [
     Change("信号とみなす半径を変えた", _set_signal_radius, ("nodes", "counts")),
     Change("道1本の表に列を足した", _add_column("way_materials"), ROAD_STAGES),
     Change("立ち寄り先の表に列を足した", _add_column("stop_places"), ("stop_places",)),
-    # 標高のタイルの置き場は面の段だけが読み込む。
-    Change("面の段が読み込むモジュールを変えた", _edit_code("batch/dem_tile_store.py", lambda text: text + "\n_EDITED = 1\n"),
-           ("raster",)),
+    # 標高のタイルの置き場は標高の段だけが読み込む。
+    Change("標高の段が読み込むモジュールを変えた", _edit_code("batch/dem_tile_store.py", lambda text: text + "\n_EDITED = 1\n"),
+           ("elevation",)),
 ]
 
 
