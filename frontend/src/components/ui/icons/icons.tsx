@@ -26,6 +26,7 @@ import {
   Shield,
   SlidersHorizontal,
   Snowflake,
+  Star,
   Sun,
   Target,
   Thermometer,
@@ -523,6 +524,12 @@ export const ClearRoutesIcon = fromLucide(Trash);
 export const DeleteSavedIcon = fromLucide(Trash);
 /** 保存した設定を各タブへ呼び出す（取り込む）。 */
 export const RecallSavedIcon = fromLucide(Import);
+/** 地点を保存する（まだ保存していない地点）。 */
+export const SavePlaceIcon = fromLucide(Star);
+/** 保存した地点（塗った星。保存していない地点の`SavePlaceIcon`と対で、保存したかを形で見分ける）。 */
+export function SavedPlaceIcon({ size = 16 }: IconProps) {
+  return <Star size={size} strokeWidth={LUCIDE_STROKE_WIDTH} fill="currentColor" />;
+}
 export const InfoIcon = fromLucide(Info, 14);
 export const CopyIcon = fromLucide(Copy);
 export const RedrawMapIcon = fromLucide(RotateCw);

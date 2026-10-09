@@ -2,7 +2,7 @@
 
 ## 責務
 
-一般ユーザー向けのルート生成条件入力（距離・重み・除外道路と、名前を付けて保存した条件の呼び出し）と、生成結果の表示・比較
+一般ユーザー向けのルート生成条件入力（距離・重み・除外道路と、名前を付けて保存した地点・条件の呼び出し）と、生成結果の表示・比較
 （軸別内訳・候補一覧）を担う。
 
 **対象ファイル**
@@ -11,12 +11,15 @@
 |---|---|
 | `features/route/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替と、地点（出発地・経由地・目的地）の置き場。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
 | `features/route/RouteForm/RoutePoints.tsx` | 地点の並び（出発地 › 経由地の番号の丸・足す › 目的地）と、押した地点の選び。並びに名前が入りきるかを測って両端の札の名前を出し分ける（下記「地点の指定」） |
-| `features/route/RouteForm/PointDetail.tsx` | 押した地点の詳しく: 呼び名・出どころ・名前・辺り・住所や施設の名前を打つ欄（候補は欄の下）・地図で置く操作・消す／現在地に戻す（下記「地点の指定」） |
+| `features/route/RouteForm/PointDetail.tsx` | 押した地点の詳しく: 呼び名・出どころ・名前・辺り・住所や施設の名前を打つ欄（候補は欄の下。欄を押すと保存した地点も出す）・地図で置く操作・消す／現在地に戻す・置いた地点の保存（下記「地点の指定」「保存した地点」） |
 | `features/route/RouteForm/PointMark.tsx` | 並びの札と詳しくに出す、地図のピンと同じ図形の丸（`components/PinMark/PinMark.tsx`の中身に背景色を付けたもの） |
 | `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証（`{error, check}`。通れば送る距離を返す）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `features/route/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `features/route/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キー・画面に出す名前・既定値はすべて生成物`route-generate-config.json`（backend `domain/hard_filters.py`）が正で、名前をフロントに持たない——キーと名前を別々に持つと、足したフィルタに名前が無く内部名が出る。重みづけとの違い（通らない）はチップの並びの末尾の(i)の奥に置く（タブの名前が「除外」なので見出しの文を持たない） |
-| `features/route/SavedConditionsPanel/SavedConditionsPanel.tsx` | 「保存」タブの中身: 窓を開くボタン「＋ いまの設定を保存」（窓に保存する条件・出発地の扱いの切り替え・重み・除外と、名前の欄・保存のボタン）、保存した設定の一覧（行は名前と、アイコンの「呼び出す」「消す」。呼び出すは窓で中身を見せて「反映する」で呼び出し、消すは確認の窓で「消す」を押すと消す。下記「保存した条件」） |
+| `features/route/SavedPlacesPanel/SavedPlacesPanel.tsx` | 「保存」タブの「地点」の中身: 保存した地点の一覧（行は名前・辺りと、アイコンの「消す」。消すは確認の窓で「消す」を押すと消す）。無ければ無いと出し、保存の仕方は(i)の奥（下記「保存した地点」） |
+| `features/route/useSavedPlaces.ts` | 保存した地点の一覧（この端末の`localStorage`）と、保存・削除 |
+| `features/route/savedPlaces.ts` | 保存した地点の形（探した候補と同じ形）と、保存値の読み方（今の画面が受け付けない件だけを捨てる）・同じ名前と同じ位置の置き換え・打った文字での絞り込み |
+| `features/route/SavedConditionsPanel/SavedConditionsPanel.tsx` | 「保存」タブの「設定」の中身: 窓を開くボタン「＋ いまの設定を保存」（窓に保存する条件・出発地の扱いの切り替え・重み・除外と、名前の欄・保存のボタン）、保存した設定の一覧（行は名前と、アイコンの「呼び出す」「消す」。呼び出すは窓で中身を見せて「反映する」で呼び出し、消すは確認の窓で「消す」を押すと消す。下記「保存した条件」） |
 | `features/route/useSavedConditions.ts` | 保存した条件の一覧（この端末の`localStorage`）と、いまの条件（`useGenerationConditions.ts: snapshot`）の保存（出発地を固定するかを受け取る）・呼び出し・削除。呼び出すと`useGenerationConditions.ts: restore`で条件を入れ替え、出発地は位置の持ち主（`hooks/useLocation.ts`）へ渡す |
 | `features/route/savedConditions.ts` | 生成の条件の形（`GenerationConditionsSnapshot`。いまの条件・保存・呼び出しが同じ形を使い、保存の1件はそれに名前と出発地を足す）と、保存値の読み方（項目ごとの読み方の表で読み、今の画面が受け付けない件だけを捨てる）・仮の名前・何が保存されるかの説明（`describeConditions`。重みは軸ごとの割合）・同じ名前の上書き。距離・候補数として受け付ける範囲（`acceptedDistanceInput`・`acceptedMaxRoutesInput`）もここが持ち、`useGenerationConditions.ts`の保存値の読み直しと共有する。距離の下限（`MIN_DISTANCE_KM`）は画面だけの値で、`RouteForm`の距離の欄も読む。候補数の下限・上限は生成物`route-generate-config.json`から読む |
 | `features/route/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
@@ -314,7 +317,7 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 
 「ルート設定」で組んだ条件に名前を付けてこの端末に保存し、選ぶだけで同じ条件に戻せる。ログインは要らない
 （保存先はこの端末のブラウザの`localStorage`だけで、別の端末とは共有しない）。入口は「ルート設定」の4つ目のタブ
-「保存」——呼び出すと重み・除外まで入れ替わるので、特定のタブの中ではなくタブと並ぶ場所に置き、使わない人の画面を増やさず
+「保存」の中の「設定」（「保存」の中は「地点」「設定」のタブに分かれ、地点は下記「保存した地点」）——呼び出すと重み・除外まで入れ替わるので、特定のタブの中ではなくタブと並ぶ場所に置き、使わない人の画面を増やさず
 地図にも重ねない。
 
 - **保存するもの**: 周回か目的地か・距離・候補数・出発地（固定したときだけ。下記）・経由地・目的地・重み配分（上書きしていなければ「上書きしない」）・
@@ -347,6 +350,23 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 - **読み方**: 保存値は読むときに、今の画面が受け付けない件（範囲の外の距離・候補数、上限を超える経由地等）だけを捨て、
   ほかの件は残す。除外は今の項目へ揃え、重みは「重み」へ入れたあと、いつもの保存値と同じく軸カタログの公開軸へ揃える
   （「RouteSettingsPanel.tsx」）。
+
+## 保存した地点（SavedPlacesPanel.tsx・useSavedPlaces.ts・PointDetail.tsx）
+
+よく行く場所に名前を付けてこの端末に保存し、探し直さずに出発地・経由地・目的地に置ける（保存先は保存した条件と同じく
+この端末の`localStorage`だけ）。保存も呼び出しも、地点を置く所（条件タブの押した地点の詳しく）で行う——地点を置く入口を
+詳しくの1か所に保ち、どの地点に置くかを選び直させない（押した地点に置く）。「保存」タブの「地点」は一覧と消すだけを持つ。
+
+- **保存**: 置いてある地点（出発地は現在地を取れているときだけ）の詳しくの、アイコンだけの「地点を保存」（星）で窓を開き、名前を付けて
+  保存する。名前の欄には、探して置いた地点ならその候補の名前、ほかは辺り（無ければ詳しくの名前）を入れておく（空にして保存しても
+  その名前）。同じ名前があればボタンが「上書き保存」になる。保存するのは位置・名前・辺りと、住所の代表の位置かどうか（探した候補の
+  種類と段。地図で選んだ地点・現在地は、その位置そのもの）。同じ名前か同じ位置の地点は置き換える。
+- **保存した地点の印**: 詳しくの地点の位置が保存した地点と同じなら、星を塗り、押すと保存をやめる（置いた地点はそのまま。もう一度
+  星で保存し直せるので確認の窓を出さない）。
+- **呼び出し**: 詳しくの打つ欄を押すと、保存した地点を住所・施設の候補の上に出す（打った文字を名前に含むものだけ。候補と同じ枠の中で、
+  ✕・選ぶ・Escapeで閉じる）。選ぶと、探した候補を選んだのと同じく置く（`useGenerationConditions.ts: placeFound`）ので、名前は詳しくと並びに出て、
+  住所の地点には代表の位置と出る。
+- **消す**: 「地点」の一覧の「消す」は確認の窓を出す（付けた名前は戻せない）。
 
 ## 生成を待つ時間・投げる回数の根拠
 
@@ -396,7 +416,7 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 
 「ルート設定」区分自体を「条件」（`RouteForm`のモード切替・距離・候補数）・
 「重み」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）・
-「除外」（`exclusionsPanel`prop、`HardFilterPanel`）・「保存」（`savedPanel`prop、`SavedConditionsPanel`）のタブへ分ける。
+「除外」（`exclusionsPanel`prop、`HardFilterPanel`）・「保存」（中の「地点」は`SavedPlacesPanel`、「設定」は`savedConditionsPanel`propの`SavedConditionsPanel`）のタブへ分ける。
 **タブ列（`Tabs.List`）は見出し行の左（見出しのすぐ右）に置き、タブの中身
 （`Tabs.Content`）は本文に出る**ため、
 両方を囲む`Tabs.Root`（`@radix-ui/react-tabs`）と選択状態は`page.tsx`が持つ

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { buttonVariants } from "../Button/Button";
-import { GenerateRoutesIcon, RouteDiffIcon, type MapIconComponent } from "../icons/icons";
+import { GenerateRoutesIcon, RouteDiffIcon, SavePlaceIcon, type MapIconComponent } from "../icons/icons";
 
 // 案内の文の中で、アイコンだけのパネルの操作を「名前」で指した所を、そのボタンと同じ見た目のアイコンにして描く
 // （docs/modules/frontend/frontend-design-system.md 5-1）。名前はボタンの`aria-label`と同じにする——
@@ -9,6 +9,7 @@ import { GenerateRoutesIcon, RouteDiffIcon, type MapIconComponent } from "../ico
 const BUTTON_MARKS = new Map<string, { Icon: MapIconComponent; variant: "primary" | "secondary" }>([
   ["ルート生成", { Icon: GenerateRoutesIcon, variant: "primary" }],
   ["差分を見る", { Icon: RouteDiffIcon, variant: "secondary" }],
+  ["地点を保存", { Icon: SavePlaceIcon, variant: "secondary" }],
 ]);
 
 const QUOTED_NAME = /「([^「」]+)」/g;

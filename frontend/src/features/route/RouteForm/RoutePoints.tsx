@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
+import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import { cn } from "@/lib/cn";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
@@ -44,6 +45,8 @@ interface RoutePointsProps {
   mapCenter: Coordinates;
   /** 探して選んだ候補を、その役割の地点として置く（経由地は`waypointIndex`番目を置き直し、無ければ足す）。 */
   onPlaceFound: (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) => void;
+  /** 保存した地点（詳しくの打つ欄の候補と、置いた地点の保存）。 */
+  savedPlaces: SavedPlacesState;
 }
 
 const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
@@ -68,6 +71,7 @@ export default function RoutePoints({
   originFound,
   mapCenter,
   onPlaceFound,
+  savedPlaces,
 }: RoutePointsProps) {
   const {
     routeMode,
@@ -139,7 +143,7 @@ export default function RoutePoints({
   }, [namesShown, originName, destinationName, waypointCount, routeMode]);
 
   function renderDetail() {
-    const common = { originLocated, mapCenter };
+    const common = { originLocated, mapCenter, savedPlaces };
     if (target.role === "origin") {
       return (
         <PointDetail
