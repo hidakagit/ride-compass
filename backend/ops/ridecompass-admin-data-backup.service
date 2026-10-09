@@ -1,5 +1,5 @@
 # 取り直せない管理データをObject Storageへ書き出す（admin_data_backup.sh）。
-# 登録はdocs/conventions/deployment-sync.md「管理データのバックアップ」。
+# 登録は.claude/skills/production-data/SKILL.md「管理データのバックアップ」。
 [Unit]
 Description=RideCompass admin data backup to Object Storage
 Requires=docker.service

@@ -364,7 +364,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えても、MVTの世代は手で上げない
 ——`infrastructure/cache_identity.py: tile_version`がDBの世代と焼き込みの形の署名から決める。
-同じコミットで揃えるのは生成物（[deployment-sync.md](../../docs/conventions/deployment-sync.md)「コミットと同時に揃えるもの」）。
+同じコミットで揃えるのは生成物（[deployment-sync.md](deployment-sync.md)「コミットと同時に揃えるもの」）。
 手で上げる世代定数は、署名に表れない土地被覆の画素の変化を表す`LANDCOVER_REVISION`だけ。
 
 ## 直接使ってよい場所

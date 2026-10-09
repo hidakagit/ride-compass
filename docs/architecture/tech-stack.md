@@ -23,7 +23,7 @@
 | 標高 | 国土地理院DEMタイル（APIキー不要、日本国内限定） | 評価の材料（勾配）は取込バッチだけが叩き、**ルート生成・評価が実行時に取りに行く経路は無い**。地図の地形の表示は、backendが実行時に取りに行って中継し、ディスクに持つ |
 | 土地被覆 | Esri × Impact Observatory の10m LULC（GeoTIFF） | リポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする |
 | 立ち寄り先の地点 | Overture Maps の places（GeoParquet）を DuckDB（MIT）で取込の範囲だけ切り出す | 取得と取込のバッチだけが使う（`backend/requirements-batch.txt`）。利用条件と版の入れ替えは[data-sources.md](data-sources.md) |
-| 管理データの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerが取り直せない管理データを置き、バケットのライフサイクルの規則が古いものを消す。仕組みと登録の手順は[deployment-sync.md](../conventions/deployment-sync.md)付録「管理データのバックアップ」 |
+| 管理データの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerが取り直せない管理データを置き、バケットのライフサイクルの規則が古いものを消す。仕組みと登録の手順は[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)付録「管理データのバックアップ」 |
 | タスクの流れのゲート | Cloudflare Workers（`tools/flow-gate/wrangler.toml`。Webhookを受けるWorkerと、Cloudflare Accessで守る回答フォームのWorker） | アプリの外の運用の道具で、本番の利用者の経路に無い。公開するトークンは下の「秘密の値とトークン」、決まりは[flow.md](../conventions/flow.md) |
 
 ## 地図タイルプロバイダ
@@ -210,7 +210,7 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 
 この前提の上で、CIは次のように組んである。
 
-- どの出来事でCIが走るかはdocs/conventions/testing-operations.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」が持つ。
+- どの出来事でCIが走るかは.claude/skills/run-checks/SKILL.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」が持つ。
   作業ブランチへのpushで走らせないのは、検査はPull Requestの実行で済み、誰も待たないpushの実行で枠を使わないため。
   backendの本番へのデプロイは、masterへの
   pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
@@ -218,7 +218,7 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
   後のコミットは前の変更を全部含み、古いコミットの実行はデプロイにもマージの判断にも使わないため。Pull Requestは
   新しいpushで走っている実行も打ち切り、masterは走っている実行を最後まで走らせる（デプロイが同じ実行の中で走るので、
   途中で切らない）。打ち切った・待ちから外した実行のコミットにはCIの結論が残らないので、結論は最新のコミットで読む
-  （docs/conventions/testing-operations.md「CIの結論を読む」）。数十秒で終わる`docs-consistency.yml`・`claude-gate.yml`には置かない
+  （.claude/skills/run-checks/SKILL.md「CIの結論を読む」）。数十秒で終わる`docs-consistency.yml`・`claude-gate.yml`には置かない
   （待ちが積もらない）。
 - ジョブの分け方・キャッシュ・文書や運用の道具だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`ジョブの
   `case`）は、所要時間と同時実行の枠で決める（理由は各ワークフローのコメント）。

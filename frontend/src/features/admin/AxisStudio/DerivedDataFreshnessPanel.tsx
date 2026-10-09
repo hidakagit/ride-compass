@@ -92,7 +92,7 @@ function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse 
             <span>{staleCount}件が作り直し待ち</span>
             {/* 作り直しは本番VMで打つ。打つ形と理由は運用の文書が持つ（本番の置き場所の知識を画面に持たない）。 */}
             <span className={textVariants({ variant: "hint" })}>
-              作り直しの手順: docs/conventions/deployment-sync.md「派生データの作り直し」
+              作り直しの手順: .claude/skills/production-data/SKILL.md「派生データの作り直し」
             </span>
           </>
         ) : (

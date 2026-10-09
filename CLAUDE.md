@@ -19,8 +19,9 @@
 | 階層 | 置くもの | 判定基準 |
 |---|---|---|
 | **CLAUDE.md（本ファイル）** | 常時・無条件に従うべき短い方針＋「作業の種類と読む節」の表 | 「明示的に呼ばれなくても毎回のタスクで適用すべきか」がYesかつ短く書けるもの。長くなるなら下記のdocs/へ出して表に行か節を足し、ルールの経緯はタスクの issue に書く |
-| **docs/conventions/*.md**（flow.md・testing-operations.md等） | 規約。仕事のやり方の取り決め | CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする（要点を写さない） |
+| **docs/conventions/*.md**（flow.md） | 規約。仕事のやり方の取り決め | CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする（要点を写さない） |
 | **.claude/rules/*.md**（testing.md・comments.md等） | ファイルの種類ごとの決まり。関係するファイルを触ると自動で読まれる | 先頭の`paths`に当てるファイルを書く。CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする |
+| **.claude/skills/<名前>/SKILL.md**（run-checks・production-data等） | 多段の手順。説明の1行は常に読まれ、本文は使うときに読まれる | 先頭の`name`と`description`（何をするか・いつ使うか）を書く。CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする |
 | **docs/architecture/*.md** | 構成・技術選定・外部の制約・設計原則（構造仕様） | コードから導けない事実と、コードが従うべき構造契約 |
 | **docs/modules/*.md** | モジュール単位の実装粒度の記述 | 実装作業者向けの詳細。architecture より細かいものはここへ落とす |
 | **.claude/commands/review.md**（`/review`） | 複数の変更を並べて初めて判断できる、周期実行向きのチェック（複雑度のトレンド・UI一貫性等） | 1タスク単体では判断材料が無いもの。grep一発で済む安価で機械的なチェックは`scripts/review_checks.py`の検知器にし（足す条件は .claude/rules/fixing.md「検知器を足す条件は厳しい」）、ここには二重チェックとしてのみ残す |
@@ -40,7 +41,7 @@ ScheduleWakeupのreason等）も含めて、常にすべて日本語で書く。
 ## 作業の種類と読む節（必読）
 
 作業を始める前に、当たる行の節を読む（いくつも当たれば全部）。節は「ファイル: 節の名前」で指し、ファイル名だけのものは
-docs/conventions/ にある（.claude/rules/ のものはパスを書く）。flow.md の節を指す行に当たったら、先に flow.md: 原則を読む。文書の末尾の「付録」（一度きりの準備・災害時の手順・方針の背景）は作業の前には読まず
+docs/conventions/ にある（.claude/rules/・.claude/skills/ のものはパスを書く）。flow.md の節を指す行に当たったら、先に flow.md: 原則を読む。文書の末尾の「付録」（一度きりの準備・災害時の手順・方針の背景）は作業の前には読まず
 （「全文」も付録を除く）、その場面に当たったときに引く。
 
 | 作業 | 読む節 |
@@ -49,19 +50,19 @@ docs/conventions/ にある（.claude/rules/ のものはパスを書く）。fl
 | タスクに着手する | flow.md: 1つのタスクを触るのは1者だけ・作る担当（1〜3）・前後関係と組（探す）・issue の形（1つの Pull Request に収まらない・方針を選ぶタスクは最初に背景・方針を書く） |
 | 新しい仕組みを作る・設計を判断する | docs/architecture/design-principles.md（全文）／.claude/commands/review.md: 判断原則 |
 | backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／.claude/rules/comments.md: ルール・判定基準（新しくコメントを書く/既存コメントを見直す/コードを撤去するとき）・残すと決めたものの行き先／.claude/rules/logging.md: 基本原則・使う仕組み（新規実装はこれらを使うこと） |
-| APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | deployment-sync.md: コミットと同時に揃えるもの |
+| APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | .claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
 | 依存の版・デプロイ・実行環境に触る | docs/modules/README.md: このディレクトリが扱わない領域（正本は別にある）と、そこが指す docs/architecture/ の節 |
 | キャッシュを足す・変える | .claude/rules/caching.md（全文） |
 | 外部データソースを使う・使い方を変える | docs/architecture/data-sources.md: 使い方 |
-| 評価軸を足す・消す・調整する | deployment-sync.md: コミットと同時に揃えるもの・本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる |
+| 評価軸を足す・消す・調整する | .claude/rules/deployment-sync.md: コミットと同時に揃えるもの／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる |
 | 指摘・不具合を直す | .claude/rules/fixing.md（全文） |
 | テストを書く | .claude/rules/testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・テストの足場で、本来のNGを覆わない・挙動を変えるなら、テストを先に書く・当たるパターン（パターン1〜）／.claude/rules/fixing.md: 書かないテスト |
-| テストや検査を回す | testing-operations.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／.claude/rules/testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
+| テストや検査を回す | .claude/skills/run-checks/SKILL.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／.claude/rules/testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
 | 画面を撮る | flow.md: 作る担当（5 の画面の変更のキャプチャ） |
-| コミットする | flow.md: コミット／.claude/rules/fixing.md: 報告と段取り（実装の増減）／deployment-sync.md: コミットと同時に揃えるもの |
+| コミットする | flow.md: コミット／.claude/rules/fixing.md: 報告と段取り（実装の増減）／.claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
 | PR を出す | flow.md: 作る担当（4〜6）・分布の前後 |
 | PR を確かめてマージする | flow.md: 確かめる担当・Pull Request のあと・競合を解く |
-| 本番へ書く | flow.md: 自動で進めないもの・本番へ書く／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
+| 本番へ書く | flow.md: 自動で進めないもの・本番へ書く／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
 | 起票する | flow.md: 改善を起票する・issue の形・ラベルと種類と欄（優先度の見積もり）・前後関係と組 |
 | 問う・保留する | flow.md: 問い・答え・保留と棚卸 |

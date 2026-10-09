@@ -1,7 +1,7 @@
 r"""派生の表の値の列ごとに、値の分布を1行で出す。
 
 落ちた絞り込み・二重に数えた値はエラーにもテストの失敗にもならず、値の偏りとしてだけ現れる。
-本番の派生を作り直すたびに、全部の列のこの行を前と後で並べる（docs/conventions/deployment-sync.md「派生データの作り直し」）。
+本番の派生を作り直すたびに、全部の列のこの行を前と後で並べる（.claude/skills/production-data/SKILL.md「派生データの作り直し」）。
 
 対象は宣言から導く（`app/infrastructure/derived_data_freshness.py: derived_tables`・`value_columns`）
 ——表・列を足しても、ここは変わらない。

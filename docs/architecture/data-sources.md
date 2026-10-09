@@ -77,7 +77,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
    `ALWAYS_SHOWN_ATTRIBUTIONS`の行と`frontend/public/licenses/foursquare-places-NOTICE.txt`を合わせる（生成物`mapDisplay.ts`を作り直す）。
    上の表の行の確認日も直す。
 3. `rows.release`を新しい版へ書き換えてマージする。
-4. 本番 VM で、別のコンテナ（[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」と同じ`docker run`）から
+4. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
    `python scripts/fetch_overture_places.py`（範囲の地点を写す。関東の枠で約190MB。Actions のランナーで17秒）→ `python -m app.batch.ingest_cli --source overture_place`
    → `python -m app.batch.derive_cli`の順に打つ。本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[flow.md](../conventions/flow.md)「本番へ書く」）。
 5. 群ごとの件数（`SELECT place_group, count(*) FROM stop_places GROUP BY 1`）を前の版と比べ、大きく動いた群があれば 1 の変更を疑う。
@@ -98,7 +98,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 1. [紹介ページ](https://jpsearch.go.jp/database/bunka)のメタデータの条件と、[サイトポリシー](https://jpsearch.go.jp/policy)の
    出典の記載例を読み、変わっていれば`ALWAYS_SHOWN_ATTRIBUTIONS`の行を合わせる（生成物`mapDisplay.ts`を作り直す）。上の表の行の確認日も直す。
 2. `rows.snapshot`を取る日へ書き換えてマージする。
-3. 本番 VM で、別のコンテナ（[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」と同じ`docker run`）から
+3. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
    `python scripts/fetch_bunka_heritages.py` → `python -m app.batch.ingest_cli --source bunka_heritage` → `python -m app.batch.derive_cli`
    の順に打つ。本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[flow.md](../conventions/flow.md)「本番へ書く」）。
 4. 寺社の数（`SELECT count(*) FROM stop_places WHERE place_group = 'temple_shrine'`。関東の範囲で 2026-10-08 に194）を前と比べ、
@@ -122,7 +122,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
    [利用規約](https://www.e-stat.go.jp/terms-of-use)を読み、出典の求めが変わっていれば`ADDRESS_AREA_ATTRIBUTIONS`を合わせる
    （生成物`mapDisplay.ts`を作り直す）。上の表の行の確認日も直す。
 2. `rows.snapshot`を取る日へ（e-Stat を新しい国勢調査にするなら`rows.survey`も）書き換えてマージする。
-3. 本番 VM で、別のコンテナ（[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」と同じ`docker run`）から
+3. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
    `python scripts/fetch_abr.py` → `python scripts/fetch_estat_small_areas.py`（都道府県を ABR の市区町村の代表点から決めるので、この順）
    → `python -m app.batch.ingest_cli --source abr --source estat_small_area` → `python -m app.batch.derive_cli`の順に打つ。
    本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[flow.md](../conventions/flow.md)「本番へ書く」）。

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 取り直せない管理データの表をpg_dumpで書き出し、Object Storageの非公開バケットへ置く。
 # 本番VMのsystemd（ridecompass-admin-data-backup.service）がrootで毎日打つ。登録と戻し方は
-# docs/conventions/deployment-sync.md「管理データのバックアップ」。
+# .claude/skills/production-data/SKILL.md「管理データのバックアップ」。
 #
 # 環境変数（/etc/ridecompass/admin-data-backup.env）: OCI_NAMESPACE・BACKUP_BUCKET
 set -euo pipefail
