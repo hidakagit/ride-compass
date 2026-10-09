@@ -20,7 +20,6 @@ import {
 import type { LensId } from "@/lib/mapDisplay/routeStyleModes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 import type MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
-import type MapResetMenu from "@/features/map/MapResetMenu/MapResetMenu";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -77,8 +76,8 @@ interface MapViewState {
   look: MapLook;
   lensControl: ComponentProps<typeof LensControl>;
   overlayControls: ComponentProps<typeof MapOverlayControls>;
-  /** 地図の表示をまとめて元に戻す操作。 */
-  bulk: ComponentProps<typeof MapResetMenu>;
+  /** 押した人の地図だけを、スタイルから取り直して組み直す。 */
+  redrawMap: () => void;
   /** 地図の見えている範囲の真ん中。地図がまだ範囲を知らせていなければnull。 */
   center: Coordinates | null;
 }
@@ -165,14 +164,12 @@ export function useMapView({
     layers: mapCatalog.layers,
     visibility: layerVisibility,
     hidden,
-    // ルート線の凡例はレンズと同じ保存先なので、どちらで隠しても同じ段が隠れる。
-    screenLegends: { [ROUTE_LAYER_ID]: hasDetail ? [{ label: "", legend, axisId: lens }] : [] },
     dataStatus: { ...mapLayerStatus, ...weather.dynamicWeatherDataStatus },
     zoomTooWideLayerIds: viewport ? tileZoomTooWideLayerIds(viewport.zoom) : [],
     versionMissingLayerIds: mapCatalog.tileVersions ? [] : tileVersionGatedLayerIds(mapCatalog.rampAxes),
     catalogSettled: catalog.loaded || catalog.failed,
-    hasSelectedRoute,
   });
+  const setRouteShown = (on: boolean) => setLayerVisibility((prev) => ({ ...prev, [ROUTE_LAYER_ID]: on }));
   const setHiddenFor = (axisId: string, keys: readonly string[]) =>
     setHidden((prev) => withHiddenKeys(prev, axisId, keys));
   const toggleHiddenFor = (axisId: string, key: string) => setHidden((prev) => toggleHiddenKey(prev, axisId, key));
@@ -184,7 +181,7 @@ export function useMapView({
       // 選んだ色分けが見えるように、ルートのレイヤーがOFFならONにする。
       onLensChange: (id) => {
         setLens(id);
-        setLayerVisibility((prev) => (prev[ROUTE_LAYER_ID] ? prev : { ...prev, [ROUTE_LAYER_ID]: true }));
+        setRouteShown(true);
       },
       axisOptions: lensOptions(
         catalog.axes,
@@ -199,6 +196,9 @@ export function useMapView({
       keepAfterRoute,
       onKeepAfterRouteChange: setKeepAfterRoute,
       hasDetail,
+      routeShown: layerVisibility[ROUTE_LAYER_ID] === true,
+      routeSelectable: hasSelectedRoute,
+      onRouteShownChange: setRouteShown,
       conditions: lensConditionsLabel(painted, mapCatalog.dedicatedAxes, ride, departureLabel),
       dataStatus: lensFetch
         ? deriveFetchLayerStatus(
@@ -214,23 +214,20 @@ export function useMapView({
       onToggle: (id, on) => setLayerVisibility((prev) => ({ ...prev, [id]: on })),
       onLegendEntryToggle: toggleHiddenFor,
       onLegendAxisSetHidden: setHiddenFor,
-    },
-    bulk: {
-      anyLayerOn: chips.some((chip) => chip.on),
-      hideAllLayers: () =>
-        setLayerVisibility(
-          (prev) => Object.fromEntries(Object.keys(prev).map((id) => [id, false])) as MapLayerVisibility,
-        ),
+      // 消すのは一覧に並ぶものだけ（ルートの出し入れは色分けが持つ）。
+      onHideAllLayers: () =>
+        setLayerVisibility((prev) => ({
+          ...prev,
+          ...Object.fromEntries(chips.map((chip) => [chip.id, false])),
+        })),
       // 数えるのは地図に出ているもの（色分けと、出しているレイヤー）だけ。出していないレイヤーの最初に隠す行
       // （路面のデータなし等）まで数えると、地図に何も欠けていないのに最初から押せる。
       anyLegendHidden:
         lensHidden.length > 0 ||
-        chips.some(
-          (chip) => chip.on && !chip.disabled && (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0),
-        ),
-      showAllLegendRows: () => setHidden(NONE_HIDDEN),
-      redraw: () => setRefreshToken((token) => token + 1),
+        chips.some((chip) => chip.on && (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0)),
+      onShowAllLegendRows: () => setHidden(NONE_HIDDEN),
     },
+    redrawMap: () => setRefreshToken((token) => token + 1),
     center,
   };
 }

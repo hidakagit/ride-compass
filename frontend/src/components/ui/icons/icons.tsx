@@ -13,12 +13,12 @@ import {
   Download,
   Droplet,
   EllipsisVertical,
-  Eraser,
   Gauge,
   GitCommitHorizontal,
   Import,
   Info,
   Layers,
+  ListChecks,
   MapPin,
   Moon,
   Play,
@@ -445,7 +445,7 @@ export function UndoAllIcon({ size = 16 }: IconProps) {
 }
 
 /** 全レイヤー一括OFF: 重なり（レイヤー）＋バツ。
- * まとめて戻すメニュー（`MapResetMenu`）には「戻す」操作が複数並ぶため、バツは「消す」の意味だけに使い、
+ * 「表示」の一覧の末尾には「戻す」操作が複数並ぶため、バツは「消す」の意味だけに使い、
  * 何を消すのかは対象の形（重なり／漏斗）で示す——バツ単体だと対象を表せない。 */
 export function ClearAllLayersIcon({ size = 16 }: IconProps) {
   return (
@@ -526,8 +526,8 @@ export const RecallSavedIcon = fromLucide(Import);
 export const InfoIcon = fromLucide(Info, 14);
 export const CopyIcon = fromLucide(Copy);
 export const RedrawMapIcon = fromLucide(RotateCw);
-/** 地図の表示をまとめて元に戻す操作を開く。 */
-export const ResetMapIcon = fromLucide(Eraser);
+/** 群の中で一覧に並べる項目を選ぶ。 */
+export const ChooseItemsIcon = fromLucide(ListChecks);
 export const RouteSettingsIcon = fromLucide(SlidersHorizontal);
 export const ShieldIcon = fromLucide(Shield);
 export const TargetIcon = fromLucide(Target);
