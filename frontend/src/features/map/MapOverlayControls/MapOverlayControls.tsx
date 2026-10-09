@@ -401,19 +401,35 @@ function LayerRow({
 
 /** 群の中で一覧に並べる項目を選ぶ。外した項目は、群を開いても並べない。 */
 function ItemChooser({
+  label,
   members,
   isHidden,
   onToggleHidden,
+  onSetAllHidden,
 }: {
+  label: string;
   members: readonly OverlayLayerChip[];
   isHidden: (member: OverlayLayerChip) => boolean;
   onToggleHidden: (member: OverlayLayerChip) => void;
+  onSetAllHidden: (hidden: boolean) => void;
 }) {
+  const allListed = members.every((member) => !isHidden(member));
   return (
     <ul
       className="m-0 flex list-none flex-col gap-0.5 py-0.5 pl-0"
       data-usage="チェックを外した項目は、この一覧に並べません。地図に出していれば消えます。"
     >
+      {/* 1つのチェックボックスで両方向を兼ねる（凡例の軸の見出しと同じ）。 */}
+      <li data-usage="この群の項目をまとめて選びます。全部並んでいれば全部外し、1つでも外れていれば全部並べます。">
+        <label className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[length:var(--font-size-sm)] font-bold">
+          <Checkbox
+            checked={allListed}
+            onCheckedChange={() => onSetAllHidden(allListed)}
+            aria-label={`${label}の項目をすべて選ぶ/外す`}
+          />
+          すべて
+        </label>
+      </li>
       {members.map((member) => {
         const hidden = isHidden(member);
         return (
@@ -470,6 +486,15 @@ export default function MapOverlayControls({
     if (hiding && member.on) onToggle(member.id, false);
   }
 
+  /** 群の項目をまとめて外す・並べる。1つずつ外すときと同じく、外す項目のONはOFFにし、並べ直してもONにはしない。 */
+  function setAllHidden(group: MapOverlayGroup, members: readonly OverlayLayerChip[], hiding: boolean) {
+    const keys = members.map((member) => hiddenKeyOf(group, member.id));
+    setHiddenIds((prev) =>
+      hiding ? [...prev, ...keys.filter((key) => !prev.includes(key))] : prev.filter((id) => !keys.includes(id)),
+    );
+    if (hiding) for (const member of members) if (member.on) onToggle(member.id, false);
+  }
+
   const groups = MAP_OVERLAY_GROUP_ORDER.flatMap((group) => {
     const members = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
       layers.filter((layer) => layer.category === category && mapOverlayGroupFor(layer) === group),
@@ -481,23 +506,9 @@ export default function MapOverlayControls({
     const choosing = choosingGroup === group;
     const isHidden = (member: OverlayLayerChip) => hiddenIds.includes(hiddenKeyOf(group, member.id));
     const listed = members.filter((member) => !isHidden(member));
-    const allOn = listed.length > 0 && listed.every((member) => member.on);
     return [
       <section key={group} aria-label={label} className="flex flex-col">
         <div className="mt-1.5 flex items-center gap-1">
-          {/* 1つのチェックボックスで両方向を兼ねる（凡例の軸の見出しと同じ）。対象は一覧に並ぶ行だけで、外した項目は出さない。 */}
-          <span
-            className="inline-flex"
-            data-usage="この群の一覧に並ぶ情報を、まとめて地図に出し入れします。全部出ていれば全部消し、1つでも消えていれば全部出します。"
-          >
-            <Checkbox
-              checked={allOn}
-              onCheckedChange={() => {
-                for (const member of listed) if (member.on === allOn) onToggle(member.id, !allOn);
-              }}
-              aria-label={`${label}をまとめて表示/非表示`}
-            />
-          </span>
           <h3 className="m-0 min-w-0 flex-1 text-[length:var(--font-size-xs)] font-bold" style={GROUP_COLORS[group]}>
             <Button
               variant="ghost"
@@ -532,7 +543,13 @@ export default function MapOverlayControls({
           </Button>
         </div>
         {choosing ? (
-          <ItemChooser members={members} isHidden={isHidden} onToggleHidden={(member) => toggleHidden(group, member)} />
+          <ItemChooser
+            label={label}
+            members={members}
+            isHidden={isHidden}
+            onToggleHidden={(member) => toggleHidden(group, member)}
+            onSetAllHidden={(hiding) => setAllHidden(group, members, hiding)}
+          />
         ) : (
           !collapsed && (
             <ul className="m-0 flex list-none flex-col p-0" data-usage={LIST_USAGE}>
