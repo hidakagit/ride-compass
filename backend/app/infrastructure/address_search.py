@@ -43,28 +43,28 @@ FROM chain GROUP BY leaf
 #: 続きの件数を長さごとに数える幅（入力より何文字長い鍵まで数えるか）。この幅で上限に届かなければ、長さで切らずに引く。
 _CONTINUATION_LENGTH_WINDOW = 40
 
-# 同じ区画に当たった鍵は1件にまとめる（当たり方は「全部に当たる・続き」を、鍵は短いほうを採る）。並びは「全部に当たる・続き」
-# → 番地付き、その中は段の粗いもの → 鍵の短いもの → 検索の中心に近いもの（測地の距離。街区・地番はその点から）
-# ——段を鍵の長さより先にするのは、1文字の入力（「柏」）で同じ名前の大字が上限を埋め、市区町村（「柏市」）が漏れないため。並びの最後の鍵は、同じ位置の
+# 同じ区画に当たった鍵は1件にまとめる（当たり方は良いほうを採る）。並びは「全部に当たる・続き」→ 番地付き、その中は
+# 段の粗いもの → 全部に当たるもの → 続き → 検索の中心に近いもの（測地の距離。街区・地番はその点から）——段を当たり方より
+# 先にするのは、1文字の入力（「柏」）で同じ名前の大字が上限を埋め、市区町村（「柏市」）が漏れないため。並びの最後の鍵は、同じ位置の
 # 区画の並びを毎回同じにするため。表示名は、上限までの区画から`parent_id`をたどった祖先の名前で組み立てる
 # （`_AREA_CHAINS`）。
 # 鍵の等号と`LIKE`は、索引で引けるよう引数を直に比べる（`LIKE`の頭の文字列が別の表の列のように問い合わせを組み立てる時に
 # 分からないと、索引の範囲にできず表の全部を読む）。
 _SEARCH_SQL = text(f"""
     WITH hits AS (
-        SELECT area_id, 0 AS numbered, length(key) AS len, CAST(NULL AS text) AS number
+        SELECT area_id, 0 AS numbered, 0 AS continued, CAST(NULL AS text) AS number
         FROM address_search_keys
         WHERE key = :query OR key = :query_with_separator
         UNION ALL
-        SELECT area_id, 1, len, number FROM (
-            SELECT area_id, length(key) AS len, rank() OVER (ORDER BY length(key) DESC) AS longest,
+        SELECT area_id, 1, 0, number FROM (
+            SELECT area_id, rank() OVER (ORDER BY length(key) DESC) AS longest,
                    substring(substr(CAST(:query AS text), length(key) + 1) from :block_number) AS number
             FROM address_search_keys
             WHERE key = ANY(CAST(:heads AS text[]))
               AND substr(CAST(:query AS text), length(key) + 1) ~ :numbered_remainder
         ) numbered WHERE longest = 1
         UNION ALL
-        SELECT area_id, 0, length(key), NULL
+        SELECT area_id, 0, 1, NULL
         FROM address_search_keys
         WHERE :continues AND continuable AND key LIKE :prefix AND length(key) > :query_length
           AND length(key) <= coalesce((
@@ -78,7 +78,7 @@ _SEARCH_SQL = text(f"""
     ),
     found AS (
         SELECT a.area_id, b.number, b.kind, coalesce(b.geom, a.geom) AS geom,
-               row_number() OVER (ORDER BY min(h.numbered), array_position(CAST(:levels AS text[]), a.level), min(h.len),
+               row_number() OVER (ORDER BY min(h.numbered), array_position(CAST(:levels AS text[]), a.level), min(h.continued),
                                   ST_Distance(coalesce(b.geom, a.geom)::geography,
                                               ST_SetSRID(ST_MakePoint(:near_lon, :near_lat), 4326)::geography),
                                   a.area_id) AS position

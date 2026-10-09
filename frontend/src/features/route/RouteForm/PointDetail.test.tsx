@@ -1,7 +1,7 @@
 /**
  * `RouteForm/PointDetail.tsx`——押した地点の詳しく。探して置いた地点の辺りと、代表の位置にすぎないことを出す。地図で選んだ地点と
  * 辺りの無い施設には、位置から引いた辺りを出す（探した住所には引かない）。打つ欄は住所・施設の
- * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を欄の下に
+ * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・地図の真ん中からの直線距離・種類・当たった段）を欄の下に
  * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。引いたあとに地図を
  * 動かしても引き直さない。引けないとき・当たらないときはそう出す。打つ欄を押すと保存した地点を出し、打った文字を名前に含むものに
  * 絞り、選んだ地点を上げる。置いた地点を名前を付けて保存し、保存した地点なら保存をやめられる。
@@ -56,7 +56,7 @@ const FACILITY: PlaceCandidate = {
   longitude: 139.7967,
 };
 
-/** 地図の真ん中（東京駅）。浅草寺まで直線で4.6km。 */
+/** 地図の真ん中（東京駅）。丸の内二丁目まで直線で0.4km、浅草寺まで4.6km。 */
 const TOKYO_STATION: Coordinates = { latitude: 35.681, longitude: 139.767 };
 /** 浅草寺のすぐ南（浅草寺まで直線で0.2km）。 */
 const NEAR_SENSOJI: Coordinates = { latitude: 35.713, longitude: 139.7967 };
@@ -153,7 +153,7 @@ describe("PointDetail 置いた地点", () => {
 });
 
 describe("PointDetail 打つ欄", () => {
-  it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ候補を上げる", async () => {
+  it("入れた住所・施設の候補を地図の真ん中からの距離・種類・当たった段（施設は辺りも）つきで並べ、選んだ候補を上げる", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA, FACILITY] }));
     const { onChoose } = renderDetail();
 
@@ -165,7 +165,7 @@ describe("PointDetail 打つ欄", () => {
       within(list)
         .getAllByRole("button")
         .map((row) => row.textContent),
-    ).toEqual([`${AZA.name}住所字・丁目`, `${FACILITY.name}${FACILITY.area}4.6km施設地点`]);
+    ).toEqual([`${AZA.name}0.4km住所字・丁目`, `${FACILITY.name}${FACILITY.area}4.6km施設地点`]);
 
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
     expect(onChoose).toHaveBeenCalledExactlyOnceWith(AZA);
