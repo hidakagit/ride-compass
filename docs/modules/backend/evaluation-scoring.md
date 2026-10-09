@@ -47,8 +47,8 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 材料の値1つがタイルにどう載るかを、`tile_property_value`がPythonの値で返す（画面へ配る期待値の表がタイルのプロパティを作るのに読む）。
 SQLの式と値の関数が同じ値を出すことは、`tests/test_material_values.py`が同じあるべき値を両方へ当てて見る。
 
-タイルの文は、値式が読む別名をフィーチャーの単位で与える。区間単位のフィーチャーは`em`が`edge_materials`の行・
-`re`の長さが区間の長さ、way丸ごとのフィーチャーは`em`が`way_materials`の同じ名前の列（無い列はNULL）・`re`の長さが
+タイルの文は、値式が読む別名をフィーチャーの単位で与える。区間単位のフィーチャーは`em`が区間の値・
+`re`の長さが区間の長さ、way丸ごとのフィーチャーは`em`が道1本の値の同じ名前の列（無い列はNULL）・`re`の長さが
 wayの長さ（0はNULL）になる——件数と長さは必ず同じ側から取る。実行時の係数で割る材料
 （`tile_property_runtime_scale`）は割る前の値を焼き、係数の源が値式で読むSQLの引数
 （`TILE_RUNTIME_SCALE_SQL_PARAMS`）をタイルの文では1で束ねる（`tile_unscaled_sql_params`）。
@@ -100,8 +100,8 @@ wayの長さ（0はNULL）になる——件数と長さは必ず同じ側から
 | way標本 | `road_graph_repository.py: sample_way_material_values` | way標本（軸スタジオの分布プレビュー） |
 
 way粒度の経路も**区間向けと同じ式**を使う。`way_from_clause`がwayの行から同じ名前の
-エイリアス（`_WAY_ALIAS_CLAUSES`が持つ`wm`/`re`/`em`）を組み立てるだけで、式を2組持たない。
-区間の値を持つ`em`は、way粒度では`way_materials`を引く別名になる——**区間の値をway1本へ
+エイリアス（`wm`/`re`/`em`）を組み立てるだけで、式を2組持たない。
+区間の値を持つ`em`は、way粒度では道1本の値の同じ名前の列を引く別名になる——**区間の値をway1本へ
 落としているのではなく、way粒度の値を同じ名前で読んでいる**（way側の値は
 `derive_raster_materials`が区間から集約して持つ）。
 
@@ -380,7 +380,7 @@ MaterialSpec]`が単一ソース。
   `landcover.py: landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
   **材料の値式は`em.lc_*`だけを読み、区間の値が無いときに道1本の値へ落とさない**——区間の値は全区間ぶん
   計算されており、落とす先は同じ道の平均でしかない。道1本を単位に値を求める文脈
-  （`road_graph_repository.py: _WAY_ALIAS_CLAUSES`が`em`を道1本の行へ読み替える）では道の値になる。
+  （`road_graph_repository.py: material_from_clause`が`em`を道1本の行へ読み替える）では道の値になる。
   路面タイルと区間インスペクタ（`get_feature_landcover`）も、フィーチャーの単位（区間かway丸ごとか）で
   読む列を選ぶ——単位を揃えないと、同じ場所で地図の色と内訳の数字が食い違う。
 
@@ -402,8 +402,12 @@ MaterialSpec]`が単一ソース。
 |---|---|---|
 | `w` | 生の道（`source_features`の`source='osm_way'`を、よく引くタグを列へ出した副問い合わせ。`infrastructure/source_models.py: ways_source_sql`） | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
 | `re` | 区間の行（`road_edges`） | `highway`・距離（密度の分母） |
-| `em` | 区間に付く値（`edge_materials`） | 標高・件数の密度・区間単位の土地被覆 |
-| `wm` | 道1本に付く値（`way_materials`） | way単位の土地被覆・道の曲がり具合等 |
+| `em` | 区間に付く値（主キーが区間の鍵の派生の表） | 標高・件数の密度・区間単位の土地被覆 |
+| `wm` | 道1本に付く値（主キーが道の鍵の派生の表） | way単位の土地被覆・道の曲がり具合等 |
+
+`em`・`wm`を与えるJOINは、どの経路でも`road_graph_repository.py: material_from_clause`が組み立てる。式が読む列を
+宣言（`derived_models.py`）から引き、その列を持つ表だけを主キーで外部結合する。宣言に無い列を読む式は組み立てる時点で
+送出し、区間の表どうし（道の表どうし）が同じ名前の列を持つとimportの時点で送出する（別名の列の出どころが決まらない）。
 
 way粒度で引くときは、同じ式のまま`w`の行から同じ名前の別名を組み立てる
 （`road_graph_repository.py: way_from_clause`）。`em`はway側の同名列かNULLを返す1行になる
@@ -422,7 +426,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 **エイリアスを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、既存の
 エイリアスの列として足す。新しいエイリアスを足すのは、元データの表そのものが増えるとき
-だけ（`way_from_clause`・区間向けのFROM句の両方へ同じ名前で用意する必要がある）。
+だけ（読む経路のFROM句の全部へ同じ名前で用意する必要がある）。区間・道の値の表を足すだけなら、`em`・`wm`の列が
+増えるだけで別名は増えない。
 
 ### 材料カタログのAPI（`api/routers/material_catalog.py`）
 
@@ -446,7 +451,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 | 母集団 | 対象 | 判定 |
 |---|---|---|
 | `"way"` | 生の道の全行（`infrastructure/source_models.py: WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_condition`（`edge_materials AS em`の1行が値を持つときに真のSQL条件式）。全edge材料を`count(*) FILTER`で1回の走査にまとめる（`build_edge_coverage_sql`）。`edge_materials`の`(osm_way_id, segment_index)`は`road_edges`へのFK（ON DELETE CASCADE）のため、値が埋まっている行数をそのまま「値ありEdge数」として使いJOINを省く |
+| `"edge"` | `road_edges`全行 | `present_condition`（区間の値（別名`em`）が値を持つときに真のSQL条件式）。`road_edges`へ区間の値を読み出しと同じ結び方（`material_from_clause`）で外部結合し、全edge材料を`count(*) FILTER`で1回の走査にまとめる（`build_edge_coverage_sql`） |
 
 - **「行がある」と「値がある」を混同しない**。派生の表は区間ごとに行を持ち、値を出せない列は
   NULLのまま残す（土地被覆の`lc_*`がそう。NULLの意味は[静的道路属性](static-road-attributes.md)「値が無ければNULL」）。

@@ -6,14 +6,15 @@
 ドリフトするため、ここへ集約する。表を読む文（生データの表から`w`を作る副問い合わせ等）は
 実行する層が持ち、ここは別名の列に対する式だけを持つ。
 
-式はテーブルのエイリアスを固定で参照する。FROM句は読み出し側が組み立てる:
+式はテーブルのエイリアスを固定で参照する。FROM句は読み出し側が組み立てる（`em`・`wm`は
+`infrastructure/road_graph_repository.py: material_from_clause`が、式が読む列を持つ派生の表を結んで与える）:
 
 | 別名 | 何 |
 |---|---|
 | `w` | 道の生データ（`infrastructure/source_models.py: ways_source_sql`。タグは`w.tags`、`highway`・`surface`は列としても出す） |
 | `re` | `road_edges`（区間の形） |
-| `em` | `edge_materials`（区間に付く値） |
-| `wm` | `way_materials`（道1本に付く値） |
+| `em` | 区間に付く値（主キーが区間の鍵の派生の表の列） |
+| `wm` | 道1本に付く値（主キーが道の鍵の派生の表の列） |
 
 **値が無ければNULL**（NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。真偽の材料の
 「タグが無い」は別で、道の行があれば非該当（false）になる（`tag_absent_is_false_sql`）。

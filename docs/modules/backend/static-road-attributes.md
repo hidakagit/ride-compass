@@ -696,7 +696,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 | `POST /api/region/axis-inspector` | 区間インスペクタ（osm_way_id指定）。合成は送られた重み（`route_preference`、ルート生成と同じ形・同じ検証で公開軸をすべて明示）で計算し、省略すると既定の重み |
 
 MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`・`point_tile_layers.py`）で行う。タイル内の
-フィーチャーへ材料（`edge_materials`・`way_materials`）を結合するJOINは、**主キー検索に
+フィーチャーへ材料の表（区間・道の値）を結合するJOINは、**主キー検索に
 なる形**を保つこと——道・ノードの生データは`natural_key`（text）が主キーのため、`natural_key::bigint`
 で突き合わせると索引が使えず、全件に対する総当たりに落ちる（`ways_lookup_sql`・`nodes_lookup_sql`）。
 点のタイルは向きが逆で、ノードの生データを空間索引で絞ってから`node_materials`を主キー（bigint）で引く。
