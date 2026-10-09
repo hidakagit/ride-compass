@@ -1,4 +1,4 @@
-"""標高のタイルを区間の形状点で引いて、区間の標高と勾配にする。
+"""標高のタイルを区間の形状点で引いて、区間の標高と勾配（`edge_elevation`）にする。
 
 標高の生データは`source_features`にタイル1枚=1行、`raster`として入っている。**面のまま
 持つ派生は作らない**——面を読む出口は「そのまま見せる」か「線へ落とす」のどちらかで、
@@ -19,7 +19,6 @@ import time
 
 import asyncpg
 
-from app.batch.common import reset_columns_sql
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.attributes import elevation_values_sql
 from app.domain.region import tile_position_sql
@@ -90,14 +89,13 @@ FROM _vertex v LEFT JOIN _vertex_elev e ON e.vid = v.vid
 """
 
 _ELEVATION_COLUMNS = ("start_elevation_m", "end_elevation_m", "elevation_gain_m",
-                      "elevation_loss_m", "average_grade")
+                      "elevation_loss_m", "average_grade", "on_structure")
 
-_RESET_ELEVATION = reset_columns_sql("edge_materials", dict.fromkeys(_ELEVATION_COLUMNS, "NULL"))
-
-_UPDATE_ELEVATION = f"""
-UPDATE edge_materials m SET {", ".join(f"{c} = v.{c}" for c in _ELEVATION_COLUMNS)}
+#: 値の出た区間だけを入れる。
+_INSERT_ELEVATION = f"""
+INSERT INTO edge_elevation (osm_way_id, segment_index, {", ".join(_ELEVATION_COLUMNS)})
+SELECT osm_way_id, segment_index, {", ".join(_ELEVATION_COLUMNS)}
 FROM ({elevation_values_sql(_VERTEX_ELEVATIONS)}) v
-WHERE v.osm_way_id = m.osm_way_id AND v.segment_index = m.segment_index
 """
 
 
@@ -122,7 +120,7 @@ async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int
 async def _derive_elevation(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
     products = await _products_in_priority(conn)
-    await conn.execute(_RESET_ELEVATION)
+    await conn.execute("TRUNCATE edge_elevation")
     if not products:
         logger.warning("標高タイルが1枚も取り込まれていません")
         return 0
@@ -138,7 +136,7 @@ async def _derive_elevation(conn: asyncpg.Connection) -> int:
         logger.info("標高: %s（z%d）で頂点 %d点に値が付いた / 残り %d/%d点",
                     product, zoom, filled, remaining, vertices)
         await conn.execute("ANALYZE _vertex_elev")
-    updated = int((await conn.execute(_UPDATE_ELEVATION)).split()[-1])
+    updated = int((await conn.execute(_INSERT_ELEVATION)).split()[-1])
     await conn.execute("DROP TABLE _vertex_elev")
     await conn.execute("DROP TABLE _vertex")
 
@@ -151,3 +149,5 @@ async def _derive_elevation(conn: asyncpg.Connection) -> int:
 async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         await _derive_elevation(conn)
+        # 道路網の配列が作業用のスキーマのこの表を区間ごとに主キーで引く。統計が無いと実行計画が桁で外れる。
+        await conn.execute("ANALYZE edge_elevation")

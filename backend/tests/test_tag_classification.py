@@ -5,7 +5,7 @@
 
 ここで見ないもの:
 - 道の通行方向を決めるSQL → `test_resolve_direction.py`
-- 派生の段が引き当てた種別を表へ書き、近い点をまとめて数えること → `test_derive_node_materials.py`・`test_derive_counts.py`
+- 派生の段が引き当てた種別を表へ書き、近い点をまとめて数えること → `test_derive_nodes.py`・`test_derive_counts.py`
 """
 
 import json

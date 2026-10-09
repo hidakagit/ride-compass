@@ -1,4 +1,4 @@
-"""生データから道路網の形（`road_edges`）と、ノードに集まる枝の数（`node_materials`）を作る。
+"""生データから道路網の形（`road_edges`）と、区間を持つ道の鍵（`road_ways`）と、区間の端点に集まる枝の数（`road_nodes`）を作る。
 
 道を交差点で切って区間にする。**切る位置は「2本以上の道が通るノード」**で、これは
 `osm_way`の参照ノード列だけから決まる——道路網の形は他の派生に依存しない。
@@ -9,8 +9,8 @@
 同じ次の交差点へ向かうと位相の次数は1つに潰れるが、自転車から見ればそこは分岐である。
 交差点の密度を測るのに要るのは枝の本数のほう。
 
-`node_materials`と`way_materials`を先に入れる。`road_edges`の端点と親の道は、それぞれへの
-外部キーで縛られている。道の行は区間を持つ道にだけ作り、値はこれから後ろの段が埋める。
+`road_nodes`と`road_ways`を先に入れる。`road_edges`の端点と親の道は、それぞれへの
+外部キーで縛られている。区間・道・頂点の値は後ろの段がそれぞれの表へ書く。
 """
 
 import logging
@@ -111,7 +111,7 @@ FROM _seg WHERE NOT ({_USABLE})
 """
 
 _INSERT_NODES = """
-INSERT INTO node_materials (osm_node_id, branch_count)
+INSERT INTO road_nodes (osm_node_id, branch_count)
 SELECT node_id, count(*)
 FROM (SELECT from_node_id AS node_id FROM _seg
       UNION ALL
@@ -120,7 +120,7 @@ GROUP BY node_id
 """
 
 _INSERT_WAYS = """
-INSERT INTO way_materials (osm_way_id)
+INSERT INTO road_ways (osm_way_id)
 SELECT DISTINCT osm_way_id FROM _seg
 """
 
@@ -131,13 +131,6 @@ SELECT osm_way_id, segment_index, from_node_id, to_node_id,
        geom, distance_m, bearing_deg, reverse_bearing_deg
 FROM _seg
 """
-
-#: 値はこれから埋める。行だけ先に作り、未計算をNULLで表す。
-_INSERT_EDGE_MATERIALS = """
-INSERT INTO edge_materials (osm_way_id, segment_index)
-SELECT osm_way_id, segment_index FROM road_edges
-"""
-
 
 async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
     started = time.perf_counter()
@@ -163,17 +156,17 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         await conn.execute("ANALYZE _seg")
 
         # 外部キーがある以上、参照する側とされる側は1文で空にする（2文に分けると
-        # 同じトランザクション内でも「参照されている表は削除できない」で止まる）。
-        await conn.execute("TRUNCATE road_edges, node_materials, way_materials CASCADE")
+        # 同じトランザクション内でも「参照されている表は削除できない」で止まる）。CASCADEは、これらを外部キーで指す
+        # 値の表も空にする——区間・道・頂点を作り直せば、その値は後ろの段が書き直す。
+        await conn.execute("TRUNCATE road_edges, road_nodes, road_ways CASCADE")
         # 外部キーが指す先を先に作る。
         nodes = await conn.execute(_INSERT_NODES)
         await conn.execute(_INSERT_WAYS)
         edges = await conn.execute(_INSERT_EDGES)
-        await conn.execute(_INSERT_EDGE_MATERIALS)
         # 後ろの段はこれらの表を読む。autovacuumは既定60秒周期の背景処理で、派生は
         # 数秒で走り切るため、統計が付くのを待てない。無いまま読まれると実行計画が
         # 桁で外れる。
-        await conn.execute("ANALYZE road_edges, node_materials, edge_materials, way_materials")
+        await conn.execute("ANALYZE road_edges, road_nodes, road_ways")
 
     edge_count = int(edges.split()[-1])
     node_count = int(nodes.split()[-1])

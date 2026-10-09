@@ -103,17 +103,17 @@ describe("DerivedDataFreshnessPanel", () => {
     await collect(
       report([
         table({
-          table_name: "edge_materials",
+          table_name: "edge_elevation",
           columns_change: { added: ["new_a", "new_b"], removed: ["old_a"] },
-          columns: [column({ column: "start_elevation_m", null_count: 1500 }), column({ column: "complete_col" })],
+          columns: [column({ column: "average_grade", null_count: 1500 }), column({ column: "complete_col" })],
         }),
       ]),
     );
 
-    expect(detailOf("edge_materials")).toEqual([
+    expect(detailOf("edge_elevation")).toEqual([
       ["作り直しの後に足した列", "new_a、new_b"],
       ["作り直しの後に消した列", "old_a"],
-      ["start_elevation_m", "値なし 1,500件"],
+      ["average_grade", "値なし 1,500件"],
     ]);
   });
 

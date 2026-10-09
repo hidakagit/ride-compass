@@ -3,7 +3,7 @@
 
 区間は道路網の形の導出（`batch/derive_topology.py`）が切ったものを使う——way丸ごとの値が両端の標高差になるのは、
 区間が道の並びの順に切られ、どの区間の勾配も道と同じ向きを正とするからで、区間の行を手で書くとその前提を
-テストが書き写すことになる。区間の勾配そのもの（`edge_materials.average_grade`）は、北へ登る標高のタイルから標高の
+テストが書き写すことになる。区間の勾配そのもの（`edge_elevation.average_grade`）は、北へ登る標高のタイルから標高の
 派生の段（`batch/derive_elevation.py`）が出したものを読んで期待値にする（値の出し方は`test_elevation_values.py`）。
 
 ここで見ないもの:
@@ -50,7 +50,7 @@ async def _ingest_switchback(session) -> dict[int, tuple[float, float]]:
         await derive_topology.derive(conn)
         await derive_elevation.derive(conn)
     rows = await session.execute(
-        text("SELECT e.segment_index, e.distance_m, m.average_grade FROM road_edges e JOIN edge_materials m"
+        text("SELECT e.segment_index, e.distance_m, m.average_grade FROM road_edges e JOIN edge_elevation m"
              " USING (osm_way_id, segment_index) WHERE e.osm_way_id = :way"), {"way": SWITCHBACK_WAY_ID})
     segments = {segment_index: (length, grade) for segment_index, length, grade in rows.all()}
     # 前提: 2区間とも登り、勾配が違う（取り違えると値が変わる）。

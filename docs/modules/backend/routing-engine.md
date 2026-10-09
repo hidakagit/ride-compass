@@ -38,7 +38,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 なく、`prepare`が対象bbox全体ぶんの
 コスト配列を1回だけnumpyで合成し、探索へは合成済みの配列をそのまま渡す（探索中にPythonの
 関数フレームを作らない）。
-標高（勾配）は派生済みの`edge_materials`を材料として読むだけで組み込み済み
+標高（勾配）は派生済みの`edge_elevation`を材料として読むだけで組み込み済み
 （探索中にGSI API呼び出しは発生しない）。風と昼夜は**到達時刻ごと**に効く——レグを時刻ビンへ
 刻み、ビンごとのコスト配列を探索前に合成しておいて、探索が到達時刻をラベルとして運ぶ
 （下記「レグ内の時刻ビン」）。
@@ -472,7 +472,7 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 走行モデルへ運ぶ（`domain/traffic.py: stop_seconds`）ため、ここで足すと二重に数える
 （`docs/architecture/design-principles.md`構造仕様13）。探索側は階級の意味を知らず、比較結果だけを使う。
 
-信号の有無と最大階級は`node_materials`の列で、グラフのノードに載って探索まで届く。
+信号の有無と最大階級は`node_turns`の列で、グラフのノードに載って探索まで届く。
 埋めるのは派生バッチ（下記「交差点の信号・最大階級」節）で、**行の無いノードは既定値**
 （信号なし・階級0）で読まれる。既定値は安全側に倒れる——信号なしとして扱えば横断の費用が
 付き、階級0は読み込んだ部分グラフからの導出を下回るため下限を上げる方向にしか効かない。
@@ -894,7 +894,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 の管轄）。
 
 区間（`road_edges`）は**向きを持たない1本1行**で、有向の枝は道路網全体の配列を作るときに組む
-（`road_network_store.py`。一方通行は`way_materials.direction`を見て走れる向きの枝だけを
+（`road_network_store.py`。一方通行は`way_directions.direction`を見て走れる向きの枝だけを
 作る。向きごとに通れるかは`domain/traffic.py: travel_allowed`が決める）。DBへ向きを伝えるのは`(osm_way_id, segment_index, forward)`の3つ組で、向きで変わる値
 （方位・標高）はSQLが入れ替え・符号反転して返す（`reversed_material_expression`）。材料の値の
 求め方は`domain/material_sql.py`・`domain/material_catalog.py`が持ち、リポジトリは式が前提に
@@ -1005,10 +1005,10 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
   （PostGIS/内部処理のエラー詳細を含みうる）は`logger.exception`でサーバーログに
   のみ残す。
 
-## 交差点の信号・最大階級（`batch/derive_node_materials.py`が埋める）
+## 交差点の信号・最大階級（`batch/derive_nodes.py`が埋める）
 
-ターンの費用が読むノードの値（`node_materials.has_traffic_signals`・`max_highway_rank`）は
-派生バッチ`derive_node_materials.py`が埋める（バッチ自体は[静的道路属性・タイル配信](static-road-attributes.md)
+ターンの費用が読むノードの値（`node_turns.has_traffic_signals`・`max_highway_rank`）は
+派生バッチ`derive_nodes.py`が埋める（バッチ自体は[静的道路属性・タイル配信](static-road-attributes.md)
 の管轄。ここには探索側から見た前提だけを書く）。行の無いノードは道路網全体の配列を作るときに
 既定値（信号なし・階級0）で読む。
 

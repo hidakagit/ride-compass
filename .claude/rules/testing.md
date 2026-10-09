@@ -888,7 +888,7 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 DBの制約・取込の順序から**作れない状態**をテストで作らない。
 
 - **派生行を作るテストは、親を先に入れる**。区間（`road_edges`）は生の道
-  （`source_features`の`osm_way`）とノード（`node_materials`、端点はFK）の派生。本番と同じ順
+  （`source_features`の`osm_way`）とノード（`road_nodes`、端点はFK）の派生。本番と同じ順
   （生データを入れてから派生バッチを流す）で作り、派生の表へ行を直接書き込まない
   （`test_derive_topology.py: topology_conn`が、生の道を取り込んでから
   `derive_topology.derive`を呼ぶ形）。

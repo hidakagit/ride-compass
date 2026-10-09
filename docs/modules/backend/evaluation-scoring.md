@@ -370,7 +370,7 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-- 土地被覆の割合材料は`edge_materials.lc_*`／`way_materials.lc_*`（区間単位・way単位、
+- 土地被覆の割合材料は`edge_landcover.lc_*`／`way_landcover.lc_*`（区間単位・way単位、
   [静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
   **どのクラスが割合列を持つかは`landcover.py: LANDCOVER_CLASSES`が単一の正本**で、
   列指向テーブル・集計SQL・読み出し・タイルの焼き込み列は、そこからクラス値の昇順で

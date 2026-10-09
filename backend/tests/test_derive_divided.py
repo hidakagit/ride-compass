@@ -1,4 +1,4 @@
-"""上下線が分かれた道の片側か（`batch/derive_way_materials.py: way_materials.divided`）。
+"""上下線が分かれた道の片側か（`batch/derive_way_directions.py`が書く`way_directions.divided`）。
 
 判定の3条件（`carriageway`の申告・同じ名前の対向一方通行・寄り添う対向一方通行）それぞれに、
 当たる入力と、条件の外にある入力を1組ずつ置く。生データから派生の段を本物のまま通す。
@@ -14,7 +14,7 @@ from typing import NamedTuple
 import pytest
 import pytest_asyncio
 
-from app.batch import derive_counts, derive_topology, derive_way_materials
+from app.batch import derive_topology, derive_way_directions
 from app.domain.divided_carriageway import GEOMETRIC_GAP_M, NAMED_GAP_M
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from tests.source_ingest import ingest_records, way_record
@@ -88,14 +88,13 @@ WAYS = _ways()
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def divided_conn(derive_conn):
-    """場面ごとの道を取り込み、区間・数え上げ・道ごとの材料まで作った状態。"""
+    """場面ごとの道を取り込み、区間と道の性質まで作った状態。"""
     conn = derive_conn
     await ingest_records("osm_way", [
         way_record(way_id, points, [way_id * 10 + k for k in range(len(points))], tags)
         for ways in WAYS.values() for way_id, tags, points in ways], conn=conn)
     await derive_topology.derive(conn)
-    await derive_counts.derive(conn)
-    await derive_way_materials.derive(conn)
+    await derive_way_directions.derive(conn)
     return conn
 
 
@@ -103,6 +102,6 @@ async def divided_conn(derive_conn):
 async def test_a_way_is_one_side_of_a_divided_road_only_under_its_conditions(divided_conn, scene):
     way_ids = [way_id for way_id, _tags, _points in WAYS[scene]]
     rows = await divided_conn.fetch(
-        "SELECT osm_way_id, divided FROM way_materials WHERE osm_way_id = ANY($1)", way_ids)
+        "SELECT osm_way_id, divided FROM way_directions WHERE osm_way_id = ANY($1)", way_ids)
     assert {r["osm_way_id"]: r["divided"] for r in rows} == dict.fromkeys(
         way_ids, SCENES[scene].divided)
