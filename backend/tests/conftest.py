@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch.common import asyncpg_dsn
 from app.infrastructure import (
-    address_dictionary,
     debug_log,
     jma_area_boundaries,
     rate_limiter,
@@ -79,15 +78,6 @@ def boundary_path(monkeypatch, tmp_path) -> Path:
     ファイルはまだ無い（読めない置き場）。"""
     path = tmp_path / "jma_area" / "boundaries.json"
     monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", path)
-    return path
-
-
-@pytest.fixture
-def address_dictionary_dir(monkeypatch, tmp_path) -> Path:
-    """住所の辞書の置き場（`address_dictionary.DICTIONARY_DIR`）を、テストごとの一時ディレクトリの下へ移したパス。
-    辞書はまだ無い（開けない置き場）。"""
-    path = tmp_path / "address_dictionary" / address_dictionary.DICTIONARY_DIR.name
-    monkeypatch.setattr(address_dictionary, "DICTIONARY_DIR", path)
     return path
 
 
