@@ -1,0 +1,95 @@
+# Pull Request の変えた関数の変異テスト（tasks#728）。Pull Request が backend の実装を変えたとき、変えた行を含む関数の変異だけを
+# 回し、テストが気づかない変異（生き残り）を、変えた行への注記と実行の要約で知らせる。必須のチェックにしない（知らせるだけで、
+# マージを止めない）。
+#
+# - 変異の生成と、関数ごとに通るテストの記録は全体で行う（記録が無いと、どのテストを回すかが決まらない）。回すのは、
+#   差分で変わった関数の変異と、その関数の基準（変異を入れずに同じテストの組み合わせを2回）だけ。台本は backend/scripts/mutation/
+#   （diff_scope.py・pr_plan.py・runner.py・report_pr.py）。
+# - 比べる版は Pull Request の基の先端（pull_request の出来事の base.sha）。checkout は Pull Request と master を合わせた版。
+# - 持ち時間: 生成と記録で約3分（tasks#661 の実測）。回す数は変えた関数しだいで、担い手は stop_after で新しい変異を取らずに抜ける。
+name: Mutation PR
+
+on:
+  pull_request:
+    paths:
+      - "backend/app/**"
+      - "backend/scripts/mutation/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changed-functions:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      WORKERS: 4
+      MUT_OUT: /tmp/mutation
+      MUT_DB_PREFIX: mut_w
+      MUT_STOP_AFTER: "2400"
+      TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
+      DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
+      BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: 変えた関数
+        id: scope
+        run: |
+          mkdir -p "$MUT_OUT"
+          python3 scripts/mutation/diff_scope.py "$BASE" > "$MUT_OUT/funcs.txt"
+          echo "変えた関数: $(grep -c . "$MUT_OUT/funcs.txt" || true)"
+          if [ -s "$MUT_OUT/funcs.txt" ]; then echo "any=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.scope.outputs.any == 'true'
+        uses: ./.github/actions/postgis
+      - if: steps.scope.outputs.any == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-batch.txt
+            backend/requirements-dev.txt
+      - if: steps.scope.outputs.any == 'true'
+        run: pip install -r requirements-batch.txt -r requirements-dev.txt mutmut==3.8.0
+      - if: steps.scope.outputs.any == 'true'
+        name: 担い手ごとのテストDB
+        run: |
+          for i in $(seq 0 $((WORKERS - 1))); do
+            sudo -u postgres createdb -O ridecompass -T ridecompass_test "${MUT_DB_PREFIX}$i"
+          done
+      - if: steps.scope.outputs.any == 'true'
+        name: 変異を作り、関数ごとに通るテストを記録する
+        run: |
+          cp scripts/mutation/setup.cfg setup.cfg
+          python scripts/mutation/gen.py
+      - if: steps.scope.outputs.any == 'true'
+        name: 変えた関数の変異を回す
+        working-directory: backend/mutants
+        run: |
+          python ../scripts/mutation/plan.py > /dev/null
+          python ../scripts/mutation/pr_plan.py "$MUT_OUT/funcs.txt"
+          python ../scripts/mutation/runner.py "$MUT_OUT/all.txt" "$MUT_OUT/results.jsonl" "$WORKERS"
+      - if: steps.scope.outputs.any == 'true'
+        name: 生き残りを知らせる
+        run: python scripts/mutation/report_pr.py "$BASE"
+      - if: always() && steps.scope.outputs.any == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-pr
+          path: |
+            /tmp/mutation/results.jsonl
+            /tmp/mutation/all.txt
+            /tmp/mutation/scope.json
+            /tmp/mutation/kills/
+          retention-days: 14
+          if-no-files-found: warn
