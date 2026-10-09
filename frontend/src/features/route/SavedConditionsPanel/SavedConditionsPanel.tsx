@@ -4,7 +4,9 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
 import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { DeleteSavedIcon, RecallSavedIcon } from "@/components/ui/icons/icons";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
+import { DeleteSavedIcon, RecallSavedIcon, SaveConditionsIcon } from "@/components/ui/icons/icons";
+import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -17,7 +19,8 @@ import {
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { cn } from "@/lib/cn";
 
-interface SavedConditionsPanelProps {
+interface SaveConditionsButtonProps {
+  /** 保存した設定（同じ名前があれば上書きと出す）。 */
   saved: SavedCondition[];
   /** いまの設定（出発地を除く）。保存の前に、何が保存されるかを並べる。 */
   current: GenerationConditionsSnapshot;
@@ -28,6 +31,10 @@ interface SavedConditionsPanelProps {
   /** 出発地が分かっているか（分からない間は固定できない）。 */
   originKnown: boolean;
   onSave: (name: string, fixOrigin: boolean) => void;
+}
+
+interface SavedConditionsPanelProps {
+  saved: SavedCondition[];
   onRecall: (entry: SavedCondition) => void;
   onRemove: (name: string) => void;
 }
@@ -45,21 +52,17 @@ function DescriptionRows({ rows }: { rows: [term: string, detail: React.ReactNod
   );
 }
 
-// 「ルート設定」区分の「保存」タブの「設定」。タブには保存の窓を開くボタンと保存した一覧だけを置き、保存の前に窓で、残るもの
-// （条件・出発地の扱い・重みの割合・除外）だけを並べる（スマホではパネルの高さが限られ、走行中に使う一覧を上に見せる
-// ため。残らないものや重みを変えたかは書かない）。一覧の行は名前とアイコンの操作だけで、呼び出すと窓で同じ
-// 中身を見せ、「反映する」で各タブの値と地図のピンが入れ替わる。生成はいつもの「ルート生成」で行う（入れ替えたあとに値を
-// 確かめたり少し変えたりできる）。
-export default function SavedConditionsPanel({
+// 「ルート設定」の見出しの、いまの設定を保存するアイコン。押すと窓で、残るもの（条件・出発地の扱い・重みの割合・除外）だけを
+// 並べてから名前を付けて保存する（残らないものや重みを変えたかは書かない）。保存は設定を組んだその場で、呼び出しは
+// 「保存」タブの「設定」で行う（地点の保存が地点の詳しくの星で、一覧が「保存」タブの「地点」なのと同じ分け方）。
+export function SaveConditionsButton({
   saved,
   current,
   suggestedName,
   originManual,
   originKnown,
   onSave,
-  onRecall,
-  onRemove,
-}: SavedConditionsPanelProps) {
+}: SaveConditionsButtonProps) {
   const catalog = useAxisCatalog();
   // 手で書き換えるまでは、いまの条件から作る仮の名前を出す（条件を変えると名前の案も変わる）。
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -68,28 +71,21 @@ export default function SavedConditionsPanel({
   // 選ぶまでは、出発地を地図で置いたかで決める（触らなければ、地図で置いた地点は固定・現在地は呼び出した時の現在地）。
   const [fixOriginDraft, setFixOriginDraft] = useState<boolean | null>(null);
   const fixOrigin = originKnown && (fixOriginDraft ?? originManual);
-  // 「いまの設定を保存」の窓を開いているか。保存すると閉じる。
+  // 窓を開いているか。保存すると閉じる。
   const [saving, setSaving] = useState(false);
-  // 呼び出すを押した設定。確認の窓で中身を見せ、「反映する」を押すまで入れ替えない。
-  const [recalling, setRecalling] = useState<SavedCondition | null>(null);
-  const [recalled, setRecalled] = useState<SavedCondition | null>(null);
-  // 消すを押した設定の名前。確認の窓で「消す」を押すまで消さない。
-  const [removing, setRemoving] = useState<string | null>(null);
   const currentDescription = describeConditions(current, catalog);
-  const recallingDescription = recalling && describeConditions(recalling, catalog);
 
   return (
-    <div className="flex flex-col gap-3">
+    <>
       <Button
-        variant="secondary"
-        size="sm"
-        className="w-full"
+        size="panelIcon"
+        aria-label="いまの設定を保存"
         aria-haspopup="dialog"
         aria-expanded={saving}
-        usage="いまの設定（条件・出発地・重み・除外）を開いて確かめ、名前を付けてこの端末に保存します。"
+        usage="いまの設定（条件・出発地・重み・除外）を開いて確かめ、名前を付けてこの端末に保存します。保存した設定は「保存」タブの「設定」から呼び出せます。"
         onClick={() => setSaving(true)}
       >
-        <span aria-hidden="true">＋</span> いまの設定を保存
+        <SaveConditionsIcon size={18} />
       </Button>
       <DialogRoot open={saving} onOpenChange={setSaving}>
         <DialogContent title="いまの設定を保存">
@@ -150,7 +146,24 @@ export default function SavedConditionsPanel({
           </div>
         </DialogContent>
       </DialogRoot>
+    </>
+  );
+}
 
+// 「ルート設定」区分の「保存」タブの「設定」。保存した設定の一覧と、呼び出す・消すだけを置く（保存は見出しのアイコン）。
+// 一覧の行は名前とアイコンの操作だけで、呼び出すと窓で中身を見せ、「反映する」で各タブの値と地図のピンが入れ替わる。
+// 生成はいつもの「ルート生成」で行う（入れ替えたあとに値を確かめたり少し変えたりできる）。
+export default function SavedConditionsPanel({ saved, onRecall, onRemove }: SavedConditionsPanelProps) {
+  const catalog = useAxisCatalog();
+  // 呼び出すを押した設定。確認の窓で中身を見せ、「反映する」を押すまで入れ替えない。
+  const [recalling, setRecalling] = useState<SavedCondition | null>(null);
+  const [recalled, setRecalled] = useState<SavedCondition | null>(null);
+  // 消すを押した設定の名前。確認の窓で「消す」を押すまで消さない。
+  const [removing, setRemoving] = useState<string | null>(null);
+  const recallingDescription = recalling && describeConditions(recalling, catalog);
+
+  return (
+    <div className="flex flex-col gap-3">
       {/* 知らせの行は読み上げが変化を拾えるよう常に置き、空の間は上の隙間ごと畳む。 */}
       <p role="status" className={cn(textVariants({ variant: "hint" }), "empty:-mt-3")}>
         {recalled !== null && saved.some((entry) => entry.name === recalled.name)
@@ -159,7 +172,12 @@ export default function SavedConditionsPanel({
       </p>
 
       {saved.length === 0 ? (
-        <p className={textVariants({ variant: "hint" })}>保存した設定はまだありません。</p>
+        <p className={textVariants({ variant: "hint" })}>
+          保存した設定はまだありません。
+          <InfoPopover triggerAriaLabel="設定の保存の仕方" triggerClassName="ml-1 align-middle">
+            <GuideText text="「ルート設定」の見出しの「いまの設定を保存」で、いまの設定に名前を付けて保存します。保存した設定はここから呼び出せます。" />
+          </InfoPopover>
+        </p>
       ) : (
         <ul className="flex flex-col gap-1">
           {saved.map((entry) => (
