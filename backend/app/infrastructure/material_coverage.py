@@ -12,9 +12,8 @@ Pythonループは回さない）。ここは測り方の実装だけを持つ�
   `domain/material_sql.py`の共有SQL断片を`road_graph_repository.py: ROAD_SURFACE_TILE_MVT_SQL`
   （地図タイル配信）と共通で使う——両者ともRoad Graphを構築せずDBを直接引く経路のため、
   独立に書くと片方だけ変更されるドリフトを招く。
-- `"edge"`: `road_edges`全行（Edge単位の材料）。値は`edge_materials`の列に並び、その
-  `(osm_way_id, segment_index)`は`road_edges`へのFK（ON DELETE CASCADE）のため、「値が
-  埋まっている行数」をそのまま「値ありEdge数」として使え、`road_edges`とのJOINを省ける。way側と同じく
+- `"edge"`: `road_edges`全行（Edge単位の材料）。区間の値（別名`em`）は、読み出しと同じ結び方
+  （`road_graph_repository.py: material_from_clause`）で区間へ外部結合して読み、値のある区間を数える。way側と同じく
   材料ごとの`count(*) FILTER`を並べた1回の走査にまとめる。
 
 「欠損」はあくまで元データ（タグ・行）の不在を指す。評価パイプラインがその不在をどう扱うか
@@ -34,6 +33,7 @@ from app.domain.material_catalog import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infrastructure.road_graph_repository import material_from_clause
 from app.infrastructure.source_models import WAYS_SOURCE_SQL
 
 # 材料ごとの宣言は`MaterialSpec.coverage`が持つ（材料を1つ増やすとき触るのは1か所）。
@@ -73,14 +73,19 @@ def build_way_coverage_sql():
 
 def build_edge_coverage_sql():
     """edge母集団の全材料の「値ありEdge数」を1回の走査で数えるSELECT文。列別名は材料id。"""
-    columns = ", ".join(
-        f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}"
+    edge_specs = {
+        material_id: spec
         for material_id, spec in MATERIAL_COVERAGE_SPECS.items()
         if isinstance(spec, EdgeMaterialCoverageSpec)
+    }
+    columns = ", ".join(
+        f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}"
+        for material_id, spec in edge_specs.items()
     )
     sql = (  # noqa: S608 固定の内部辞書のみ使用
-        f"SELECT (SELECT count(*) FROM road_edges) AS total{', ' + columns if columns else ''}"
-        " FROM edge_materials AS em"
+        f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM road_edges re"
+        + material_from_clause([spec.present_condition for spec in edge_specs.values()],
+                               "re.osm_way_id", "re.segment_index")
     )
     return text(sql)
 

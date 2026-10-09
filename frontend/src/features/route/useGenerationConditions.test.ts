@@ -1,6 +1,6 @@
 /**
  * 生成の条件（`useGenerationConditions.ts`）——周回か目的地か・距離・候補数・地点（出発地以外）・重み・除外と、地図の
- * タップで置ける地点の役割を返す。保存する値（地点以外）は開き直しても残り、読むときに今の画面が受け付ける範囲・
+ * タップで置ける地点の役割（経由地は足すか、何番目を置き直すか）と、検索で置いた地点の候補（その位置のままの間だけ）を返す。保存する値（地点以外）は開き直しても残り、読むときに今の画面が受け付ける範囲・
  * 今の項目へ揃える。重みは軸カタログの公開軸へ揃えた値を返し、送るのは上書きを有効にしてカタログが届いた後だけ。
  *
  * ここで見ないもの:
@@ -23,7 +23,7 @@ import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFi
 import { heldReplies, onBackend, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse, TWO_AXIS_CATALOG } from "@/testing/catalogAxes";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import type { Coordinates } from "@/types/route";
+import type { Coordinates, PlaceCandidate } from "@/types/route";
 
 import { useGenerationConditions } from "./useGenerationConditions";
 
@@ -41,6 +41,11 @@ function renderConditions() {
 function reopen(rendered: { unmount: () => void }) {
   rendered.unmount();
   return renderConditions();
+}
+
+/** 地点`at`で当たった施設の候補。 */
+function candidateAt(at: Coordinates, name: string): PlaceCandidate {
+  return { kind: "facility", level: "point", name, area: null, ...at };
 }
 
 function point(index: number): Coordinates {
@@ -152,7 +157,7 @@ describe("地点", () => {
     expect(result.current.armedPinRole).toBeNull();
   });
 
-  it("経由地は位置を指して動かす・消す・まとめて消せ、目的地も消せる", () => {
+  it("経由地は位置を指して動かす・消せ、目的地も消せる", () => {
     const { result } = renderConditions();
     act(() => result.current.placePin("waypoint", A));
     act(() => result.current.placePin("waypoint", B));
@@ -162,31 +167,63 @@ describe("地点", () => {
     expect(result.current.waypoints).toEqual([A, C]);
 
     act(() => result.current.removeWaypoint(0));
-    expect(result.current.waypoints).toEqual([C]);
-
-    act(() => result.current.clearWaypoints());
     act(() => result.current.clearDestination());
-    expect(result.current.waypoints).toEqual([]);
+    expect(result.current.waypoints).toEqual([C]);
     expect(result.current.destination).toBeNull();
   });
 
-  it("検索で選んだ経由地・目的地は、周回なら目的地へ切り替えて置き、地図のタップで置く状態を解く。出発地はモードを変えない", () => {
+  it("何番目かを指して経由地を置ける役割にすると、次のタップはその経由地を置き直し、置ける役割を解く", () => {
+    const { result } = renderConditions();
+    act(() => result.current.placePin("waypoint", A));
+    act(() => result.current.placePin("waypoint", B));
+
+    act(() => result.current.armPinRole("waypoint", 0));
+    expect(result.current.waypointToReplace).toBe(0);
+    act(() => result.current.placePin("waypoint", C));
+
+    expect(result.current.waypoints).toEqual([C, B]);
+    expect(result.current.armedPinRole).toBeNull();
+    expect(result.current.waypointToReplace).toBeNull();
+  });
+
+  it("検索で選んだ経由地・目的地は、周回なら目的地へ切り替えて置き（経由地は番号を指せばそれを置き直し）、地図のタップで置く状態を解く。出発地はモードを変えない", () => {
     const { result, onOriginPlace } = renderConditions();
     act(() => result.current.armPinRole("origin"));
 
-    act(() => result.current.placeFound("origin", A));
+    act(() => result.current.placeFound("origin", candidateAt(A, "出発の店"), null));
     expect(onOriginPlace).toHaveBeenCalledWith(A);
     expect(result.current.routeMode).toBe("loop");
 
     // 経由地は地図のタップなら置いたあとも置く状態を続けるので、検索で置いたときに解けるかはここで分かる。
     act(() => result.current.armPinRole("waypoint"));
-    act(() => result.current.placeFound("waypoint", B));
+    act(() => result.current.placeFound("waypoint", candidateAt(B, "寄る店"), null));
     expect(result.current.routeMode).toBe("destination");
     expect(result.current.waypoints).toEqual([B]);
     expect(result.current.armedPinRole).toBeNull();
 
-    act(() => result.current.placeFound("destination", C));
+    act(() => result.current.placeFound("destination", candidateAt(C, "着く店"), null));
     expect(result.current.destination).toEqual(C);
+
+    act(() => result.current.placeFound("waypoint", candidateAt(A, "寄り直す店"), 0));
+    expect(result.current.waypoints).toEqual([A]);
+  });
+
+  it("検索で置いた地点の候補は、その位置のままの間だけ返す（ピンを動かす・地図で置き直すと外れる）", () => {
+    const { result } = renderConditions();
+    const destinationShop = candidateAt(C, "着く店");
+    const originShop = candidateAt(A, "出発の店");
+    const waypointShop = candidateAt(B, "寄る店");
+    act(() => result.current.placeFound("destination", destinationShop, null));
+    act(() => result.current.placeFound("origin", originShop, null));
+    act(() => result.current.placeFound("waypoint", waypointShop, null));
+
+    expect(result.current.foundAt(result.current.destination)).toEqual(destinationShop);
+    expect(result.current.foundAt({ ...A })).toEqual(originShop);
+    expect(result.current.foundAt(result.current.waypoints[0])).toEqual(waypointShop);
+    expect(result.current.foundAt(point(0))).toBeNull();
+
+    act(() => result.current.placePin("destination", point(0)));
+    expect(result.current.foundAt(result.current.destination)).toBeNull();
   });
 
   it("地点は保存せず、開き直すと置いていない状態から始まる", () => {

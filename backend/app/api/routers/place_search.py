@@ -1,4 +1,4 @@
-"""地点の検索（`GET /api/place-search`）。"""
+"""地点の検索（`GET /api/place-search`）と、置いた位置の辺り（`GET /api/place-area`）。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -6,7 +6,7 @@ from app.api.dependencies import get_place_search_service
 from app.api.rate_limit import enforce_rate_limit
 from app.config import settings
 from app.domain.geo import Latitude, LatLonPoint, Longitude
-from app.domain.place_search import PlaceQuery, PlaceSearchResult
+from app.domain.place_search import PlaceArea, PlaceQuery, PlaceSearchResult
 from app.services.place_search_service import PlaceSearchAreaUnavailable, PlaceSearchService
 
 router = APIRouter()
@@ -27,3 +27,15 @@ async def search_places(
         return await service.search(q, LatLonPoint(latitude, longitude))
     except PlaceSearchAreaUnavailable:
         raise HTTPException(status_code=502, detail="対象範囲を読めませんでした") from None
+
+
+@router.get("/api/place-area", response_model=PlaceArea)
+async def place_area(
+    http_request: Request,
+    latitude: Latitude,
+    longitude: Longitude,
+    service: PlaceSearchService = Depends(get_place_search_service),
+) -> PlaceArea:
+    """位置の辺り（市区町村から字・丁目まで）。区画に結んだ境界に含まれなければ`area`が空。"""
+    enforce_rate_limit(http_request, "place-area", settings.place_area_rate_limit_per_minute)
+    return await service.area_at(LatLonPoint(latitude, longitude))

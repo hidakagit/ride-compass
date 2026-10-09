@@ -65,7 +65,7 @@ async def _ingest(database_url: str, profile_path: Path | None) -> None:
 
 
 async def _derive(database_url: str, profile_path: Path | None) -> None:
-    await derive_cli.run(database_url, None)
+    await derive_cli.run(database_url)
 
 
 PHASES: tuple[tuple[str, Callable[[str, Path | None], Awaitable[None]]], ...] = (

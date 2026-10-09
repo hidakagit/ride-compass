@@ -6,6 +6,7 @@
 番地付きの残りの番号で当たる街区（住居表示の区域）と地番（それ以外の区域）、
 件数の上限、入力の一部にだけ当たった住所を出さないこと、施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の
 真ん中に近い店から上限まで）、施設に添える辺り、住所と施設を並べる順、対象範囲を読めなければ502、回数制限。
+置いた位置の辺りの口（`GET /api/place-area`）も、同じ注入から本物を通して見る。
 住所の区画の表は、アドレス・ベース・レジストリの行（街区を含む。地番は街区レベル位置参照情報の行、施設の辺りは小地域の境界も）
 を取り込んで住所の派生の段を本物のまま流して作る。対象範囲は道路の取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、
 注入から本物を通す。
@@ -14,7 +15,8 @@
 - 対象範囲を読むこと（どの取込の記録の範囲か） → `test_ingested_area.py`
 - 住所の区画・鍵・街区の作り方（範囲・祖先・鍵の別形・地番を区画に結ぶ名前・住居表示の区域で ABR を採る） → `test_address_areas.py`、表記の揃え方の1つずつ → `test_address_area.py`
 - 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
-- 施設の辺りの決め方（辺の上・境界の外・結べない境界） → `test_stop_place_areas.py`
+- 施設の辺りの決め方（辺の上・境界の外・結べない境界） → `test_stop_place_areas.py`。置いた位置の辺りも同じ SQL の部品
+  （`infrastructure/address_area_lookup.py: boundary_area_sql`）で決めるので、ここでは境界の中と外の両側だけを見る
 - 回数制限の窓 → `test_rate_limiter.py`
 - Cache-Control の値と、失敗の応答に付けないこと → `test_cache_policy.py`
 - 入力の長さ（`domain/place_search.py: PlaceQuery`の制約で、FastAPIが422で返す）
@@ -367,10 +369,9 @@ async def test_addresses_come_before_facilities():
 # --- 施設の辺り ------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("area")
-async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
-    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（店の位置を含む小地域の境界に結んだ町字の、市区町村から先の
-    名前）で見分ける。"""
+async def _ingest_areas() -> None:
+    """新宿区西新宿二丁目（`LON`・`LAT`の周り）とさいたま市岩槻区本町（経度139.70・緯度35.95の周り）の町字と小地域の境界を
+    取り込み、住所の区画の表を作る派生の段を流す。"""
     shinjuku, iwatsuki = ("東京都", "新宿区", ""), ("埼玉県", "さいたま市", "岩槻区")
     await ingest_records("abr", [
         abr_prefecture_record("130001", "東京都", 139.69, 35.69),
@@ -391,6 +392,13 @@ async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
     ])
     async with raw_connection() as conn:
         await derive_addresses.derive(conn)
+
+
+@pytest.mark.usefixtures("area")
+async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
+    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（店の位置を含む小地域の境界に結んだ町字の、市区町村から先の
+    名前）で見分ける。"""
+    await _ingest_areas()
     await _ingest_facilities([
         _facility_record(1, "ファミリーマート", LON, LAT),
         _facility_record(2, "ファミリーマート", 139.70, 35.95),
@@ -404,3 +412,37 @@ async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
         _facility("ファミリーマート", 139.70, 35.95, "さいたま市岩槻区本町"),
     ]}
 
+
+# --- 置いた位置の辺り ------------------------------------------------------------
+
+
+async def _area_at(longitude: float, latitude: float) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app, client=(CLIENT_HOST, 50000))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        return await client.get("/api/place-area", params={"latitude": latitude, "longitude": longitude})
+
+
+@pytest.mark.parametrize(("longitude", "latitude", "expected"), [
+    pytest.param(LON + 0.001, LAT, "新宿区西新宿二丁目", id="境界の中"),
+    pytest.param(OUTSIDE_LON, OUTSIDE_LAT, None, id="区画に結んだ境界の外"),
+])
+@pytest.mark.usefixtures("area")
+async def test_a_placed_point_shows_the_area_it_is_in(longitude, latitude, expected):
+    """地図で置いた地点・現在地にも、施設の辺りと同じ形の辺り（位置を含む小地域の境界に結んだ町字の、市区町村から先の名前）を
+    出す。"""
+    await _ingest_areas()
+
+    response = await _area_at(longitude, latitude)
+
+    assert response.status_code == 200
+    assert response.json() == {"area": expected}
+
+
+@pytest.mark.usefixtures("area")
+async def test_the_area_is_rate_limited_per_client():
+    limit = settings.place_area_rate_limit_per_minute
+    for _ in range(limit - 1):
+        rate_limiter.check_rate_limit(f"place-area:{CLIENT_HOST}", limit)
+
+    assert (await _area_at(LON, LAT)).status_code == 200
+    assert (await _area_at(LON, LAT)).status_code == 429

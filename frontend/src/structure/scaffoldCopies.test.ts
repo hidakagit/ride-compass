@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * テストが共有の足場（`src/testing`の組み立て関数・代役・待ちの道具）と同じ役のものを自分のファイルに写さず、
- * 自前のモジュールを差し替えないことを見る（docs/conventions/testing.md「確かめる高さ」の frontend の
+ * 自前のモジュールを差し替えないことを見る（.claude/rules/testing.md「確かめる高さ」の frontend の
  * 「差し替えてよいのは次の境界だけ」・「フェイクの数は、実装の外向き参照の写し」の「共有フェイクへ出すのは3箇所目から」。
  * backend の同じ検査は`backend/tests/structure/test_scaffold_copies.py`）。
  *

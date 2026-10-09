@@ -12,7 +12,7 @@ import {
   runGeneration,
 } from "./fixtures";
 
-// 走査する画面の状態（docs/conventions/testing.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後・区間を乗り換えた後）。
+// 走査する画面の状態（.claude/rules/testing.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後・区間を乗り換えた後）。
 // 土台の上では、画面がARIAで宣言している開閉の部品（`aria-expanded`・`role="tab"`）のうち、最前面で
 // 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅 × 段階ごとに1枚のページで辿り、開いたものは閉じて戻す。
 
@@ -356,7 +356,7 @@ export async function splice(page: Page, width: WidthName): Promise<void> {
   await scope.getByRole("radio", { name: "目的地" }).click();
   // スマホ幅は、シートを閉じると目的地の指定が外れるので、開いたまま見えている地図を押す。
   await clickVisible(page, SPLICE_PLACES.D);
-  await expect(scope.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
+  await expect(scope.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();
   await runGeneration(scope);
   if (width === "mobile") {
     await page.getByRole("button", { name: "ルート設定", exact: true }).click();

@@ -1,7 +1,7 @@
 """生データ（`source_features`・`source_runs`）を、取込の入口（`app/batch/ingest.py: ingest_source`）から入れる足場。
 
 生データを読む側（派生の段・取り込んだ範囲・タイル）のテストは、本番と同じく取込を通った生データから始める
-（docs/conventions/testing.md パターン8）。表へ直接書くと、取込では作れない行（成功なのに終わった時刻の無いrun等）が
+（.claude/rules/testing.md パターン8）。表へ直接書くと、取込では作れない行（成功なのに終わった時刻の無いrun等）が
 でき、取込の側が変わってもテストは気づかない。
 
 差し替えるのはアダプタ（外部の形を開いて1件ずつ返す部分）だけで、テストが渡した1件ずつをそのまま返す。
@@ -41,6 +41,17 @@ def way_record(way_id: int, points: Sequence[tuple[float, float]], node_ids: Seq
     """
     return SourceRecord(natural_key=str(way_id), geom_wkb=shapely.to_wkb(LineString(points)),
                         attrs={WAY_KIND_TAG: "cycleway", **(tags or {})}, payload=way_payload(node_ids))
+
+
+#: 道の見本を置く基準の点（経度, 緯度）と、ノードの間隔（度。約100m）。
+WAY_ORIGIN = (139.70, 35.68)
+WAY_STEP = 0.001
+
+
+def zigzag_point(node_id: int, origin: tuple[float, float] = WAY_ORIGIN, step: float = WAY_STEP) -> tuple[float, float]:
+    """道の見本のノード`node_id`の (経度, 緯度)。`origin`から東へ`step`ずつ進み、奇数のノードは`step`だけ北へずらす
+    （道の区間が一直線に並ばず、方位が区間ごとに変わる）。"""
+    return (origin[0] + step * node_id, origin[1] + step * (node_id % 2))
 
 
 def point_record(key: int | str, lon: float, lat: float,

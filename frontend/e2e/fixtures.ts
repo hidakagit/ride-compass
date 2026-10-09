@@ -171,7 +171,7 @@ export function defaultAxisCatalogFixture(): components["schemas"]["AxisCatalogR
 /**
  * バックエンド・外部APIへの依存を断ち切るネットワークモックを登録する。
  * 各テストの冒頭（page.goto前）で呼ぶ。ここの応答はアプリを起動して画面を進めるための
- * 既定値であり、テストが判定する値を持たせない（docs/conventions/testing.md パターン4）。
+ * 既定値であり、テストが判定する値を持たせない（.claude/rules/testing.md パターン4）。
  * テストが自分の値を返すときは、この後に同じURLへ`page.route`を登録する（後から登録した
  * ルートが先に当たる）。
  */
@@ -204,6 +204,9 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/api/routes/generate/*`, (route) => route.fulfill({ json: doneJobFixture() }));
 
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: defaultAxisCatalogFixture() }));
+
+  // 地点の詳しくが、置いた位置の辺りを引く。辺り無し（区画に結んだ境界の外）で答える。
+  await page.route(`${API_BASE}/api/place-area*`, (route) => route.fulfill({ json: { area: null } }));
 
   // Next.jsのrewritesでbackendへ中継される経路（タイル・時刻一覧等）。モックしないと、E2Eの
   // サーバーの中継が接続拒否をログへ出し続ける。経路は next.config.ts の宣言から取り、中身無しで

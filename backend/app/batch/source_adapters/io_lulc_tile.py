@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.batch.ingest import SourceRecord, file_origin, register_adapter
+from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
@@ -28,20 +28,31 @@ class LulcGrid:
     zoom: int
 
 
-@register_adapter("io_lulc_tile", grid=LulcGrid, required=(SourceFeatureRow.rast,))
-async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
-                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
+def _opened_raster_paths() -> list[str]:
     # rasterioのimport順の制約（PROJデータの固定）を持つモジュールを経由して読む。
-    from app.infrastructure.landcover_raster import (
-        has_sources, opened_raster_paths, tile_classes)
+    from app.infrastructure.landcover_raster import has_sources, opened_raster_paths
 
     if not has_sources():
         raise RuntimeError(
             "土地被覆のGeoTIFFが設定されていません（settings.lulc_raster_paths）")
+    return opened_raster_paths()
+
+
+def lulc_tile_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    """開けたGeoTIFF。タイルを切るのは開けたものからだけ。"""
+    return AdapterInputs(files=tuple(Path(raster) for raster in _opened_raster_paths()))
+
+
+@register_adapter("io_lulc_tile", grid=LulcGrid, required=(SourceFeatureRow.rast,), inputs=lulc_tile_inputs)
+async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
+                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
+    from app.infrastructure.landcover_raster import tile_classes
+
+    rasters = _opened_raster_paths()
 
     zoom = int(spec.grid.zoom)
     origin.update({"zoom": zoom,
-                   "rasters": [file_origin(Path(raster)) for raster in opened_raster_paths()]})
+                   "rasters": [file_origin(Path(raster)) for raster in rasters]})
     min_lat, min_lon, max_lat, max_lon = profile.target.bbox
     tiles = tiles_covering_bbox(
         BoundingBox(min_latitude=min_lat, min_longitude=min_lon,

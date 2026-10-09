@@ -1,6 +1,6 @@
 """リクエストID・アクセスサマリログ(infrastructure/request_log.py)のテスト。
 
-docs/conventions/logging.mdの方針のうち「クライアント指定のX-Request-IDを応答とログ行へ引き継ぐ」
+.claude/rules/logging.mdの方針のうち「クライアント指定のX-Request-IDを応答とログ行へ引き継ぐ」
 「アクセスサマリのレベルはステータス・経路で変わる」「未処理例外はスタックトレース付きERRORで残り、
 500応答にもIDが付く」を守る。ログ行の時刻がJSTで、オフセットを名乗ることも併せて検査する
 （書式はこのモジュールが1つだけ持つ）。

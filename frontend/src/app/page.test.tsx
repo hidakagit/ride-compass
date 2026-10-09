@@ -7,8 +7,8 @@
  *   全消去は確認の窓で「消す」を押してから両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
  *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
  *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地から生成すること
- * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで（地図の上端の住所の検索の欄も同じ間だけ出す）、
- *   周回の間は目的地を地図へ出さないこと、住所の検索で経由地へ置けるのは置いた経由地が上限に届くまでのこと、
+ * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、
+ *   周回の間は目的地を地図へ出さないこと、目的地の行で探して置いた地点が地図に立ち、行にその名前が出ること、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
  *   地図の表示をまとめて戻す操作（「表示」の一覧の末尾と右上のメニュー）
@@ -44,7 +44,6 @@ import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "
 import type { Coordinates, RouteCandidate } from "@/types/route";
 import type { AxisInspectorResult } from "@/types/traffic";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
 import Home from "./page";
@@ -110,6 +109,7 @@ beforeEach(() => {
   onBackend("GET", "/api/weather/warnings", () => Response.json({ warnings: [] }));
   onBackend("GET", "/api/weather/wbgt", () => Response.json({ reading: null }));
   onBackend("GET", "/api/weather/flood-forecast", () => Response.json({ forecasts: [] }));
+  onBackend("GET", "/api/place-area", () => Response.json({ area: null }));
 });
 
 afterEach(() => {
@@ -376,18 +376,15 @@ describe("ルートを作る", () => {
 });
 
 describe("地図で扱えること", () => {
-  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、住所の検索の欄も同じ間だけ出す。周回の間は目的地を地図へ出さない", async () => {
+  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、周回の間は目的地を地図へ出さない", async () => {
     const { user } = renderHome();
-    const searchBox = () => screen.queryByRole("searchbox", { name: "住所・施設で探す" });
-    expect(searchBox()).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "目的地" }));
     clickMap(DESTINATION);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: true })]);
-    expect(screen.getByRole("button", { name: "目的地をクリア" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "目的地を消す" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    await user.click(screen.getByRole("button", { name: "経由地を足す" }));
     await user.click(screen.getByRole("tab", { name: "重み" }));
-    expect(searchBox()).toBeNull();
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([]);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: false })]);
@@ -395,47 +392,36 @@ describe("地図で扱えること", () => {
     await user.click(screen.getByRole("tab", { name: "条件" }));
     await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
     expect(screen.queryByRole("button", { name: "ルート設定" })).toBeNull();
-    expect(searchBox()).toBeNull();
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([]);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: false })]);
 
     await user.click(screen.getByRole("button", { name: "パネルを開く" }));
-    expect(searchBox()).toBeInTheDocument();
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([expect.objectContaining({ draggable: true })]);
     await user.click(screen.getByRole("radio", { name: "周回" }));
     expect(marksAt(DESTINATION)).toEqual([]);
   });
 
-  it("住所の検索で経由地へ置けるのは、置いた経由地が上限に届くまで", async () => {
+  it("目的地を探して選んだ地点は地図に目的地として立ち、地点の並びにその名前が出る", async () => {
     const candidate = {
-      kind: "address",
-      level: "aza",
-      name: "東京都千代田区丸の内一丁目",
-      area: null,
-      latitude: 35.681,
-      longitude: 139.767,
+      kind: "facility",
+      level: "point",
+      name: "浅草寺",
+      area: "台東区浅草二丁目",
+      latitude: 35.7148,
+      longitude: 139.7967,
     } as const;
     onBackend("GET", "/api/place-search", () => Response.json({ candidates: [candidate] }));
     const { user } = renderHome();
-    const searchBox = screen.getByRole("searchbox", { name: "住所・施設で探す" });
-    await user.type(searchBox, "丸の内");
-    // 置くと候補の一覧が閉じるので、置くたびに引き直して候補を選ぶ。
-    const chooseCandidate = async () => {
-      await user.type(searchBox, "{Enter}");
-      await user.click(await screen.findByRole("button", { name: new RegExp(candidate.name) }));
-    };
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
+    const searchBox = screen.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
 
-    for (let placed = 0; placed < routeGenerateConfig.max_waypoints; placed++) {
-      await chooseCandidate();
-      await user.click(
-        within(screen.getByRole("list", { name: "地点の候補" })).getByRole("button", { name: "経由地へ" }),
-      );
-    }
-    await chooseCandidate();
-    const candidates = screen.getByRole("list", { name: "地点の候補" });
-    expect(within(candidates).getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
+    await user.type(searchBox, "浅草寺{Enter}");
+    await user.click(await screen.findByRole("button", { name: new RegExp(candidate.name) }));
+
+    expect(marksAt(candidate)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: `目的地: ${candidate.name}` })).toBeInTheDocument();
   });
 
   it("地図で区間を押して詳細を出せるのは「ルート結果」を見ている間だけ", async () => {
@@ -604,13 +590,9 @@ describe("画面の枠", () => {
     const originMark = () => mapOnScreen().markers()[0];
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(originMark().draggable).toBe(false);
-    expect(screen.queryByRole("searchbox", { name: "住所・施設で探す" })).toBeNull();
 
     await user.click(settingsTab());
     const settingsSheet = screen.getByRole("dialog", { name: "ルート設定" });
-    // 住所の検索の欄はシートの中ではなく地図の上端に出す（候補の一覧がシートの高さに縛られない）。
-    expect(screen.getByRole("searchbox", { name: "住所・施設で探す" })).toBeInTheDocument();
-    expect(within(settingsSheet).queryByRole("searchbox")).toBeNull();
     await user.click(within(settingsSheet).getByRole("button", { name: "ルート生成" }));
     expect(within(settingsSheet).getByText(/^現在地が分かりません/)).toBeInTheDocument();
     expect(outcomeTab).toHaveAccessibleDescription("生成に失敗しました");

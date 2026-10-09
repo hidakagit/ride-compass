@@ -27,7 +27,7 @@ import shapely
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
-from app.batch.ingest import SourceRecord, file_origin, register_adapter
+from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
 from app.batch.source_adapters.abr import archive_path, prefectures_in_range, read_rows
 from app.batch.source_profile import SourceProfile, SourceSpec
 
@@ -65,21 +65,48 @@ def open_shapefile(archive: zipfile.ZipFile) -> shapefile.Reader:
                             dbf=io.BytesIO(archive.read(members[".dbf"])), encoding=_ENCODING)
 
 
+def _abr_sources(profile: SourceProfile) -> list[SourceSpec]:
+    return [spec for spec in profile.sources if spec.adapter == "abr"]
+
+
 def abr_snapshot(profile: SourceProfile) -> str:
     """範囲に掛かる都道府県を決めるのに読む、ABR の取った日（プロファイルの`abr`の`rows.snapshot`）。"""
-    snapshots = {spec.rows.snapshot for spec in profile.sources if spec.adapter == "abr"}
+    snapshots = {spec.rows.snapshot for spec in _abr_sources(profile)}
     if len(snapshots) != 1:
         raise ValueError(f"プロファイルの ABR の取った日が1つに決まらない: {sorted(snapshots)}")
     return snapshots.pop()
 
 
-def range_prefectures(profile: SourceProfile) -> list[str]:
-    """取込の範囲に掛かる都道府県（ABR の市区町村の代表点から決める）。"""
+def _city_positions_path(profile: SourceProfile) -> Path:
     path = archive_path(abr_snapshot(profile), "mt_city_pos_all")
     if not path.exists():
         raise FileNotFoundError(f"範囲に掛かる都道府県を決める ABR の市区町村の代表点がありません: {path}"
                                 "（scripts/fetch_abr.py が写す）")
-    return prefectures_in_range(read_rows(path), profile.target.bbox)
+    return path
+
+
+def range_prefectures(profile: SourceProfile) -> list[str]:
+    """取込の範囲に掛かる都道府県（ABR の市区町村の代表点から決める）。"""
+    return prefectures_in_range(read_rows(_city_positions_path(profile)), profile.target.bbox)
+
+
+def _boundary_paths(rows: EstatSmallAreaRows, prefectures: list[str]) -> list[Path]:
+    paths = [boundary_path(rows.survey, code) for code in prefectures]
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
+        raise FileNotFoundError(f"e-Stat の小地域の境界がありません: {missing}（scripts/fetch_estat_small_areas.py が写す）")
+    return paths
+
+
+def range_inputs(profile: SourceProfile) -> AdapterInputs:
+    """範囲に掛かる都道府県を決めるのに読む入力（ABR の市区町村の代表点と、その取った日を宣言する ABR のソース）。"""
+    return AdapterInputs(files=(_city_positions_path(profile),), sources=tuple(abr.name for abr in _abr_sources(profile)))
+
+
+def estat_small_area_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    in_range = range_inputs(profile)
+    return AdapterInputs(files=(*in_range.files, *_boundary_paths(spec.rows, range_prefectures(profile))),
+                         sources=in_range.sources)
 
 
 def _to_wgs84(geometry: BaseGeometry, transformer: pyproj.Transformer) -> BaseGeometry:
@@ -111,15 +138,12 @@ def _read_prefecture(path: Path, transformer: pyproj.Transformer) -> list[Source
     return records
 
 
-@register_adapter("estat_small_area", rows=EstatSmallAreaRows)
+@register_adapter("estat_small_area", rows=EstatSmallAreaRows, inputs=estat_small_area_inputs)
 async def read_estat_small_areas(spec: SourceSpec, profile: SourceProfile,
                                  origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     rows: EstatSmallAreaRows = spec.rows
     prefectures = range_prefectures(profile)
-    paths = [boundary_path(rows.survey, code) for code in prefectures]
-    missing = [str(path) for path in paths if not path.exists()]
-    if missing:
-        raise FileNotFoundError(f"e-Stat の小地域の境界がありません: {missing}（scripts/fetch_estat_small_areas.py が写す）")
+    paths = _boundary_paths(rows, prefectures)
     origin.update({"survey": rows.survey, "prefectures": prefectures, "files": [file_origin(path) for path in paths]})
     transformer = pyproj.Transformer.from_crs(_SOURCE_SRID, "EPSG:4326", always_xy=True)
     for path in paths:

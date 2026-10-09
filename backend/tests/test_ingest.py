@@ -32,7 +32,7 @@ from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, load_s
 from app.infrastructure.source_models import SourceFeatureRow
 from tests.conftest import postgis_database_url, raw_connection
 
-# road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -125,7 +125,7 @@ async def test_ingesting_inside_a_transaction_is_refused(conn, monkeypatch):
 async def test_a_rebuild_is_refused_while_an_import_runs(conn, monkeypatch):
     async def rebuild_meanwhile(spec, profile, origin):
         with pytest.raises(RuntimeError, match="取込が走っている"):
-            await derive_cli.run(postgis_database_url(), None)
+            await derive_cli.run(postgis_database_url())
         yield SourceRecord(natural_key="new", geom_wkb=POINT_WKB, attrs={})
 
     monkeypatch.setitem(ADAPTERS, "rebuild", RegisteredAdapter(read=rebuild_meanwhile, rows=NoFields, grid=NoFields))

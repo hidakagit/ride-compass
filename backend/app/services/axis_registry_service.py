@@ -61,7 +61,7 @@ def _loading_problem(definitions: dict[str, AxisDefinition]) -> str | None:
     if not definitions:
         return (
             "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られない。入る経路は管理APIと、"
-            "バックアップからの復元 docs/conventions/deployment-sync.md「本番DBを失ったとき」）"
+            "バックアップからの復元 .claude/skills/production-data/SKILL.md「本番DBを失ったとき」）"
         )
     rejected = _rejected_axes(definitions)
     if rejected:

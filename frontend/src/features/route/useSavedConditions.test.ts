@@ -74,7 +74,7 @@ describe("保存して呼び出す", () => {
       result.current.conditions.changeRouteMode("loop");
       result.current.conditions.setDistanceInput("80");
       result.current.conditions.setMaxRoutesInput("5");
-      result.current.conditions.clearWaypoints();
+      result.current.conditions.removeWaypoint(0);
       result.current.conditions.clearDestination();
       result.current.conditions.setWeightOverrideEnabled(false);
       result.current.conditions.setHardFilters(DEFAULT_HARD_FILTERS);

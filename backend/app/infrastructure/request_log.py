@@ -1,4 +1,4 @@
-"""リクエスト1件=1行のHTTPアクセスサマリログと、ログ1行の書式(方針は docs/conventions/logging.md)。
+"""リクエスト1件=1行のHTTPアクセスサマリログと、ログ1行の書式(方針は .claude/rules/logging.md)。
 
 リクエストIDの引き継ぎ・発行・応答ヘッダへの付与は`asgi_correlation_id.CorrelationIdMiddleware`
 （`main.py`で登録）が持ち、ここはそのIDをログ行と500応答へ載せる側だけを持つ。

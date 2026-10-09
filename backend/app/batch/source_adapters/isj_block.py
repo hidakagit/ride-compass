@@ -29,8 +29,8 @@ import pyproj
 import shapely
 from shapely.geometry import Point
 
-from app.batch.ingest import SourceRecord, file_origin, register_adapter
-from app.batch.source_adapters.estat_small_area import range_prefectures
+from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
+from app.batch.source_adapters.estat_small_area import range_inputs, range_prefectures
 from app.batch.source_profile import SourceProfile, SourceSpec
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "isj"
@@ -71,15 +71,26 @@ def _in_range(lon: float, lat: float, bbox: tuple[float, float, float, float]) -
     return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
 
 
-@register_adapter("isj_block", rows=IsjBlockRows)
-async def read_isj_blocks(spec: SourceSpec, profile: SourceProfile,
-                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
-    rows: IsjBlockRows = spec.rows
-    prefectures = range_prefectures(profile)
+def _paths(rows: IsjBlockRows, prefectures: list[str]) -> list[Path]:
     paths = [archive_path(rows.version, code) for code in prefectures]
     missing = [str(path) for path in paths if not path.exists()]
     if missing:
         raise FileNotFoundError(f"街区レベル位置参照情報がありません: {missing}（scripts/fetch_isj_blocks.py が写す）")
+    return paths
+
+
+def isj_block_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    in_range = range_inputs(profile)
+    return AdapterInputs(files=(*in_range.files, *_paths(spec.rows, range_prefectures(profile))),
+                         sources=in_range.sources)
+
+
+@register_adapter("isj_block", rows=IsjBlockRows, inputs=isj_block_inputs)
+async def read_isj_blocks(spec: SourceSpec, profile: SourceProfile,
+                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
+    rows: IsjBlockRows = spec.rows
+    prefectures = range_prefectures(profile)
+    paths = _paths(rows, prefectures)
     origin.update({"version": rows.version, "prefectures": prefectures, "files": [file_origin(path) for path in paths]})
     transformer = pyproj.Transformer.from_crs(_SOURCE_SRID, "EPSG:4326", always_xy=True)
     seen: set[str] = set()
