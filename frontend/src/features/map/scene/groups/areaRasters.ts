@@ -1,9 +1,10 @@
-/** 地域に固定され、時間で変わらない面（起伏の陰影）。
+/** 地域に固定され、時間で変わらない面（色別標高図・土地被覆・起伏の陰影）。
  *
- * 基礎地図の道路網より下へ入り、**明示的にONにしたときだけ**出る。
+ * どれも基礎地図の道路網より下へ入り、**明示的にONにしたものだけ**が出る。
  */
 import { sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
@@ -13,7 +14,10 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/fea
 const AREA = mapDisplay.area;
 export const AREA_OPACITY = AREA.opacity;
 
-/** 国土地理院の標高タイル（実データを持つ上限・要求するURL）。 */
+/** 土地被覆タイルが実データを持つ範囲（正本は配信側。生成物から受け取る）。 */
+const LANDCOVER_ZOOM = { min: regionTileConfig.landcover.min_zoom, max: regionTileConfig.landcover.max_zoom };
+
+/** 国土地理院タイル（実データを持つ上限・要求するURL・出典表記）。 */
 const GSI = regionTileConfig.gsi;
 
 /** 標高(m) = 原点 + (R*65536 + G*256 + B) * 刻み。**係数は詰め方から決まる**ので、
@@ -25,21 +29,35 @@ const TERRAIN_RGB = {
   baseShift: -GSI.terrain.rgb_base_m,
 } as const;
 
-type AreaRasterRole = "hillshade";
+type AreaRasterRole = Extract<(typeof primaryAttributes)[number], { geometry: "area" }>["attr_id"] | "hillshade";
 
 export type AreaRasterState = {
   /** 表示ON/OFF。指定が無い役割は出さない。 */
   readonly visible: Readonly<Partial<Record<AreaRasterRole, boolean>>>;
   /** タイルを取りに行くオリジン（環境で変わる）。 */
   readonly tileOrigin: string;
+  /** 土地被覆タイルのURL（世代込みで配信側が組み立てたもの）。 */
+  readonly landcoverTileUrl: string;
 };
 
 export const AREA_SOURCE_ID: Record<AreaRasterRole, SceneSourceId> = {
+  elevation: sceneSourceId("area-elevation"),
+  landcover: sceneSourceId("area-landcover"),
   hillshade: sceneSourceId("area-hillshade"),
 };
 
 function sourcesFor(state: AreaRasterState): readonly SceneSourceEntry[] {
   return [
+    {
+      id: AREA_SOURCE_ID.elevation,
+      spec: { type: "raster", tileSize: 256, maxzoom: GSI.relief.max_zoom, attribution: GSI.relief.attribution },
+      tiles: [`${state.tileOrigin}${GSI.relief.tile_url}`],
+    },
+    {
+      id: AREA_SOURCE_ID.landcover,
+      spec: { type: "raster", tileSize: 256, minzoom: LANDCOVER_ZOOM.min, maxzoom: LANDCOVER_ZOOM.max },
+      tiles: [state.landcoverTileUrl],
+    },
     {
       id: AREA_SOURCE_ID.hillshade,
       spec: {
@@ -62,6 +80,22 @@ function sourcesFor(state: AreaRasterState): readonly SceneSourceEntry[] {
 function layersFor(state: AreaRasterState): readonly SceneLayerEntry[] {
   const visible = (role: AreaRasterRole) => state.visible[role] === true;
   return [
+    {
+      role: "elevation",
+      tier: "area",
+      source: AREA_SOURCE_ID.elevation,
+      type: "raster",
+      paint: { "raster-opacity": AREA_OPACITY },
+      visible: visible("elevation"),
+    },
+    {
+      role: "landcover",
+      tier: "area",
+      source: AREA_SOURCE_ID.landcover,
+      type: "raster",
+      paint: { "raster-opacity": AREA_OPACITY },
+      visible: visible("landcover"),
+    },
     {
       role: "hillshade",
       tier: "area",

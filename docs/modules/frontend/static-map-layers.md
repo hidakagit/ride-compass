@@ -2,7 +2,7 @@
 
 ## 責務
 
-タイル焼き込み済みの静的道路属性（路面・トンネル・自転車レーン・停止
+タイル焼き込み済みの静的道路属性（路面・道路種別・農道・林道の等級・トンネル・一方通行・自転車レーン・停止
 要因POI・補給休憩POI・事故・立ち寄り先）と二次(ramp)軸の汎用色分けレイヤーを地図上に表示し、地図の左上の「表示」の
 ボタンから開く一覧（`MapOverlayControls`）から表示/絞り込みを操作する。
 
@@ -18,7 +18,7 @@
 | `features/map/scene/groups/roadLines.ts` | 道路の線（例: 路面の種類・トンネル・自転車レーン）の分類・配色と、詳細を見ている1本の強調。**線レイヤーで分類を運ぶのは色だけで、太さは情報を持たず、線種が運ぶのは値が無いこと（タグが無い道＝「データなし」の破線）だけ**——1本の線へ複数の分類を載せると、色の意味が他方のON/OFFで入れ替わる。同時表示は横へ平行に割り付けて分ける |
 | `features/map/scene/groups/points.ts` | 停止要因POI・補給休憩POI・事故・立ち寄り先の分類・配色・点の形（丸い点か絵記号か）・重なった絵を間引く順と、同じタイルを分け合う条件 |
 | `features/map/layers/pointIcon.tsx` | 絵記号で描く点の絵の形（行の色の角丸四角と白い絵記号）。地図へ登録する画素と凡例の見本が同じ形の宣言を読む。絵記号の名前は源泉の行が持ち、描き方の無い名前は型検査が落とす。**単体テストは持たない**（`sdfIcon.ts`と同じく、テスト環境のcanvasは2D描画を実装せず、形は座標の宣言そのもの） |
-| `features/map/scene/groups/areaRasters.ts` | 面（起伏の陰影） |
+| `features/map/scene/groups/areaRasters.ts` | 面（色別標高図・土地被覆・起伏の陰影） |
 | `features/map/scene/legends.ts` | 上の宣言から凡例の行を作る（色と分類の正本はグループにしかない）。災害チップの要素ごとの表示切替の行も、源泉の要素の宣言（backend `domain/weather_elements.py: WEATHER_ELEMENTS`の`label`、色見本は塗る段`level_scale`）から作る |
 | `features/map/scene/mapSceneGroups.ts` | 家族（面・道路の線・点・評価軸・ルート・気象）を「いまの状態から、載っているべきレイヤーの並びを返す」1つの形で宣言する型と、それらを1つのsceneへ畳む`composeScene`（同じソースを名乗る家族を1本へまとめる） |
 | `features/map/scene/sceneBuilders.ts` | sceneを組み立てる道具のうち、どの家族でも同じ形になるもの（ソース名・レイヤーidを作る唯一の口。型で縛り、手で文字列を組み立てられないようにする） |
@@ -27,7 +27,7 @@
 | `features/map/maplibreWorker.ts` | MapLibreのWorkerの場所を、ビルド前に静的配信へ複製したもの（`scripts/copy-maplibre-worker.mjs`）へ向ける。地図を作る前に呼ばないと、Workerがバンドラの解決できないURLを読みに行き、スタイル処理とタイル取得が止まる |
 | `lib/mapDisplay/tileVersionGated.ts` | タイルの世代が届くまで要求できない情報源の集合（`TILE_VERSION_GATED_SOURCES`）と、それを読むレイヤーを持つチップのグループの名前（`tileVersionGatedGroupLabels`）。地図のレイヤーと、軸一覧を取れないことを告げる文（`hooks/useAxisCatalog.ts`）が同じ集合を読む |
 | `lib/mapDisplay/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
-| `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・割合列）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、区間インスペクタ（`RoadInspectorPopup.tsx`）の周囲の土地被覆の割合が読む |
+| `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定（軸スタジオ由来のレイヤーはチップに出ないので、名前・アイコン・説明を持たず、idと源泉の宣言だけを持つ`AxisStudioLayerDescriptor`）・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定）。静的なレイヤーは源泉の宣言（生成物`mapDisplay.layers`）の並びを列挙して組み、足すのはアイコン（`STATIC_LAYER_ICONS`）と表示専用の凡例（`READ_ONLY_LEGENDS`）だけ。名前・略名・説明・(i)の文は源泉が持ち、説明の差し込み口だけを軸カタログの値で埋める（下記「説明文に評価の名前を書き込まない」）。**`layers/`は`scene/`を読まない**（`scene/`が`layers/`を読む一方向） |
 | `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
@@ -44,7 +44,7 @@
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`pointTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。点のレイヤーはどれも1つの配信（backend `GET /api/region/point-tiles/{layer}/...`）で、URLはレイヤー名（生成物`region-tile-config.json`の`point_layers`の鍵。タイルの世代の系統の名前でもある）で組み、source-layer名も同じ一覧から読む。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
 | `features/map/mapAxisCatalog.ts`・`useMapAxisCatalog.ts` | 軸カタログの応答のうち、地図が読むもの（公開中の軸・ramp軸・専用配信の軸・推定指標のチップ・ルートの色分けモード・事故の収録年・タイルの世代と、それらから組んだレイヤーの一覧`layers`。一覧を組むのは応答1つにつき1回で、地図と`useMapView`は同じものを読む）を導く純関数と、共有の軸カタログと同じ取得（`hooks/useAxisCatalog.ts: useAxisCatalogSelect`）から引くフック。地図がソースを作れるかの判定と、チップの縮退表示は、どちらもここのタイルの世代1つを見る |
-| `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院の標高タイル・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
+| `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `next.config.ts`（`frontend/`直下） | フロント自身のオリジンへ来たタイル類（基礎地図・路面・POI・事故等）の要求をbackendへ転送するrewritesと、その転送を打ち切るまでの時間（`experimental.proxyTimeout`）。e2eのビルドで型の検査を外す設定（`typescript`）も持つ（[testing-operations.md](../../conventions/testing-operations.md)「E2E・画面の撮影の走らせ方」） |
 | `features/map/MapResetMenu/MapResetMenu.tsx` | 地図の右の列の末尾の「まとめて戻す」ボタンと、押すと開くメニュー（下記「まとめて戻すメニュー」）。項目を押すとメニューを閉じる |
 | `features/map/MapOverlayControls/` | 地図の左上の「表示」のボタンと、押すと開く地図に出す情報の一覧（下記「最上位グルーピング」）。群への束ね方と並びはレイヤーカタログ（`mapOverlayGroupFor`・`MAP_OVERLAY_GROUP_ORDER`）から導く。行のチェックでON/OFFし、ⓘで説明を、▶で凡例の内訳を開く |
@@ -60,8 +60,8 @@
 ホスティング経由の往復を省く）、未設定ならフロント自身のオリジン（`next.config.ts`の
 rewritesでbackendへプロキシ）。`window`をSSR時に参照しないよう、モジュール定数ではなく
 呼び出し時に評価する関数になっている。適用範囲は路面/POI/事故のベクタタイルに限らず、
-基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院の標高タイル（起伏の陰影。
-URLは源泉が配る。`region-tile-config.json: gsi`）・JMA動的タイル
+基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図
+（URLは源泉が配る。`region-tile-config.json: gsi`）・土地被覆ラスタ（`regionApi.ts: landcoverTileUrl`）・JMA動的タイル
 （`jmaDelivery.ts`のURLテンプレート）も同じ関数でオリジンを決める。JMAの`targetTimes`
 JSONや落雷の地点のGeoJSONのようにアプリのfetch()で読む小さなデータも同じオリジンを使う
 （タイルのURLは時刻一覧が返るまで決まらないため、ここでフロントのホスティングを経由すると
@@ -127,10 +127,10 @@ backendから取り、タイル本体はrewrites経由に戻る。
 当てはまる評価が無ければ評価に触れる一文ごと出さない。評価は軸スタジオで公開・改名・撤去されるため、
 直書きした名前は運用で黙って嘘になる。ルートの説明が並べる色分けも、レンズの選択肢と同じ公開中の評価と総合難易度から作る。
 
-コードの宣言にある事実（凡例の行の名前・点の大きさ・予測が届く先）も文に写さず、源泉が文を組むときに
-宣言から引く（`map_display.py: size_text`・`_row_label`、`weather_elements.py: forecast_reach`）。
-凡例の行の説明の元のタグも、タグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）と信号の読み替え（`kinds_shown_as`）から組む
-（`primary_attributes.py: _kind_row`）。凡例の見本が示す見た目（色の灰・破線）と、画面の部品の名前・位置は文に書かない。
+コードの宣言にある事実（凡例の行の名前・順序の色の両端の呼び名・点の大きさ・予測が届く先）も文に写さず、源泉が文を組むときに
+宣言から引く（`map_display.py: ordered_ends_text`・`size_text`・`_row_label`、`weather_elements.py: forecast_reach`）。
+凡例の行の説明の元のタグも、行の値（道路種別・等級）かタグ→種別の表（`domain/traffic.py: TAG_KIND_RULES`）と信号の読み替え（`kinds_shown_as`）から組む
+（`primary_attributes.py: _tag_row`・`_kind_row`）。凡例の見本が示す見た目（色の灰・破線）と、画面の部品の名前・位置は文に書かない。
 
 ## 表示専用の凡例（`MapLayerDescriptor.readOnlyLegend`）
 
@@ -147,14 +147,15 @@ backendから取り、タイル本体はrewrites経由に戻る。
 
 凡例の行が「何がこの行に入るか」の説明を持つと、行の右端に（i）が出て、押すと行のすぐ下に説明が開く。
 **説明は行を宣言している所が持ち、画面は説明の文を持たない**——道・点の行は一次属性の表示の行
-（backend `domain/registry.py: DisplayCategorySpec.description`。路面は区分のタグの呼び名から組む）、災害の要素は要素の宣言
+（backend `domain/registry.py: DisplayCategorySpec.description`。路面は区分のタグの呼び名から組む）、
+土地被覆はクラスの宣言（`domain/landcover.py: LandcoverClass.description`）、災害の要素は要素の宣言
 （`domain/weather_elements.py: WeatherElement.description`）、受け皿の行（その他・該当なし・データなし）は
 名前ごと`domain/map_display.py: LEGEND_SHARED_ROWS`が持ち、生成物で画面へ届く。受け皿の行は評価軸・ルートの凡例の
 「データなし」も同じ行なので、レンズの凡例にも（i）が出る。数の範囲の段（降水・風・評価の段）と、名前が説明そのものの
 行（災害の段・線状降水帯）は説明を持たず、（i）を出さない。説明が空でないことは、道と点の分類の行では源泉の型
 （`DisplayCategorySpec.description`の`min_length=1`）が、受け皿の行では`LEGEND_SHARED_ROWS`の宣言が保証する。
-源泉で説明を省ける災害の要素の行（`WeatherElement.description`は`str | None`）は、テスト
-（`scene/legends.test.ts`）が確かめる。
+源泉で説明を省ける災害の要素の行（`WeatherElement.description`は`str | None`）と土地被覆の凡例の全行は、テスト
+（`scene/legends.test.ts`・`layers/mapLayers.test.ts`）が確かめる。
 
 ## 表示層の実装（`scene/applyMapScene.ts`）
 
@@ -257,7 +258,7 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 `mapDisplay.noDataDash`）、**タグはあるが分類の外の値の道は「その他」**（値はある。薄い灰の実線）。
 どちらが現れうるかは源泉が属性ごとに配る（生成物`types/generated/primaryAttributes.ts: missing_semantics`。その値を
 タイルへ載せる材料の欠け方の宣言、`domain/material_catalog.py: display_axis_missing_semantics`）——
-トンネル・自転車レーンのようにタグの不在も「該当しない」という確定した値として載る属性（`definite`）には
+トンネル・一方通行・自転車レーンのようにタグの不在も「該当しない」という確定した値として載る属性（`definite`）には
 値の無い道が現れないので、「データなし」の行も破線も持たず、分類の外の行を「該当なし」と呼ぶ。
 
 **値のある道が少ない層は、値の無い道の行を最初は凡例で隠して始める**（源泉の`MapLayerSpec.hide_missing_rows`。
@@ -275,7 +276,7 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 そのレイヤーを消した瞬間に出典も消える。常時使うデータの出典はbackendが一覧として宣言し（生成物`mapDisplay.ts: alwaysShownAttributions`）、`MapView`が
 AttributionControlの`customAttribution`へ渡して、どのレイヤーを出しているかと関係なく出す。データ源を足す人は
 backendの同じ場所で出典も足す。ソース側の`attribution`に
-残すのは、そのレイヤーを表示している間だけ関係する外部データだけ（今は無い）。気象レイヤーはソース側に出典を
+残すのは、そのレイヤーを表示している間だけ関係する外部データ（色別標高図等）。気象レイヤーはソース側に出典を
 持たない——描くデータの提供元（気象庁・MSMを配るOpen-Meteo）は常設の表示でも常に使っており、常時表記が既に出している。
 
 地理院・警察庁・気象庁の公共データ利用規約（PDL1.0）は、出典とは別に**加工した旨**の記載を求める。
@@ -587,18 +588,14 @@ ramp軸[`dataNature==="composite"`]）は一覧の行の組み立て（`features
 ## 道路の線に出す分類（`features/map/scene/groups/roadLines.ts`）
 
 タイルには材料の値が焼き込まれている（例: `surface_class`［路面の区分］・`surface_estimate`［路面の見込み、
-線の分類としては未使用］・`highway`［道路種別、線の分類としては未使用］）。線で描くのは、分類と色を宣言した属性だけ
-（例: 路面の種類・トンネル・自転車レーン）。
-
-**地図の線に出さないと決めたもの**: 道路の種類（基礎地図が同じことを色で描く）・農道・林道の等級（tracktypeタグは
-農道・林道にしか付かず、街中のほぼ全部の道が「データなし」になる。農道・林道に限っても半分前後に値が無い）・
-一方通行（ルート探索が向きを既に守り、評価にも使わない）。どれも材料としては残り、評価と道の詳細の事実には出る。
-面の色別標高図（起伏と役目が重なる）・土地被覆（基礎地図も公園・水面・森を塗る）も同じく地図に出さない。
+線の分類としては未使用］・`highway`［道路種別］）。線で描くのは、分類と色を宣言した属性だけ
+（例: 路面の種類・農道・林道の等級・道路の種類・自転車レーン）。
 
 **線で描く分類を足すときは、「他の分類と独立して決まる事実」であること。** 粒度違い・合成の
 再掲（路面の区分を2値へ粗く束ねたもの、区分と等級を合成した`surface_estimate`）は足さない——「路面の種類=砂利」
 かつ「舗装/未舗装=未舗装」のような組み合わせは常に矛盾するか冗長になり、絞り込みとして
-情報を増やさない。
+情報を増やさない。路面の種類（surfaceタグ）と農道・林道の等級（tracktypeタグ）は別のタグで、
+片方だけが付いた道が多いため、別々の線として並べる。
 
 **ユーザーが色分け軸を選ぶUIは持たない。** 絞り込みと色の選択を同じ画面へ同居させると、
 絞り込んだ結果1色しか出ない軸を選べてしまう（情報量ゼロの表示になる）。
@@ -617,18 +614,20 @@ ramp軸[`dataNature==="composite"`]）は一覧の行の組み立て（`features
 
 **1次（観測された事実の分類）は中立色、2次（評価軸のramp）は緑〜赤。** 1次に評価配色
 （緑・アンバー・オレンジ・赤の系統）を使うと、地図の上で「観測された事実」と「推定された
-評価」が混同される。
+評価」が混同される。順序を持つ分類（道路種別の幹線→細街路）は、明度で順序を示し、色相も並びに沿って
+動かす（明度だけの濃淡は、下の明度の上限の中では隣どうしが近く、どれも暗い灰に見える）。色相は評価配色の
+系統を避けた範囲（紫→水色）に限る。
 
 **1次に評価配色を使う例外は無い。** その分類が評価へ寄与していても（事故の当事者区分は
 事故密度の材料になる）、寄与するかどうかと重みは軸定義が持ち運用で入れ替わる。色に
 「良し悪し」を持たせると、軸を編集した瞬間に地図の色の読み方が定義と食い違う。
 
-**色は宣言しない。** 軸が決めるのは「どのパレットか」と「色相の
-起点」と「明度の段」だけで、色そのものはbackendの`domain/display_palette.py`が1箇所で作る。順序を持たない
-列挙は**起点から色相環を行数で等分**する——連番で
+**色は宣言しない。** 軸が決めるのは「どのパレットか」と、順序を持たない列挙なら「色相の
+起点」と「明度の段」だけで、色そのものはbackendの`domain/display_palette.py`が1箇所で作る。順序のある
+分類は並びから明度と色相を、順序を持たない列挙は**起点から色相環を行数で等分**する——連番で
 隣の色相を配ると、同じ軸の行どうしが最も見分けにくい色になる。明度は軸の中で1つにそろえるため、
 軸の途中で系統が変わって見えることも無い。**起点は軸をまたいで重複させない**——同じ起点
-だと、1行しか持たない軸どうしが必ず同じ色になる。
+だと、1行しか持たない軸どうし（トンネルと一方通行）が必ず同じ色になる。
 
 **同時に出る点のレイヤーどうしは、明度と彩度の段を変えて離す。** 点のレイヤー（停止要因・補給・事故・立ち寄り先）は
 どれも同時にONにでき、同じ画面に並ぶ。行を色相環へ等分して配る以上、起点を変えてもレイヤーをまたいで
@@ -636,13 +635,15 @@ ramp軸[`dataNature==="composite"`]）は一覧の行の組み立て（`features
 明度は上を地色とのコントラストが、下を絵記号の白との見分けが決めるので、明度の段だけでは4つ目のレイヤーを離せない。色だけでは、レイヤーをまたいだ色の
 離れ具合は軸の中の基準（下記のΔE 20）まで届かない（最も近い組でΔE 14前後。補給と事故はどちらも明るい段で、
 色相の近い行どうしが残る）。そのため形でも分ける: 補給は丸い点ではなく絵記号で描き（下記「点で示すもの」）、事故の点は大きさと薄さもほかの点と違う。線のレイヤーは明度の段を
-持たず標準の明度で塗り、線のレイヤーどうしの色は離さない（同時に出る線どうしで近い色が並ぶことがある）。同時に出る線は「並列トラック分離」節のとおり道の上の位置が分かれ、点のように同じ場所で重ならないため、
+持たず標準の明度で塗り、線のレイヤーどうしの色は離さない（道路の種類と農道・林道の等級のように、同時に出る線どうしで
+同じ色が並ぶものがある）。同時に出る線は「並列トラック分離」節のとおり道の上の位置が分かれ、点のように同じ場所で重ならないため、
 どちらの線かはトラックの並びと凡例で読み分ける。
 
 **分類色は基礎地図の地色から浮く明るさまでに限る。** 分類色は地図の上では常に基礎地図の
 背景（`palette.json: semantic.basemap_ground`）に載る。これに対してコントラスト比3:1を
 割る明るさは「薄い＝対象外」（下記）と見分けられないため使わない。同じ制約の下で、軸の
-中の色は互いに離す（CIE76のΔEで、どの2行も20以上）。点のレイヤーどうしも、どの2色もΔE 10以上離す。値は
+中の色は互いに離す（CIE76のΔEで、列挙はどの2行も20以上、順序は隣どうしを10以上——順序は明度でも示すので、
+隣どうしの差は小さくてよい）。点のレイヤーどうしも、どの2色もΔE 10以上離す。値は
 `tests/test_display_palette.py`が色を持つ軸すべてに対して測る。
 
 **色を持つのは先頭の軸だけ。** 事故のように1つの点へ2つの見方があるとき、地図は先頭の軸
@@ -722,8 +723,8 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 
 ## 点で示すもの（`features/map/scene/groups/points.ts`）
 
-トンネル・停止要因POI・補給休憩POI・事故は、backendが既に1つの分類値
-（`kind`=列挙文字列、`tunnel`/`involves_bicycle`/`fatal`=真偽値）へ変換済みの
+トンネル・一方通行・停止要因POI・補給休憩POI・事故は、backendが既に1つの分類値
+（`kind`=列挙文字列、`tunnel`/`oneway`/`involves_bicycle`/`fatal`=真偽値）へ変換済みの
 プロパティを読む。道路の線の分類のように複数の生タグ値を束ねる必要はない。
 
 分類値の一覧はbackendが正で、フロントは色とラベルを与えるだけ。**backendが種別を1つ足した

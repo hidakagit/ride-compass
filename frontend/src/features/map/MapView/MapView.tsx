@@ -99,7 +99,9 @@ const TILE_SOURCE_BY_DATA_SOURCE: Record<
 > = {
   road_surface: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
   ...POINT_TILE_SOURCES,
+  gsiRelief: { sourceId: AREA_SOURCE_ID.elevation },
   gsiTerrain: { sourceId: AREA_SOURCE_ID.hillshade },
+  landcoverRaster: { sourceId: AREA_SOURCE_ID.landcover },
 };
 
 /** レイヤーごとのデータ取得状態の算出元。母集団はレイヤーカタログそのもの。自前のJSで取りに行くもの（`ownFetch`）は
