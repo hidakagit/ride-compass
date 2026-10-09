@@ -34,5 +34,10 @@ for layer, v in sorted(by.items()):
     print(layer, v[0], v[1], round(v[2]))
 pool = sorted(r[1] for r in rows if r[2] > 0)
 random.Random(661).shuffle(pool)
+# 当て直しの一覧があれば、それだけを回す（runner.py がテスト全体を当てる。importtime.py の説明）。
+RECHECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recheck.txt")
+if os.path.exists(RECHECK):
+    pool = [line.strip() for line in open(RECHECK, encoding="utf-8") if line.strip()]
+    print("当て直しの一覧を回す")
 open(os.path.join(OUT, "all.txt"), "w", encoding="utf-8").write("\n".join(pool) + "\n")
 print("all.txt", len(pool), "件")
