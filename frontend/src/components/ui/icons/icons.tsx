@@ -5,6 +5,7 @@
 import type { ReactElement } from "react";
 import {
   ArrowUp,
+  Bike,
   CircleQuestionMark,
   Clock,
   Cloud,
@@ -472,7 +473,7 @@ export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 表示する項目を選ぶ: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
+/** 地図に出す情報を選ぶ（「表示」のボタン）: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
 export function DisplayItemsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -506,6 +507,7 @@ function fromLucide(Icon: LucideIcon, defaultSize = 16): MapIconComponent {
 
 export const WarningTriangleIcon = fromLucide(TriangleAlert);
 export const WindIcon = fromLucide(Wind);
+export const BicycleIcon = fromLucide(Bike);
 /** 呼び出し側が風向・走行方位のぶん回転させて使うため、上向きのまっすぐな矢印にしてある。 */
 export const WindDirectionArrowIcon = fromLucide(ArrowUp);
 export const ThermometerIcon = fromLucide(Thermometer);

@@ -106,10 +106,46 @@ export const primaryAttributes = [
     "label": "自転車インフラ",
     "geometry": "line",
     "point_facts": [],
-    "tile_kind": null,
+    "tile_kind": "road_surface",
     "point_thinning": null,
     "point_name_property": null,
-    "display_axes": []
+    "display_axes": [
+      {
+        "key": "cycleway",
+        "label": "",
+        "property": "cycleway_class",
+        "categories": [
+          {
+            "key": "separated",
+            "label": "自転車道",
+            "values": [
+              "separated"
+            ],
+            "description": "車道から分けられた、自転車の通る道[OSM の highway=cycleway・cycleway=track]。",
+            "color": "#807e4d"
+          },
+          {
+            "key": "lane",
+            "label": "自転車レーン",
+            "values": [
+              "lane"
+            ],
+            "description": "車道の上に線で区切った、自転車の通る帯[OSM の cycleway=lane]。",
+            "color": "#25879d"
+          },
+          {
+            "key": "shared",
+            "label": "共用の道",
+            "values": [
+              "shared"
+            ],
+            "description": "バス・車と共用の帯か、自転車も通ってよい歩道・遊歩道[OSM の cycleway=share_busway・shared_lane、highway=footway・path かつ bicycle=yes・designated]。",
+            "color": "#a36b89"
+          }
+        ],
+        "missing_semantics": "definite"
+      }
+    ]
   },
   {
     "attr_id": "surface",

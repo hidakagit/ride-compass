@@ -112,6 +112,13 @@ def write_dictionary(path: Path, places: tuple[Place, ...] = PLACES) -> None:
     trie_nodes.append_records(
         sorted(({"id": trie.get_id(key), "nodes": ids} for key, ids in keys.items()), key=lambda r: r["id"])
     )
+    # 書くときに開いた SQLite の接続は、jageocoder の関数のキャッシュ（`lru_cache`）が表を握ったまま残す。後で別のスレッド
+    # （辞書を引くスレッド）でキャッシュから押し出されて片付けられると、閉じるときに`sqlite3.ProgrammingError`になるので、
+    # 書いたスレッドで閉じる。
+    for table in (nodes, trie_nodes):
+        if table.conn:
+            table.conn.close()
+            table.conn = None
     (path / "README.md").write_text(README, encoding="utf-8")
 
 

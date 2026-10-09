@@ -295,4 +295,7 @@ class StopPlaceRow(Base):
     confidence: Mapped[float] = mapped_column(REAL, nullable=False)
     #: チェーンの名前。無ければ個店。
     brand: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: 辺り（市区町村から字・丁目まで。位置を住所の辞書で逆引きした名前）。地点の検索が名前に添え、同じ名前の店を見分ける。
+    #: 逆引きが旧い住所の節にしか当たらなければNULL。
+    area: Mapped[str | None] = mapped_column(String, nullable=True)
     geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)

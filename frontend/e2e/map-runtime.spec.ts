@@ -159,6 +159,7 @@ test("住所の検索で目的地に置いた地点は地図のその位置に�
     kind: "address",
     level: "aza",
     name: "東京都北区王子一丁目",
+    area: null,
     latitude: 35.7536,
     longitude: 139.7378,
   };
@@ -284,11 +285,10 @@ test("ルートを収めるとき、地図の上の操作部品が覆う所へ�
     return boxes.filter((box) => box !== null);
   };
   const depths = {
-    left: (await covers(/の表示項目$/)).map((box) => box.x + box.width - canvas.x),
     right: (await covers(/^(拡大|縮小|走行方位を設定|現在地に移動|まとめて戻す)$/)).map(
       (box) => canvas.x + canvas.width - box.x,
     ),
-    top: (await covers(/^地図の色分け:/)).map((box) => box.y + box.height - canvas.y),
+    top: (await covers(/^(地図の色分け:|地図に出す情報$)/)).map((box) => box.y + box.height - canvas.y),
   };
   for (const [edge, values] of Object.entries(depths) as [keyof typeof depths, number[]][]) {
     expect(values.length, `${edge}の辺を覆う部品が見つからない`).toBeGreaterThan(0);

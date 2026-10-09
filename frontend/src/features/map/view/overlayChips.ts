@@ -64,7 +64,6 @@ export function overlayChips(options: {
         id: layer.id,
         label: layer.label,
         icon: layer.icon,
-        chipLabel: layer.chipLabel ?? layer.label,
         on: options.visibility[layer.id] === true,
         disabled: layer.kind === "dynamic" && !options.hasSelectedRoute,
         title: layer.description,

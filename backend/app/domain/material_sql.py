@@ -20,6 +20,7 @@
 """
 
 from collections.abc import Iterable, Sequence
+from typing import NamedTuple
 
 from app.domain.road import (
     SURFACE_CLASSES,
@@ -125,9 +126,54 @@ IS_BRIDGE_SQL = tag_absent_is_false_sql(f"{BRIDGE_NORMALIZED_SQL} IN ({_sql_lite
 IS_TUNNEL_SQL = tag_absent_is_false_sql(f"{TUNNEL_NORMALIZED_SQL} IN ({_sql_literals(_TUNNEL_STRUCTURE_VALUES)})")
 
 
-def cycleway_has_value_sql(*values: str) -> str:
+def _cycleway_tags_include_sql(*values: str) -> str:
     listed = ", ".join(f"'{v}'" for v in values)
-    return tag_absent_is_false_sql(f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}]")
+    return f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}]"
+
+
+def cycleway_has_value_sql(*values: str) -> str:
+    return tag_absent_is_false_sql(_cycleway_tags_include_sql(*values))
+
+
+#: 車道と分けられた歩行者道のうち、自転車も通ってよい道（河川敷のサイクリングロード等）。
+SHARED_PEDESTRIAN_PATH_SQL = f"{HIGHWAY_SQL} IN ('footway', 'path') AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')"
+
+
+class CyclewayClass(NamedTuple):
+    """自転車の走る場所の区分の1つ。`condition`は道がこの区分に当たるかのSQL真偽式。"""
+
+    key: str
+    label: str
+    #: 地図の凡例の行が開く説明。
+    description: str
+    condition: str
+
+
+#: 並びが判定の順（1本の道が複数に当たれば先の区分）で、地図の凡例の並び。車道から分けられた度合いの強い順。
+CYCLEWAY_CLASSES: tuple[CyclewayClass, ...] = (
+    CyclewayClass(
+        "separated",
+        "自転車道",
+        "車道から分けられた、自転車の通る道[OSM の highway=cycleway・cycleway=track]。",
+        f"{HIGHWAY_SQL} = 'cycleway' OR {_cycleway_tags_include_sql('track')}",
+    ),
+    CyclewayClass(
+        "lane",
+        "自転車レーン",
+        "車道の上に線で区切った、自転車の通る帯[OSM の cycleway=lane]。",
+        _cycleway_tags_include_sql("lane"),
+    ),
+    CyclewayClass(
+        "shared",
+        "共用の道",
+        "バス・車と共用の帯か、自転車も通ってよい歩道・遊歩道"
+        "[OSM の cycleway=share_busway・shared_lane、highway=footway・path かつ bicycle=yes・designated]。",
+        f"{_cycleway_tags_include_sql('share_busway', 'shared_lane')} OR ({SHARED_PEDESTRIAN_PATH_SQL})",
+    ),
+)
+
+#: どの区分にも当たらない道（自転車のための設けが無い道）はNULL。
+CYCLEWAY_CLASS_SQL = "CASE " + " ".join(f"WHEN {c.condition} THEN '{c.key}'" for c in CYCLEWAY_CLASSES) + " END"
 
 
 def per_km_value_sql(count: str) -> str:
