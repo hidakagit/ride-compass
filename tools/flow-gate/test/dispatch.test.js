@@ -64,6 +64,7 @@ test("23 作業時間は作業の状態にいた区間の和で、回答待ち�
   const minutesBefore = (at, k) => new Date(Date.parse(at) - k * 60e3).toISOString();
   // 更新日の新しい順に3ページ（100件ずつ）。1ページ目の終わりまでで S の直近4件がそろい、2ページ目で記録の始まりより前に当たる。
   const closed = [
+    { number: 21, size: "S", closedAt: ago(1), updatedAt: ago(0.05) }, // 読む間に更新されて2度出た（番号で1つにする）
     { number: 30, size: "S", closedAt: ago(0.1), project: 9 }, // ほかの Project
     { number: 29, size: "S", closedAt: ago(0.2), stateReason: "NOT_PLANNED" },
     { number: 25, size: "S", closedAt: "2026-10-02T14:10:00Z", updatedAt: ago(0.5) },

@@ -78,17 +78,18 @@ async function readWorkHours(gh, config, numbers, now) {
 
 // 規模ごとに、記録の始まり（coordinator.recordsSince）より後に完成で閉じた直近 coordinator.recent 件（{ number, size, closedAt }）。
 // 閉じた日は更新日より後にならないので、更新日の新しい順に読み、どの規模も「そろった recent 件目の閉じた日」が読んだ中で一番古い
-// 更新日以降になるか、一番古い更新日が記録の始まりより前になったら、残りのページは読まない。
-export async function readRecent(gh, config, sizes) {
+// 更新日以降になるか、一番古い更新日が記録の始まりより前になったら、残りのページは読まない。読む間に更新されてページをまたいで
+// 2度出た issue は、番号で1つにする。
+async function readRecent(gh, config, sizes) {
   const { recent, recordsSince } = config.coordinator;
   const [o, n] = config.repository.split("/");
-  const found = Object.fromEntries(sizes.map((size) => [size, []]));
-  const newest = (size) => found[size].toSorted((a, b) => b.closedAt.localeCompare(a.closedAt)).slice(0, recent);
+  const found = Object.fromEntries(sizes.map((size) => [size, new Map()]));
+  const newest = (size) => [...found[size].values()].toSorted((a, b) => b.closedAt.localeCompare(a.closedAt)).slice(0, recent);
   for (let c = null; sizes.length; ) {
     const { nodes, pageInfo } = (await gh.gql(CLOSED, { o, n, sz: config.project.sizeField, c })).repository.issues;
     for (const t of nodes) {
       const size = t.projectItems.nodes.find((i) => i.project.number === config.project.number)?.size?.name;
-      if (t.stateReason === "COMPLETED" && t.closedAt >= recordsSince && found[size]) found[size].push({ number: t.number, size, closedAt: t.closedAt });
+      if (t.stateReason === "COMPLETED" && t.closedAt >= recordsSince && found[size]) found[size].set(t.number, { number: t.number, size, closedAt: t.closedAt });
     }
     const oldest = nodes.at(-1)?.updatedAt ?? "";
     if (!pageInfo.hasNextPage || oldest < recordsSince || sizes.every((size) => newest(size)[recent - 1]?.closedAt >= oldest)) break;

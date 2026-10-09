@@ -460,7 +460,7 @@ def cmd_change(args: argparse.Namespace) -> int:
         totals[change_kind(path)][1] += deleted
     measured = sum(totals["実装"]) + sum(totals["テスト"])
     label = next((name for limit, name in SIZE_LABELS if measured <= limit), "L")
-    shown =git("rev-parse", "--short", args.head).strip() if args.head else "作業ツリー（未追跡のファイルを含む）"
+    shown = git("rev-parse", "--short", args.head).strip() if args.head else "作業ツリー（未追跡のファイルを含む）"
     print(f"## 変更の増減（{mb[:8]}..{shown}）")
     print("増減: " + "・".join(f"{kind} +{a:,}/−{d:,}" for kind, (a, d) in totals.items()
                              if kind in ("実装", "テスト", "文書") or a or d))
