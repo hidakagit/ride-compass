@@ -1,6 +1,6 @@
 /**
  * `RouteForm/RouteForm.tsx`——「ルート設定」区分の各タブの中身。「条件」タブ（周回か目的地か・候補数・距離・地点の並びと詳しく）を
- * 描き、「重み」「除外」「保存」タブには受け取った中身を置く。
+ * 描き、「重み」「除外」タブと「保存」タブの「設定」には受け取った中身を置き、「保存」タブの「地点」には保存した地点を並べる。
  *
  * 見るもの: モードの切り替えで上がるモード、候補数のステッパー（今の件数・1件ずつの増減・端で押せない・経由地があると
  * 決まった件数で押せず、理由の(i)を置く）、周回の距離のスライダーで上がる値、モードごとに出す距離と地点の並び、
@@ -60,7 +60,8 @@ const BASE = {
   mapCenter: { latitude: 35.681, longitude: 139.767 },
   weightsPanel: null,
   exclusionsPanel: null,
-  savedPanel: null,
+  savedConditionsPanel: null,
+  savedPlaces: { places: [], save: () => {}, remove: () => {} },
 } satisfies Options;
 
 /** 置いた経由地（地点は並べるだけ）。 */
@@ -115,7 +116,8 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
       onPlaceFound,
       weightsPanel,
       exclusionsPanel,
-      savedPanel,
+      savedConditionsPanel,
+      savedPlaces,
       ...conditions
     } = {
       ...BASE,
@@ -134,9 +136,10 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
           originFound={originFound}
           mapCenter={mapCenter}
           onPlaceFound={onPlaceFound}
+          savedPlaces={savedPlaces}
           weightsPanel={weightsPanel}
           exclusionsPanel={exclusionsPanel}
-          savedPanel={savedPanel}
+          savedConditionsPanel={savedConditionsPanel}
         />
       </Tabs>
     );
@@ -548,12 +551,12 @@ describe("RouteForm タブの中身", () => {
     return <input aria-label={name} value={text} onChange={(e) => setText(e.target.value)} />;
   }
 
-  it("「重み」「除外」「保存」に受け取った中身を置き、タブを切り替えても外さない", async () => {
+  it("「重み」「除外」と「保存」の「設定」に受け取った中身を置き、タブを切り替えても外さない", async () => {
     const { showTab } = renderForm(
       {
         weightsPanel: <Draft name="重みの中身" />,
         exclusionsPanel: <Draft name="除外の中身" />,
-        savedPanel: <Draft name="保存の中身" />,
+        savedConditionsPanel: <Draft name="保存の中身" />,
       },
       "weights",
     );

@@ -25,6 +25,7 @@ import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel
 import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
 import { useSavedConditions } from "@/features/route/useSavedConditions";
+import { useSavedPlaces } from "@/features/route/useSavedPlaces";
 import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import { useRoutePlanner } from "@/features/route/useRoutePlanner";
@@ -67,7 +68,7 @@ type MobileSheet = "routeSettings" | "routeOutcome" | null;
 /** モバイルの下部タブの使い方。 */
 const MOBILE_TAB_USAGES = {
   routeSettings:
-    "ルートを作る条件[距離・地点・重み・除外・保存した設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
+    "ルートを作る条件[距離・地点・重み・除外・保存した地点と設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
   routeOutcome:
     "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
 } as const;
@@ -112,6 +113,8 @@ export default function Home() {
     onOriginPlace: setManualLocation,
     onOriginFollowCurrent: handleLocateMe,
   });
+  // 名前を付けて保存した地点（地点の詳しくで保存し、打つ欄の候補に出す）。
+  const savedPlaces = useSavedPlaces();
 
   // デスクトップの区分の開閉（モバイルはシートの開閉がこれに当たる）。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
@@ -267,7 +270,7 @@ export default function Home() {
         <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
           除外
         </TabsTrigger>
-        <TabsTrigger value="saved" usage="いまの設定に名前を付けて保存し、保存した設定を呼び出します。">
+        <TabsTrigger value="saved" usage="名前を付けて保存した地点と設定を並べます。">
           保存
         </TabsTrigger>
       </TabsList>
@@ -328,6 +331,7 @@ export default function Home() {
         // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
         mapCenter={mapView.center ?? location}
         onPlaceFound={placeFound}
+        savedPlaces={savedPlaces}
         weightsPanel={
           <RouteSettingsPanel
             routePreference={conditions.routePreference}
@@ -339,7 +343,7 @@ export default function Home() {
         exclusionsPanel={
           <HardFilterPanel hardFilters={conditions.hardFilters} onHardFiltersChange={conditions.setHardFilters} />
         }
-        savedPanel={
+        savedConditionsPanel={
           <SavedConditionsPanel
             saved={savedConditions.saved}
             current={savedConditions.current}

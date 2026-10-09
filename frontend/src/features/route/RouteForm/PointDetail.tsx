@@ -1,15 +1,20 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge/Badge";
 import { Button } from "@/components/ui/Button/Button";
+import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
+import { SavedPlaceIcon, SavePlaceIcon } from "@/components/ui/icons/icons";
+import { Input } from "@/components/ui/Input/Input";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { textVariants } from "@/components/ui/Text/Text";
 import PlaceCandidates, { isRepresentative } from "@/features/route/PlaceSearch/PlaceCandidates";
 import { PREDICTION_MIN_LENGTH, usePlaceLookup } from "@/features/route/PlaceSearch/usePlaceLookup";
 import { areaAt } from "@/features/route/placeSearchApi";
+import { savedPlaceAt, savedPlacesMatching } from "@/features/route/savedPlaces";
+import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import { cn } from "@/lib/cn";
 import { getQueryClient } from "@/lib/queryClient";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
@@ -51,14 +56,17 @@ interface PointDetailProps {
   originLocated: boolean;
   /** 地図でいま見ている所の真ん中。施設の候補はここから近い順に並ぶ。 */
   mapCenter: Coordinates;
-  /** 探して選んだ候補を、この地点として置く。 */
+  /** 探して選んだ候補（保存した地点も）を、この地点として置く。 */
   onChoose: (candidate: PlaceCandidate) => void;
+  /** 保存した地点の一覧と保存・削除。打つ欄を押すと候補に出し、置いた地点を保存する。 */
+  savedPlaces: SavedPlacesState;
 }
 
 /**
  * 押した地点の詳しく: どの地点か・どうやって置いたか・名前・辺り（探した施設は候補の辺り、地図で選んだ地点・現在地・辺りの
- * 無い施設は位置から引いた辺り。探した住所は名前が住所なので出さない）と、住所・施設の名前を打って置き直す欄（候補は欄のすぐ下）、
- * 地図で置く操作と、消す・現在地に戻す。
+ * 無い施設は位置から引いた辺り。探した住所は名前が住所なので出さない）と、住所・施設の名前を打って置き直す欄（候補は欄のすぐ下。
+ * 欄を押すと、保存した地点のうち打った文字を名前に含むものを住所・施設の候補の上に出す）、地図で置く操作と、消す・現在地に戻す・
+ * 置いた地点の保存（保存した地点なら保存をやめる）。
  */
 export default function PointDetail({
   role,
@@ -80,18 +88,24 @@ export default function PointDetail({
   originLocated,
   mapCenter,
   onChoose,
+  savedPlaces,
 }: PointDetailProps) {
   const lookup = usePlaceLookup(mapCenter);
   const inputId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const listing = lookup.query !== "";
+  // 打つ欄を押してから、選ぶ・閉じるまでの間は、保存した地点を候補に出す。
+  const [browsing, setBrowsing] = useState(false);
+  const inputProps = lookup.inputProps();
+  const savedMatches = browsing ? savedPlacesMatching(savedPlaces.places, inputProps.value) : [];
+  const listOpen = listing || savedMatches.length > 0;
   // 候補が出たら、打つ欄を面の上端へ送り、下の候補を面の高さいっぱいに見せる（狭い画面のシートでは、欄の下に出した候補が面の
   // 下端で切れる）。一覧は自分では高さを限らず、面のスクロールだけで読む（二重のスクロールにしない）。
   // 候補が届いて一覧が伸びたときにも送り直す（引いている間の短い一覧では、面の下端まで送り切れない）。
   const candidates = lookup.search.data;
   useEffect(() => {
-    if (listing) formRef.current?.scrollIntoView({ block: "start" });
-  }, [listing, candidates]);
+    if (listOpen) formRef.current?.scrollIntoView({ block: "start" });
+  }, [listOpen, candidates]);
 
   // 探した住所は名前が辺りを含み、代表の位置なら行きたい所そのものでもないので、辺りは引かない。
   const representative = found !== null && isRepresentative(found);
@@ -107,9 +121,31 @@ export default function PointDetail({
   // 引けない間・引けなかったときは辺りを出さない（名前と出どころは出ている）。
   const area = found?.area ?? (areaPoint !== null ? (placedArea.data ?? null) : null);
 
+  function closeList() {
+    lookup.close({ clearText: true });
+    setBrowsing(false);
+  }
+
   function choose(candidate: PlaceCandidate) {
     onChoose(candidate);
-    lookup.close({ clearText: true });
+    closeList();
+  }
+
+  // 置いた地点の保存。名前の欄には、探して置いた候補の名前か辺り（地図で選んだ地点・現在地は辺りのほうが見分けやすい）を入れておく。
+  const savedHere = at !== null ? savedPlaceAt(savedPlaces.places, at) : null;
+  const suggestedPlaceName = found?.name ?? area ?? name ?? title;
+  const [naming, setNaming] = useState(false);
+  // 手で書き換えるまでは、上の仮の名前を出す（空にして保存しても仮の名前）。
+  const [placeNameDraft, setPlaceNameDraft] = useState<string | null>(null);
+  const placeName = placeNameDraft?.trim() || suggestedPlaceName;
+  const overwritingPlace = savedPlaces.places.some((place) => place.name === placeName);
+
+  function savePlace() {
+    if (at === null) return;
+    // 地図で選んだ地点・現在地は、その位置そのもの（施設と同じく代表の位置ではない）として持つ。
+    const { kind, level } = found ?? { kind: "facility" as const, level: "point" as const };
+    savedPlaces.save({ kind, level, name: placeName, area, latitude: at.latitude, longitude: at.longitude });
+    setNaming(false);
   }
 
   return (
@@ -174,9 +210,10 @@ export default function PointDetail({
               "w-full rounded-sm border border-[var(--color-border)] bg-transparent px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--foreground)] placeholder:text-[var(--color-muted)]",
               "focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]",
             )}
-            {...lookup.inputProps()}
+            {...inputProps}
+            onFocus={() => setBrowsing(true)}
             onKeyDown={(event) => {
-              if (event.key === "Escape") lookup.close({ clearText: true });
+              if (event.key === "Escape") closeList();
             }}
             data-usage={`住所か施設の名前を入れて探します。${PREDICTION_MIN_LENGTH}文字から、打つのを止めると候補が出ます。候補を選ぶと${chooseResult}。`}
           />
@@ -199,36 +236,109 @@ export default function PointDetail({
           {armed ? "やめる" : full ? "上限" : armLabel}
         </Toggle>
         {extra}
+        {at !== null &&
+          (savedHere !== null ? (
+            <Button
+              size="panelIcon"
+              className="ml-auto flex-none"
+              aria-label={`「${savedHere.name}」の保存をやめる`}
+              onClick={() => savedPlaces.remove(savedHere)}
+              usage="保存した地点から外します。置いた地点はそのまま残ります。"
+            >
+              <SavedPlaceIcon />
+            </Button>
+          ) : (
+            <Button
+              size="panelIcon"
+              className="ml-auto flex-none"
+              aria-label="地点を保存"
+              aria-haspopup="dialog"
+              aria-expanded={naming}
+              onClick={() => {
+                setPlaceNameDraft(null);
+                setNaming(true);
+              }}
+              usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
+            >
+              <SavePlaceIcon />
+            </Button>
+          ))}
       </div>
 
-      {listing && (
-        <div className="relative rounded-sm border border-[var(--color-border)] p-1 pr-8">
+      {listOpen && (
+        <div className="relative flex flex-col gap-1 rounded-sm border border-[var(--color-border)] p-1 pr-8">
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => lookup.close({ clearText: true })}
+            onClick={closeList}
             aria-label={`${title}の候補を閉じる`}
             className="absolute top-1 right-1 size-6 text-[var(--foreground)]"
             usage="候補の一覧を閉じて、打った文字を消します。"
           >
             ✕
           </Button>
-          <PlaceCandidates
-            lookup={lookup}
-            renderCandidate={(candidate, _index, candidateLabel) => (
-              <Button
-                variant="menu"
-                size="sm"
-                className="w-full"
-                onClick={() => choose(candidate)}
-                usage={`この候補を選ぶと${chooseResult}。`}
-              >
-                {candidateLabel}
-              </Button>
-            )}
-          />
+          {savedMatches.length > 0 && (
+            <ul aria-label="保存した地点" className="flex flex-col gap-0.5">
+              {savedMatches.map((place) => (
+                <li key={place.name}>
+                  <Button
+                    variant="menu"
+                    size="sm"
+                    className="w-full whitespace-normal"
+                    onClick={() => choose(place)}
+                    usage={`保存した地点です。選ぶと${chooseResult}。`}
+                  >
+                    <SavedPlaceIcon size={14} />
+                    <span className="min-w-0 flex-auto [overflow-wrap:anywhere]">
+                      {place.name}
+                      {place.area !== null && (
+                        <span className={cn("ml-1.5", textVariants({ variant: "note" }))}>{place.area}</span>
+                      )}
+                    </span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {listing && (
+            <PlaceCandidates
+              lookup={lookup}
+              renderCandidate={(candidate, _index, candidateLabel) => (
+                <Button
+                  variant="menu"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => choose(candidate)}
+                  usage={`この候補を選ぶと${chooseResult}。`}
+                >
+                  {candidateLabel}
+                </Button>
+              )}
+            />
+          )}
         </div>
       )}
+      <DialogRoot open={naming} onOpenChange={setNaming}>
+        <DialogContent title="地点を保存">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              savePlace();
+            }}
+          >
+            <Input
+              aria-label="保存する地点の名前"
+              className="min-w-0 flex-auto"
+              value={placeNameDraft ?? suggestedPlaceName}
+              onChange={(event) => setPlaceNameDraft(event.target.value)}
+            />
+            <Button type="submit" size="sm" className="flex-none">
+              {overwritingPlace ? "上書き保存" : "保存"}
+            </Button>
+          </form>
+        </DialogContent>
+      </DialogRoot>
     </section>
   );
 }
