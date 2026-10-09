@@ -23,7 +23,6 @@
 """
 
 import hashlib
-import importlib.metadata
 import json
 import logging
 import sys
@@ -37,7 +36,7 @@ from typing import Any
 import asyncpg
 from sqlalchemy.orm import InstrumentedAttribute
 
-from app.batch.code_fingerprint import code_fingerprint
+from app.batch.code_fingerprint import code_fingerprint, library_versions
 from app.batch.common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
 from app.infrastructure.source_models import SourceRunStatus, latest_succeeded_run_by_column_sql
@@ -120,10 +119,6 @@ def register_adapter(name: str, *, rows: type = NoFields, grid: type = NoFields,
 INPUT_FINGERPRINT = "input_fingerprint"
 
 
-def _library_versions() -> list[str]:
-    return sorted(f"{dist.metadata['Name']}=={dist.version}" for dist in importlib.metadata.distributions())
-
-
 def input_fingerprint(spec: SourceSpec, profile: SourceProfile) -> str | None:
     """そのソースの取込の入力の指紋。アダプタが入力を宣言していなければNone。
 
@@ -140,7 +135,7 @@ def input_fingerprint(spec: SourceSpec, profile: SourceProfile) -> str | None:
         "sources": [_source_dict(profile.source(name)) for name in (spec.name, *inputs.sources)],
         "code": code_fingerprint(registered.read.__module__),
         "python": sys.version,
-        "libraries": _library_versions(),
+        "libraries": library_versions(),
     }).encode())
     for name, path in sorted({str(path.resolve()): path for path in inputs.files}.items()):
         digest.update(name.encode())

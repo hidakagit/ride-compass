@@ -107,6 +107,6 @@ async def test_the_real_repository_returns_each_direction_from_its_start_to_its_
     await ingest_records("osm_way", [way_record(
         WAY, [(COORDINATES[n][1], COORDINATES[n][0]) for n in (START, END)], [START, END], {"highway": "residential"})])
     await ingest_records("abr", [abr_prefecture_record("130001", "東京都", COORDINATES[START][1], COORDINATES[START][0])])
-    assert await derive_cli.run(postgis_database_url(), None) == 0
+    assert await derive_cli.run(postgis_database_url()) == 0
 
     await _geometry_runs_from_the_start_node_to_the_end_node(road_graph_repository)

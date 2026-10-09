@@ -255,7 +255,7 @@ async def _derive(ways=_WAYS, nodes=_INGESTED_NODES) -> None:
     await ingest_records("osm_way", [
         way_record(way_id, [_NODES[n] for n in node_ids], node_ids, tags) for way_id, node_ids, tags in ways])
     await ingest_records("abr", [abr_prefecture_record("130001", "東京都", *_NODES[1])])
-    assert await derive_cli.run(postgis_database_url(), None) == 0
+    assert await derive_cli.run(postgis_database_url()) == 0
     shutil.rmtree(road_network_store.ROOT)
 
 

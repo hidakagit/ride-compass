@@ -1,16 +1,17 @@
 """処理のコードの指紋。**あるモジュールから`import`でたどれる`app`の中のモジュールの中身**から作る。
 
-入力が前回と同じなら処理をしない仕組み（取込: `ingest.py`）は、コードも入力に数える。コードを入れないと、
+入力が前回と同じなら処理をしない仕組み（取込: `ingest.py`・派生の段: `derive_cli.py`）は、コードも入力に数える。コードを入れないと、
 読み方を直したあとも前回の結果が残る。
 
 たどるのはソースの文（AST）で、関数の中の`import`も数える（重いライブラリを使うときだけ読むモジュールが、
 関数の中で読み込む）。`from <パッケージ> import <名前>`は、名前がモジュールならそのモジュールも数える。
 パッケージを読むと`__init__.py`が走るので、たどったモジュールの親のパッケージも数える。`app`の外
-（標準ライブラリ・依存のライブラリ）はたどらない——ライブラリの版は、使う側が別に数える。
+（標準ライブラリ・依存のライブラリ）はたどらない——ライブラリの版は、使う側が別に数える（`library_versions`）。
 """
 
 import ast
 import hashlib
+import importlib.metadata
 from pathlib import Path
 
 #: `app`のパッケージを置いた場所（`backend/`）。モジュールの名前はここから読むファイルへ移す。
@@ -80,3 +81,8 @@ def code_fingerprint(module: str) -> str:
         digest.update(name.encode())
         digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
+
+
+def library_versions() -> list[str]:
+    """入っているライブラリの名前と版（`<名前>==<版>`）。"""
+    return sorted(f"{dist.metadata['Name']}=={dist.version}" for dist in importlib.metadata.distributions())
