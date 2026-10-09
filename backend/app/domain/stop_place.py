@@ -49,6 +49,17 @@ OVERTURE_GROUPED_WORDS: frozenset[str] = frozenset().union(*(words for _, words 
 #: 重なって入っているのを1つにする。チェーンの分からない地点は別々の店として扱い、まとめない。
 MERGE_RADIUS_M = 30.0
 
+#: 名前に日本語の文字（かな・漢字）が無い地点を、同じ連絡先を持つ日本語の名前の地点へ寄せる群と、寄せる距離（地面の m）。
+#: 同じ場所が出どころの中で言語違いの別の行（Facebook のページ等）として重なって入っているのを1つにする。Overture の地点には
+#: 重なりを結ぶ ID も言語ごとの名前も無い。飲食は入れない——同じ連絡先を持つ近くの店は、同じビル・同じ会社の別の店が多い。
+#: 景色・名所は場所が広く、同じ公園の行が100m以上離れて入る。値の根拠は docs/modules/backend/static-road-attributes.md「立ち寄り先」。
+CONTACT_MERGE_RADIUS_M: dict[StopPlaceGroup, float] = {
+    StopPlaceGroup.SCENIC: 200.0,
+    StopPlaceGroup.LODGING: MERGE_RADIUS_M,
+    StopPlaceGroup.BATH: MERGE_RADIUS_M,
+    StopPlaceGroup.BICYCLE: MERGE_RADIUS_M,
+}
+
 #: チェーン → 名前かブランドに含まれていればそのチェーンとみなす語（`normalized_sql`で正規化した形）。上の行から
 #: 先に当たったチェーンに入れる（`ローソンストア100`を`ローソン`より先に置く）。ブランドの列は出どころによって
 #: 空か表記がばらばら（「FamilyMart」「ローソン Lawson Japan」）で、同じ店が「セブン-イレブン」と
@@ -98,6 +109,25 @@ _DEVOICE = str.maketrans(_VOICED_KANA, _UNVOICED_KANA)
 def normalized_sql(text_expr: str) -> str:
     """名前の表記の揺れ（全角・半角・大文字・空白・ハイフン・中点）を除いた形を出す式。"""
     return f"lower(regexp_replace(normalize({text_expr}, NFKC), '[[:space:]\\-‐‑–—−・･]', '', 'g'))"
+
+
+def japanese_name_sql(name_expr: str) -> str:
+    """名前に日本語の文字（ひらがな・カタカナ・半角カナ・漢字）があるかの式。"""
+    return f"({name_expr} ~ '[ぁ-ゟ゠-ヿｦ-ﾟ㐀-䶿一-鿿々〆]')"
+
+
+def contacts_sql(websites_expr: str, phones_expr: str) -> str:
+    """地点の連絡先（ウェブサイト・電話。jsonb の文字列の配列か null）を、1つずつ比べられる形の行に出す副問い合わせ
+    （列`contact`）。ウェブサイトは小文字にして`http(s)://`・`www.`・末尾の`/`を除き、電話は数字だけにして頭の国番号を0にする
+    （配布には`+81339412222`と`03-3941-2222`の両方の書き方がある）。"""
+
+    def elements(expr: str) -> str:
+        return f"jsonb_array_elements_text(CASE WHEN jsonb_typeof({expr}) = 'array' THEN {expr} ELSE '[]' END)"
+
+    website = "regexp_replace(lower(trim(w)), '^https?://(www\\.)?|^www\\.|/+$', '', 'g')"
+    phone = "regexp_replace(regexp_replace(t, '[^0-9]', '', 'g'), '^81', '0')"
+    return (f"SELECT 'w:' || {website} AS contact FROM {elements(websites_expr)} w WHERE {website} <> ''"
+            f" UNION SELECT 't:' || {phone} FROM {elements(phones_expr)} t WHERE {phone} <> ''")
 
 
 def store_name_sql(name_expr: str) -> str:
