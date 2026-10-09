@@ -4,6 +4,7 @@
 
 - 地図のフィーチャーの鍵から、区間とwayのどちらの単位で読むか
 - 逆向きに辿ったときの列の読み替え規則
+- 材料の式が読む列を持つ表だけを結び、宣言に無い列を読む式を断ること
 - 行から探索用グラフ・材料の行列を組む部分
 - 取込範囲の外（None）と、範囲内で0件（空）の区別
 - 路面タイルの材料の列を、どの材料についても値式から組むこと
@@ -34,13 +35,14 @@ from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import MATERIAL_CATALOG, material_array_columns, tile_column_sql
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
-from app.infrastructure.derived_models import EdgeMaterialRow
+from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
 from app.domain.graph import edge_key, node_key
 from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
     ID_CHUNK_SIZE,
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
+    material_from_clause,
     reversed_material_expression,
     way_from_clause,
 )
@@ -137,10 +139,21 @@ def test_material_array_columns_are_all_distinct():
     assert len(set(MATERIAL_ARRAY_COLUMN_ORDER)) == len(MATERIAL_ARRAY_COLUMN_ORDER)
 
 
-def test_way_from_clause_joins_only_what_the_expression_reads():
+def test_material_tables_are_joined_only_for_the_columns_the_expressions_read():
     """使わないJOINを足すと、材料1件を引くだけの値列挙まで道の全件へ広がる。"""
+    edge_column = next(column for column in EdgeMaterialRow.__table__.columns if not column.primary_key)
+    clause = material_from_clause([f"em.{edge_column.name}"], "k.osm_way_id", "k.segment_index")
+
     assert "JOIN" not in way_from_clause(["w.tags"])
-    assert way_from_clause(["em.a"]).count("JOIN") == 1
+    assert EdgeMaterialRow.__tablename__ in clause
+    assert WayMaterialRow.__tablename__ not in clause
+
+
+@pytest.mark.parametrize("alias", ["em", "wm"])
+def test_an_expression_reading_an_undeclared_column_is_refused(alias):
+    """SQLの実行まで気づかないと、その経路の読み出しが材料ぶん丸ごと落ちる。"""
+    with pytest.raises(ValueError, match=f"{alias}.column_a"):
+        material_from_clause([f"{alias}.column_a"], "k.osm_way_id", "k.segment_index")
 
 
 # --- ジオメトリ付きの取り直し -------------------------------------------------
@@ -346,10 +359,9 @@ async def test_landcover_is_read_at_the_unit_the_map_paints(feature_key, segment
     assert session.params[0].get("segment_index") == segment_index
 
 
-@pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=None)])
-async def test_incomplete_landcover_is_not_reported(row):
-    """行が無い・有効画素が足りなかった区間で0%と答えると、内訳が「すべて未分類」に見える。"""
-    repo, _ = _repo([] if row is None else [row])
+async def test_incomplete_landcover_is_not_reported():
+    """値が無い・有効画素が足りなかった区間で0%と答えると、内訳が「すべて未分類」に見える。"""
+    repo, _ = _repo([_landcover_row(valid_pixels=None)])
 
     assert await repo.get_feature_landcover(123, None) is None
 

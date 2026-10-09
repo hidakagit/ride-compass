@@ -12,9 +12,9 @@
 前の段の指紋も入力に入れるので、流した段を読む後ろの段は必ず流れる。全部の段が同じなら、写しも道路網の配列も
 入れ替えもせずに終える。段は単独の入口を持たない。
 
-段が何を読むかは`STAGES`の宣言が持ち、宣言の漏れは段が読んだ表の数で見張る（`tests/test_derive_cli.py`）。
+段が何を読むかは`STAGES`の宣言が持ち、宣言の漏れは段が読んだ表の数で見張る（`tests/test_derive_skip.py: test_each_stage_declares_what_it_reads_and_writes`）。
 前の段（`after`）には、読む表を書く段と、自分が書く表の行を入れる・消す段を挙げる。同じ表の別の列だけを書く段は
-挙げない——その段が流れても、自分の列は前回の値のまま正しい（例: `raster`は`counts`を挙げない）。
+挙げない——その段が流れても、自分の列は前回の値のまま正しい（例: `landcover`は`counts`を挙げない）。
 作り直しは取込と同時に走らない（`common.py: SOURCE_DATA_LOCK`）。
 
 **作り直しは作業用のスキーマで行い、道路網の配列まで作ってから1つのトランザクションで`public`の
@@ -48,8 +48,9 @@ import asyncpg  # noqa: E402
 from app.batch import (  # noqa: E402
     derive_addresses,
     derive_counts,
+    derive_elevation,
+    derive_landcover,
     derive_node_materials,
-    derive_raster_materials,
     derive_stop_places,
     derive_topology,
     derive_way_materials,
@@ -100,8 +101,8 @@ STAGES: tuple[DeriveStage, ...] = (
                 ("node_materials",), {"signal_radius_m": "signal.match_radius_m"}),
     DeriveStage("counts", derive_counts, frozenset({Source.OSM_NODE, Source.OSM_WAY, Source.ACCIDENT}),
                 ("topology", "nodes"), ("edge_materials", "way_materials")),
-    DeriveStage("raster", derive_raster_materials, frozenset({Source.OSM_WAY, Source.DEM, Source.LULC}), ("topology",),
-                ("edge_materials", "way_materials")),
+    DeriveStage("elevation", derive_elevation, frozenset({Source.OSM_WAY, Source.DEM}), ("topology",), ("edge_materials",)),
+    DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_materials", "way_materials")),
     DeriveStage("ways", derive_way_materials, frozenset({Source.OSM_WAY}), ("topology",), ("way_materials",)),
     # 住所の区画は、施設の辺り（立ち寄り先の段）を区画から決められるよう、その前に置く。道路（`osm_way`）は
     # パーティションを読まず、取込の記録から範囲だけを読む（読んだ数の見張りに出ないので、手で挙げる）。

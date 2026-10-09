@@ -10,7 +10,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `attributes.py`（`elevation_values_sql`。区間の頂点列から標高・勾配を出すSQLを組み立てる） |
-| batch | `source_adapters/gsi_dem_tile.py`（取込。手元へ写したタイルを製品ごとに読み、int32へ詰める。配信元は叩かない）・`dem_tile_store.py`（写したタイルの置き場と、配信元のURL・画素の値を採る製品の順・その製品に無いことの印）・`scripts/fetch_dem_tiles.py`（取得。プロファイルが挙げた製品ごとに、手元に無い分だけ取りに行く。取込と分けてあるので、失敗しても欠けた分だけ取り直せる）・`source_adapters/raster_wkb.py`（画素の並びをPostGISの`raster`へ包む）・`derive_raster_materials.py`（派生） |
+| batch | `source_adapters/gsi_dem_tile.py`（取込。手元へ写したタイルを製品ごとに読み、int32へ詰める。配信元は叩かない）・`dem_tile_store.py`（写したタイルの置き場と、配信元のURL・画素の値を採る製品の順・その製品に無いことの印）・`scripts/fetch_dem_tiles.py`（取得。プロファイルが挙げた製品ごとに、手元に無い分だけ取りに行く。取込と分けてあるので、失敗しても欠けた分だけ取り直せる）・`source_adapters/raster_wkb.py`（画素の並びをPostGISの`raster`へ包む）・`derive_elevation.py`（派生） |
 
 ## 3段に分かれている
 
@@ -19,7 +19,7 @@
    │ source_adapters/gsi_dem_tile.py: 製品ごとにint32へ詰めて、製品×タイル1枚=1行
    ▼
 source_features(source='dem')          ← 生データ。取り直さない限り変わらない
-   │ derive_raster_materials.py: 区間の形状点で、画素ごとに製品を選んで標高を読み、勾配を出す
+   │ derive_elevation.py: 区間の形状点で、画素ごとに製品を選んで標高を読み、勾配を出す
    ▼
 edge_materials（start/end・gain/loss・average）
    │ 探索フェーズが材料として読む（road_graph_repository.py）
@@ -73,7 +73,7 @@ DEMが返すのは地表面の標高で、桁や坑道の高さではない—�
 区間は向きを持たない1行で、標高も順方向の値だけを持つ。逆向きは読み出し時に導く
 （始点↔終点、上り↔下り、平均勾配は符号反転）。地形の
 物理量は進行方向に依存しないため、この変換は厳密に正しい。変換はSQLが行う
-（`road_graph_repository.py: _REVERSED_ELEVATION_COLUMNS`）ので、材料の式も評価も向きを
+（`road_graph_repository.py: material_from_clause`）ので、材料の式も評価も向きを
 知らない。
 
 ## 経路の集計（`domain/route.py: route_elevation_gain`）
