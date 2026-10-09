@@ -543,7 +543,7 @@ export default function Home() {
             {/* 左右の余白は、右の縦の列を両側で避ける幅（中央に置くため）。 */}
             <div
               {...mapOverlayEdge("top")}
-              className="pointer-events-none absolute inset-x-0 top-3 z-[var(--z-map-control)] flex justify-center px-[calc(var(--map-ctrl-margin)+var(--map-ctrl-column-width)+var(--space-2))]"
+              className="pointer-events-none absolute inset-x-0 top-3 z-[var(--z-map-control)] flex justify-center px-[calc(var(--map-ctrl-margin)_+_var(--map-ctrl-column-width)_+_var(--space-2))]"
             >
               <LensControl {...mapView.lensControl} />
             </div>

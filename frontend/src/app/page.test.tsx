@@ -551,9 +551,9 @@ describe("地図で扱えること", () => {
 
   it("地図の表示をまとめて戻す: 「表示」の一覧で行を全部消すとルートのほかの地図のレイヤーが消え、絞り込みを解くのは色分けの凡例を含めて凡例で隠している間だけ押せる。右上のメニューの再描画は地図の描き直しを求める", async () => {
     const { user } = renderHome();
-    const fromList = async <T,>(name: string, use: (button: HTMLButtonElement) => Promise<T> | T) => {
+    const fromList = async <T,>(name: string, inspect: (button: HTMLButtonElement) => Promise<T> | T) => {
       await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
-      const result = await use(screen.getByRole("button", { name }) as HTMLButtonElement);
+      const result = await inspect(screen.getByRole("button", { name }) as HTMLButtonElement);
       await user.keyboard("{Escape}");
       return result;
     };
