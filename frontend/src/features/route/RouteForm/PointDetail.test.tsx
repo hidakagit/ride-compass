@@ -5,7 +5,8 @@
  * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。文字数に足りなく
  * なると候補を下げる。引いたあとに地図を
  * 動かしても引き直さない。引けないとき・当たらないときはそう出す。打つ欄を押すと保存した地点を出し、打った文字を名前に含むものに
- * 絞り、選んだ地点を上げる。置いた地点を名前を付けて保存し、保存した地点なら保存をやめられる。
+ * 絞り、選んだ地点を上げる。置いた地点を名前を付けて保存し、保存した地点なら保存をやめられる。狭い画面では、欄を押してから閉じる
+ * まで欄を上側に出したままにする。
  *
  * ここで見ないもの:
  * - 地点ごとの呼び名・出どころ・名前・地図で置く操作・消す・「現在地に戻す」・上限、候補を選んだあとに打った文字と一覧を消すこと →
@@ -302,5 +303,36 @@ describe("PointDetail 保存した地点", () => {
     renderDetail();
 
     expect(screen.queryByRole("button", { name: "地点を保存" })).toBeNull();
+  });
+});
+
+describe("PointDetail 狭い画面", () => {
+  beforeEach(() => {
+    document.documentElement.style.setProperty("--is-mobile", "1");
+    return () => document.documentElement.style.removeProperty("--is-mobile");
+  });
+
+  it("欄を押してから閉じるまでは、打った文字に当たる候補が無くても欄を上側に出したままにする", async () => {
+    storeSavedPlaces([{ ...FACILITY, name: "いつものカフェ" }]);
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
+    renderDetail();
+    const raised = () => screen.queryByText("目的地を探す");
+
+    await userEvent.click(searchBox());
+    expect(raised()).not.toBeNull();
+
+    // 保存した地点にも当たらず、引き始める長さにも足りない文字。
+    await userEvent.type(searchBox(), "あ");
+    expect(screen.queryByRole("list", { name: "保存した地点" })).toBeNull();
+    expect(raised()).not.toBeNull();
+
+    await userEvent.type(searchBox(), "さくさ");
+    await screen.findByRole("list", { name: "地点の候補" });
+    await userEvent.clear(searchBox());
+    expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
+    expect(raised()).not.toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "目的地の候補を閉じる" }));
+    expect(raised()).toBeNull();
   });
 });

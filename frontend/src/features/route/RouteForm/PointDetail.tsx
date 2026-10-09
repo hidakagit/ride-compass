@@ -78,8 +78,8 @@ function scrollToScrollerTop(element: HTMLElement) {
 /**
  * 押した地点の詳しく: どの地点か・どうやって置いたか・名前・辺り（探した施設は候補の辺り、地図で選んだ地点・現在地・辺りの
  * 無い施設は位置から引いた辺り。探した住所は名前が住所なので出さない）と、住所・施設の名前を打って置き直す欄（候補は欄のすぐ下。
- * 欄を押すと、保存した地点のうち打った文字を名前に含むものを住所・施設の候補の上に出す。狭い画面では、候補が出ている間は欄と候補を
- * 見えている範囲の上側に出す）、地図で置く操作と、消す・現在地に戻す・置いた地点の保存（保存した地点なら保存をやめる）。
+ * 欄を押すと、保存した地点のうち打った文字を名前に含むものを住所・施設の候補の上に出す。狭い画面では、欄を押してから選ぶ・閉じる
+ * までは欄と候補を見えている範囲の上側に出す）、地図で置く操作と、消す・現在地に戻す・置いた地点の保存（保存した地点なら保存をやめる）。
  */
 export default function PointDetail({
   role,
@@ -112,10 +112,11 @@ export default function PointDetail({
   const inputProps = lookup.inputProps();
   const savedMatches = browsing ? savedPlacesMatching(savedPlaces.places, inputProps.value) : [];
   const listOpen = listing || savedMatches.length > 0;
-  // 狭い画面では、候補が出ている間は欄と候補を見えている範囲（キーボードの上まで）の上側に重ねて出し、候補はその中で送る。
-  // シートの中では、欄の下の候補がシートの下端とキーボードの裏に入る。欄は同じ要素のまま動かす（作り直すとキーボードが閉じる）。
+  // 狭い画面では、欄を押してから選ぶ・閉じるまでは、欄と候補を見えている範囲（キーボードの上まで）の上側に重ねて出し、候補は
+  // その中で送る。シートの中では、欄の下の候補がシートの下端とキーボードの裏に入る。出す物の有無で上げ下げすると、打つ途中で
+  // 欄が上側とシートを行き来してちらつく。欄は同じ要素のまま動かす（作り直すとキーボードが閉じる）。
   const isMobile = useIsMobile();
-  const raised = isMobile && listOpen;
+  const raised = isMobile && browsing;
   const visible = useVisualViewport(raised);
   // 広い画面では、候補が出たら打つ欄をパネルの上端へ送り、下の候補をパネルの高さいっぱいに見せる。一覧は自分では高さを限らず、
   // パネルのスクロールだけで読む（二重のスクロールにしない）。候補が届いて一覧が伸びたときにも送り直す（引いている間の短い一覧
@@ -293,7 +294,7 @@ export default function PointDetail({
           </div>
         </div>
 
-        {listOpen && (
+        {(listOpen || raised) && (
           <div
             className={cn(
               "relative flex rounded-sm border border-[var(--color-border)] p-1 pr-8",
@@ -349,6 +350,11 @@ export default function PointDetail({
                     </Button>
                   )}
                 />
+              )}
+              {!listOpen && (
+                <p className={textVariants({ variant: "hint" })}>
+                  住所か施設の名前を{PREDICTION_MIN_LENGTH}文字から打つと、候補が出ます。
+                </p>
               )}
             </div>
           </div>
