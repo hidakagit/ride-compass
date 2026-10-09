@@ -23,7 +23,7 @@ const LEVEL_LABELS = Object.fromEntries(vocabulary.placeMatchLevels.map((l) => [
 const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["block", "building", "point"]);
 
 /** 置いた地点が、当たった範囲の代表の位置にすぎないか。 */
-export function isRepresentative(candidate: PlaceCandidate): boolean {
+function isRepresentative(candidate: PlaceCandidate): boolean {
   return !PRECISE_LEVELS.has(candidate.level);
 }
 

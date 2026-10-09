@@ -13,7 +13,7 @@
  * 経由地のある目的地で何件に決まるか → `RouteForm/useRouteFormSubmit.test.ts`（このファイルは決まった数を生成物から読む）。
  * 地点を置ける状態をどう決めるか → `features/route/useGenerationConditions.test.ts`。
  * 打ちかけで引く間・変換中に引かないこと・候補の行の中身（辺り・距離・札）・引けない／当たらないときの文 →
- * `PlaceSearch/PlaceSearch.test.tsx`（行の欄と同じ引き方と一覧の部品を使う）。
+ * `RouteForm/PointRow.test.tsx`。
  * 検索で置いた地点が、ピンを動かすまでその候補のままか → `features/route/useGenerationConditions.test.ts`。
  *
  * 差し替えたもの: 検索の口の応答（網の層）。

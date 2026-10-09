@@ -151,10 +151,10 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
 });
 
-// 住所の検索で置いた地点は、実際の地図のその位置にピンとして立ち、ピンを実際につかんで動かすと地点が動く（パターン4 観点2）。
+// 目的地の行で探して置いた地点は、実際の地図のその位置にピンとして立ち、ピンを実際につかんで動かすと地点が動く（パターン4 観点2）。
 // 単体テストの代役地図はピンの位置もドラッグも持たないため、ここで見る。置いた・動かした位置は、生成の要求に載る目的地で読む
 // ——画面の印とは別の出口で確かめる。
-test("住所の検索で目的地に置いた地点は地図のその位置にピンが立ち、ピンを動かすと目的地が動く", async ({ page }) => {
+test("目的地の行で探して置いた地点は地図のその位置にピンが立ち、ピンを動かすと目的地が動く", async ({ page }) => {
   const candidate = {
     kind: "address",
     level: "aza",
@@ -170,10 +170,14 @@ test("住所の検索で目的地に置いた地点は地図のその位置に�
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
 
-  await page.getByRole("searchbox", { name: "住所・施設で探す" }).fill("王子");
-  await page.getByRole("searchbox", { name: "住所・施設で探す" }).press("Enter");
-  await page.getByRole("button", { name: new RegExp(candidate.name) }).click();
-  await page.getByRole("button", { name: "目的地へ" }).click();
+  await page.getByRole("radio", { name: "目的地", exact: true }).click();
+  const searchBox = page.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
+  await searchBox.fill("王子");
+  await searchBox.press("Enter");
+  await page
+    .getByRole("list", { name: "地点の候補" })
+    .getByRole("button", { name: new RegExp(candidate.name) })
+    .click();
 
   // ピンの位置（印の要素の中心）が、地図がその地点を描く位置にある。寄せる動きが終わるまで待つ。
   const pin = page.locator(".maplibregl-marker", { hasText: "⚑" });
@@ -247,35 +251,50 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   expect(styleErrors).toEqual([]);
 });
 
-// ルートを収める余白は、地図の上に重ねた部品が覆う幅を含む（含まないと、ルートの端が操作列の下に隠れる）。
-// 閉じられる一時の重なり（住所の検索の候補の一覧）は含まない（含むと、すぐ閉じる一覧のためにルートが小さく収まる）。
-// 余白はMapLibreへ渡した値をデバッグログで読み、覆う幅は部品を名前で探して実寸で測る——余白を決めた側の印とは
-// 別の入力で確かめる。
-test("ルートを収めるとき、地図の上の操作部品が覆う所へルートの端を置かず、検索の候補の一覧の分は空けない", async ({
+// 狭い画面では行の下の候補が「ルート設定」のシートの中に出る。シートの高さに切られず候補を押せて、選んだ地点が地図に立つことを
+// 実ブラウザの寸法で見る（単体テストはレイアウトの実寸を持たない）。
+test("モバイル: 目的地の行で探すと候補をシートの中で選べ、選ぶと行にその名前が出て地図にピンが立つ", async ({
   page,
 }) => {
+  const candidate = {
+    kind: "facility",
+    level: "point",
+    name: "浅草寺",
+    area: "台東区浅草二丁目",
+    latitude: 35.7148,
+    longitude: 139.7967,
+  };
+  await openMobileApp(page, {
+    routes: (p) => p.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates: [candidate] } })),
+  });
+  const settings = await openMobileSheet(page, "ルート設定");
+  await settings.getByRole("radio", { name: "目的地", exact: true }).click();
+  const searchBox = settings.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
+  await searchBox.fill("浅草寺");
+  await searchBox.press("Enter");
+  const choice = settings
+    .getByRole("list", { name: "地点の候補" })
+    .getByRole("button", { name: new RegExp(candidate.name) });
+  await expect(choice).toBeInViewport();
+  await choice.click();
+
+  await expect(searchBox).toHaveAttribute("placeholder", candidate.name);
+  await expect(page.locator(".maplibregl-marker", { hasText: "⚑" })).toHaveCount(1);
+});
+
+// ルートを収める余白は、地図の上に重ねた部品が覆う幅を含む（含まないと、ルートの端が操作列の下に隠れる）。
+// 余白はMapLibreへ渡した値をデバッグログで読み、覆う幅は部品を名前で探して実寸で測る——余白を決めた側の印とは
+// 別の入力で確かめる。
+test("ルートを収めるとき、地図の上の操作部品が覆う所へルートの端を置かない", async ({ page }) => {
   const fit: { padding?: Record<"top" | "bottom" | "left" | "right", number> } = {};
   page.on("console", async (message) => {
     if (!message.text().includes("[map:viewport] ルートを収める")) return;
     Object.assign(fit, await message.args()[1]?.jsonValue());
   });
   await installApiMocks(page);
-  // 一覧が上の操作部品より深く地図を覆う件数。
-  const candidates = Array.from({ length: 5 }, (_, i) => ({
-    kind: "address",
-    level: "block",
-    name: `東京都千代田区丸の内一丁目${i + 1}番`,
-    latitude: 35.681,
-    longitude: 139.767,
-  }));
-  await page.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates } }));
   await seedStoredState(page, { "ridecompass:debug-enabled": "1" });
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
-  await page.getByRole("searchbox", { name: "住所・施設で探す" }).fill("丸の内");
-  await page.getByRole("searchbox", { name: "住所・施設で探す" }).press("Enter");
-  const list = page.getByRole("list", { name: "地点の候補" });
-  await expect(list).toBeVisible();
   await runGeneration(page);
   await expect.poll(() => fit.padding, { timeout: 10_000 }).toBeDefined();
 
@@ -294,8 +313,6 @@ test("ルートを収めるとき、地図の上の操作部品が覆う所へ�
     expect(values.length, `${edge}の辺を覆う部品が見つからない`).toBeGreaterThan(0);
     expect(fit.padding![edge], `${edge}の余白`).toBeGreaterThanOrEqual(Math.max(...values));
   }
-  const listBox = (await list.boundingBox())!;
-  expect(fit.padding!.top, "一覧の下まで空けている").toBeLessThan(listBox.y + listBox.height - canvas.y);
 });
 
 // 地図の上で始めたピンチは、ページではなく地図を拡大する（パターン4 観点2）。地図のcanvas以外の部品から

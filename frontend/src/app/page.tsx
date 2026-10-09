@@ -21,7 +21,6 @@ import {
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import LensControl from "@/features/map/LensControl/LensControl";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
-import PlaceSearch from "@/features/route/PlaceSearch/PlaceSearch";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
@@ -53,7 +52,6 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { dotVariants } from "@/components/ui/Dot/Dot";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
@@ -327,6 +325,7 @@ export default function Home() {
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
         originFound={locationSource === "manual" ? conditions.foundAt("origin", location) : null}
+        // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
         mapCenter={mapView.center ?? location}
         onPlaceFound={placeFound}
         weightsPanel={
@@ -498,17 +497,6 @@ export default function Home() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* 住所の検索は地図の上端の帯。地図で地点を置ける間（ピンをつかんで直せる間）だけ出す。帯は地図に重ねず
-            （地図の上端の部品を動かさない）、候補の一覧と案内だけを地図に重ねる。 */}
-          {pointEditingEnabled && (
-            <PlaceSearch
-              // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
-              mapCenter={mapView.center ?? location}
-              onPlace={placeFound}
-              waypointsFull={conditions.waypoints.length >= routeGenerateConfig.max_waypoints}
-              routes={route.mapRoutes}
-            />
-          )}
           <div className="app-map-pane relative min-h-0 flex-1">
             <MapView
               routes={route.mapRoutes}
