@@ -8,9 +8,7 @@ import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { HelpIcon, LogIcon, MenuIcon, VersionIcon } from "@/components/ui/icons/icons";
 import { textVariants } from "@/components/ui/Text/Text";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
-import { cn } from "@/lib/cn";
 import { getQueryClient } from "@/lib/queryClient";
-import { formatJstDateTime } from "@/lib/time";
 import { getFrontendVersion } from "@/services/versionApi";
 
 interface HeaderMenuProps {
@@ -97,7 +95,7 @@ export default function HeaderMenu({
           <Button
             variant="menu"
             size="sm"
-            usage="本番で今動いている版と、その版に入っている直近の変更を出します。"
+            usage="本番で今動いている版を出します。"
             onClick={() => {
               afterClose.current = "version";
               setOpen(false);
@@ -120,38 +118,19 @@ const SHORT_COMMIT_LENGTH = 8;
 
 function VersionDialog() {
   const { data, error } = useQuery({ queryKey: ["frontend-version"], queryFn: getFrontendVersion }, getQueryClient());
-  const [latest] = data?.recent ?? [];
 
   return (
     <DialogContent title="バージョン">
       {error && <p className={textVariants({ variant: "error" })}>{error.message}</p>}
       {!data && !error && <p className={textVariants({ variant: "hint" })}>読み込み中…</p>}
-      {data && (
-        <div className={cn(textVariants({ variant: "body" }), "flex flex-col gap-2")}>
-          {data.commit === null ? (
-            <p className={textVariants({ variant: "hint" })}>手元で動いている版です（本番の版ではありません）。</p>
-          ) : (
-            <p>
-              版 <span className={textVariants({ variant: "code" })}>{data.commit.slice(0, SHORT_COMMIT_LENGTH)}</span>
-              {latest && `（${formatJstDateTime(new Date(latest.committed_at))} までのマージ）`}
-            </p>
-          )}
-          {data.recent.length > 0 ? (
-            <div>
-              <p className={textVariants({ variant: "label" })}>入っている直近の変更</p>
-              <ul className="mt-1 flex list-disc flex-col gap-1 pl-5">
-                {data.recent.map(({ subject, committed_at }) => (
-                  <li key={committed_at + subject}>{subject}</li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            data.commit !== null && (
-              <p className={textVariants({ variant: "hint" })}>入っている変更の件名は取れませんでした。</p>
-            )
-          )}
-        </div>
-      )}
+      {data &&
+        (data.commit === null ? (
+          <p className={textVariants({ variant: "hint" })}>手元で動いている版です（本番の版ではありません）。</p>
+        ) : (
+          <p className={textVariants({ variant: "body" })}>
+            版 <span className={textVariants({ variant: "code" })}>{data.commit.slice(0, SHORT_COMMIT_LENGTH)}</span>
+          </p>
+        ))}
     </DialogContent>
   );
 }
