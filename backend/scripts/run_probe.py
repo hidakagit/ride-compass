@@ -10,7 +10,7 @@
     python scripts/run_probe.py --in-container path/to/probe.py
 
     # プローブの後ろに書いた引数は、そのままプローブへ渡る
-    python scripts/run_probe.py scripts/derived_distribution.py --column edge_materials.accident_count
+    python scripts/run_probe.py scripts/measure_axis_saturation.py --bbox 35.65,139.72,35.71,139.80
 
 手元実行の場合、プローブは次を環境変数から受け取る:
 
