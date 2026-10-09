@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import * as catalogAxes from "@/testing/catalogAxes";
@@ -78,6 +79,12 @@ export interface CaptureContext {
   settle(): Promise<void>;
   /** 今の画面（`target` を渡せばその要素だけ）を撮り、書いたファイルを返す。 */
   shot(name: string, target?: Locator): Promise<string>;
+  /**
+   * スマホのキーボードが出た画面に見立てて撮り、書いたファイルを返す。`field`（打つ欄）がキーボードの上に隠れず見えるだけ画面を
+   * 上へずらし、下からキーボードの高さを板で覆う。ページには何も足さず、撮った画像を組み直す（ページへ板を重ねると、
+   * ヘッドレスの地図の描き直しが崩れて白く抜ける）。`height` はキーボードの高さ（CSS の px。既定は KEYBOARD_HEIGHT）。
+   */
+  shotWithKeyboard(name: string, field: Locator, options?: { height?: number }): Promise<string>;
 }
 
 export type CaptureScript = (context: CaptureContext) => Promise<void>;
@@ -96,6 +103,41 @@ export interface WorktreeBackend {
  * jma_tile_upstream_max_requests_per_second）ので、地図が一度に取るタイルの数だけ待ちが積もる。
  */
 const WORKTREE_BACKEND_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * shotWithKeyboard のキーボードの既定の高さ（CSS の px）。Apple は高さを公開せず、アプリには実行時に測るよう求めるので、出どころは
+ * 実測: iOS 27 のシミュレータで、6.1 型の iPhone（17e・18 Pro）の英字のキーボードが 301pt（変換の候補の帯なし。
+ * https://github.com/Saffsanity/sill/pull/30 のコミット 9ee69c7）。候補の帯や Safari の入力の補助の帯が出る欄で見せたいときは、
+ * 脚本が height で足す。
+ */
+const KEYBOARD_HEIGHT = 301;
+
+/**
+ * 撮った画像（PNG）の上を `shift` だけ切り落とし、下から `keyboard` の高さを板で覆った画像を、同じ寸法で組み直す。iOS の
+ * Safari はキーボードが出てもレイアウトの寸法を変えず、見える範囲を欄が見えるだけずらすので、画面の中身は動かない。
+ */
+async function composeKeyboard(
+  page: Page,
+  image: Buffer,
+  { width, height }: { width: number; height: number },
+  { shift, keyboard }: { shift: number; keyboard: number },
+): Promise<Buffer> {
+  const sheet = await page.context().newPage();
+  try {
+    await sheet.setViewportSize({ width, height });
+    await sheet.setContent(`<!doctype html>
+<body style="margin:0;width:${width}px;height:${height}px;overflow:hidden;position:relative">
+  <img src="data:image/png;base64,${image.toString("base64")}"
+    style="position:absolute;left:0;top:${-shift}px;width:${width}px;height:${height}px">
+  <div style="position:absolute;left:0;right:0;bottom:0;height:${keyboard}px;background:#9ca3af;color:#fff;
+    display:flex;align-items:center;justify-content:center;font:20px sans-serif">キーボード（見立て）</div>
+</body>`);
+    await sheet.locator("img").evaluate((img: HTMLImageElement) => img.decode());
+    return await sheet.screenshot();
+  } finally {
+    await sheet.close();
+  }
+}
 
 /** 「表示」のボタンと、押すと開く一覧の名前（`MapOverlayControls`）。 */
 const OVERLAY_LIST_NAME = "地図に出す情報";
@@ -140,6 +182,10 @@ async function ariaLabels(scope: Page | Locator, suffix: string): Promise<string
 
 export function captureContext(page: Page, { out, mocked }: { out: string; mocked: boolean }): CaptureContext {
   let count = 0;
+  const nextFile = (name: string) => {
+    count += 1;
+    return path.join(out, `${count}-${fileName(name)}.png`);
+  };
   const settle = () => settleMap(page);
   return {
     page,
@@ -260,9 +306,23 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       });
     },
     async shot(name, target) {
-      count += 1;
-      const file = path.join(out, `${count}-${fileName(name)}.png`);
+      const file = nextFile(name);
       await (target ?? page).screenshot({ path: file });
+      console.log(`[capture] ${file}`);
+      return file;
+    },
+    async shotWithKeyboard(name, field, { height: keyboard = KEYBOARD_HEIGHT } = {}) {
+      const viewport = page.viewportSize();
+      const box = await field.boundingBox();
+      if (!viewport || !box) throw new Error(`「${name}」: 打つ欄が画面に無い`);
+      if (keyboard <= 0 || keyboard >= viewport.height) {
+        throw new Error(`「${name}」: キーボードの高さ ${keyboard} は画面の高さ ${viewport.height} の中に収まらない`);
+      }
+      // 見える範囲は、レイアウトの下端より下へはずれない。
+      const shift = Math.min(keyboard, Math.max(0, box.y + box.height - (viewport.height - keyboard)));
+      const image = await composeKeyboard(page, await page.screenshot(), viewport, { shift, keyboard });
+      const file = nextFile(name);
+      await writeFile(file, image);
       console.log(`[capture] ${file}`);
       return file;
     },
