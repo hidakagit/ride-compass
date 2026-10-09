@@ -1,5 +1,5 @@
 # 依存関係の既知脆弱性・更新をDependabotへ検知させる。
-# 自動マージはしない。取り込み方は docs/conventions/flow.md「作る担当」の、依存の版上げを取り込むタスク。
+# 自動マージはしない。取り込み方は docs/architecture/tech-stack.md「DependabotのPull Requestは、同じ版を取り込んだタスクが閉じる」。
 version: 2
 updates:
   - package-ecosystem: npm
