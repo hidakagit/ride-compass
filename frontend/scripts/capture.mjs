@@ -16,7 +16,8 @@
 // clickVisible・clickFeature・patch・shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
 // 作業ツリーの外に置いてよい（.ts も読める）。省略すると開いて1枚撮る。例は capture/examples/。
 // 撮る前に、宛先（本番の frontend・本物の backend）が応答するまで待ち、Playwright の Chromium と、Linux なら起こすのに要る依存と
-// 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<番号>-<名前>.png。
+// 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<幅>x<高さ>[-<テーマ>]/<番号>-<名前>.png
+// （幅・テーマだけを変えて同じ --out へ撮り直しても、前の画像を上書きしない）。
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -112,7 +113,11 @@ const [width, height] = values.size.split("x").map(Number);
 if (!(width > 0 && height > 0)) fail(`--size は <幅>x<高さ>（例: 390x812）: ${values.size}`);
 if (values.theme && !["light", "dark"].includes(values.theme)) fail(`--theme は light か dark: ${values.theme}`);
 const label = { production: "本番", worktree: "作業ツリー" }[values.app] ?? values.app;
-const out = path.join(path.resolve(values.out), label.replace(/[\\/:*?"<>|\s]+/g, "_"));
+const out = path.join(
+  path.resolve(values.out),
+  label.replace(/[\\/:*?"<>|\s]+/g, "_"),
+  `${width}x${height}${values.theme ? `-${values.theme}` : ""}`,
+);
 mkdirSync(out, { recursive: true });
 
 /** Chromium を入れて起こせるかを試し、Linux なら起こすのに要る依存と日本語のフォントを入れる。 */
