@@ -1,13 +1,13 @@
 // ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
 import { GitHub, readTask, setField } from "./github.js";
-import { bodyRest, judge, normalize, notes, ownerOf, SCAN, strayInBlock, unanswered, withButton } from "./rules.js";
+import { bodyRest, judge, normalize, notes, ownerOf, SCAN, unanswered, withButton } from "./rules.js";
 
 export class Gate {
-  // env.GITHUB_TOKEN があればその名義（公開の直後の揃えを CI で流すとき）、無ければ App の名義で読み書きする。
+  // App の名義で読み書きする。
   static async open(env, config) {
     const gate = new Gate();
     gate.config = config;
-    gate.gh = env.GITHUB_TOKEN ? new GitHub(env.GITHUB_TOKEN) : await GitHub.asApp(env, config.installation);
+    gate.gh = await GitHub.asApp(env, config.installation);
     return gate;
   }
 
@@ -20,10 +20,8 @@ export class Gate {
   }
 
   // 本文: 回答待ちの間だけ、先頭に回答フォームへのボタン（画像は GitHub が中継して取りに来るので Access の外の urls.gate から返す）。
-  // 印の間にゲートが書かないものがあれば、消さずに印の外（本文の先頭）へ出す（知らせのコメントは write が書く）。
   bodyFor(issue) {
-    const stray = strayInBlock(issue.body);
-    const rest = (stray ? `${stray}\n\n` : "") + bodyRest(issue.body);
+    const rest = bodyRest(issue.body);
     const { gate, form } = this.config.urls;
     return issue.state === "OPEN" && issue.status === this.config.waiting ? withButton(rest, `${form}/answer?issue=${issue.number}`, `${gate}/button.svg`) : rest;
   }
@@ -34,16 +32,13 @@ export class Gate {
     return issue.state === "OPEN" && issue.status === this.config.waiting && !unanswered(bodies) ? [`## 問い\n${this.config.question}`] : [];
   }
 
-  // want に変えたいものだけを渡す（status・fields・comments・labels・unlabels・close・reopen・body）。担当者はステータスの番、
+  // want に変えたいものだけを渡す（status・comments・labels・unlabels・close・reopen・body）。担当者はステータスの番、
   // 本文の先頭と問いは書いた後の状態に合わせて、同じ要求に入れる。
   async write(issue, want = {}) {
     const next = { ...issue, status: want.status ?? issue.status, state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state, body: want.body ?? issue.body };
     const ops = [];
-    for (const [name, value] of Object.entries({ ...want.fields, ...(next.status !== issue.status ? { [this.config.project.statusField]: next.status } : {}) }))
-      if (issue.fields[name] !== value && (this.project.fields[name]?.options?.[value] || name === this.config.project.statusField)) ops.push(setField(this.project, issue.item, name, value));
-    const stray = strayInBlock(next.body);
-    const notes = stray ? [`本文の先頭のゲートの印の間に、ゲートが書かないものがあった。消さずに印の外（本文の先頭）へ出した。\n\n${stray}`] : [];
-    for (const body of [...(want.comments ?? []), ...this.questionFor(next, want.comments), ...notes]) ops.push(["addComment", { subjectId: issue.id, body }]);
+    if (next.status !== issue.status) ops.push(setField(this.project, issue.item, this.config.project.statusField, next.status));
+    for (const body of [...(want.comments ?? []), ...this.questionFor(next, want.comments)]) ops.push(["addComment", { subjectId: issue.id, body }]);
     if (want.reopen) ops.push(["reopenIssue", { issueId: issue.id }]);
     const update = {};
     const owner = ownerOf(this.config, next);
@@ -68,16 +63,13 @@ export class Gate {
   }
 
   // Project に入った: 段階（親のある issue）とユーザーの起票は未着手、Claude の起票は回答待ち（問いは write が置く）。
-  // 段階は優先度の欄が空なら親の優先度を継ぐ。段階でないものの優先度は書かない（誰も決めていない欄は空のまま見せ、起票の直後に
-  // 入れた値を、読んでから書くまでの間に消さない）。入った時点のステータス（ボードで選んだ列）は見ない。
+  // 欄（優先度等）は書かない（誰も決めていない欄は空のまま見せ、起票の直後に入れた値を、読んでから書くまでの間に消さない）。
+  // 入った時点のステータス（ボードで選んだ列）は見ない。
   async enter(nodeId, projectNodeId) {
     const issue = await this.read({ nodeId });
     if (this.project.id !== projectNodeId || !issue?.item || issue.state !== "OPEN") return;
     const byUser = issue.author?.databaseId === this.config.people[this.config.user].id;
-    const priority = this.config.project.priorityField;
-    const inherited = issue.parent ? (await readTask(this.gh, this.config, { number: issue.parent.number })).issue?.fields[priority] : null;
-    const fields = inherited && !issue.fields[priority] ? { [priority]: inherited } : {};
-    await this.write(issue, { status: !issue.parent && !byUser ? this.config.waiting : this.config.todo, fields });
+    await this.write(issue, { status: !issue.parent && !byUser ? this.config.waiting : this.config.todo });
   }
 
   // ステータスか開き閉じが変わった（ボードの移動・Claude の道具・閉じる・開き直す）。同じ照らしで、通れば開き閉じとステータスを
@@ -110,27 +102,6 @@ export class Gate {
     if (!pr.merged) return this.apply(issue, this.config.todo, said("がマージされずに閉じられました。コメントを読んでやり直してください。"));
     const done = await this.apply(issue, this.config.done, { close: "COMPLETED", ...said("をマージしました。完了にします。") });
     if (!done.ok) await this.apply(issue, this.config.todo, said(`をマージしました。${done.reason}Claude に戻します。`));
-  }
-
-  // 公開の直後: 開いた issue を全部、今の規則の姿（担当者・本文の先頭・問い）へ揃える。揃っているものには書かない。揃えた番号を返す。
-  async refreshAll({ dry = false } = {}) {
-    const [o, n] = this.config.repository.split("/");
-    const changed = [];
-    for (let after = null; ; ) {
-      const page = (await this.gh.gql(`query Open($o: String!, $n: String!, $c: String) { repository(owner: $o, name: $n) {
-        issues(states: OPEN, first: 100, after: $c) { pageInfo { hasNextPage endCursor } nodes { number } } } }`, { o, n, c: after })).repository.issues;
-      for (const { number } of page.nodes) {
-        const issue = await this.read({ number });
-        if (!issue?.item) continue;
-        const owner = ownerOf(this.config, issue);
-        const off = this.bodyFor(issue) !== normalize(issue.body) || this.questionFor(issue).length || (owner && (issue.assignees.nodes.length !== 1 || issue.assignees.nodes[0].login !== owner));
-        if (!off) continue;
-        changed.push(number);
-        if (!dry) await this.write(issue);
-      }
-      if (!page.pageInfo.hasNextPage) return changed;
-      after = page.pageInfo.endCursor;
-    }
   }
 }
 
