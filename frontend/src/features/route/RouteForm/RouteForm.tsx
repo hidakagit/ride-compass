@@ -3,11 +3,10 @@
 import { TabsContent } from "@/components/ui/Tabs/Tabs";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
-import { placedName } from "@/features/route/PlaceSearch/PlaceCandidates";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
-import PointRow from "./PointRow";
+import RoutePoints from "./RoutePoints";
 import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
 import { Button } from "@/components/ui/Button/Button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -30,10 +29,11 @@ type RouteFormConditions = Pick<
   | "routeMode"
   | "changeRouteMode"
   | "waypoints"
-  | "clearWaypoints"
+  | "removeWaypoint"
   | "destination"
   | "clearDestination"
   | "armedPinRole"
+  | "waypointToReplace"
   | "armPinRole"
   | "foundAt"
 >;
@@ -44,16 +44,16 @@ interface RouteFormProps {
   /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
   originManual: boolean;
   /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。falseの間は地図のピンと同じく印を灰色にし、
-   * 行の値も「現在地」と出さない（位置が仮の地点のままであることを、行と地図で示す）。 */
+   * 名前も「現在地」と出さない（位置が仮の地点のままであることを、パネルと地図で示す）。 */
   originLocated: boolean;
   /** 出発地を現在地へ戻す（現在地の取得もこの操作が兼ねる）。 */
   onOriginReset: () => void;
-  /** 出発地が、探して置いたときの位置のままなら、その候補（行に名前を出す）。 */
+  /** 出発地が、探して置いたときの位置のままなら、その候補（名前を出す）。 */
   originFound: PlaceCandidate | null;
-  /** 地図でいま見ている所の真ん中。行で探す施設の候補は、ここから近い順に並ぶ。 */
+  /** 地図でいま見ている所の真ん中。探す施設の候補は、ここから近い順に並ぶ。 */
   mapCenter: Coordinates;
-  /** 行で探して選んだ候補を、その行の役割の地点として置く。 */
-  onPlaceFound: (role: PinRole, candidate: PlaceCandidate) => void;
+  /** 探して選んだ候補を、その役割の地点として置く（経由地は`waypointIndex`番目を置き直し、無ければ足す）。 */
+  onPlaceFound: (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) => void;
   /** 「重み」タブの中身。タブの列と「ルート生成」ボタンは見出しの行（page.tsx）、検証は`useRouteFormSubmit`が持つ。 */
   weightsPanel: React.ReactNode;
   /** 「除外」タブの中身。 */
@@ -66,7 +66,6 @@ const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 const DISTANCE_TOLERANCE_KM = routeGenerateConfig.default_distance_tolerance_km;
 const MIN_ROUTES = routeGenerateConfig.min_routes;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
-const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 
 export default function RouteForm({
   conditions,
@@ -80,66 +79,14 @@ export default function RouteForm({
   exclusionsPanel,
   savedPanel,
 }: RouteFormProps) {
-  const {
-    distanceInput,
-    setDistanceInput,
-    maxRoutesInput,
-    setMaxRoutesInput,
-    routeMode,
-    changeRouteMode,
-    clearWaypoints,
-    clearDestination,
-    armedPinRole,
-    armPinRole,
-    foundAt,
-  } = conditions;
-  const waypointCount = conditions.waypoints.length;
-  const destinationSet = conditions.destination !== null;
-  const fixedCount = fixedRouteCount(routeMode, waypointCount);
+  const { distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput, routeMode, changeRouteMode } = conditions;
+  const fixedCount = fixedRouteCount(routeMode, conditions.waypoints.length);
   const maxRoutesRelevant = fixedCount === null;
 
   // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
     setMaxRoutesInput(String(Number(maxRoutesInput) + delta));
   }
-
-  // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
-  // 武装は1つだけで、押している行以外は自動的に解除される（`features/route/useGenerationConditions.ts: armedPinRole`）。
-  const rowProps = { onArm: armPinRole, originLocated, mapCenter, onPlaceFound };
-  // 出発地はどちらのモードでも置ける（現在地が取れないときの案内が指す入口）。
-  const originRow = (
-    <PointRow
-      role="origin"
-      armed={armedPinRole === "origin"}
-      {...rowProps}
-      label="出発地"
-      value={
-        originManual
-          ? originFound !== null
-            ? placedName(originFound)
-            : "地図で指定"
-          : originLocated
-            ? "現在地"
-            : "現在地を取得できていません"
-      }
-      valueSet={originManual || originLocated}
-      armLabel="地図で選ぶ"
-      extra={
-        originManual ? (
-          <Button
-            size="xs"
-            aria-label="出発地を現在地に戻す"
-            onClick={onOriginReset}
-            usage="地図で置いた出発地をやめて、現在地から出発します。"
-          >
-            現在地に戻す
-          </Button>
-        ) : undefined
-      }
-      usage="押してから地図をタップすると、そこを出発地にします。もう一度押すとやめます。"
-    />
-  );
-  const destinationFound = foundAt("destination", conditions.destination);
 
   return (
     <div>
@@ -205,84 +152,36 @@ export default function RouteForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          {routeMode === "loop" ? (
-            <>
-              {originRow}
-              <div className="flex items-center gap-2">
-                <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
-                  距離
-                </label>
-                <input
-                  id="route-form-distance"
-                  type="range"
-                  min={MIN_DISTANCE_KM}
-                  max={MAX_DISTANCE_KM}
-                  step={1}
-                  value={distanceInput}
-                  onChange={(e) => setDistanceInput(e.target.value)}
-                  className="h-6 min-w-0 flex-1"
-                  data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
-                />
-                <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distanceInput}km</span>
-                <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
-                  ±{DISTANCE_TOLERANCE_KM}km
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {originRow}
-              <PointRow
-                role="waypoint"
-                armed={armedPinRole === "waypoint"}
-                {...rowProps}
-                label="経由地"
-                markLabel={waypointCount > 0 ? String(waypointCount) : undefined}
-                value={waypointCount > 0 ? `${waypointCount}地点` : "なし"}
-                valueSet={waypointCount > 0}
-                armLabel="追加"
-                extra={
-                  waypointCount > 0 ? (
-                    <Button
-                      variant="ghost"
-                      size="bare"
-                      className="p-1 text-xs"
-                      aria-label="経由地をクリア"
-                      onClick={clearWaypoints}
-                    >
-                      ✕
-                    </Button>
-                  ) : undefined
-                }
-                armedHint={waypointCount > 0 ? `地図をタップ[${waypointCount}地点]` : "地図をタップ"}
-                usage="押してから地図をタップするたびに、そこを通る経由地を足します。もう一度押すとやめます。"
-                full={waypointCount >= MAX_WAYPOINTS}
+          {/* 出発地はどちらのモードでも置ける（現在地が取れないときの案内が指す入口）。 */}
+          <RoutePoints
+            conditions={conditions}
+            originManual={originManual}
+            originLocated={originLocated}
+            onOriginReset={onOriginReset}
+            originFound={originFound}
+            mapCenter={mapCenter}
+            onPlaceFound={onPlaceFound}
+          />
+          {routeMode === "loop" && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
+                距離
+              </label>
+              <input
+                id="route-form-distance"
+                type="range"
+                min={MIN_DISTANCE_KM}
+                max={MAX_DISTANCE_KM}
+                step={1}
+                value={distanceInput}
+                onChange={(e) => setDistanceInput(e.target.value)}
+                className="h-6 min-w-0 flex-1"
+                data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
               />
-              <PointRow
-                role="destination"
-                armed={armedPinRole === "destination"}
-                {...rowProps}
-                label="目的地"
-                value={
-                  destinationSet ? (destinationFound !== null ? placedName(destinationFound) : "地図で指定") : "未設定"
-                }
-                valueSet={destinationSet}
-                armLabel={destinationSet ? "置き直す" : "地図で選ぶ"}
-                extra={
-                  destinationSet ? (
-                    <Button
-                      variant="ghost"
-                      size="bare"
-                      className="p-1 text-xs"
-                      aria-label="目的地をクリア"
-                      onClick={clearDestination}
-                    >
-                      ✕
-                    </Button>
-                  ) : undefined
-                }
-                usage="押してから地図をタップすると、そこを目的地にします。もう一度押すとやめます。"
-              />
+              <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distanceInput}km</span>
+              <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
+                ±{DISTANCE_TOLERANCE_KM}km
+              </span>
             </div>
           )}
         </div>

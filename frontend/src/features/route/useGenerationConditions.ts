@@ -56,7 +56,6 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   const moveWaypoint = useCallback((index: number, point: Coordinates) => {
     setWaypoints((prev) => prev.map((current, i) => (i === index ? point : current)));
   }, []);
-  const clearWaypoints = useCallback(() => setWaypoints([]), []);
 
   // 目的地（あれば片道のルート）。
   const [destination, setDestination] = useState<Coordinates | null>(null);
@@ -80,8 +79,12 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   const armedPinRole =
     chosenPinRole === undefined ? pinRoleOnEnter(routeMode, destination, waypoints.length) : chosenPinRole;
 
-  // 武装中の役割の地点として地図のタップを受ける。経由地だけは置いたあとも武装を続ける
-  // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。上限に達したら武装を解く（解けた行は押せないので、
+  // 経由地を武装したとき、地図のタップで置き直す経由地（何番目か）。無ければタップは経由地を足す。
+  const [replacingWaypoint, setReplacingWaypoint] = useState<number | null>(null);
+  const waypointToReplace = armedPinRole === "waypoint" ? replacingWaypoint : null;
+
+  // 武装中の役割の地点として地図のタップを受ける。経由地を足す間だけは置いたあとも武装を続ける
+  // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。上限に達したら武装を解く（解けた操作は押せないので、
   // 超える点は置かれない）。
   const placePin = useCallback(
     (role: PinRole, point: Coordinates) => {
@@ -95,40 +98,47 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
         setArmedPinRole(null);
         return;
       }
+      if (waypointToReplace !== null) {
+        moveWaypoint(waypointToReplace, point);
+        setArmedPinRole(null);
+        return;
+      }
       setWaypoints((prev) => [...prev, point]);
       if (waypoints.length + 1 >= routeGenerateConfig.max_waypoints) setArmedPinRole(null);
     },
-    [onOriginPlace, waypoints.length],
+    [onOriginPlace, moveWaypoint, waypointToReplace, waypoints.length],
   );
-  // 検索で置いた出発地・目的地の候補。行に名前を出すのは、その地点がまだ候補の位置にある間だけ（ピンを動かす・地図で
-  // 置き直すと、名前の所ではなくなる）。経由地は行に件数だけを出すので持たない。
-  const [found, setFound] = useState<Partial<Record<"origin" | "destination", PlaceCandidate>>>({});
-  // 検索で選んだ地点を置く。周回は経由地・目的地を使わず地図にも出さないので、目的地モードへ切り替えて置く。地図のタップで
-  // 置く状態は解く（次のタップで意図しない地点が置かれる）。
+  // 検索で置いた地点の候補。名前を出すのは、その地点がまだ候補の位置にある間だけ（ピンを動かす・地図で置き直すと、
+  // 名前の所ではなくなる）。
+  const [found, setFound] = useState<PlaceCandidate[]>([]);
+  // 検索で選んだ地点を置く（経由地は`waypointIndex`番目を置き直し、無ければ足す）。周回は経由地・目的地を使わず地図にも
+  // 出さないので、目的地モードへ切り替えて置く。地図のタップで置く状態は解く（次のタップで意図しない地点が置かれる）。
   const placeFound = useCallback(
-    (role: PinRole, candidate: PlaceCandidate) => {
+    (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null = null) => {
+      const point = { latitude: candidate.latitude, longitude: candidate.longitude };
       if (role !== "origin") setRouteMode("destination");
-      placePin(role, { latitude: candidate.latitude, longitude: candidate.longitude });
+      if (role === "waypoint" && waypointIndex !== null) moveWaypoint(waypointIndex, point);
+      else placePin(role, point);
       setArmedPinRole(null);
-      if (role !== "waypoint") setFound((prev) => ({ ...prev, [role]: candidate }));
+      setFound((prev) => [...prev, candidate]);
     },
-    [placePin, setRouteMode],
+    [moveWaypoint, placePin, setRouteMode],
   );
   /** 地点`at`が検索で置いたときの位置のままなら、その候補。 */
   const foundAt = useCallback(
-    (role: "origin" | "destination", at: Coordinates | null): PlaceCandidate | null => {
-      const candidate = found[role];
-      return candidate !== undefined &&
-        at !== null &&
-        candidate.latitude === at.latitude &&
-        candidate.longitude === at.longitude
-        ? candidate
-        : null;
-    },
+    (at: Coordinates | null): PlaceCandidate | null =>
+      at === null
+        ? null
+        : (found.findLast((candidate) => candidate.latitude === at.latitude && candidate.longitude === at.longitude) ??
+          null),
     [found],
   );
-  // 行を押して武装する。置いてある地点から武装しても値は残し、次のタップで置き換える（外してから置き直させない）。
-  const armPinRole = useCallback((role: PinRole | null) => setArmedPinRole(role), []);
+  // 地図で置く操作を押して武装する（経由地は`waypointIndex`番目を置き直し、無ければ足す）。置いてある地点から武装しても値は
+  // 残し、次のタップで置き換える（外してから置き直させない）。
+  const armPinRole = useCallback((role: PinRole | null, waypointIndex: number | null = null) => {
+    setArmedPinRole(role);
+    setReplacingWaypoint(waypointIndex);
+  }, []);
 
   // 距離の入力（文字列のまま）。表示中の候補を作った条件と比べて「生成条件が変更されています」を出すため、入力の形で持つ。
   const [distanceInput, setDistanceInput] = useStoredState(DISTANCE_STORAGE_KEY, "30", {
@@ -236,11 +246,11 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     waypoints,
     removeWaypoint,
     moveWaypoint,
-    clearWaypoints,
     destination,
     setDestination,
     clearDestination,
     armedPinRole,
+    waypointToReplace,
     armPinRole,
     placePin,
     placeFound,

@@ -133,28 +133,29 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   const settings = await openMobileSheet(page, "ルート設定");
   await settings.getByRole("radio", { name: "目的地", exact: true }).click();
   await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
-  await expect(settings.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();
 
   // 経由地を置ける状態にしてから「ルート結果」へ移る。結果を見ている間は、置ける状態の
   // ままでも地図のタップでピンが増えない。
-  await settings.getByRole("button", { name: "経由地を追加" }).click();
+  await settings.getByRole("button", { name: "経由地を足す" }).click();
   await openMobileSheet(page, "ルート結果");
   await page.locator(".app-map-pane canvas").click({ position: { x: 220, y: 200 } });
   await page.waitForTimeout(400);
 
   // 戻ってきても「置ける状態」は保たれている（離れている間だけ置けない）。経由地が増えて
-  // いないことは、件数>0のときだけ出るクリアボタンが無いことで見る。
+  // いないことは、地点の並びに経由地の番号の丸が無いことで見る。
   const settingsAgain = await openMobileSheet(page, "ルート設定");
-  await expect(settingsAgain.getByRole("button", { name: "経由地の指定をやめる" })).toBeVisible();
-  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toHaveCount(0);
+  await expect(settingsAgain.getByRole("button", { name: "新しい経由地の指定をやめる" })).toBeVisible();
+  const firstWaypoint = settingsAgain.getByRole("button", { name: /^経由地1:/ });
+  await expect(firstWaypoint).toHaveCount(0);
   await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
-  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
+  await expect(firstWaypoint).toBeVisible({ timeout: 5000 });
 });
 
-// 目的地の行で探して置いた地点は、実際の地図のその位置にピンとして立ち、ピンを実際につかんで動かすと地点が動く（パターン4 観点2）。
+// 目的地を探して置いた地点は、実際の地図のその位置にピンとして立ち、ピンを実際につかんで動かすと地点が動く（パターン4 観点2）。
 // 単体テストの代役地図はピンの位置もドラッグも持たないため、ここで見る。置いた・動かした位置は、生成の要求に載る目的地で読む
 // ——画面の印とは別の出口で確かめる。
-test("目的地の行で探して置いた地点は地図のその位置にピンが立ち、ピンを動かすと目的地が動く", async ({ page }) => {
+test("目的地を探して置いた地点は地図のその位置にピンが立ち、ピンを動かすと目的地が動く", async ({ page }) => {
   const candidate = {
     kind: "address",
     level: "aza",
@@ -251,9 +252,9 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   expect(styleErrors).toEqual([]);
 });
 
-// 狭い画面では行の下の候補が「ルート設定」のシートの中に出る。シートの高さに切られず候補を押せて、選んだ地点が地図に立つことを
+// 狭い画面では打つ欄の下の候補が「ルート設定」のシートの中に出る。シートの高さに切られず候補を押せて、選んだ地点が地図に立つことを
 // 実ブラウザの寸法で見る（単体テストはレイアウトの実寸を持たない）。
-test("モバイル: 目的地の行で探すと候補をシートの中で選べ、選ぶと行にその名前が出て地図にピンが立つ", async ({
+test("モバイル: 目的地を探すと候補をシートの中で選べ、選ぶと地点の並びにその名前が出て地図にピンが立つ", async ({
   page,
 }) => {
   const candidate = {
@@ -278,7 +279,7 @@ test("モバイル: 目的地の行で探すと候補をシートの中で選べ
   await expect(choice).toBeInViewport();
   await choice.click();
 
-  await expect(searchBox).toHaveAttribute("placeholder", candidate.name);
+  await expect(settings.getByRole("button", { name: `目的地: ${candidate.name}` })).toBeVisible();
   await expect(page.locator(".maplibregl-marker", { hasText: "⚑" })).toHaveCount(1);
 });
 

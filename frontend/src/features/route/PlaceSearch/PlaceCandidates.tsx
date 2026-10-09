@@ -22,14 +22,9 @@ const LEVEL_LABELS = Object.fromEntries(vocabulary.placeMatchLevels.map((l) => [
 // 街区より粗い段で当たった地点は、その範囲の代表の位置にすぎず、行きたい所から離れうる。施設はその施設の位置。
 const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["block", "building", "point"]);
 
-/** 置いた地点が、当たった範囲の代表の位置にすぎないか。 */
-function isRepresentative(candidate: PlaceCandidate): boolean {
+/** 置いた地点が、当たった範囲の代表の位置にすぎないか（ピンは行きたい所から離れうる）。 */
+export function isRepresentative(candidate: PlaceCandidate): boolean {
   return !PRECISE_LEVELS.has(candidate.level);
-}
-
-/** 置いた地点の行に出す名前。代表の位置なら、そう添える（ピンは行きたい所から離れうる）。 */
-export function placedName(candidate: PlaceCandidate): string {
-  return isRepresentative(candidate) ? `${candidate.name}（代表の位置）` : candidate.name;
 }
 
 interface PlaceCandidatesProps {

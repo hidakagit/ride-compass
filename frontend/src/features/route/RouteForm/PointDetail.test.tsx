@@ -1,10 +1,12 @@
 /**
- * `RouteForm/PointRow.tsx`の打つ欄——住所・施設の名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、
- * 施設は地図の真ん中からの直線距離）を行の下に並べ、選んだ候補をその行の役割で上げる。打ちかけでも、決まった文字数から、打つのが
- * 止まると引く（かな漢字の変換中は引かない）。引いたあとに地図を動かしても引き直さない。引けないとき・当たらないときはそう出す。
+ * `RouteForm/PointDetail.tsx`——押した地点の詳しく。探して置いた地点の辺りと、代表の位置にすぎないことを出す。打つ欄は住所・施設の
+ * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を欄の下に
+ * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。引いたあとに地図を
+ * 動かしても引き直さない。引けないとき・当たらないときはそう出す。
  *
  * ここで見ないもの:
- * - 行が出す値・地図で置く操作・✕・「現在地に戻す」・上限、候補を選んだあとに打った文字と一覧を消すこと → `RouteForm/RouteForm.test.tsx`
+ * - 地点ごとの呼び名・出どころ・名前・地図で置く操作・消す・「現在地に戻す」・上限、候補を選んだあとに打った文字と一覧を消すこと →
+ *   `RouteForm/RouteForm.test.tsx`
  * - 周回で経由地・目的地を選んだときのモードの切り替えと、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
  * - 置いた地点へ地図を寄せること・地図の上でピンを動かすこと → `e2e/map-runtime.spec.ts`
  * - 打ちかけの語の続きの候補・施設の候補とその並びを返すこと → backend の `tests/test_place_search_route.py`
@@ -19,7 +21,7 @@ import { onBackend } from "@/testing/backendServer";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, PlaceCandidate } from "@/types/route";
 
-import PointRow from "./PointRow";
+import PointDetail from "./PointDetail";
 
 const BLOCK: PlaceCandidate = {
   kind: "address",
@@ -51,25 +53,27 @@ const TOKYO_STATION: Coordinates = { latitude: 35.681, longitude: 139.767 };
 /** 浅草寺のすぐ南（浅草寺まで直線で0.2km）。 */
 const NEAR_SENSOJI: Coordinates = { latitude: 35.713, longitude: 139.7967 };
 
-function renderRow({ mapCenter = TOKYO_STATION } = {}) {
-  const onPlaceFound = vi.fn();
-  const row = (center: Coordinates) => (
-    <PointRow
+function renderDetail({ mapCenter = TOKYO_STATION, found = null as PlaceCandidate | null } = {}) {
+  const onChoose = vi.fn();
+  const detail = (center: Coordinates) => (
+    <PointDetail
       role="destination"
-      label="目的地"
-      value="未設定"
-      valueSet={false}
+      title="目的地"
+      name={found?.name ?? "未設定"}
+      found={found}
+      placed={found !== null}
       armLabel="地図で選ぶ"
       usage=""
+      chooseResult=""
       armed={false}
-      onArm={() => {}}
+      onArmToggle={() => {}}
       originLocated
       mapCenter={center}
-      onPlaceFound={onPlaceFound}
+      onChoose={onChoose}
     />
   );
-  const { rerender } = render(row(mapCenter));
-  return { onPlaceFound, moveMap: (center: Coordinates) => rerender(row(center)) };
+  const { rerender } = render(detail(mapCenter));
+  return { onChoose, moveMap: (center: Coordinates) => rerender(detail(center)) };
 }
 
 function searchBox() {
@@ -91,10 +95,27 @@ async function searchFor(text: string) {
   await userEvent.type(searchBox(), `${text}{Enter}`);
 }
 
-describe("PointRow 打つ欄", () => {
-  it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ候補を行の役割で上げる", async () => {
+describe("PointDetail 置いた地点", () => {
+  it.each([
+    ["施設", FACILITY, `${FACILITY.name}${FACILITY.area}`, false],
+    ["字・丁目で当たった住所", AZA, `${AZA.name}代表の位置`, true],
+    ["街区で当たった住所", BLOCK, BLOCK.name, false],
+  ])(
+    "探して置いた%sは、名前に施設の辺りを添え、街区より粗い段で当たった住所には代表の位置と出す",
+    (_kind, found, text, representative) => {
+      renderDetail({ found });
+
+      const detail = screen.getByRole("region", { name: "目的地" });
+      expect(detail.textContent).toContain(`目的地${text}`);
+      expect(within(detail).queryByText("代表の位置") !== null).toBe(representative);
+    },
+  );
+});
+
+describe("PointDetail 打つ欄", () => {
+  it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ候補を上げる", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK, AZA, FACILITY] }));
-    const { onPlaceFound } = renderRow();
+    const { onChoose } = renderDetail();
 
     await searchFor(" 丸の内 ");
 
@@ -111,12 +132,12 @@ describe("PointRow 打つ欄", () => {
     ]);
 
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
-    expect(onPlaceFound).toHaveBeenCalledExactlyOnceWith("destination", AZA);
+    expect(onChoose).toHaveBeenCalledExactlyOnceWith(AZA);
   });
 
   it("打ちかけでも、決まった文字数から、打つのが止まると引く", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
-    renderRow();
+    renderDetail();
     const enough = "千代田区丸の内".slice(0, routeGenerateConfig.place_prediction_min_length);
 
     // 空白は数えない。
@@ -131,7 +152,7 @@ describe("PointRow 打つ欄", () => {
 
   it("かな漢字の変換中は引かず、確定してから引く", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
-    renderRow();
+    renderDetail();
     const box = searchBox();
 
     fireEvent.compositionStart(box);
@@ -147,7 +168,7 @@ describe("PointRow 打つ欄", () => {
 
   it("引いたときの地図の真ん中から並べて距離を出し、引いたあとに地図を動かしても引き直さない", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [FACILITY] }));
-    const { moveMap } = renderRow();
+    const { moveMap } = renderDetail();
 
     moveMap(NEAR_SENSOJI);
     await searchFor("浅草寺");
@@ -161,7 +182,7 @@ describe("PointRow 打つ欄", () => {
 
   it("当たらなければそう出し、検索が使えなければ口の文を出す", async () => {
     onBackend("GET", "/api/place-search", () => Response.json({ candidates: [] }));
-    renderRow();
+    renderDetail();
 
     await searchFor("どこにもない");
     expect(await screen.findByRole("status")).toHaveTextContent("当たる住所・施設がありません。");

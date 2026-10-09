@@ -99,8 +99,8 @@ export default function Home() {
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
   // 住所の検索で置いた地点。置くたびに地図をそこへ寄せる（ピンを直すのは地図の上なので）。
   const [foundPoint, setFoundPoint] = useState<Coordinates | null>(null);
-  function placeFound(role: PinRole, candidate: PlaceCandidate) {
-    conditions.placeFound(role, candidate);
+  function placeFound(role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) {
+    conditions.placeFound(role, candidate, waypointIndex);
     setFoundPoint({ latitude: candidate.latitude, longitude: candidate.longitude });
   }
   const ride = useRideConditions();
@@ -323,7 +323,7 @@ export default function Home() {
         originManual={locationSource === "manual"}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
-        originFound={locationSource === "manual" ? conditions.foundAt("origin", location) : null}
+        originFound={locationSource === "manual" ? conditions.foundAt(location) : null}
         // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
         mapCenter={mapView.center ?? location}
         onPlaceFound={placeFound}

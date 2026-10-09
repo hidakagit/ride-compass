@@ -10,7 +10,7 @@ const script: CaptureScript = async ({ page, expect, open, clickMap, clickVisibl
   const hidden = await page.evaluate(() => window.__liveMap().unproject([40, 30]).toArray() as [number, number]);
   await expect(clickMap(hidden)).rejects.toThrow("押せない");
   await clickVisible(hidden);
-  await expect(page.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();
   await settle();
   await shot("部品の下の点に置いた目的地");
 };

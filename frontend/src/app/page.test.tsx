@@ -380,9 +380,9 @@ describe("地図で扱えること", () => {
     await user.click(screen.getByRole("radio", { name: "目的地" }));
     clickMap(DESTINATION);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: true })]);
-    expect(screen.getByRole("button", { name: "目的地をクリア" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "目的地を消す" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    await user.click(screen.getByRole("button", { name: "経由地を足す" }));
     await user.click(screen.getByRole("tab", { name: "重み" }));
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([]);
@@ -402,7 +402,7 @@ describe("地図で扱えること", () => {
     expect(marksAt(DESTINATION)).toEqual([]);
   });
 
-  it("目的地の行で探して選んだ地点は地図に目的地として立ち、行にその名前が出る", async () => {
+  it("目的地を探して選んだ地点は地図に目的地として立ち、地点の並びにその名前が出る", async () => {
     const candidate = {
       kind: "facility",
       level: "point",
@@ -420,7 +420,7 @@ describe("地図で扱えること", () => {
     await user.click(await screen.findByRole("button", { name: new RegExp(candidate.name) }));
 
     expect(marksAt(candidate)).toHaveLength(1);
-    expect(searchBox).toHaveAttribute("placeholder", candidate.name);
+    expect(screen.getByRole("button", { name: `目的地: ${candidate.name}` })).toBeInTheDocument();
   });
 
   it("地図で区間を押して詳細を出せるのは「ルート結果」を見ている間だけ", async () => {
