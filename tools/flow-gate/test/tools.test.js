@@ -196,7 +196,7 @@ test("32 試しを持たない道具は --dry-run を断り、書かずに 1 で
   const rejected = [["ask.js", n, "q.md"], ["field.js", n], ["stage.js", n, "題", "b.md"], ["claim.js", n, "作る", "u"], ["hold.js", n], ["attach.js", n, "a.png#前"]];
   for (const [tool, ...a] of rejected) {
     const r = run(tool, ...a);
-    assert.deepEqual([tool, r.status, /--dry-run/.test(r.stderr)], [tool, 1, true]);
+    assert.deepEqual([tool, r.status, /試し（--dry-run）を持たないので/.test(r.stderr)], [tool, 1, true]);
   }
   // 試しを持つ道具は、引数が足りなければ断らずに使い方（2）で終わる（ここで書かずに止める）。
   for (const tool of ["move.js", "after.js", "dispatch.js"]) assert.deepEqual([tool, run(tool, "x", "y", "z", "w", "v", "u").status], [tool, 2]);
