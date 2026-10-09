@@ -91,16 +91,13 @@ describe("PointDetail 置いた地点", () => {
   it.each([
     ["施設", FACILITY, `${FACILITY.name}${FACILITY.area}`, false],
     ["住所", AZA, `${AZA.name}代表の位置`, true],
-  ])(
-    "探して置いた%sは、名前に施設の辺りを添え、住所には代表の位置と出す",
-    (_kind, found, text, representative) => {
-      renderDetail({ found });
+  ])("探して置いた%sは、名前に施設の辺りを添え、住所には代表の位置と出す", (_kind, found, text, representative) => {
+    renderDetail({ found });
 
-      const detail = screen.getByRole("region", { name: "目的地" });
-      expect(detail.textContent).toContain(`目的地${text}`);
-      expect(within(detail).queryByText("代表の位置") !== null).toBe(representative);
-    },
-  );
+    const detail = screen.getByRole("region", { name: "目的地" });
+    expect(detail.textContent).toContain(`目的地${text}`);
+    expect(within(detail).queryByText("代表の位置") !== null).toBe(representative);
+  });
 });
 
 describe("PointDetail 打つ欄", () => {

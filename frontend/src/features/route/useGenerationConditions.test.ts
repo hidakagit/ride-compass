@@ -190,18 +190,18 @@ describe("地点", () => {
     const { result, onOriginPlace } = renderConditions();
     act(() => result.current.armPinRole("origin"));
 
-    act(() => result.current.placeFound("origin", candidateAt(A, "出発の店")));
+    act(() => result.current.placeFound("origin", candidateAt(A, "出発の店"), null));
     expect(onOriginPlace).toHaveBeenCalledWith(A);
     expect(result.current.routeMode).toBe("loop");
 
     // 経由地は地図のタップなら置いたあとも置く状態を続けるので、検索で置いたときに解けるかはここで分かる。
     act(() => result.current.armPinRole("waypoint"));
-    act(() => result.current.placeFound("waypoint", candidateAt(B, "寄る店")));
+    act(() => result.current.placeFound("waypoint", candidateAt(B, "寄る店"), null));
     expect(result.current.routeMode).toBe("destination");
     expect(result.current.waypoints).toEqual([B]);
     expect(result.current.armedPinRole).toBeNull();
 
-    act(() => result.current.placeFound("destination", candidateAt(C, "着く店")));
+    act(() => result.current.placeFound("destination", candidateAt(C, "着く店"), null));
     expect(result.current.destination).toEqual(C);
 
     act(() => result.current.placeFound("waypoint", candidateAt(A, "寄り直す店"), 0));
@@ -213,9 +213,9 @@ describe("地点", () => {
     const destinationShop = candidateAt(C, "着く店");
     const originShop = candidateAt(A, "出発の店");
     const waypointShop = candidateAt(B, "寄る店");
-    act(() => result.current.placeFound("destination", destinationShop));
-    act(() => result.current.placeFound("origin", originShop));
-    act(() => result.current.placeFound("waypoint", waypointShop));
+    act(() => result.current.placeFound("destination", destinationShop, null));
+    act(() => result.current.placeFound("origin", originShop, null));
+    act(() => result.current.placeFound("waypoint", waypointShop, null));
 
     expect(result.current.foundAt(result.current.destination)).toEqual(destinationShop);
     expect(result.current.foundAt({ ...A })).toEqual(originShop);

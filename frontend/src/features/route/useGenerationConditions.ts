@@ -114,7 +114,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   // 検索で選んだ地点を置く（経由地は`waypointIndex`番目を置き直し、無ければ足す）。周回は経由地・目的地を使わず地図にも
   // 出さないので、目的地モードへ切り替えて置く。地図のタップで置く状態は解く（次のタップで意図しない地点が置かれる）。
   const placeFound = useCallback(
-    (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null = null) => {
+    (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) => {
       const point = { latitude: candidate.latitude, longitude: candidate.longitude };
       if (role !== "origin") setRouteMode("destination");
       if (role === "waypoint" && waypointIndex !== null) moveWaypoint(waypointIndex, point);

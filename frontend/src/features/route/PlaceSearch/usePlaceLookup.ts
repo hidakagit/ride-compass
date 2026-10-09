@@ -43,40 +43,36 @@ export function usePlaceLookup(mapCenter: Coordinates) {
   }
 
   // かな漢字の変換中は呼ばない（変換を確定したときに呼ぶ）。
-  function scheduleLookUp(value: string, onLookUp: () => void) {
+  function scheduleLookUp(value: string) {
     clearTimeout(lookUpTimer.current);
     if (value.replace(/\s/g, "").length < PREDICTION_MIN_LENGTH) return;
     const trimmed = value.trim();
-    lookUpTimer.current = setTimeout(() => {
-      onLookUp();
-      lookUp(trimmed);
-    }, PREDICTION_DELAY_MS);
+    lookUpTimer.current = setTimeout(() => lookUp(trimmed), PREDICTION_DELAY_MS);
   }
 
   return {
     query,
     near,
     search,
-    /** 欄へ渡す値と打つ操作。`onLookUp`は引き始めるときに呼ぶ（選びかけ・置いたあとの案内を消す）。 */
-    inputProps(onLookUp: () => void = () => {}) {
+    /** 欄へ渡す値と打つ操作。 */
+    inputProps() {
       return {
         value: text,
         onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
           setText(event.target.value);
-          if (!(event.nativeEvent as InputEvent).isComposing) scheduleLookUp(event.target.value, onLookUp);
+          if (!(event.nativeEvent as InputEvent).isComposing) scheduleLookUp(event.target.value);
         },
         onCompositionEnd: (event: React.CompositionEvent<HTMLInputElement>) =>
-          scheduleLookUp(event.currentTarget.value, onLookUp),
+          scheduleLookUp(event.currentTarget.value),
       };
     },
     /** 打った文字ですぐ引く（Enter・「検索」）。同じ文字・同じ真ん中なら引き直す。 */
     submit() {
       clearTimeout(lookUpTimer.current);
       const trimmed = text.trim();
-      if (trimmed === "") return false;
+      if (trimmed === "") return;
       lookUp(trimmed);
       if (trimmed === query && near === mapCenter) void search.refetch();
-      return true;
     },
     /** 引いた候補を下げる。`clearText`なら打った文字も消す。 */
     close({ clearText = false } = {}) {
