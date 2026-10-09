@@ -28,7 +28,7 @@ import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedCon
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
 import { useSavedConditions } from "@/features/route/useSavedConditions";
 import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
-import type { Coordinates, PinRole } from "@/types/route";
+import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
@@ -102,9 +102,9 @@ export default function Home() {
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
   // 住所の検索で置いた地点。置くたびに地図をそこへ寄せる（ピンを直すのは地図の上なので）。
   const [foundPoint, setFoundPoint] = useState<Coordinates | null>(null);
-  function placeFound(role: PinRole, point: Coordinates) {
-    conditions.placeFound(role, point);
-    setFoundPoint(point);
+  function placeFound(role: PinRole, candidate: PlaceCandidate) {
+    conditions.placeFound(role, candidate);
+    setFoundPoint({ latitude: candidate.latitude, longitude: candidate.longitude });
   }
   const ride = useRideConditions();
   // 名前を付けて保存した生成の条件（「保存」タブ）。
@@ -326,6 +326,9 @@ export default function Home() {
         originManual={locationSource === "manual"}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
+        originFound={locationSource === "manual" ? conditions.foundAt("origin", location) : null}
+        mapCenter={mapView.center ?? location}
+        onPlaceFound={placeFound}
         weightsPanel={
           <RouteSettingsPanel
             routePreference={conditions.routePreference}

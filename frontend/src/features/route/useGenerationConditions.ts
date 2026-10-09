@@ -13,7 +13,7 @@ import {
   acceptedMaxRoutesInput,
   type GenerationConditionsSnapshot,
 } from "@/features/route/savedConditions";
-import type { Coordinates, HardFilterOverride, PinRole, RoutePreferenceWeights } from "@/types/route";
+import type { Coordinates, HardFilterOverride, PinRole, PlaceCandidate, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled";
@@ -100,15 +100,32 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     },
     [onOriginPlace, waypoints.length],
   );
+  // 検索で置いた出発地・目的地の候補。行に名前を出すのは、その地点がまだ候補の位置にある間だけ（ピンを動かす・地図で
+  // 置き直すと、名前の所ではなくなる）。経由地は行に件数だけを出すので持たない。
+  const [found, setFound] = useState<Partial<Record<"origin" | "destination", PlaceCandidate>>>({});
   // 検索で選んだ地点を置く。周回は経由地・目的地を使わず地図にも出さないので、目的地モードへ切り替えて置く。地図のタップで
   // 置く状態は解く（次のタップで意図しない地点が置かれる）。
   const placeFound = useCallback(
-    (role: PinRole, point: Coordinates) => {
+    (role: PinRole, candidate: PlaceCandidate) => {
       if (role !== "origin") setRouteMode("destination");
-      placePin(role, point);
+      placePin(role, { latitude: candidate.latitude, longitude: candidate.longitude });
       setArmedPinRole(null);
+      if (role !== "waypoint") setFound((prev) => ({ ...prev, [role]: candidate }));
     },
     [placePin, setRouteMode],
+  );
+  /** 地点`at`が検索で置いたときの位置のままなら、その候補。 */
+  const foundAt = useCallback(
+    (role: "origin" | "destination", at: Coordinates | null): PlaceCandidate | null => {
+      const candidate = found[role];
+      return candidate !== undefined &&
+        at !== null &&
+        candidate.latitude === at.latitude &&
+        candidate.longitude === at.longitude
+        ? candidate
+        : null;
+    },
+    [found],
   );
   // 行を押して武装する。置いてある地点から武装しても値は残し、次のタップで置き換える（外してから置き直させない）。
   const armPinRole = useCallback((role: PinRole | null) => setArmedPinRole(role), []);
@@ -227,6 +244,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     armPinRole,
     placePin,
     placeFound,
+    foundAt,
     weightOverrideEnabled,
     setWeightOverrideEnabled,
     routePreference,

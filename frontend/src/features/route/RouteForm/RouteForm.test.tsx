@@ -4,14 +4,19 @@
  *
  * 見るもの: モードの切り替えで上がるモード、候補数のステッパー（今の件数・1件ずつの増減・端で押せない・経由地があると
  * 決まった件数で押せず、理由の(i)を置く）、周回の距離のスライダーで上がる値、モードごとに出す距離と地点の行、
- * 地点の行が出す値と出発地の印の色、押したときに上がる役割・消す/戻す操作、タブを切り替えても各タブの中身を外さないこと。
+ * 地点の行が出す値（探して置いた地点は名前）と出発地の印の色、地図で置く操作を押したときに上がる役割・消す/戻す操作、
+ * 行に名前を打って選んだ候補をその行の役割で上げること、タブを切り替えても各タブの中身を外さないこと。
  *
  * ここで見ないもの: タブの列と選んだタブ、どのタブの中身が見えるか（スタイルで隠す）→ `app/page.tsx`。
  * 書いた定数や受け取った値をそのまま渡すもの（スライダーの範囲・刻み・今の値と km の表記・候補の距離の幅、行頭の印の
  * 役割ごとの背景色、選んでいるモード、(i)の奥の理由の文）。
  * 経由地のある目的地で何件に決まるか → `RouteForm/useRouteFormSubmit.test.ts`（このファイルは決まった数を生成物から読む）。
  * 地点を置ける状態をどう決めるか → `features/route/useGenerationConditions.test.ts`。
- * 住所の検索（地図の上端に置き、この区分には出さない）→ `PlaceSearch/PlaceSearch.test.tsx`。
+ * 打ちかけで引く間・変換中に引かないこと・候補の行の中身（辺り・距離・札）・引けない／当たらないときの文 →
+ * `PlaceSearch/PlaceSearch.test.tsx`（行の欄と同じ引き方と一覧の部品を使う）。
+ * 検索で置いた地点が、ピンを動かすまでその候補のままか → `features/route/useGenerationConditions.test.ts`。
+ *
+ * 差し替えたもの: 検索の口の応答（網の層）。
  *
  * タブの中身を描くには`Tabs`の中に置く必要があるので、テストが`page.tsx`の代わりに`Tabs`で包む。
  */
@@ -22,7 +27,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/components/PinMark/PinMark";
 import { Tabs } from "@/components/ui/Tabs/Tabs";
+import { onBackend } from "@/testing/backendServer";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import type { PlaceCandidate } from "@/types/route";
 
 import RouteForm, { type SettingsTab } from "./RouteForm";
 
@@ -40,6 +47,9 @@ const BASE = {
   originManual: false,
   originLocated: true,
   armedPinRole: null,
+  foundAt: () => null,
+  originFound: null,
+  mapCenter: { latitude: 35.681, longitude: 139.767 },
   weightsPanel: null,
   exclusionsPanel: null,
   savedPanel: null,
@@ -51,6 +61,23 @@ function waypointsOf(count: number) {
 }
 
 const DESTINATION = { latitude: 35.1, longitude: 139.1 };
+/** 字・丁目で当たった住所（その範囲の代表の位置）。 */
+const AZA: PlaceCandidate = {
+  kind: "address",
+  level: "aza",
+  name: "東京都千代田区丸の内二丁目",
+  area: null,
+  latitude: 35.679,
+  longitude: 139.764,
+};
+const FACILITY: PlaceCandidate = {
+  kind: "facility",
+  level: "point",
+  name: "浅草寺",
+  area: "台東区浅草二丁目",
+  latitude: 35.7148,
+  longitude: 139.7967,
+};
 
 function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
   const handlers = {
@@ -61,9 +88,21 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
     clearDestination: vi.fn(),
     onOriginReset: vi.fn(),
     armPinRole: vi.fn(),
+    onPlaceFound: vi.fn(),
   };
   const element = (nextTab: SettingsTab) => {
-    const { originManual, originLocated, onOriginReset, weightsPanel, exclusionsPanel, savedPanel, ...conditions } = {
+    const {
+      originManual,
+      originLocated,
+      onOriginReset,
+      originFound,
+      mapCenter,
+      onPlaceFound,
+      weightsPanel,
+      exclusionsPanel,
+      savedPanel,
+      ...conditions
+    } = {
       ...BASE,
       ...handlers,
       ...options,
@@ -75,6 +114,9 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
           originManual={originManual}
           originLocated={originLocated}
           onOriginReset={onOriginReset}
+          originFound={originFound}
+          mapCenter={mapCenter}
+          onPlaceFound={onPlaceFound}
           weightsPanel={weightsPanel}
           exclusionsPanel={exclusionsPanel}
           savedPanel={savedPanel}
@@ -86,8 +128,19 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
   return { ...handlers, showTab: (nextTab: SettingsTab) => view.rerender(element(nextTab)) };
 }
 
-function pointRow(name: string | RegExp) {
+/** 地図で置く操作（行の右の「地図で選ぶ」「追加」「置き直す」）。 */
+function armButton(name: string) {
   return screen.getByRole("button", { name });
+}
+
+/** 地点の1行（印・名前・打つ欄・操作）。 */
+function pointRow(label: string) {
+  return screen.getByRole("search", { name: label });
+}
+
+/** 行の打つ欄。何も打っていない間は、今の値を欄の中に出す。 */
+function pointBox(label: string) {
+  return screen.getByRole("searchbox", { name: `${label}を住所・施設で探す` });
 }
 
 describe("RouteForm 生成モード", () => {
@@ -153,10 +206,10 @@ describe("RouteForm モードごとの入力", () => {
     (routeMode, distance, points) => {
       renderForm({ routeMode });
 
-      expect(pointRow("出発地を地図で選ぶ")).toBeInTheDocument();
+      expect(pointRow("出発地")).toBeInTheDocument();
       expect(screen.queryByRole("slider", { name: "距離" }) !== null).toBe(distance);
-      expect(screen.queryByRole("button", { name: /^経由地/ }) !== null).toBe(points);
-      expect(screen.queryByRole("button", { name: /^目的地/ }) !== null).toBe(points);
+      expect(screen.queryByRole("search", { name: "経由地" }) !== null).toBe(points);
+      expect(screen.queryByRole("search", { name: "目的地" }) !== null).toBe(points);
     },
   );
 
@@ -172,7 +225,7 @@ describe("RouteForm モードごとの入力", () => {
 describe("RouteForm 出発地の行", () => {
   /** 行頭の印（現在地のアイコン）を描く要素。 */
   function originMark() {
-    const mark = pointRow(/^出発地/).querySelector<HTMLElement>("svg")?.parentElement;
+    const mark = pointRow("出発地").querySelector<HTMLElement>("svg")?.parentElement;
     if (!mark) throw new Error("出発地の印が無い");
     return mark;
   }
@@ -185,7 +238,7 @@ describe("RouteForm 出発地の行", () => {
     (originLocated, value, color) => {
       renderForm({ originLocated });
 
-      expect(within(pointRow("出発地を地図で選ぶ")).getByText(value)).toBeInTheDocument();
+      expect(pointBox("出発地")).toHaveAttribute("placeholder", value);
       expect(originMark()).toHaveStyle({ color });
       expect(screen.queryByRole("button", { name: "出発地を現在地に戻す" })).not.toBeInTheDocument();
     },
@@ -195,37 +248,43 @@ describe("RouteForm 出発地の行", () => {
     [null, "出発地を地図で選ぶ", "false", "現在地", "origin"],
     ["origin", "出発地の指定をやめる", "true", "地図をタップ", null],
   ] as const)(
-    "置ける役割が%sなら行を「%s」とし、押すと置ける状態を切り替える",
+    "置ける役割が%sなら地図で置く操作を「%s」とし、押すと置ける状態を切り替える",
     async (armedPinRole, name, pressed, value, raised) => {
       const { armPinRole } = renderForm({ armedPinRole });
 
-      const row = pointRow(name);
-      expect(row).toHaveAttribute("aria-pressed", pressed);
-      expect(within(row).getByText(value)).toBeInTheDocument();
-      await userEvent.click(row);
+      const button = armButton(name);
+      expect(button).toHaveAttribute("aria-pressed", pressed);
+      expect(pointBox("出発地")).toHaveAttribute("placeholder", value);
+      await userEvent.click(button);
 
       expect(armPinRole).toHaveBeenCalledExactlyOnceWith(raised);
     },
   );
 
-  it("地図で置いた出発地は「地図で指定」と出し、現在地に戻す操作を出す", async () => {
-    const { onOriginReset } = renderForm({ originManual: true });
+  it.each([
+    [null, "地図で指定"],
+    [FACILITY, FACILITY.name],
+  ])(
+    "置いた出発地は、探して置いたときの位置のままなら名前、ほかは「地図で指定」と出し、現在地に戻す操作を出す",
+    async (originFound, value) => {
+      const { onOriginReset } = renderForm({ originManual: true, originFound });
 
-    expect(within(pointRow("出発地を地図で選ぶ")).getByText("地図で指定")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
+      expect(pointBox("出発地")).toHaveAttribute("placeholder", value);
+      await userEvent.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
 
-    expect(onOriginReset).toHaveBeenCalledOnce();
-  });
+      expect(onOriginReset).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 describe("RouteForm 経由地の行", () => {
   it("経由地が無い間は「なし」と出して消す操作を出さず、押すと経由地を置ける状態を上げる", async () => {
     const { armPinRole } = renderForm({ routeMode: "destination", waypoints: waypointsOf(0) });
 
-    expect(within(pointRow("経由地を追加")).getByText("なし")).toBeInTheDocument();
+    expect(pointBox("経由地")).toHaveAttribute("placeholder", "なし");
     expect(screen.queryByRole("button", { name: "経由地をクリア" })).not.toBeInTheDocument();
 
-    await userEvent.click(pointRow("経由地を追加"));
+    await userEvent.click(armButton("経由地を追加"));
 
     expect(armPinRole).toHaveBeenCalledExactlyOnceWith("waypoint");
   });
@@ -233,9 +292,8 @@ describe("RouteForm 経由地の行", () => {
   it("経由地があれば件数を値と印に出し、消す操作を押すと上げる", async () => {
     const { clearWaypoints } = renderForm({ routeMode: "destination", waypoints: waypointsOf(3) });
 
-    const row = pointRow("経由地を追加");
-    expect(within(row).getByText("3地点")).toBeInTheDocument();
-    expect(within(row).getByText("3")).toBeInTheDocument();
+    expect(pointBox("経由地")).toHaveAttribute("placeholder", "3地点");
+    expect(within(pointRow("経由地")).getByText("3")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "経由地をクリア" }));
 
@@ -248,20 +306,22 @@ describe("RouteForm 経由地の行", () => {
   ])("置いた経由地が%i件のとき、置ける間は件数があれば添えて「地図をタップ」を出す", (waypointCount, hint) => {
     renderForm({ routeMode: "destination", waypoints: waypointsOf(waypointCount), armedPinRole: "waypoint" });
 
-    expect(within(pointRow("経由地の指定をやめる")).getByText(hint)).toBeInTheDocument();
+    expect(armButton("経由地の指定をやめる")).toBeInTheDocument();
+    expect(pointBox("経由地")).toHaveAttribute("placeholder", hint);
   });
 
   it.each([
     [routeGenerateConfig.max_waypoints, "経由地は上限まで置いてあります", "上限", true],
     [routeGenerateConfig.max_waypoints - 1, "経由地を追加", "追加", false],
   ])(
-    "%i件では行を「%s」とし、生成が受け付ける数までなら押せなくする。消す操作は残す",
+    "%i件では地図で置く操作を「%s」とし、生成が受け付ける数までなら地図でも探しても置けなくする。消す操作は残す",
     (waypointCount, name, action, full) => {
       renderForm({ routeMode: "destination", waypoints: waypointsOf(waypointCount) });
 
-      const row = pointRow(name);
-      expect(row).toHaveProperty("disabled", full);
-      expect(within(row).getByText(action)).toBeInTheDocument();
+      const button = armButton(name);
+      expect(button).toHaveProperty("disabled", full);
+      expect(button).toHaveTextContent(action);
+      expect(pointBox("経由地")).toHaveProperty("disabled", full);
       expect(screen.getByRole("button", { name: "経由地をクリア" })).toBeInTheDocument();
     },
   );
@@ -271,22 +331,71 @@ describe("RouteForm 目的地の行", () => {
   it("目的地が無い間は「未設定」と出して消す操作を出さず、押すと目的地を置ける状態を上げる", async () => {
     const { armPinRole } = renderForm({ routeMode: "destination", destination: null });
 
-    expect(within(pointRow("目的地を地図で選ぶ")).getByText("未設定")).toBeInTheDocument();
+    expect(pointBox("目的地")).toHaveAttribute("placeholder", "未設定");
     expect(screen.queryByRole("button", { name: "目的地をクリア" })).not.toBeInTheDocument();
 
-    await userEvent.click(pointRow("目的地を地図で選ぶ"));
+    await userEvent.click(armButton("目的地を地図で選ぶ"));
 
     expect(armPinRole).toHaveBeenCalledExactlyOnceWith("destination");
   });
 
-  it("置いた目的地は「地図で指定」と出して置き直す行にし、消す操作を押すと上げる", async () => {
-    const { clearDestination } = renderForm({ routeMode: "destination", destination: DESTINATION });
+  it.each([
+    [null, "地図で指定"],
+    [AZA, `${AZA.name}（代表の位置）`],
+    [FACILITY, FACILITY.name],
+  ])(
+    "置いた目的地は、探して置いたときの位置のままなら名前（代表の位置ならそう添えて）、ほかは「地図で指定」と出して置き直す行にし、消す操作を押すと上げる",
+    async (found, value) => {
+      const { clearDestination } = renderForm({
+        routeMode: "destination",
+        destination: DESTINATION,
+        foundAt: (role, at) => (role === "destination" && at === DESTINATION ? found : null),
+      });
 
-    expect(within(pointRow("目的地を置き直す")).getByText("地図で指定")).toBeInTheDocument();
+      expect(pointBox("目的地")).toHaveAttribute("placeholder", value);
+      expect(armButton("目的地を置き直す")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "目的地をクリア" }));
+      await userEvent.click(screen.getByRole("button", { name: "目的地をクリア" }));
 
-    expect(clearDestination).toHaveBeenCalledOnce();
+      expect(clearDestination).toHaveBeenCalledOnce();
+    },
+  );
+});
+
+describe("RouteForm 行で探す", () => {
+  it.each([
+    ["destination", "目的地"],
+    ["waypoint", "経由地"],
+    ["origin", "出発地"],
+  ] as const)(
+    "%sの行に名前を打つと候補を行の下に出し、選ぶとその行の役割で上げて、打った文字と一覧を消す",
+    async (role, label) => {
+      const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA, FACILITY] }));
+      const { onPlaceFound } = renderForm({ routeMode: "destination" });
+
+      await userEvent.type(pointBox(label), "浅草寺{Enter}");
+
+      const list = await within(pointRow(label).parentElement!).findByRole("list", { name: "地点の候補" });
+      expect(sent.map((request) => request.query.q)).toEqual(["浅草寺"]);
+      await userEvent.click(within(list).getByRole("button", { name: new RegExp(FACILITY.name) }));
+
+      expect(onPlaceFound).toHaveBeenCalledExactlyOnceWith(role, FACILITY);
+      expect(pointBox(label)).toHaveValue("");
+      expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
+    },
+  );
+
+  it("候補の一覧は✕で閉じ、打った文字も消す", async () => {
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
+    const { onPlaceFound } = renderForm({ routeMode: "destination" });
+
+    await userEvent.type(pointBox("目的地"), "丸の内{Enter}");
+    await screen.findByRole("list", { name: "地点の候補" });
+    await userEvent.click(screen.getByRole("button", { name: "目的地の候補を閉じる" }));
+
+    expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
+    expect(pointBox("目的地")).toHaveValue("");
+    expect(onPlaceFound).not.toHaveBeenCalled();
   });
 });
 

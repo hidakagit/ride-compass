@@ -102,10 +102,7 @@ describe("PlaceSearch", () => {
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
     await userEvent.click(screen.getByRole("button", { name: "目的地へ" }));
 
-    expect(onPlace).toHaveBeenCalledExactlyOnceWith("destination", {
-      latitude: AZA.latitude,
-      longitude: AZA.longitude,
-    });
+    expect(onPlace).toHaveBeenCalledExactlyOnceWith("destination", AZA);
     expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
     expect(screen.getByRole("status").textContent).toBe(`「${AZA.name}」を目的地にしました（代表の位置）`);
 
@@ -114,7 +111,7 @@ describe("PlaceSearch", () => {
     await userEvent.click(await screen.findByRole("button", { name: new RegExp(BLOCK.name) }));
     await userEvent.click(screen.getByRole("button", { name: "経由地へ" }));
 
-    expect(onPlace).toHaveBeenLastCalledWith("waypoint", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
+    expect(onPlace).toHaveBeenLastCalledWith("waypoint", BLOCK);
     expect(screen.getByRole("status").textContent).toBe(`「${BLOCK.name}」を経由地に足しました`);
 
     // 施設は施設そのものの位置なので、街区と同じく置いたことだけを出す。
@@ -122,7 +119,7 @@ describe("PlaceSearch", () => {
     await userEvent.click(await screen.findByRole("button", { name: new RegExp(FACILITY.name) }));
     await userEvent.click(screen.getByRole("button", { name: "出発地へ" }));
 
-    expect(onPlace).toHaveBeenLastCalledWith("origin", { latitude: FACILITY.latitude, longitude: FACILITY.longitude });
+    expect(onPlace).toHaveBeenLastCalledWith("origin", FACILITY);
     expect(screen.getByRole("status").textContent).toBe(`「${FACILITY.name}」を出発地にしました`);
 
     // 案内は地図に重なるので、閉じて地図を空けられる。
@@ -202,7 +199,7 @@ describe("PlaceSearch", () => {
 
     expect(screen.getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "出発地へ" }));
-    expect(onPlace).toHaveBeenCalledExactlyOnceWith("origin", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
+    expect(onPlace).toHaveBeenCalledExactlyOnceWith("origin", BLOCK);
   });
 
   it("当たらなければそう出し、検索が使えなければ口の文を出す", async () => {

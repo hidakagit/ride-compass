@@ -601,7 +601,7 @@ describe("画面の枠", () => {
     const settingsSheet = screen.getByRole("dialog", { name: "ルート設定" });
     // 住所の検索の欄はシートの中ではなく地図の上端に出す（候補の一覧がシートの高さに縛られない）。
     expect(screen.getByRole("searchbox", { name: "住所・施設で探す" })).toBeInTheDocument();
-    expect(within(settingsSheet).queryByRole("searchbox")).toBeNull();
+    expect(within(settingsSheet).queryByRole("searchbox", { name: "住所・施設で探す" })).toBeNull();
     await user.click(within(settingsSheet).getByRole("button", { name: "ルート生成" }));
     expect(within(settingsSheet).getByText(/^現在地が分かりません/)).toBeInTheDocument();
     expect(outcomeTab).toHaveAccessibleDescription("生成に失敗しました");
