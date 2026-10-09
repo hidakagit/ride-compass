@@ -1,36 +1,31 @@
 """`scripts/fetch_address_dictionary.py`——配布元のzipから住所の辞書を入れ、置き場へ置く。
 
 入口は`main`（デプロイが呼ぶ）。配布元は`respx_mock`で、テストの足場が書いた小さな辞書のzipを返し、置き場は
-`tests/conftest.py: address_dictionary_dir`。入れた辞書は`address_dictionary.search_addresses`で引いて確かめる。
+`tests/conftest.py: address_dictionary_dir`。入れた辞書は`address_dictionary.open_dictionary`で開いて引いて確かめる。
 見るのは、取得から置くまで（利用条件のREADMEも一緒に置く）・置き場に今の版があれば取りに行かず他の版を消すこと・
 入れた回は旧い版を残しzipを消すこと・引けない辞書を置かないこと。
 
 ここで見ないもの:
 - 一時ファイル経由の取得と、落としたものを開いて確かめる手順（`app/batch/common.py: fetch_verified`）→ 同じ手順を使う
   取得の道具のテスト（例: `test_fetch_osm_pbf.py`）
-- 辞書から候補を作ること → `test_place_search_route.py`
 """
 
 import io
 import zipfile
 
 from app.domain.place_search import ADDRESS_DICTIONARY_URL
-from app.domain.region import BoundingBox
 from app.infrastructure import address_dictionary
 from scripts import fetch_address_dictionary
 from tests.address_dictionary_fixture import README, dictionary_archive
 
-#: 引けることだけを見るので、範囲は地球の全体にする。
-EVERYWHERE = BoundingBox(min_latitude=-90, min_longitude=-180, max_latitude=90, max_longitude=180)
 
-
-async def test_fetches_and_places_the_dictionary_with_its_readme(address_dictionary_dir, respx_mock, tmp_path):
+def test_fetches_and_places_the_dictionary_with_its_readme(address_dictionary_dir, respx_mock, tmp_path):
     respx_mock.get(ADDRESS_DICTIONARY_URL).respond(content=dictionary_archive(tmp_path))
 
     assert fetch_address_dictionary.main() == 0
 
-    found = await address_dictionary.search_addresses("東京都新宿区西新宿2-8-1", EVERYWHERE)
-    assert [c.name for c in [*found.whole, *found.partial]] == ["東京都新宿区西新宿二丁目8番"]
+    found = address_dictionary.open_dictionary(address_dictionary_dir).searchNode("東京都新宿区西新宿2-8-1")
+    assert ["".join(result.node.get_fullname()) for result in found if result.matched] == ["東京都新宿区西新宿二丁目8番"]
     assert (address_dictionary_dir / "README.md").read_text(encoding="utf-8") == README
 
 

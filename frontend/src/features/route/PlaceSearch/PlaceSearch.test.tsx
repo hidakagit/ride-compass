@@ -1,6 +1,6 @@
 /**
  * `PlaceSearch/PlaceSearch.tsx`——住所・施設の名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を並べ、選んだ候補を目的地・出発地・
- * 経由地のどれかとして置く。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。置いたあとは1行で出し、当たった段が粗ければ代表の位置だと添える（施設は施設の位置なので添えない）。引けないとき・当たらないときはそう出す。
+ * 経由地のどれかとして置く。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。置いたあとは1行で出し、住所なら代表の位置だと添える（施設は施設の位置なので添えない）。引けないとき・当たらないときはそう出す。
  * 引いたあとに地図を動かしても引き直さない。経由地が上限なら経由地には置けない。地図に重ねて出す一覧と案内は閉じられ、置いたあとの案内は地図がルートへ寄るときにも閉じる。
  *
  * ここで見ないもの:
@@ -21,14 +21,6 @@ import type { Coordinates, PlaceCandidate, RouteCandidate } from "@/types/route"
 
 import PlaceSearch from "./PlaceSearch";
 
-const BLOCK: PlaceCandidate = {
-  kind: "address",
-  level: "block",
-  name: "東京都千代田区丸の内一丁目9番",
-  area: null,
-  latitude: 35.681,
-  longitude: 139.767,
-};
 const AZA: PlaceCandidate = {
   kind: "address",
   level: "aza",
@@ -81,8 +73,8 @@ async function searchFor(text: string) {
 }
 
 describe("PlaceSearch", () => {
-  it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ役割の地点として置いたことを1行で出し、段が粗ければ代表の位置だと添える", async () => {
-    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK, AZA, FACILITY] }));
+  it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ役割の地点として置いたことを1行で出し、住所なら代表の位置だと添える", async () => {
+    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA, FACILITY] }));
     const { onPlace } = renderSearch();
 
     await searchFor(" 丸の内 ");
@@ -93,11 +85,7 @@ describe("PlaceSearch", () => {
       within(list)
         .getAllByRole("button")
         .map((row) => row.textContent),
-    ).toEqual([
-      `${BLOCK.name}住所街区・地番`,
-      `${AZA.name}住所字・丁目`,
-      `${FACILITY.name}${FACILITY.area}4.6km施設地点`,
-    ]);
+    ).toEqual([`${AZA.name}住所字・丁目`, `${FACILITY.name}${FACILITY.area}4.6km施設地点`]);
 
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
     await userEvent.click(screen.getByRole("button", { name: "目的地へ" }));
@@ -109,15 +97,14 @@ describe("PlaceSearch", () => {
     expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
     expect(screen.getByRole("status").textContent).toBe(`「${AZA.name}」を目的地にしました（代表の位置）`);
 
-    // 街区まで当たった地点は、置いたことだけを出す。
-    await searchFor("1-9");
-    await userEvent.click(await screen.findByRole("button", { name: new RegExp(BLOCK.name) }));
+    await searchFor("丸の内");
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(AZA.name) }));
     await userEvent.click(screen.getByRole("button", { name: "経由地へ" }));
 
-    expect(onPlace).toHaveBeenLastCalledWith("waypoint", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
-    expect(screen.getByRole("status").textContent).toBe(`「${BLOCK.name}」を経由地に足しました`);
+    expect(onPlace).toHaveBeenLastCalledWith("waypoint", { latitude: AZA.latitude, longitude: AZA.longitude });
+    expect(screen.getByRole("status").textContent).toBe(`「${AZA.name}」を経由地に足しました（代表の位置）`);
 
-    // 施設は施設そのものの位置なので、街区と同じく置いたことだけを出す。
+    // 施設は施設そのものの位置なので、置いたことだけを出す。
     await searchFor("浅草寺");
     await userEvent.click(await screen.findByRole("button", { name: new RegExp(FACILITY.name) }));
     await userEvent.click(screen.getByRole("button", { name: "出発地へ" }));
@@ -148,7 +135,7 @@ describe("PlaceSearch", () => {
   });
 
   it("打ちかけでも、決まった文字数から、打つのが止まると引く", async () => {
-    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
+    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
     renderSearch();
     const box = screen.getByRole("searchbox", { name: "住所・施設で探す" });
     const enough = "千代田区丸の内".slice(0, routeGenerateConfig.place_prediction_min_length);
@@ -164,7 +151,7 @@ describe("PlaceSearch", () => {
   });
 
   it("かな漢字の変換中は引かず、確定してから引く", async () => {
-    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
+    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
     renderSearch();
     const box = screen.getByRole("searchbox", { name: "住所・施設で探す" });
 
@@ -194,15 +181,15 @@ describe("PlaceSearch", () => {
   });
 
   it("経由地が上限なら経由地には置けず、ほかの役割には置ける", async () => {
-    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
+    onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
     const { onPlace } = renderSearch({ waypointsFull: true });
 
     await searchFor("丸の内");
-    await userEvent.click(await screen.findByRole("button", { name: new RegExp(BLOCK.name) }));
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(AZA.name) }));
 
     expect(screen.getByRole("button", { name: "経由地は上限まで置いてあります" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "出発地へ" }));
-    expect(onPlace).toHaveBeenCalledExactlyOnceWith("origin", { latitude: BLOCK.latitude, longitude: BLOCK.longitude });
+    expect(onPlace).toHaveBeenCalledExactlyOnceWith("origin", { latitude: AZA.latitude, longitude: AZA.longitude });
   });
 
   it("当たらなければそう出し、検索が使えなければ口の文を出す", async () => {
@@ -213,9 +200,9 @@ describe("PlaceSearch", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("当たる住所・施設がありません。");
 
     onBackend("GET", "/api/place-search", () =>
-      Response.json({ detail: "住所の検索は今は使えません" }, { status: 503 }),
+      Response.json({ detail: "対象範囲を読めませんでした" }, { status: 502 }),
     );
     await searchFor("丸の内");
-    expect(await screen.findByRole("alert")).toHaveTextContent("住所の検索は今は使えません");
+    expect(await screen.findByRole("alert")).toHaveTextContent("対象範囲を読めませんでした");
   });
 });

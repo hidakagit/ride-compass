@@ -1,9 +1,9 @@
 """住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方・区画の祖先から
-辺りの名前を組み立てる形。
+表示の名前を組み立てる形。
 
 区画の表（`address_areas`）と鍵の表（`address_search_keys`）は派生の段（`batch/derive_addresses.py`）が作り、
 ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）・
-施設の辺りの名前（`area_label`）を持つ。
+区画の表示の名前（施設の辺りと、地点の検索の住所の表示名。`area_label`）を持つ。
 アドレス・ベース・レジストリ（ABR）の列の読み方は`infrastructure/source_models.py`が持ち、ここへは名前で届く。
 """
 
@@ -22,6 +22,10 @@ CONTINUABLE_LEVELS: frozenset[PlaceMatchLevel] = frozenset({"prefecture", "city"
 #: ABR の町字区分（`machiaza_type`）→ 区画の段。1 が大字・町、2 が丁目、3 が小字。ここに無い区分（4 町字なし・
 #: 5 道路名）は区画の行を作らない。
 MACHIAZA_TYPE_LEVELS: dict[str, PlaceMatchLevel] = {"1": "oaza", "2": "aza", "3": "aza"}
+
+#: 番地まで打った入力（「西新宿2-8-1」）で、区画の鍵の後ろの残りの頭に来る文字（番地・地番の数字・区切り・甲乙丙丁の
+#: 地番）を見る正規表現（PostgreSQL の`~`）。残りは揃えた形（`standardize_address`）なので、数字は算用数字・区切りは`-`。
+NUMBERED_REMAINDER_PATTERN = "^[0-9甲乙丙丁-]"
 
 #: ハイフン・ダッシュ・マイナスの類（長音を含まない）。最後を半角のハイフンにしてあり、正規表現の文字類の末尾に
 #: 置けばそのまま文字として読まれる。施設の名前の揃え方（`domain/stop_place.py: normalized_sql`）も同じ集合を除く。
@@ -76,13 +80,14 @@ def chome_name(number: str, written: str) -> str:
     return digits + ("丁" if written.endswith("丁") else "丁目")
 
 
-def area_label(chain: Iterable[tuple[str, str]]) -> str:
-    """施設の辺りの名前（「川口市元郷四丁目」「さいたま市岩槻区本町」）。
+def area_label(chain: Iterable[tuple[str, str]], *, full: bool = False) -> str:
+    """区画の表示の名前。既定は施設の辺りの名前（「川口市元郷四丁目」「さいたま市岩槻区本町」）で、`full`なら都道府県から
+    書いた地点の検索の住所の表示名（「東京都新宿区西新宿二丁目」）。
 
-    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。市区町村から先の名前をつなぎ、都道府県は持たない
+    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。辺りは市区町村から先の名前をつなぎ、都道府県は持たない
     （政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない）。
     """
-    return "".join(name for level, name in chain if level != "prefecture")
+    return "".join(name for level, name in chain if full or level != "prefecture")
 
 
 def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) -> frozenset[str]:
@@ -99,3 +104,4 @@ def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) 
         variants.append([name for level, name in names if level != "county"])
     keys = {standardize_address("".join(parts) + tail) for parts in variants for tail in tails}
     return frozenset(key for key in keys if key)
+

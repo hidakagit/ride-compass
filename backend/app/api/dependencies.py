@@ -16,6 +16,7 @@ from fastapi import Depends
 
 from app.config import settings
 from app.domain.route_preference import RoutePreference
+from app.infrastructure.address_search import AddressSearchQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
@@ -173,7 +174,8 @@ def get_wind_grid_service(weather_service: WeatherService = Depends(get_weather_
 @asynccontextmanager
 async def _open_place_search_reads() -> AsyncIterator[PlaceSearchReads]:
     async with get_session_factory()() as session:
-        yield PlaceSearchReads(RegionService(repository=RoadGraphRepository(session)), StopPlaceSearchQuery(session))
+        yield PlaceSearchReads(RegionService(repository=RoadGraphRepository(session)), AddressSearchQuery(session),
+                               StopPlaceSearchQuery(session))
 
 
 def get_place_search_service():
