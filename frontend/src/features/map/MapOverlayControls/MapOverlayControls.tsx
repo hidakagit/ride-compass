@@ -486,13 +486,18 @@ export default function MapOverlayControls({
       <section key={group} aria-label={label} className="flex flex-col">
         <div className="mt-1.5 flex items-center gap-1">
           {/* 1つのチェックボックスで両方向を兼ねる（凡例の軸の見出しと同じ）。対象は一覧に並ぶ行だけで、外した項目は出さない。 */}
-          <Checkbox
-            checked={allOn}
-            onCheckedChange={() => {
-              for (const member of listed) if (member.on === allOn) onToggle(member.id, !allOn);
-            }}
-            aria-label={`${label}をまとめて表示/非表示`}
-          />
+          <span
+            className="inline-flex"
+            data-usage="この群の一覧に並ぶ情報を、まとめて地図に出し入れします。全部出ていれば全部消し、1つでも消えていれば全部出します。"
+          >
+            <Checkbox
+              checked={allOn}
+              onCheckedChange={() => {
+                for (const member of listed) if (member.on === allOn) onToggle(member.id, !allOn);
+              }}
+              aria-label={`${label}をまとめて表示/非表示`}
+            />
+          </span>
           <h3 className="m-0 min-w-0 flex-1 text-[length:var(--font-size-xs)] font-bold" style={GROUP_COLORS[group]}>
             <Button
               variant="ghost"
