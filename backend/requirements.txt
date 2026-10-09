@@ -31,6 +31,6 @@ numpy==2.5.2
 # （Oracle Cloud ARM）でもそのまま入る。
 numba==0.67.0
 redis==5.2.1
-apscheduler==3.11.0
+apscheduler==3.11.3
 # リクエストIDの引き継ぎ・発行・応答ヘッダとログ行への付与（main.py・infrastructure/request_log.py）。
 asgi-correlation-id==5.0.1
