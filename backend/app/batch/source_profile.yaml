@@ -84,7 +84,7 @@ sources:
     rows:
       snapshot: "2026-10-09"
 
-  # e-Stat の小地域の境界（令和2年国勢調査の町丁・字等）。施設の辺りを、施設の点を含む境界に結んだ区画で決める。
+  # e-Stat の小地域の境界（令和2年国勢調査の町丁・字等）。施設と置いた位置の辺りを、点を含む境界の名前で決める。
   - name: estat_small_area
     adapter: estat_small_area
     rows:

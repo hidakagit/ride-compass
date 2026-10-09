@@ -26,7 +26,19 @@ from app.domain.address_area import (
 )
 from app.domain.geo import LatLon
 from app.domain.place_search import PLACE_PREDICTION_LIMIT, PLACE_PREDICTION_MIN_LENGTH, PlaceCandidate
-from app.infrastructure.address_area_lookup import area_chains_sql
+
+#: 上限までの区画（`found`）ごとに、祖先を都道府県から自分まで並べた段（`levels`）と名前（`names`）の配列を1行ずつ出す。
+_AREA_CHAINS = """
+WITH RECURSIVE chain AS (
+    SELECT a.area_id AS leaf, a.parent_id, a.level, a.name, 0 AS depth
+    FROM address_areas a WHERE a.area_id IN (SELECT area_id FROM found WHERE position <= CAST(:limit AS integer))
+    UNION ALL
+    SELECT c.leaf, a.parent_id, a.level, a.name, c.depth + 1
+    FROM chain c JOIN address_areas a ON a.area_id = c.parent_id
+)
+SELECT leaf AS area_id, array_agg(level ORDER BY depth DESC) AS levels, array_agg(name ORDER BY depth DESC) AS names
+FROM chain GROUP BY leaf
+"""
 
 #: 続きの件数を長さごとに数える幅（入力より何文字長い鍵まで数えるか）。この幅で上限に届かなければ、長さで切らずに引く。
 _CONTINUATION_LENGTH_WINDOW = 40
@@ -35,7 +47,7 @@ _CONTINUATION_LENGTH_WINDOW = 40
 # → 番地付き、その中は段の粗いもの → 鍵の短いもの → 検索の中心に近いもの（測地の距離。街区・地番はその点から）
 # ——段を鍵の長さより先にするのは、1文字の入力（「柏」）で同じ名前の大字が上限を埋め、市区町村（「柏市」）が漏れないため。並びの最後の鍵は、同じ位置の
 # 区画の並びを毎回同じにするため。表示名は、上限までの区画から`parent_id`をたどった祖先の名前で組み立てる
-# （`address_area_lookup.py: area_chains_sql`）。
+# （`_AREA_CHAINS`）。
 # 鍵の等号と`LIKE`は、索引で引けるよう引数を直に比べる（`LIKE`の頭の文字列が別の表の列のように問い合わせを組み立てる時に
 # 分からないと、索引の範囲にできず表の全部を読む）。
 _SEARCH_SQL = text(f"""
@@ -78,7 +90,7 @@ _SEARCH_SQL = text(f"""
     SELECT a.level, f.number, f.kind, c.levels, c.names, ST_Y(f.geom) AS latitude, ST_X(f.geom) AS longitude
     FROM found f
     JOIN address_areas a USING (area_id)
-    JOIN ({area_chains_sql("SELECT area_id FROM found WHERE position <= CAST(:limit AS integer)")}) c USING (area_id)
+    JOIN ({_AREA_CHAINS}) c USING (area_id)
     WHERE f.position <= CAST(:limit AS integer)
     ORDER BY f.position
 """)
@@ -118,7 +130,7 @@ class AddressSearchQuery:
 
 def _candidate(row: RowMapping) -> PlaceCandidate:
     """区画か、番地まで当たった街区・地番の候補。"""
-    name = area_label(zip(row["levels"], row["names"], strict=True), full=True)
+    name = area_label(zip(row["levels"], row["names"], strict=True))
     if row["number"] is None:
         return PlaceCandidate(kind="address", level=row["level"], name=name, area=None,
                               latitude=row["latitude"], longitude=row["longitude"])
