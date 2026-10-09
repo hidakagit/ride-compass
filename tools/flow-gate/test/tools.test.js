@@ -55,9 +55,9 @@ test("27 問いは、答えの無い最新の問いが同じ文なら書き直�
   assert.deepEqual(await at(config.todo, [question, answer]), [config.waiting, 2]);
 });
 
-test("28 開発機の対話のセッションが持つ: 待ちの開発機の実行は持っているに数えずに待ち直し、手放しは持った実行を一覧に出なくても取り消して止まるまで待ち、待ちと手放しは GitHub の一時的な失敗1回で落ちない", async () => {
-  // runs は担当のワークフローの実行（later は読まれたときに移る状態で、並びなら読まれるたびに1つずつ移る。unlisted は状態で絞った一覧にまだ出ない、stuck は取り消しても
-  // 止まらない）。fail に挙げた要求（方法と道の頭）は、1回目だけ 502 を返す。
+test("28 開発機の対話のセッションが持つ: 待ちの開発機の実行は持っているに数えずに待ち直し、手放しは持った実行を一覧に出なくても取り消しを頼んで、止まるまで待たずに戻り、待ちと手放しは GitHub の一時的な失敗1回で落ちない", async () => {
+  // runs は担当のワークフローの実行（later は読まれたときに移る状態で、並びなら読まれるたびに1つずつ移る。unlisted は状態で絞った一覧にまだ出ない、refused は取り消しを
+  // 断る（409））。fail に挙げた要求（方法と道の頭）は、1回目だけ 502 を返す。
   const at = (runs, fail = []) => {
     const s = { runs, sent: [] };
     globalThis.fetch = async (url, init = {}) => {
@@ -76,7 +76,8 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
         return Response.json({ workflow_run_id: 100 });
       }
       if (path.endsWith("/cancel")) {
-        if (!run.stuck) Object.assign(run, { later: ["in_progress", "completed"], conclusion: "cancelled" });
+        if (run.refused) return new Response("conflict", { status: 409 });
+        Object.assign(run, { later: ["in_progress", "completed"], conclusion: "cancelled" });
         return new Response(null, { status: 202 });
       }
       run.status = (Array.isArray(run.later) ? run.later.shift() : run.later) ?? run.status;
@@ -99,15 +100,16 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
   s = at([run(5, 7, "作る", "in_progress")], ["GET /repos/o/code/actions/workflows/w.yml/runs", "GET /repos/o/code/actions/runs/100"]);
   r = await hold(gh, config, 7, wait);
   assert.deepEqual([r.mine.id, r.mine.status], [100, "in_progress"]);
-  // 手放しは、持った実行が一覧にまだ出なくても取り消し、止まるまで読み直す。取り消しが 502 を受けても落ちない。
+  // 手放しは、持った実行が一覧にまだ出なくても取り消しを頼み、受け付けられたら止まるまで読み直さずに戻る。取り消しが 502 を受けても落ちない。
   s = at([run(6, 7, "開発機", "in_progress", undefined, { unlisted: true }), run(8, 8, "開発機", "in_progress")], ["POST /repos/o/code/actions/runs/6/cancel"]);
-  r = await release(gh, config, 7, 6, wait);
-  assert.deepEqual([r.status, r.conclusion, s.runs.map((x) => x.status)], ["completed", "cancelled", ["completed", "in_progress"]]);
-  // 取り消しても止まらなければ、終わっていない実行を返す。その番号の開発機の実行でなければ（別の番号の開発機・同じ番号の作る担当）取り消さない。
-  s = at([run(9, 7, "開発機", "in_progress", undefined, { stuck: true }), run(10, 8, "開発機", "in_progress"), run(11, 7, "作る", "in_progress")]);
-  assert.equal((await release(gh, config, 7, 9, wait, 2)).status, "in_progress");
-  for (const id of [10, 11]) await assert.rejects(release(gh, config, 7, id, wait));
-  assert.deepEqual([s.runs[1].status, s.runs[2].status, s.sent.filter((c) => /runs\/1[01]\/cancel/.test(c))], ["in_progress", "in_progress", []]);
+  r = await release(gh, config, 7, 6);
+  assert.deepEqual([r.status, s.sent.filter((c) => c.includes("/runs/6")).at(-1), s.runs[1].status], ["in_progress", "POST /repos/o/code/actions/runs/6/cancel", "in_progress"]);
+  // もう終わった実行は取り消さない。取り消しが受け付けられなければ（409 等）失敗で終える。その番号の開発機の実行でなければ（別の番号の開発機・同じ番号の作る担当）取り消さない。
+  s = at([run(9, 7, "開発機", "in_progress", undefined, { refused: true }), run(10, 8, "開発機", "in_progress"), run(11, 7, "作る", "in_progress"), run(12, 7, "開発機", "completed")]);
+  await assert.rejects(release(gh, config, 7, 9), /409/);
+  assert.equal((await release(gh, config, 7, 12)).status, "completed");
+  for (const id of [10, 11]) await assert.rejects(release(gh, config, 7, id));
+  assert.deepEqual([s.runs[1].status, s.runs[2].status, s.sent.filter((c) => /runs\/1[012]\/cancel/.test(c))], ["in_progress", "in_progress", []]);
 });
 
 test("30 画像は1枚ずつ貼り、貼れなければそこで止まって、それまでに貼った分を知らせる", () => {

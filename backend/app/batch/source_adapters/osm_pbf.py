@@ -30,7 +30,7 @@ from typing import Any
 import shapely
 from shapely.geometry import LineString, Point, Polygon
 
-from app.batch.ingest import SourceRecord, file_origin, register_adapter
+from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.traffic import has_supply_poi_tag
 from app.infrastructure.source_models import WAY_KIND_TAG, SourceFeatureRow
@@ -202,7 +202,11 @@ def _pbf_origin(path: Path) -> dict[str, Any]:
     return origin
 
 
-@register_adapter("osm_pbf_way", rows=OsmWayRows, required=(SourceFeatureRow.payload,))
+def osm_way_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    return AdapterInputs(files=(_pbf_path(spec.rows),))
+
+
+@register_adapter("osm_pbf_way", rows=OsmWayRows, required=(SourceFeatureRow.payload,), inputs=osm_way_inputs)
 async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
                         origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     from app.batch.pbf_source import stream_ways
@@ -246,7 +250,23 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
         logger.warning("参照ノードの座標が欠けて取り込まなかったway: %d件", incomplete)
 
 
-@register_adapter("osm_pbf_node", rows=OsmNodeRows)
+def _referenced_way_rows(spec: SourceSpec, profile: SourceProfile) -> OsmWayRows:
+    """頂点を採るwayのソースの宣言。そこからは**どのwayを採るかと、どのファイルから採るか**の両方を受け継ぐ。
+    片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。"""
+    referenced_by = spec.rows.referenced_by
+    way_rows = profile.source(referenced_by).rows
+    if not isinstance(way_rows, OsmWayRows):
+        raise ValueError(f"{spec.name} の rows.referenced_by は osm_pbf_way のソースを指してください"
+                         f"（指しているもの: {referenced_by}）")
+    return way_rows
+
+
+def osm_node_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    return AdapterInputs(files=(_pbf_path(_referenced_way_rows(spec, profile)),),
+                         sources=(spec.rows.referenced_by,))
+
+
+@register_adapter("osm_pbf_node", rows=OsmNodeRows, inputs=osm_node_inputs)
 async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     """採ったwayが参照する頂点と、`standalone_supply_poi`なら補給・休憩の点を、タグ込みで返す。
@@ -259,12 +279,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
     bbox = profile.target.bbox
     referenced_by = spec.rows.referenced_by
     standalone = spec.rows.standalone_supply_poi
-    # 参照先からは**どのwayを採るかと、どのファイルから採るか**の両方を受け継ぐ。
-    # 片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。
-    way_rows = profile.source(referenced_by).rows
-    if not isinstance(way_rows, OsmWayRows):
-        raise ValueError(f"{spec.name} の rows.referenced_by は osm_pbf_way のソースを指してください"
-                         f"（指しているもの: {referenced_by}）")
+    way_rows = _referenced_way_rows(spec, profile)
     path = _pbf_path(way_rows)
     origin.update(_pbf_origin(path))
     road_matches = _way_matcher(way_rows)

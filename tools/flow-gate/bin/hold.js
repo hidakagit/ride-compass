@@ -1,7 +1,7 @@
 // 開発機の対話のセッションがタスクを触る前に、そのタスクの担当のワークフローのグループ（.github/workflows/claude-task.yml の
 // concurrency）を持つ。種類「開発機」の実行が動き始めたら実行の URL を出して 0 で終え、もう動いている種類「開発機」の実行が
-// あるか、持つ実行が動かずに終わったら 1 で終える（src/hold.js: hold）。触り終えたら --release <実行の id> で、持った実行を
-// 取り消し、止まったら 0、止まらなければ 1 で終える（src/hold.js: release）。
+// あるか、持つ実行が動かずに終わったら 1 で終える（src/hold.js: hold）。触り終えたら --release <実行の id> で、持った実行の
+// 取り消しを頼み、受け付けられたら止まるのを待たずに 0、受け付けられなければその応答を出して 1 で終える（src/hold.js: release）。
 // 開発機でログイン済みの gh（hidakagit）のトークンで打つ。
 import { execFileSync } from "node:child_process";
 import { GitHub } from "../src/github.js";
@@ -16,13 +16,14 @@ const wait = () => new Promise((r) => setTimeout(r, 10e3));
 const releaseCommand = (r) => `node tools/flow-gate/bin/hold.js ${number} --release ${r.id}`;
 
 if (off) {
-  const run = await release(gh, config, number, id, wait);
-  if (run.status === "completed") {
-    console.log(`#${number} を手放した（実行が ${run.conclusion} で終わった）: ${run.html_url}`);
-    process.exit(0);
-  }
-  console.log(`#${number} の実行を取り消したが止まらなかった（${run.status}）: ${run.html_url}（ブラウザで Cancel するか、ジョブの上限まで待つ）`);
-  process.exit(1);
+  const run = await release(gh, config, number, id).catch((e) => {
+    console.log(`#${number} を手放せなかった: ${e.message}`);
+    process.exit(1);
+  });
+  console.log(run.status === "completed"
+    ? `#${number} を手放した（実行はもう ${run.conclusion} で終わっていた）: ${run.html_url}`
+    : `#${number} を手放した（実行の取り消しを頼んだ。止まりきるまでの間、見回りはこのタスクを振り出さない）: ${run.html_url}`);
+  process.exit(0);
 }
 // 動いている実行があれば、列に並ばずに終える（並ぶと、その実行が手放されるまで最大6時間待つ）。
 const { held, mine } = await hold(gh, config, number, wait);

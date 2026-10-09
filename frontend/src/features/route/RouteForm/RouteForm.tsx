@@ -41,6 +41,8 @@ type RouteFormConditions = Pick<
 interface RouteFormProps {
   /** 生成の条件と、それを変える操作。 */
   conditions: RouteFormConditions;
+  /** 出発地の位置（現在地か、地図で置いた地点）。 */
+  origin: Coordinates;
   /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
   originManual: boolean;
   /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。falseの間は地図のピンと同じく印を灰色にし、
@@ -69,6 +71,7 @@ const MAX_ROUTES = routeGenerateConfig.max_routes;
 
 export default function RouteForm({
   conditions,
+  origin,
   originManual,
   originLocated,
   onOriginReset,
@@ -155,6 +158,7 @@ export default function RouteForm({
           {/* 出発地はどちらのモードでも置ける（現在地が取れないときの案内が指す入口）。 */}
           <RoutePoints
             conditions={conditions}
+            origin={origin}
             originManual={originManual}
             originLocated={originLocated}
             onOriginReset={onOriginReset}

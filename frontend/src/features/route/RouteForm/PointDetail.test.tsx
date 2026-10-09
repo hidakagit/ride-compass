@@ -1,5 +1,6 @@
 /**
- * `RouteForm/PointDetail.tsx`——押した地点の詳しく。探して置いた地点の辺りと、代表の位置にすぎないことを出す。打つ欄は住所・施設の
+ * `RouteForm/PointDetail.tsx`——押した地点の詳しく。探して置いた地点の辺りと、代表の位置にすぎないことを出す。地図で選んだ地点と
+ * 辺りの無い施設には、位置から引いた辺りを出す（探した住所には引かない）。打つ欄は住所・施設の
  * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を欄の下に
  * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。引いたあとに地図を
  * 動かしても引き直さない。引けないとき・当たらないときはそう出す。
@@ -9,9 +10,10 @@
  *   `RouteForm/RouteForm.test.tsx`
  * - 周回で経由地・目的地を選んだときのモードの切り替えと、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
  * - 置いた地点へ地図を寄せること・地図の上でピンを動かすこと → `e2e/map-runtime.spec.ts`
- * - 打ちかけの語の続きの候補・施設の候補とその並びを返すこと → backend の `tests/test_place_search_route.py`
+ * - 打ちかけの語の続きの候補・施設の候補とその並びを返すこと、位置の辺りの決め方 → backend の `tests/test_place_search_route.py`
+ * - 出発地・経由地・目的地のどの位置を渡すか（現在地を取れていない出発地は渡さない） → `RouteForm/RouteForm.test.tsx`
  *
- * 差し替えたもの: 検索の口の応答（網の層）。
+ * 差し替えたもの: 検索の口と辺りの口の応答（網の層）。
  */
 import { fireEvent, screen, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -45,7 +47,11 @@ const TOKYO_STATION: Coordinates = { latitude: 35.681, longitude: 139.767 };
 /** 浅草寺のすぐ南（浅草寺まで直線で0.2km）。 */
 const NEAR_SENSOJI: Coordinates = { latitude: 35.713, longitude: 139.7967 };
 
-function renderDetail({ mapCenter = TOKYO_STATION, found = null as PlaceCandidate | null } = {}) {
+function renderDetail({
+  mapCenter = TOKYO_STATION,
+  found = null as PlaceCandidate | null,
+  at = null as Coordinates | null,
+} = {}) {
   const onChoose = vi.fn();
   const detail = (center: Coordinates) => (
     <PointDetail
@@ -53,6 +59,7 @@ function renderDetail({ mapCenter = TOKYO_STATION, found = null as PlaceCandidat
       title="目的地"
       name={found?.name ?? "未設定"}
       found={found}
+      at={at}
       placed={found !== null}
       armLabel="地図で選ぶ"
       usage=""
@@ -92,11 +99,25 @@ describe("PointDetail 置いた地点", () => {
     ["施設", FACILITY, `${FACILITY.name}${FACILITY.area}`, false],
     ["住所", AZA, `${AZA.name}代表の位置`, true],
   ])("探して置いた%sは、名前に施設の辺りを添え、住所には代表の位置と出す", (_kind, found, text, representative) => {
-    renderDetail({ found });
+    // 辺りの口へ問い合わせない（応答を与えていない要求はテストを落とす）。
+    renderDetail({ found, at: { latitude: found.latitude, longitude: found.longitude } });
 
     const detail = screen.getByRole("region", { name: "目的地" });
     expect(detail.textContent).toContain(`目的地${text}`);
     expect(within(detail).queryByText("代表の位置") !== null).toBe(representative);
+  });
+
+  it.each([
+    ["地図で選んだ地点", null, "目的地未設定"],
+    ["辺りの無い施設", { ...FACILITY, area: null }, `目的地${FACILITY.name}`],
+  ])("%sには、位置から引いた辺りを出す", async (_kind, found, head) => {
+    const sent = onBackend("GET", "/api/place-area", () => Response.json({ area: "台東区浅草二丁目" }));
+    renderDetail({ found, at: NEAR_SENSOJI });
+
+    const detail = screen.getByRole("region", { name: "目的地" });
+    expect(await within(detail).findByText("台東区浅草二丁目")).toBeDefined();
+    expect(detail.textContent).toContain(`${head}台東区浅草二丁目`);
+    expect(sent.map(({ query }) => query)).toEqual([sentCenter(NEAR_SENSOJI)]);
   });
 });
 

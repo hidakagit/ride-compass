@@ -14,7 +14,7 @@ asyncpg-stubs==0.30.2
 types-PyYAML==6.0.12.20260906
 types-rasterio==1.5.1.20260907
 types-shapely==2.0.0.20250404
-# テストの実行の道具。使い方はdocs/conventions/testing-operations.md「開発機でのbackendテストの回し方」。
+# テストの実行の道具。使い方は.claude/skills/run-checks/SKILL.md「開発機でのbackendテストの回し方」。
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-xdist==3.8.0

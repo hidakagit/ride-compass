@@ -202,7 +202,7 @@ frontendの文言（管理画面を除く）と、backendが配る文（`domain/
 既知の制約があり CSS の実描画確認に使えない。Playwright headless chromium を直接使う
 （`frontend/node_modules/.bin/playwright`。`npx`は付けない）。ライト/ダーク確認は
 `chromium.newPage({ colorScheme: "light" | "dark" })`で行う。画面を幅・ライト/ダークを選び、脚本どおりに進めて撮るなら
-`frontend/scripts/capture.mjs`を使う（置き場と走らせ方は[testing-operations.md](../../conventions/testing-operations.md)「E2E・画面の撮影の走らせ方」）。
+`frontend/scripts/capture.mjs`を使う（置き場と走らせ方は[run-checks/SKILL.md](../../../.claude/skills/run-checks/SKILL.md)「E2E・画面の撮影の走らせ方」）。
 
 ## 8. globals.cssのグローバルルールに関する方針
 

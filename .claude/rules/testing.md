@@ -22,7 +22,7 @@ paths:
 
 この文書は2つを持つ。**書く前の判定**（単体で確かめるか・そのテストは要るか・起こし直しの手順・消すべき型）と、
 **書き方**（実行時間・置き場・パターン）である。
-検査とテストを手元・CI・開発機でどう回すかは[testing-operations.md](../../docs/conventions/testing-operations.md)が持つ。
+検査とテストを手元・CI・開発機でどう回すかは[run-checks/SKILL.md](../skills/run-checks/SKILL.md)が持つ。
 
 **新しいテストを追加するときは、以下のパターンに従って実行時間の増加を最小限に抑えること。**
 
@@ -804,7 +804,7 @@ SQLは実DBで確かめる（パターン2）。Repositoryを差し替えてよ�
    束ねられないのは③が足りていない合図で、④へ進む前に③へ戻る。
 5. **④で触った範囲だけを検証する。** テストと**静的検査の両方**を
    その範囲へ当てる。全体を流すと、いま直していない失敗が混ざって何が解けたか読めなくなる。
-6. ④⑤を繰り返す。全部解けたらpushし、全体はCIで見る（[testing-operations.md](../../docs/conventions/testing-operations.md)「手元の検査の回し方」）。
+6. ④⑤を繰り返す。全部解けたらpushし、全体はCIで見る（[run-checks/SKILL.md](../skills/run-checks/SKILL.md)「手元の検査の回し方」）。
 
 **手を動かす前に現物を読む。** 書いた当時の文字列で照合しない——整形（prettier等）が入って
 いると一致せず、置換が黙って空振りする。複数ファイルを直すときは、1ファイルの失敗が残りを
@@ -916,7 +916,7 @@ test_routes_generate.py
 4. ファイル単位で共有するのは接続とスキーマまでにする。**テストが書き換える行（生データ・派生の表）は、
    関数スコープのfixtureで各テストの前に作り直す。** 共有した行を書き換えて後片付けで戻す形は、戻し
    漏れが次のテストの前提を静かに変え、実行順が変わった回にだけ落ちる（実行順は毎回混ぜている。
-   [testing-operations.md](../../docs/conventions/testing-operations.md)「実行順をばらす」）。
+   [run-checks/SKILL.md](../skills/run-checks/SKILL.md)「実行順をばらす」）。
 
 実例: test_material_values.py（road_graph_sessionを直接使う）, test_derive_topology.py（自前の
 module fixtureを重ねる）

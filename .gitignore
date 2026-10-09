@@ -14,7 +14,7 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
-# pytest-testmonの記録（作業ツリーごと。docs/conventions/testing-operations.md「変更が届くテストを選ぶ」）
+# pytest-testmonの記録（作業ツリーごと。.claude/skills/run-checks/SKILL.md「変更が届くテストを選ぶ」）
 .testmondata*
 # hypothesisが見つけた失敗の例の控え（作業ツリーごと。次の実行が先に試す）
 .hypothesis/

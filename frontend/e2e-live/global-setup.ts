@@ -16,7 +16,7 @@ export default async function globalSetup(): Promise<void> {
   if (!health?.ok) {
     throw new Unmet(
       `${LIVE_API}/health に応答が無い`,
-      "開発DBへ向けたbackendを手元で起動する（docs/conventions/testing-operations.md「E2E・画面の撮影の走らせ方」）",
+      "開発DBへ向けたbackendを手元で起動する（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）",
     );
   }
 
