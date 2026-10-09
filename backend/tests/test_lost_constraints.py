@@ -1,7 +1,7 @@
 """2つの版のORM宣言から消えた制約を出す（scripts/lost_constraints.py）。
 
 版の取り出し（git archive）とimportは子プロセスの境界なので通さず、宣言の突き合わせだけを確かめる。
-実行口（`main`）は、確かめる担当が Pull Request ごとに本物の2つの版へ流す（docs/conventions/flow.md「確かめる担当」の1）。
+実行口（`main`）は、確かめる担当が Pull Request ごとに本物の2つの版へ流す（.claude/skills/task-work/SKILL.md「確かめる担当」の1）。
 """
 
 from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, MetaData, Table, UniqueConstraint, text

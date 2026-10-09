@@ -1,4 +1,4 @@
-// Pull Request へ画像を1枚ずつ貼り、貼れなければ止まる（flow.md「作る担当」の5の「貼り方」。src/attach.js）。gh をコードのリポジトリの
+// Pull Request へ画像を1枚ずつ貼り、貼れなければ止まる（.claude/skills/task-work/SKILL.md「作る担当」の5の「貼り方」。src/attach.js）。gh をコードのリポジトリの
 // 名義（GH_TOKEN）で打つ。
 import { spawnSync } from "node:child_process";
 import { attach } from "../src/attach.js";
