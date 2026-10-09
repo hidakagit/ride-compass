@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 
 from app.batch import dem_tile_store
-from app.batch.ingest import SourceRecord, register_adapter
+from app.batch.ingest import AdapterInputs, SourceRecord, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
@@ -76,16 +76,33 @@ class DemGrid:
                 f"選んでください（知らない製品: {unknown}）")
 
 
-@register_adapter("gsi_dem_tile", grid=DemGrid, required=(SourceFeatureRow.rast,))
+def _products(spec: SourceSpec) -> dict[str, int]:
+    return {str(product): int(zoom) for product, zoom in spec.grid.products.items()}
+
+
+def _bbox(profile: SourceProfile) -> BoundingBox:
+    min_lat, min_lon, max_lat, max_lon = profile.target.bbox
+    return BoundingBox(min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon)
+
+
+def gsi_dem_tile_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    """置き場にある、範囲を覆うタイル。区域外の印とまだ写していないタイルは、どちらも行にならない。"""
+    root = dem_tile_store.TILE_ROOT
+    return AdapterInputs(files=tuple(
+        dem_tile_store.tile_path(root, product, zoom, x, y)
+        for product, zoom in _products(spec).items()
+        for x, y in tiles_covering_bbox(_bbox(profile), zoom)
+        if dem_tile_store.is_stored(root, product, zoom, x, y)))
+
+
+@register_adapter("gsi_dem_tile", grid=DemGrid, required=(SourceFeatureRow.rast,), inputs=gsi_dem_tile_inputs)
 async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
                              origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     root = dem_tile_store.TILE_ROOT
-    products = {str(product): int(zoom) for product, zoom in spec.grid.products.items()}
+    products = _products(spec)
     # タイルは`fetch_dem_tiles.py`が先に写している。取込が読むのはその置き場。
     origin.update({"tile_root": str(root), "products": products})
-    min_lat, min_lon, max_lat, max_lon = profile.target.bbox
-    bbox = BoundingBox(min_latitude=min_lat, min_longitude=min_lon,
-                       max_latitude=max_lat, max_longitude=max_lon)
+    bbox = _bbox(profile)
 
     for product, zoom in products.items():
         tiles = tiles_covering_bbox(bbox, zoom)

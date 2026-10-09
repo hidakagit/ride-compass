@@ -1,4 +1,4 @@
-"""地点の検索の段取り: 対象範囲と住所と施設を同じ接続でDBから読み、住所と施設を並べる。
+"""地点の検索の段取り: 対象範囲と住所と施設を同じ接続でDBから読み、住所と施設を並べる。置いた位置の辺りも引く。
 
 対象範囲はサービスの対象範囲（取り込んだ道路の範囲、`RegionService.get_ingested_area`）で、範囲の外の地点では
 ルートを作れない。施設は範囲で絞る。住所の区画の表は派生の段が範囲の中の区画だけを入れるので、範囲で絞らない。
@@ -9,8 +9,9 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 
 from app.domain.geo import LatLon
-from app.domain.place_search import PlaceSearchResult
+from app.domain.place_search import PlaceArea, PlaceSearchResult
 from app.infrastructure.address_search import AddressSearchQuery
+from app.infrastructure.place_area_query import PlaceAreaQuery
 from app.infrastructure.stop_place_search import StopPlaceSearchQuery
 from app.services.region_service import RegionService
 
@@ -26,6 +27,7 @@ class PlaceSearchReads:
     region: RegionService
     addresses: AddressSearchQuery
     stop_places: StopPlaceSearchQuery
+    areas: PlaceAreaQuery
 
 
 class PlaceSearchService:
@@ -41,3 +43,8 @@ class PlaceSearchService:
             addresses = await reads.addresses.search(query, near)
             facilities = await reads.stop_places.search(query, area, near)
         return PlaceSearchResult(candidates=[*addresses, *facilities])
+
+    async def area_at(self, point: LatLon) -> PlaceArea:
+        """`point`を含む小地域の境界に結んだ町字の辺り。範囲では絞らない（区画の表に入るのは範囲の中の区画だけ）。"""
+        async with self._open_reads() as reads:
+            return PlaceArea(area=await reads.areas.area_at(point))

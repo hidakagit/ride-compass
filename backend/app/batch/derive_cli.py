@@ -7,7 +7,7 @@
     .venv\\Scripts\\python.exe -m app.batch.derive_cli
 
 **入力が前回の作り直しと同じ段は流さない。** 段の出力は、読むソースの取込・読む前の段の出力・較正値・書く表の列・
-段のコード・DBの版だけで決まる（乱数・時刻・外部への問い合わせを読まない）ので、段ごとにこれらから指紋を作って
+段のコード・実行環境の版（Python・ライブラリ・DB）だけで決まる（乱数・時刻・外部への問い合わせを読まない）ので、段ごとにこれらから指紋を作って
 （`stage_fingerprints`）派生の記録（`derived_stages`）と比べ、同じ段は作業用のスキーマへ写した前回の値をそのまま使う。
 前の段の指紋も入力に入れるので、流した段を読む後ろの段は必ず流れる。全部の段が同じなら、写しも道路網の配列も
 入れ替えもせずに終える。段は単独の入口を持たない。
@@ -54,7 +54,7 @@ from app.batch import (  # noqa: E402
     derive_topology,
     derive_way_materials,
 )
-from app.batch.code_fingerprint import code_fingerprint  # noqa: E402
+from app.batch.code_fingerprint import code_fingerprint, library_versions  # noqa: E402
 from app.batch.common import (  # noqa: E402
     SOURCE_DATA_LOCK,
     asyncpg_dsn,
@@ -116,7 +116,8 @@ STAGES: tuple[DeriveStage, ...] = (
 def stage_fingerprints(runs: Mapping[str, int], tuning: Mapping[str, float],
                        columns: Mapping[str, frozenset[str]], database: str) -> dict[str, str]:
     """段ごとの入力の指紋（段の名前 → 指紋）。`runs`は全ソースの成功した最新の取込、`columns`は派生の表の宣言の列、
-    `database`はDBの版。"""
+    `database`はDBの版（PostgreSQLとPostGIS）。"""
+    runtime = {"python": sys.version, "libraries": library_versions(), "database": database}
     fingerprints: dict[str, str] = {}
     for stage in STAGES:
         inputs = {
@@ -124,8 +125,8 @@ def stage_fingerprints(runs: Mapping[str, int], tuning: Mapping[str, float],
             "after": {name: fingerprints[name] for name in stage.after},
             "tuning": {param: tuning[param] for param in sorted(stage.tuning.values())},
             "columns": {table: sorted(columns[table]) for table in stage.tables},
-            "code": code_fingerprint(stage.module),
-            "database": database,
+            "code": code_fingerprint(stage.module.__name__),
+            "runtime": runtime,
         }
         fingerprints[stage.name] = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     return fingerprints

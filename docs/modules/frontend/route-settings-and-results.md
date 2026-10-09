@@ -34,7 +34,7 @@
 | `features/map/MapView/useMapMarkers.tsx` | 地図の地点の印（出発地・経由地・目的地）と選んでいる区間の印の作成・位置の更新・ドラッグ・後始末を1か所に持つフック。`MapView`は地図を作ったあとに呼ぶだけ（下記「地点の指定」「区間クリック詳細」） |
 | `features/route/PlaceSearch/usePlaceLookup.ts` | 住所・施設の名前を打つ欄の中身と引き方（打ちかけで間を置いて引く・変換中は引かない・引いたときの地図の真ん中を添える）。地点の詳しく（`RouteForm/PointDetail.tsx`）が使う（下記「住所・施設で探す」） |
 | `features/route/PlaceSearch/PlaceCandidates.tsx` | 引いた候補の一覧（表示名・施設の辺りと距離・種類・当たった段）と、引いている間・引けない・当たらないときの文。候補を押したときの形は使う側（地点の詳しく）が持つ。置いた地点が当たった範囲の代表の位置にすぎないか（`isRepresentative`）もここが決める |
-| `features/route/placeSearchApi.ts` | 地点の検索の口（`GET /api/place-search`。[地点の検索（backend）](../backend/place-search.md)）を叩く薄いラッパー |
+| `features/route/placeSearchApi.ts` | 地点の検索の口（`GET /api/place-search`）と置いた位置の辺りの口（`GET /api/place-area`）を叩く薄いラッパー（[地点の検索（backend）](../backend/place-search.md)） |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`の取得。機能をまたいで読むカタログ（軸一覧・既定重み・軸ラベル・識別色・較正値）を`useAxisCatalog`が返す。1つの機能だけが読む形は、その機能が同じ取得の応答から`useAxisCatalogSelect`で導く（地図の表示の軸・タイルの世代は[地図: 静的レイヤー・道路表示](static-map-layers.md)の`features/map/useMapAxisCatalog.ts`）——共有のカタログへ相乗りさせると、読み手が1機能だけの知識を共有の層が運ぶ |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`。並べるidは生成物`route-generate-config.json`に在るものだけを型が通す）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
@@ -458,6 +458,9 @@ page-composition.md「生成に関するフィードバックの置き場」）�
   出発地は「現在地」、目的地が無ければ「未設定」。探して置いた名前は、その地点が候補の位置にある間だけ出す（ピンを動かす・地図で置き直すと
   「地図で選んだ地点」に戻る。`useGenerationConditions.ts: foundAt`）。現在地を取れていない間の出発地は「現在地」と出さず「現在地を取得できていません」と出す
   （印も地図のピンと同じ灰色）——「現在地」と出ている出発地は、本当に今いる場所である。名前と辺りは切らずに折り返す。
+- 辺りは、探して置いた施設なら候補の辺り、地図で置いた地点・現在地・辺りの無い施設なら置いた位置から引いた辺り（市区町村から字・丁目まで。
+  口は`GET /api/place-area`）。探して置いた住所は名前が住所で、位置は代表の位置なので引かない。現在地を取れていない出発地も、仮の位置なので
+  引かない。引いている間・引けない・区画に結んだ境界の外では辺りを出さない（名前と出どころは出ている）。
 - **出発地はどちらのモードでも置ける**。現在地が取れないときの案内（上記）は出発地の「地図で選ぶ」を指すため、既定の周回モードにもその入口が要る
   （目的地モードでは並びの出発地を押す）。
 

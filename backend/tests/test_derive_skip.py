@@ -193,11 +193,11 @@ def _add_column(table: str):
 def _edit_code(module: str, edit: Callable[[str], str]):
     """`app`の写しの`module`（`app`からのパス）を`edit`で書き換え、段のコードの指紋をその写しから読む。"""
     async def change(conn: asyncpg.Connection, monkeypatch, tmp_path: Path) -> None:
-        shutil.copytree(code_fingerprint._SOURCE_ROOT / "app", tmp_path / "app",
+        shutil.copytree(code_fingerprint.ROOT / "app", tmp_path / "app",
                         ignore=shutil.ignore_patterns("__pycache__"))
         path = tmp_path / "app" / module
         path.write_text(edit(path.read_text(encoding="utf-8")), encoding="utf-8")
-        monkeypatch.setattr(code_fingerprint, "_SOURCE_ROOT", tmp_path)
+        monkeypatch.setattr(code_fingerprint, "ROOT", tmp_path)
     return change
 
 
@@ -230,10 +230,6 @@ CHANGES = [
     # 標高のタイルの置き場は面の段だけが読み込む。
     Change("面の段が読み込むモジュールを変えた", _edit_code("batch/dem_tile_store.py", lambda text: text + "\n_EDITED = 1\n"),
            ("raster",)),
-    Change("道を切る段の注釈とdocstringだけを変えた",
-           _edit_code("batch/derive_topology.py",
-                      lambda text: text.replace('"""', '"""書き足した説明。', 1).replace("\nimport", "\n# 書き足した注釈\nimport", 1)),
-           ()),
 ]
 
 

@@ -320,6 +320,7 @@ export default function Home() {
     return (
       <RouteForm
         conditions={conditions}
+        origin={location}
         originManual={locationSource === "manual"}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}

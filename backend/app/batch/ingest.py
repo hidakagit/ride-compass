@@ -14,10 +14,18 @@
 
 取込は派生の作り直しと同時に走らない（`common.py: SOURCE_DATA_LOCK`）。作り直しが走っていれば
 始めずに止まる。
+
+**入力が前回と同じなら取り込まない。** 取込の行は、アダプタが読むファイルの中身・プロファイルの宣言・
+アダプタのコード・ライブラリの版だけで決まる（どのアダプタも時刻・乱数・網の向こうを読まない）。取込はこれらから
+指紋（`input_fingerprint`）を作って成功したrunへ残し、そのソースの成功した最新のrunと同じなら、行を入れ替えず、
+新しいrunも作らずに、そのrunを返す。runが変わらないので、派生の作り直しも生データが変わっていないと読める。
+読むファイルを言えないアダプタ（`inputs`を宣言しないもの）は、毎回取り込む。
 """
 
+import hashlib
 import json
 import logging
+import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import asdict, dataclass
@@ -28,9 +36,10 @@ from typing import Any
 import asyncpg
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.batch.code_fingerprint import code_fingerprint, library_versions
 from app.batch.common import PROGRESS_INTERVAL_SECONDS, SOURCE_DATA_LOCK, format_progress
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
-from app.infrastructure.source_models import SourceRunStatus
+from app.infrastructure.source_models import SourceRunStatus, latest_succeeded_run_by_column_sql
 
 logger = logging.getLogger("ridecompass.ingest")
 
@@ -64,6 +73,20 @@ SourceAdapter = Callable[
 
 
 @dataclass(frozen=True)
+class AdapterInputs:
+    """アダプタが読む入力。取込は、行を読む前にこれを聞いて指紋（`input_fingerprint`）を作る。"""
+
+    #: 読むファイル全部。読み方（どのファイルを開くか）はプロファイルと置き場で決まる。
+    files: tuple[Path, ...]
+    #: このソースのほかに、宣言（`rows`・`grid`）を読むソースの名前。
+    sources: tuple[str, ...] = ()
+
+
+#: アダプタが読む入力を、行を読まずに答える関数。
+InputsOf = Callable[[SourceSpec, SourceProfile], AdapterInputs]
+
+
+@dataclass(frozen=True)
 class RegisteredAdapter:
     read: SourceAdapter
     #: プロファイルの`rows`/`grid`の型。読み込みはこのフィールドにある欄だけを受け付ける。
@@ -72,27 +95,59 @@ class RegisteredAdapter:
     #: このアダプタのソースの行が必ず持つ列（`SourceFeatureRow`の空を許す列）。取込が区画を作るときに
     #: NOT NULLで張り、`scripts/schema_gap.py`が実DBの区画と比べる。
     required: tuple[InstrumentedAttribute[Any], ...] = ()
+    #: 読む入力。無ければ指紋を作れず、毎回取り込む。
+    inputs: InputsOf | None = None
 
 
 ADAPTERS: dict[str, RegisteredAdapter] = {}
 
 
 def register_adapter(name: str, *, rows: type = NoFields, grid: type = NoFields,
-                     required: tuple[InstrumentedAttribute[Any], ...] = ()
+                     required: tuple[InstrumentedAttribute[Any], ...] = (),
+                     inputs: InputsOf | None = None
                      ) -> Callable[[SourceAdapter], SourceAdapter]:
     def decorate(fn: SourceAdapter) -> SourceAdapter:
         if name in ADAPTERS:
             raise ValueError(f"アダプタ名が重複しています: {name}")
-        ADAPTERS[name] = RegisteredAdapter(read=fn, rows=rows, grid=grid, required=required)
+        ADAPTERS[name] = RegisteredAdapter(read=fn, rows=rows, grid=grid, required=required, inputs=inputs)
         return fn
 
     return decorate
 
 
+#: 成功したrunの`origin`に、取込が入力の指紋を書く項目。
+INPUT_FINGERPRINT = "input_fingerprint"
+
+
+def input_fingerprint(spec: SourceSpec, profile: SourceProfile) -> str | None:
+    """そのソースの取込の入力の指紋。アダプタが入力を宣言していなければNone。
+
+    入力は、読むファイルの場所と中身・範囲と読むソースの宣言・アダプタからたどれるコード
+    （`code_fingerprint.py`）・Pythonとライブラリの版。ファイルは中身を全部読む——大きさと更新時刻が
+    同じでも、中身が同じとは言えない。
+    """
+    registered = ADAPTERS[spec.adapter]
+    if registered.inputs is None:
+        return None
+    inputs = registered.inputs(spec, profile)
+    digest = hashlib.sha256(_json({
+        "target": asdict(profile.target),
+        "sources": [_source_dict(profile.source(name)) for name in (spec.name, *inputs.sources)],
+        "code": code_fingerprint(registered.read.__module__),
+        "python": sys.version,
+        "libraries": library_versions(),
+    }).encode())
+    for name, path in sorted({str(path.resolve()): path for path in inputs.files}.items()):
+        digest.update(name.encode())
+        with path.open("rb") as file:
+            digest.update(hashlib.file_digest(file, "sha256").digest())
+    return digest.hexdigest()
+
+
 def file_origin(path: "Path") -> dict[str, Any]:
     """読んだファイルの素性。**取り直したかどうかを後から言えるだけの材料**を残す。
 
-    中身のハッシュは取らない——GB級のファイルを取込のたびにもう一度読むことになる。
+    中身が同じかは、取込が別に残す入力の指紋（`input_fingerprint`）で言う。
     """
     stat = path.stat()
     return {"path": str(path), "bytes": stat.st_size,
@@ -172,6 +227,9 @@ async def ingest_source(
     失敗の記録は、行の入れ替えとは別のトランザクションで書く。入れ替えが途中で落ちても行は元の
     ままで、runは`failed`で残る。成功の記録は入れ替えと同じトランザクションで書くので、
     `succeeded`のrunの行は必ず入っている。
+
+    入力の指紋がそのソースの成功した最新のrunと同じなら、取り込まずにそのrunの`run_id`を返す。読むファイルが
+    揃っていなければ、runを作らずに止まる。
     """
     if conn.is_in_transaction():
         raise RuntimeError("取込はトランザクションの外の接続で呼ぶ（中で呼ぶと、失敗の記録が行と一緒に巻き戻る）")
@@ -186,6 +244,18 @@ async def ingest_source(
 async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name: str) -> int:
     spec = profile.source(source_name)
     adapter = ADAPTERS[spec.adapter].read
+
+    hashing = time.perf_counter()
+    fingerprint = input_fingerprint(spec, profile)
+    hashed = time.perf_counter() - hashing
+    if fingerprint is not None:
+        previous = await conn.fetchrow(
+            f"SELECT run_id, origin ->> '{INPUT_FINGERPRINT}' AS fingerprint "
+            f"FROM {latest_succeeded_run_by_column_sql('$1')} r", spec.name)
+        if previous is not None and previous["fingerprint"] == fingerprint:
+            logger.info("取り込まなかった（入力が前回と同じ）: source=%s 前回のrun_id=%d 入力の指紋=%.1fs",
+                        spec.name, previous["run_id"], hashed)
+            return previous["run_id"]
 
     await _ensure_partition(conn, spec)
     origin: dict[str, Any] = {}
@@ -211,7 +281,8 @@ async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name:
             locked_at = await _replace_rows(conn, spec.name, run_id, rows())
             elapsed = time.perf_counter() - started
             await _close_run(conn, run_id, SourceRunStatus.SUCCEEDED,
-                             {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
+                             {"records": written, "elapsed_seconds": round(elapsed, 1)},
+                             {**origin, INPUT_FINGERPRINT: fingerprint})
         locked = time.perf_counter() - locked_at
     except BaseException:
         elapsed = time.perf_counter() - started
@@ -224,8 +295,8 @@ async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name:
             logger.warning("取込の失敗をrunへ書けなかった（runは running のまま残る）: run_id=%d",
                            run_id, exc_info=True)
         raise
-    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs パーティションの排他ロック（待ちを含む）=%.1fs",
-                spec.name, run_id, written, elapsed, locked)
+    logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs パーティションの排他ロック（待ちを含む）=%.1fs"
+                " 入力の指紋=%.1fs", spec.name, run_id, written, elapsed, locked, hashed)
     return run_id
 
 

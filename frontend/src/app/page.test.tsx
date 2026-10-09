@@ -109,6 +109,7 @@ beforeEach(() => {
   onBackend("GET", "/api/weather/warnings", () => Response.json({ warnings: [] }));
   onBackend("GET", "/api/weather/wbgt", () => Response.json({ reading: null }));
   onBackend("GET", "/api/weather/flood-forecast", () => Response.json({ forecasts: [] }));
+  onBackend("GET", "/api/place-area", () => Response.json({ area: null }));
 });
 
 afterEach(() => {
