@@ -1,13 +1,17 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
 // 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
-// src/attach.js: attach）・31（Pull Request の本文の形。src/pullrequest.js: checkBody）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
-// 打つ口だけを差し替える。31 の2つ目だけは、本物のテンプレート（.github/pull_request_template.md）を読む。
+// src/attach.js: attach）・31（Pull Request の本文の形。src/pullrequest.js: checkBody）・32（試しを持たない道具は --dry-run を断る。
+// bin/cli.js: args）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
+// 打つ口だけを差し替える。31 の2つ目だけは、本物のテンプレート（.github/pull_request_template.md）を読む。32 は本物の道具を
+// 別のプロセスで打つ（断るのは引数を読む所で、GitHub に触れる前）。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）・
 // 道具（bin/attach.js）が打つ gh・31 の断る文言。
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { keepLog, settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
@@ -182,4 +186,18 @@ test("31 本物のテンプレートで、増減の節に「規模:」の行を�
   const body = template.replace(/<[^>\n]*>/g, "書いた")
     .replace("増減: 書いた", "増減: 実装 +1/−0・テスト +1/−0・文書 +0/−0\n規模: S（実装＋テスト 2行。200以下 S・1000以下 M・超えると L。本番DBへ書くタスクは行数によらず L）");
   assert.deepEqual([body.includes("\n規模: S"), checkBody(template, body)], [true, []]);
+});
+
+test("32 試しを持たない道具は --dry-run を断り、書かずに 1 で終える。試しを持つ道具は --dry-run を断らない", () => {
+  // 断り損ねても本物へ書かないよう、トークンは通らない値にし、番号は無い issue にする（gh auth token も GH_TOKEN を返す）。
+  const env = { ...process.env, FLOW_BOT_TOKEN: "invalid", GH_TOKEN: "invalid" };
+  const run = (tool, ...a) => spawnSync(process.execPath, [fileURLToPath(new URL(`../bin/${tool}`, import.meta.url)), "--dry-run", ...a], { encoding: "utf8", env });
+  const n = "999999999";
+  const rejected = [["ask.js", n, "q.md"], ["field.js", n], ["stage.js", n, "題", "b.md"], ["claim.js", n, "作る", "u"], ["hold.js", n], ["attach.js", n, "a.png#前"]];
+  for (const [tool, ...a] of rejected) {
+    const r = run(tool, ...a);
+    assert.deepEqual([tool, r.status, /--dry-run/.test(r.stderr)], [tool, 1, true]);
+  }
+  // 試しを持つ道具は、引数が足りなければ断らずに使い方（2）で終わる（ここで書かずに止める）。
+  for (const tool of ["move.js", "after.js", "dispatch.js"]) assert.deepEqual([tool, run(tool, "x", "y", "z", "w", "v", "u").status], [tool, 2]);
 });
