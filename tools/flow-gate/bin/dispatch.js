@@ -32,7 +32,7 @@ for (const t of started) {
   if (!dry) await repo.rest("POST", `/repos/${repository}/actions/workflows/${workflow}/dispatches`, { ref: base, inputs: { issue: String(t.number), kind: t.kind } });
 }
 const idle = !open.length ? null : stopped ? "見回りのワークフローが無効（Actions の画面で Enable workflow のあと Run workflow で戻す）" : pause ? `${pause} まで止めている（利用の上限など）` : null;
-const load = await workload(gh, config, board.tasks, (await readTasks(gh, config, "is:closed reason:completed")).tasks);
+const load = await workload(gh, config, board.tasks);
 if (dry) say(`作業時間: ${load.tasks.map((t) => `#${t.number}（${t.size}）${t.workHours.toFixed(2)}時間`).join("・") || "無し"} ／ 想定: ${Object.entries(load.expected).map(([size, h]) => `${size} ${h.toFixed(2)}時間`).join("・") || "無し"}`);
 const status = summary(config, {
   watcher: env.GITHUB_RUN_ID ? `[実行](${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID})` : "手元の試し",

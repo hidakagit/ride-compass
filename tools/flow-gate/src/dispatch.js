@@ -8,7 +8,13 @@ const ITEMS = `query Items($o: String!, $n: Int!, $q: String!, $st: String!, $p:
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     size: fieldValueByName(name: $sz) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     start: fieldValueByName(name: $s) { ... on ProjectV2ItemFieldDateValue { date } }
-    content { ... on Issue { number closedAt labels(first: 20) { nodes { name } } blockedBy(first: 50) { nodes { state } } } } } } } } }`;
+    content { ... on Issue { number labels(first: 20) { nodes { name } } blockedBy(first: 50) { nodes { state } } } } } } } } }`;
+
+// 閉じた issue を更新日の新しい順に（GitHub の IssueOrder は閉じた日では並べられない）。規模は Project の欄から読む。
+const CLOSED = `query Closed($o: String!, $n: String!, $sz: String!, $c: String) { repository(owner: $o, name: $n) {
+  issues(states: CLOSED, first: 100, after: $c, orderBy: { field: UPDATED_AT, direction: DESC }) { pageInfo { hasNextPage endCursor } nodes {
+    number closedAt updatedAt stateReason
+    projectItems(first: 10) { nodes { project { number } size: fieldValueByName(name: $sz) { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } } }`;
 
 // 作業の記録: コメント（rules.js: notes の形と問い）と閉じ。1つの issue で読めるのは新しい 100 件まで。
 const RECORDS = (numbers) => `query Records($o: String!, $n: String!) { repository(owner: $o, name: $n) {
@@ -28,7 +34,7 @@ export async function readTasks(gh, config, query) {
       const labels = t.labels.nodes.map((l) => l.name);
       tasks.push({
         number: t.number, status: status?.name ?? null, labels, urgent: labels.includes(urgentLabel), priority: priority?.name ?? null, size: size?.name ?? null,
-        startOn: start?.date ?? null, blocked: t.blockedBy.nodes.some((b) => b.state !== "CLOSED"), closedAt: t.closedAt,
+        startOn: start?.date ?? null, blocked: t.blockedBy.nodes.some((b) => b.state !== "CLOSED"),
       });
     }
     if (!p.items.pageInfo.hasNextPage) return { tasks, ranks };
@@ -70,14 +76,33 @@ async function readWorkHours(gh, config, numbers, now) {
   return hours;
 }
 
+// 規模ごとに、記録の始まり（coordinator.recordsSince）より後に完成で閉じた直近 coordinator.recent 件（{ number, size, closedAt }）。
+// 閉じた日は更新日より後にならないので、更新日の新しい順に読み、どの規模も「そろった recent 件目の閉じた日」が読んだ中で一番古い
+// 更新日以降になるか、一番古い更新日が記録の始まりより前になったら、残りのページは読まない。
+export async function readRecent(gh, config, sizes) {
+  const { recent, recordsSince } = config.coordinator;
+  const [o, n] = config.repository.split("/");
+  const found = Object.fromEntries(sizes.map((size) => [size, []]));
+  const newest = (size) => found[size].toSorted((a, b) => b.closedAt.localeCompare(a.closedAt)).slice(0, recent);
+  for (let c = null; sizes.length; ) {
+    const { nodes, pageInfo } = (await gh.gql(CLOSED, { o, n, sz: config.project.sizeField, c })).repository.issues;
+    for (const t of nodes) {
+      const size = t.projectItems.nodes.find((i) => i.project.number === config.project.number)?.size?.name;
+      if (t.stateReason === "COMPLETED" && t.closedAt >= recordsSince && found[size]) found[size].push({ number: t.number, size, closedAt: t.closedAt });
+    }
+    const oldest = nodes.at(-1)?.updatedAt ?? "";
+    if (!pageInfo.hasNextPage || oldest < recordsSince || sizes.every((size) => newest(size)[recent - 1]?.closedAt >= oldest)) break;
+    c = pageInfo.endCursor;
+  }
+  return sizes.flatMap(newest);
+}
+
 // 作業の状態にいて規模の欄を持つタスク（作業時間を足したもの。区間の無いものは除く）と、その規模の想定（時間）。想定は、完成で
 // 閉じた同じ規模の直近 coordinator.recent 件のうち、作業時間を持つものの p90。記録はこの2つの分だけ読む。
-export async function workload(gh, config, open, done, now = new Date()) {
-  const { recent, recordsSince } = config.coordinator;
+export async function workload(gh, config, open, now = new Date()) {
   const working = open.filter((t) => [config.working, config.review].includes(t.status) && t.size);
   const sizes = [...new Set(working.map((t) => t.size))];
-  const latest = done.filter((t) => t.closedAt >= recordsSince).toSorted((a, b) => b.closedAt.localeCompare(a.closedAt));
-  const samples = sizes.flatMap((size) => latest.filter((t) => t.size === size).slice(0, recent));
+  const samples = await readRecent(gh, config, sizes);
   const hours = await readWorkHours(gh, config, [...working, ...samples].map((t) => t.number), now);
   const expected = {};
   for (const size of sizes) {
@@ -129,10 +154,13 @@ export function pick(config, candidates, running) {
 export function summary(config, { watcher, tasks, working, expected, runs, started, waiting, idle }) {
   const latest = new Map();
   for (const r of runs) if (!latest.has(r.number)) latest.set(r.number, r);
+  // 1つのタスクは1行にする: 担当の無い進行中のタスクが想定も超えていれば、その行に添える。
+  const over = new Map(working.filter((t) => t.workHours > (expected[t.size] ?? Infinity))
+    .map((t) => [t.number, `作業時間 ${t.workHours.toFixed(1)}時間 ／ 想定 ${expected[t.size].toFixed(1)}時間`]));
+  const stuck = new Set(tasks.filter((t) => t.status === config.working && !runs.some((r) => r.number === t.number && !r.conclusion)).map((t) => t.number));
   const notes = [
-    ...working.filter((t) => t.workHours > (expected[t.size] ?? Infinity))
-      .map((t) => `- #${t.number}（${t.size}）が想定を超えている: 作業時間 ${t.workHours.toFixed(1)}時間 ／ 想定 ${expected[t.size].toFixed(1)}時間`),
-    ...tasks.filter((t) => t.status === config.working && !runs.some((r) => r.number === t.number && !r.conclusion)).map((t) => `- #${t.number} が${config.working}なのに、動いている担当が無い`),
+    ...[...stuck].map((k) => `- #${k} が${config.working}なのに、動いている担当が無い${over.has(k) ? `（想定も超えている: ${over.get(k)}）` : ""}`),
+    ...working.filter((t) => over.has(t.number) && !stuck.has(t.number)).map((t) => `- #${t.number}（${t.size}）が想定を超えている: ${over.get(t.number)}`),
     ...(idle ? [`- 振り出せる仕事があるのに枠が空いている: ${idle}`] : []),
     ...[...latest.values()].filter((r) => r.conclusion === "failure" && tasks.some((t) => t.number === r.number)).map((r) => `- #${r.number} の${r.kind}担当の実行が失敗で終わった [実行](${r.url})`),
   ];

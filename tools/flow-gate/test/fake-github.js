@@ -26,10 +26,12 @@ const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude
 
 // issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, lastClose }
 // parent（issue と同じ形）を渡すと issue をその子にする。records は番号 → 記録の並び（コメント { by, at, body } か閉じ { closed: at }）で、
-// 見回りが issue ごとに読むもの（読んだ番号を read に残す）。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [], records = {} }) {
+// 見回りが issue ごとに読むもの（読んだ番号を read に残す）。closed は閉じた issue（{ number, size, closedAt, updatedAt（無ければ
+// closedAt）, stateReason（無ければ COMPLETED）, project（無ければ config の Project の番号） }）で、更新日の新しい順に 100 件ずつ返す
+// （読んだページの数を closedPages に残す）。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [], records = {}, closed = [] }) {
   const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [] };
-  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates, read: [] };
+  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates, read: [], closedPages: 0 };
   const node = (i) => ({
     id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
     author: { databaseId: config.people[i.author ?? config.user]?.id }, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
@@ -67,6 +69,14 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
         ...Object.entries(FIELDS).map(([f, os]) => ({ id: f, name: f, options: os.map((o) => ({ id: `${f}:${o}`, name: o })) })),
         { id: config.project.startField, name: config.project.startField, dataType: "DATE" }] } } },
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) }, node: node(i) } };
+    }
+    if (query.startsWith("query Closed")) {
+      s.closedPages++;
+      const all = closed.map((t) => ({ updatedAt: t.closedAt, ...t })).toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      const from = Number(v.c ?? 0);
+      return { data: { repository: { issues: { pageInfo: { hasNextPage: from + 100 < all.length, endCursor: String(from + 100) },
+        nodes: all.slice(from, from + 100).map((t) => ({ number: t.number, closedAt: t.closedAt, updatedAt: t.updatedAt, stateReason: t.stateReason ?? "COMPLETED",
+          projectItems: { nodes: [{ project: { number: t.project ?? config.project.number }, size: t.size ? { name: t.size } : null }] } })) } } } };
     }
     // GraphQL は App の名義を [bot] を付けずに返す。
     if (query.startsWith("query Records")) {

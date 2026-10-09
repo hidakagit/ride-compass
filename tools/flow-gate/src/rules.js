@@ -8,8 +8,8 @@ export const SCAN = 30; // 今の問いを探すために読むコメントの�
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
 
 // 今日（日本時間）の日付と、着手可能日が今日より先ならその日（無ければ null）。
-export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
-export const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
+const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
+const waitsUntil =(date, now = new Date()) => (date && date > today(now) ? date : null);
 
 // 作る担当へ振り出さずに待つ理由（無ければ null）: 開いた前提・ラベル coordinator.devLabel・今日より先の着手可能日。見回り
 // （src/dispatch.js: ready）と後始末（src/after.js: settle）が同じ見分けを使う。

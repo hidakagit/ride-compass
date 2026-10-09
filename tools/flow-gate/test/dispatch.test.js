@@ -39,7 +39,7 @@ test("25 動いている実行は、終わっていない状態ごとに全部�
   assert.deepEqual((await readActive(get, config)).map((r) => r.id).sort((a, b) => a - b), all.filter((r) => r.status !== "completed").map((r) => r.id));
 });
 
-test("23 作業時間は作業の状態にいた区間の和で、回答待ち・未着手の待ち・記録の始まりより前の着手は数えない。想定は完成した同じ規模の直近の件のうち作業時間を持つものの p90。記録は規模を持つ作業の状態のタスクとその規模の直近の件の分だけ読む", async () => {
+test("23 作業時間は作業の状態にいた区間の和で、回答待ち・未着手の待ち・記録の始まりより前の着手は数えない。想定は完成で閉じた同じ規模の直近の件のうち作業時間を持つものの p90。閉じた issue は規模ごとの直近の件がそろうか記録の始まりより前に当たるまでだけ読み、記録は規模を持つ作業の状態のタスクとその直近の件の分だけ読む", async () => {
   const ago = (hours) => new Date(now.getTime() - hours * 3600e3).toISOString();
   const [c, u, gate] = [config.claude, config.user, config.gate];
   const start = (at, kind = "作る") => ({ by: c, at, body: notes.start(kind, "u") });
@@ -57,18 +57,33 @@ test("23 作業時間は作業の状態にいた区間の和で、回答待ち�
     22: [start(ago(2.5)), { closed: ago(2) }],
     23: [start(ago(4)), { closed: ago(3) }],
     24: [start(ago(5.5)), ...merged(ago(4))],
-    // 10:00 着手 → 10:40 問い（40分）、13:05 着手 → 14:10 マージで完了（65分）→ 105分。直近 recent 件の外なので数えない。
+    // 10:00 着手 → 10:40 問い（40分）、13:05 着手 → 14:10 マージで完了（65分）→ 105分。閉じたあとに更新されて先に読まれるが、
+    // 閉じた日が直近 recent 件の外なので数えない。
     25: [start("2026-10-02T10:00:00Z"), asked("2026-10-02T10:40:00Z"), answered("2026-10-02T12:00:00Z"), start("2026-10-02T13:05:00Z"), ...merged("2026-10-02T14:10:00Z")],
   };
-  const gh = fakeGitHub({ issue: { number: 1 }, records });
-  const open = [task(1, config.working, { size: "S" }), task(2, config.todo, { size: "S" }), task(3, config.working, { size: "S" }), task(4, config.review, { size: "M" }),
+  const minutesBefore = (at, k) => new Date(Date.parse(at) - k * 60e3).toISOString();
+  // 更新日の新しい順に3ページ（100件ずつ）。1ページ目の終わりまでで S の直近4件がそろい、2ページ目で記録の始まりより前に当たる。
+  const closed = [
+    { number: 30, size: "S", closedAt: ago(0.1), project: 9 }, // ほかの Project
+    { number: 29, size: "S", closedAt: ago(0.2), stateReason: "NOT_PLANNED" },
+    { number: 25, size: "S", closedAt: "2026-10-02T14:10:00Z", updatedAt: ago(0.5) },
+    ...[21, 22, 23, 24].map((k) => ({ number: k, size: "S", closedAt: ago(k - 20) })), { number: 27, size: "L", closedAt: ago(1) },
+    ...Array.from({ length: 150 }, (_, k) => ({ number: 101 + k, size: "S", closedAt: minutesBefore("2026-10-02T00:00:00Z", k) })),
+    { number: 28, size: "S", closedAt: "2026-09-30T00:00:00Z" },
+    ...Array.from({ length: 100 }, (_, k) => ({ number: 301 + k, size: "L", closedAt: minutesBefore("2026-09-20T00:00:00Z", k) })),
+  ];
+  const at = async (open) => {
+    const gh = fakeGitHub({ issue: { number: 1 }, records, closed });
+    return { load: await workload(new GitHub("bot-token"), config, open, now), pages: gh.closedPages, read: gh.read.toSorted((a, b) => a - b) };
+  };
+  const open = [task(1, config.working, { size: "S" }), task(2, config.todo, { size: "S" }), task(3, config.working, { size: "S" }), task(4, config.review, { size: "S" }),
     task(5, config.working, { size: "S" }), task(6, config.working)];
-  const done = [...[21, 22, 23, 24].map((k) => ({ number: k, size: "S", closedAt: ago(k - 20) })), { number: 25, size: "S", closedAt: "2026-10-02T14:10:00Z" },
-    { number: 27, size: "L", closedAt: ago(1) }, { number: 28, size: "S", closedAt: "2026-09-30T00:00:00Z" }];
-  const load = await workload(new GitHub("bot-token"), config, open, done, now);
-  assert.deepEqual(Object.fromEntries(load.tasks.map((t) => [t.number, t.workHours])), { 1: 2, 3: 1.5, 4: 3 });
-  assert.deepEqual(load.expected, { S: 1.5 });
-  assert.deepEqual(gh.read.toSorted((a, b) => a - b), [1, 3, 4, 5, 21, 22, 23, 24]);
+  let r = await at(open);
+  assert.deepEqual(Object.fromEntries(r.load.tasks.map((t) => [t.number, t.workHours])), { 1: 2, 3: 1.5, 4: 3 });
+  assert.deepEqual([r.load.expected, r.pages, r.read], [{ S: 1.5 }, 1, [1, 3, 4, 5, 21, 22, 23, 24]]);
+  r = await at([...open, task(7, config.working, { size: "L" })]); // L は1件しか無いので、記録の始まりより前に当たるまで読む
+  assert.deepEqual([r.load.expected, r.pages, r.read], [{ S: 1.5 }, 2, [1, 3, 4, 5, 7, 21, 22, 23, 24, 27]]);
+  assert.equal((await at([task(2, config.todo, { size: "S" })])).pages, 0); // 作業中の規模つきが無ければ読まない
 });
 
 test("23 状況の更新: 想定を超えた作業中のタスク・進行中なのに動いている担当が無いタスク・仕事があるのに空いた枠・落ちた実行のどれかがあれば At risk。中身が変わったときだけ書く", async () => {
@@ -82,6 +97,10 @@ test("23 状況の更新: 想定を超えた作業中のタスク・進行中な
     ["進行中でなければ担当が無くてよい", { tasks: [task(3, config.todo)], runs: [] }, "ON_TRACK"], ["空いた枠", { idle: "止めている" }, "AT_RISK"],
     ["落ちた実行", { runs: [working, ...failed] }, "AT_RISK"], ["落ちた後に通った", { runs: [working, ...failed.toReversed()] }, "ON_TRACK"]])
     assert.equal(summary(config, { ...base, ...extra }).status, want, what);
+  // 担当の無い進行中のタスクが想定も超えていれば、1行にまとめる。
+  const lines = (extra) => summary(config, { ...base, ...extra }).body.split("\n").filter((l) => l.startsWith("- #3"));
+  const both = lines({ working: [{ ...tasks[0], workHours: 5 }], runs: [] });
+  assert.deepEqual([both.length, /動いている担当が無い.*想定も超えている/.test(both[0])], [1, true]);
   const gh = fakeGitHub({ issue: { number: 1 } });
   const calm = summary(config, base);
   const bot = new GitHub("bot-token");
