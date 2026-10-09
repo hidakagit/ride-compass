@@ -74,6 +74,9 @@ class PlaceCandidate(StrictModel):
     kind: PlaceKind
     level: PlaceMatchLevel
     name: str
+    #: 施設の辺り（市区町村から字・丁目まで。「川口市元郷四丁目」）。同じ名前の店を見分ける。住所は表示名がその住所
+    #: なので持たない。施設でも、立ち寄り先の表の行が辺りを持たなければ持たない（`derived_models.py: StopPlaceRow.area`）。
+    area: str | None
     latitude: Latitude
     longitude: Longitude
 

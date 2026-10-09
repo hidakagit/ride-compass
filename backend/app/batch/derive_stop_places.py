@@ -14,9 +14,13 @@
 重心に最も近い建物（重心は境内の外に落ちることがある）、名前は所有者の名前。1つの建物に寺社の所有者が2人いれば、
 両方の寺社に入る。
 
+辺り（`area`）は、入れた地点の位置を住所の辞書で逆引きして入れる（`infrastructure/address_dictionary.py: areas`）。
+逆引きはSQLでできないので、ここだけ位置を取り出してスレッドで引き、一時の表から書き戻す。辞書を開けなければ止まる。
+
 道の網とは何も読み合わないので、どの段の後ろに置いてもよい。
 """
 
+import asyncio
 import logging
 import time
 
@@ -37,6 +41,7 @@ from app.domain.stop_place import (
     store_name_sql,
     temple_shrine_owner_sql,
 )
+from app.infrastructure import address_dictionary
 from app.infrastructure.source_models import BUNKA_HERITAGES_SOURCE_SQL, OVERTURE_PLACES_SOURCE_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_stop_places")
@@ -104,6 +109,26 @@ ORDER BY normalized_name, merge_key, ST_Distance({ground_m_sql("geom")}, {ground
 """
 
 
+_POSITIONS = "SELECT source, source_key, ST_X(geom) AS longitude, ST_Y(geom) AS latitude FROM stop_places"
+
+_AREAS = "CREATE TEMP TABLE _areas (source text, source_key text, area text) ON COMMIT DROP"
+
+_SET_AREAS = """
+UPDATE stop_places s SET area = a.area FROM _areas a WHERE s.source = a.source AND s.source_key = a.source_key
+"""
+
+
+async def _fill_areas(conn: asyncpg.Connection) -> int:
+    """入れた地点の辺りを入れ、辺りの付いた地点の数を返す。"""
+    places = await conn.fetch(_POSITIONS)
+    names = await asyncio.to_thread(address_dictionary.areas, [(p["longitude"], p["latitude"]) for p in places])
+    await conn.execute(_AREAS)
+    await conn.copy_records_to_table("_areas", records=[
+        (place["source"], place["source_key"], name) for place, name in zip(places, names, strict=True)])
+    await conn.execute(_SET_AREAS)
+    return sum(name is not None for name in names)
+
+
 async def derive(conn: asyncpg.Connection) -> int:
     """立ち寄り先の表を入れ直し、入れた地点の数を返す。"""
     started = time.perf_counter()
@@ -115,7 +140,8 @@ async def derive(conn: asyncpg.Connection) -> int:
         await conn.execute(_TEMPLE_BUILDINGS)
         temple_buildings = await conn.fetchval("SELECT count(*) FROM _temple_buildings")
         temples = int((await conn.execute(_INSERT_TEMPLES, HERITAGE_MERGE_RADIUS_M)).split()[-1])
+        located = await _fill_areas(conn)
     await conn.execute("ANALYZE stop_places")
-    logger.info("立ち寄り先: 群に入った %d件 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件 / %.1f秒",
-                grouped, inserted, temple_buildings, temples, time.perf_counter() - started)
+    logger.info("立ち寄り先: 群に入った %d件 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件、辺りの付いた %d件 / %.1f秒",
+                grouped, inserted, temple_buildings, temples, located, time.perf_counter() - started)
     return inserted + temples

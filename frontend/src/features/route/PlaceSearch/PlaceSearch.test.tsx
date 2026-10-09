@@ -1,5 +1,5 @@
 /**
- * `PlaceSearch/PlaceSearch.tsx`——住所・施設の名前を入れて、地図の真ん中を添えて引き、候補（表示名・種類・当たった段、施設は地図の真ん中からの直線距離）を並べ、選んだ候補を目的地・出発地・
+ * `PlaceSearch/PlaceSearch.tsx`——住所・施設の名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を並べ、選んだ候補を目的地・出発地・
  * 経由地のどれかとして置く。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。置いたあとは1行で出し、当たった段が粗ければ代表の位置だと添える（施設は施設の位置なので添えない）。引けないとき・当たらないときはそう出す。
  * 引いたあとに地図を動かしても引き直さない。経由地が上限なら経由地には置けない。地図に重ねて出す一覧と案内は閉じられ、置いたあとの案内は地図がルートへ寄るときにも閉じる。
  *
@@ -25,6 +25,7 @@ const BLOCK: PlaceCandidate = {
   kind: "address",
   level: "block",
   name: "東京都千代田区丸の内一丁目9番",
+  area: null,
   latitude: 35.681,
   longitude: 139.767,
 };
@@ -32,6 +33,7 @@ const AZA: PlaceCandidate = {
   kind: "address",
   level: "aza",
   name: "東京都千代田区丸の内二丁目",
+  area: null,
   latitude: 35.679,
   longitude: 139.764,
 };
@@ -39,6 +41,7 @@ const FACILITY: PlaceCandidate = {
   kind: "facility",
   level: "point",
   name: "浅草寺",
+  area: "台東区浅草二丁目",
   latitude: 35.7148,
   longitude: 139.7967,
 };
@@ -78,7 +81,7 @@ async function searchFor(text: string) {
 }
 
 describe("PlaceSearch", () => {
-  it("入れた住所・施設の候補を種類と当たった段（施設は地図の真ん中からの距離も）つきで並べ、選んだ役割の地点として置いたことを1行で出し、段が粗ければ代表の位置だと添える", async () => {
+  it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ役割の地点として置いたことを1行で出し、段が粗ければ代表の位置だと添える", async () => {
     const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK, AZA, FACILITY] }));
     const { onPlace } = renderSearch();
 
@@ -90,7 +93,11 @@ describe("PlaceSearch", () => {
       within(list)
         .getAllByRole("button")
         .map((row) => row.textContent),
-    ).toEqual([`${BLOCK.name}住所街区・地番`, `${AZA.name}住所字・丁目`, `${FACILITY.name}4.6km施設地点`]);
+    ).toEqual([
+      `${BLOCK.name}住所街区・地番`,
+      `${AZA.name}住所字・丁目`,
+      `${FACILITY.name}${FACILITY.area}4.6km施設地点`,
+    ]);
 
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
     await userEvent.click(screen.getByRole("button", { name: "目的地へ" }));
@@ -183,7 +190,7 @@ describe("PlaceSearch", () => {
     moveMap(TOKYO_STATION);
     await waitPastLookUpDelay();
     expect(sent.map((request) => request.query)).toEqual([{ q: "浅草寺", ...sentCenter(NEAR_SENSOJI) }]);
-    expect(within(list).getByRole("button")).toHaveTextContent(`${FACILITY.name}0.2km`);
+    expect(within(list).getByRole("button")).toHaveTextContent(`${FACILITY.name}${FACILITY.area}0.2km`);
   });
 
   it("経由地が上限なら経由地には置けず、ほかの役割には置ける", async () => {
