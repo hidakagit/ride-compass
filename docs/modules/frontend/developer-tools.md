@@ -11,7 +11,7 @@
 | ファイル | 責務 | マウント先 |
 |---|---|---|
 | `app/admin/page.tsx` | `/admin`のタブ構成を束ねるコンポジションルート（開いたときは軸スタジオのタブ） | 独立URL |
-| `components/HeaderMenu/HeaderMenu.tsx` | 使い方の説明の入口（「使い方を見る」。[ページ全体構成](page-composition.md)「使い方の説明」）・デバッグログ表示・バージョン表示を1個のメニューアイコンへ集約したRadix Popover。バージョン表示は、動いている版（コミットの頭8文字）を窓に出し、確かめ待ちの変更が本番に出たかを利用者が画面から見分けられるようにする | `page.tsx`（`/`）のヘッダー |
+| `components/HeaderMenu/HeaderMenu.tsx` | 使い方の説明の入口（「使い方を見る」。[ページ全体構成](page-composition.md)「使い方の説明」）・地図の表示を再描画（[地図: 静的レイヤー](static-map-layers.md)「まとめて戻す操作」）・デバッグログ表示・バージョン表示を1個のメニューアイコンへ集約したRadix Popover。バージョン表示は、動いている版（コミットの頭8文字）を窓に出し、確かめ待ちの変更が本番に出たかを利用者が画面から見分けられるようにする | `page.tsx`（`/`）のヘッダー |
 | `features/admin/DebugPanel/DebugPanel.tsx` | デバッグログ表示のON/OFFトグル | `/admin`「開発者」タブ |
 | `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル。**表示中の行をそのままの形でコピーできる**（絞り込みを無視して全件にすると、絞って見つけた数行を渡したいときに関係ない行まで混ざる） | `page.tsx`（`/`）、`HeaderMenu`から開閉 |
 | `features/admin/SystemStatusPanel/SystemStatusPanel.tsx` | backend `/api/debug/stats`の集計・フロントバージョン・予報（MSM）の同期鮮度を表示するフローティングパネル | `/admin`「開発者」タブ |
@@ -35,7 +35,7 @@ app/admin/page.tsx（独立URL、Basic認証保護下）
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 
 app/page.tsx（メインページ、地図を持つ、認証なし）
-  └─ header: HeaderMenu（使い方を見る・デバッグログ表示・バージョン表示ボタン）
+  └─ header: HeaderMenu（使い方を見る・地図の表示を再描画・デバッグログ表示・バージョン表示ボタン）
        └─ DebugConsole（debugEnabled時のみHeaderMenuに項目表示、開閉はheader直下で管理）
 ```
 

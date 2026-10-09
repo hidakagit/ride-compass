@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { Button } from "@/components/ui/Button/Button";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { HelpIcon, LogIcon, MenuIcon, VersionIcon } from "@/components/ui/icons/icons";
+import { HelpIcon, LogIcon, MenuIcon, RedrawMapIcon, VersionIcon } from "@/components/ui/icons/icons";
 import { textVariants } from "@/components/ui/Text/Text";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { getQueryClient } from "@/lib/queryClient";
@@ -19,6 +19,8 @@ interface HeaderMenuProps {
   onToggleDebugConsole: () => void;
   /** 説明を見る状態に入る（次に押した部品の使い方を出す）。 */
   onStartUsageGuide: () => void;
+  /** 押した人の地図だけを描き直す（ページを読み込み直すと生成したルートが消える）。 */
+  onRedrawMap: () => void;
 }
 
 // ヘッダーの個別ボタンをこれ以上増やさないよう、常時表示は1個のメニューアイコンに
@@ -29,6 +31,7 @@ export default function HeaderMenu({
   debugConsoleOpen,
   onToggleDebugConsole,
   onStartUsageGuide,
+  onRedrawMap,
 }: HeaderMenuProps) {
   const [open, setOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
@@ -45,7 +48,7 @@ export default function HeaderMenu({
             size="sm"
             aria-label="メニュー"
             className="shrink-0"
-            usage="使い方の説明などを開きます。"
+            usage="使い方の説明・地図の描き直しなどを開きます。"
           >
             <MenuIcon size={15} />
           </Button>
@@ -80,6 +83,18 @@ export default function HeaderMenu({
           >
             <HelpIcon size={15} />
             使い方を見る
+          </Button>
+          <Button
+            variant="menu"
+            size="sm"
+            usage="地図の表示が欠けたときに、地図だけを描き直します。作ったルートは消えません。"
+            onClick={() => {
+              onRedrawMap();
+              setOpen(false);
+            }}
+          >
+            <RedrawMapIcon size={15} />
+            地図の表示を再描画
           </Button>
           {debugEnabled && (
             <Toggle

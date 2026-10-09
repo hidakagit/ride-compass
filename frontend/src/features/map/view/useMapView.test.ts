@@ -79,7 +79,7 @@ describe("useMapView", () => {
   it("レンズを選ぶとルートのレイヤーを表示し、ルートの確定後に周りを塗らない設定なら全道路を塗らない", () => {
     serve();
     const { result, rerender } = render();
-    act(() => result.current.overlayControls.onToggle("route", false));
+    act(() => result.current.lensControl.onRouteShownChange(false));
 
     act(() => result.current.lensControl.onLensChange("axis_ramp"));
 
@@ -137,7 +137,7 @@ describe("useMapView", () => {
     act(() => result.current.lensControl.onToggleLegendKey(key));
 
     expect(result.current.lensControl.hiddenLegendKeys).toEqual([key]);
-    expect(result.current.bulk.anyLegendHidden).toBe(true);
+    expect(result.current.overlayControls.anyLegendHidden).toBe(true);
     act(() => vi.advanceTimersByTime(399));
     expect(result.current.look.hiddenLegendKeys.axis_ramp).toBeUndefined();
     act(() => vi.advanceTimersByTime(1));
@@ -146,7 +146,7 @@ describe("useMapView", () => {
     act(() => result.current.lensControl.onSetHiddenLegendKeys(allKeys));
     expect(result.current.lensControl.hiddenLegendKeys).toEqual(allKeys);
 
-    act(() => result.current.bulk.showAllLegendRows());
+    act(() => result.current.overlayControls.onShowAllLegendRows());
     act(() => vi.advanceTimersByTime(400));
     expect(result.current.lensControl.hiddenLegendKeys).toEqual([]);
     expect(Object.values(result.current.look.hiddenLegendKeys).flat()).toEqual([]);
@@ -156,11 +156,11 @@ describe("useMapView", () => {
     serve();
     const { result } = render();
     expect(chip(result, "surface")).toMatchObject({ on: false, legendDetails: [{ hiddenKeys: [LEGEND_NO_DATA_KEY] }] });
-    expect(result.current.bulk.anyLegendHidden).toBe(false);
+    expect(result.current.overlayControls.anyLegendHidden).toBe(false);
 
     act(() => result.current.overlayControls.onToggle("surface", true));
 
-    expect(result.current.bulk.anyLegendHidden).toBe(true);
+    expect(result.current.overlayControls.anyLegendHidden).toBe(true);
   });
 
   it.each([
@@ -193,7 +193,7 @@ describe("useMapView", () => {
 
     expect(result.current.look.dynamicWeather.disaster?.heavyRain?.visible).toBe(false);
     expect(result.current.look.dynamicWeather.disaster?.landslide?.visible).toBe(true);
-    expect(result.current.bulk.anyLegendHidden).toBe(true);
+    expect(result.current.overlayControls.anyLegendHidden).toBe(true);
     expect(chip(result, "disaster")?.legendDetails?.[0].hiddenKeys).toEqual(["heavyRain"]);
   });
 
@@ -215,19 +215,20 @@ describe("useMapView", () => {
     expect(chip(result, "disaster")?.legendDetails?.[0].hiddenKeys).toEqual(["heavyRain"]);
   });
 
-  it("表示中のレイヤーをすべて非表示にでき、地図へは中身が変わるか再描画を頼んだときだけ新しい値を渡す", () => {
+  it("表示中のレイヤーをすべて非表示にすると一覧の行だけを消してルートは残し、地図へは中身が変わるか再描画を頼んだときだけ新しい値を渡す", () => {
     serve();
     const { result, rerender } = render();
-    expect(result.current.bulk.anyLayerOn).toBe(true);
+    expect(result.current.overlayControls.layers.some((layer) => layer.on)).toBe(true);
+    expect(result.current.look.layerVisibility.route).toBe(true);
 
-    act(() => result.current.bulk.hideAllLayers());
+    act(() => result.current.overlayControls.onHideAllLayers());
 
-    expect(result.current.bulk.anyLayerOn).toBe(false);
-    expect(Object.values(result.current.look.layerVisibility).every((on) => !on)).toBe(true);
+    expect(result.current.overlayControls.layers.filter((layer) => layer.on)).toEqual([]);
+    expect(result.current.look.layerVisibility.route).toBe(true);
     const look = result.current.look;
     rerender({});
     expect(result.current.look).toBe(look);
-    act(() => result.current.bulk.redraw());
+    act(() => result.current.redrawMap());
     expect(result.current.look).toMatchObject({ ...look, refreshToken: 1 });
   });
 
@@ -259,15 +260,15 @@ describe("useMapView", () => {
     },
   );
 
-  it("ルートの線の凡例は、ルートが確定してからルートのチップに出す", () => {
+  it("ルートの出し入れは色分けが持ち、候補を選ぶまで押せない", () => {
     serve();
     const { result, rerender } = render();
-    expect(chip(result, "route")?.legendDetails).toEqual([]);
+    expect(result.current.lensControl).toMatchObject({ routeShown: true, routeSelectable: false });
 
-    rerender({ hasDetail: true });
+    rerender({ hasSelectedRoute: true });
+    act(() => result.current.lensControl.onRouteShownChange(false));
 
-    expect(chip(result, "route")?.legendDetails).toEqual([
-      { label: "", legend: result.current.lensControl.legend, axisId: "difficulty", hiddenKeys: [] },
-    ]);
+    expect(result.current.lensControl).toMatchObject({ routeShown: false, routeSelectable: true });
+    expect(result.current.look.layerVisibility.route).toBe(false);
   });
 });

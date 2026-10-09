@@ -345,10 +345,26 @@
   }
 }
 
-/* 右上のMapLibre純正コントロール（ズーム+/−・回転）を、その下に積むアプリのボタンと同じ幅に
-   そろえて1本の列にする（高さはMapLibreのまま）。 */
+/* 右上のMapLibre純正コントロール（ズーム+/−・回転）を、その下に積むアプリのボタン（`Button`の`mapCtrl`）と同じ幅・
+   同じ面の色にそろえて1本の列にする（高さはMapLibreのまま）。MapLibreは白の面と#333の絵（背景のSVG）を固定で持ち、
+   テーマに従わない。 */
+.app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+  background: var(--color-surface);
+}
+
 .app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group button {
   width: var(--map-ctrl-column-width);
+}
+
+.app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group button + button {
+  border-top-color: var(--color-border);
+}
+
+/* 暗い面の上では、#333の絵を明るさだけ反転する（色相を戻すので、回転の北の赤は赤のまま）。 */
+@media (prefers-color-scheme: dark) {
+  .app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-icon {
+    filter: invert(1) hue-rotate(180deg);
+  }
 }
 
 /* MapView.tsxがattributionControlを常時コンパクト（ⓘアイコン）固定にしているため、
