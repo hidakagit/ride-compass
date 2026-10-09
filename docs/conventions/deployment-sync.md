@@ -14,7 +14,7 @@
 - **backend側のAPIルーター・Pydanticモデル・レジストリ・domain定数を変更したら**、
   `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を実行し、
   `git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを確認する。
-- **規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
+- **API・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
   docs/architecture/・docs/modules/の追従を既定で含める**。今のコードの動き（「現状」）はdocs/modules/が持ち、
   docs/architecture/は構造の約束と外部の制約を持つ（docs/architecture/README.md「書き分け」）。どちらもコード変更と
   同一コミットで更新する。

@@ -1,5 +1,5 @@
 // Claude がタスクを段階に分ける。段階は親の子（GitHub の sub-issue）として、親と同じ種類で作る（Project へは「Auto-add sub-issues to project」が
-// 入れ、ゲートが入口で未着手にして親の優先度を継ぐ）。前の段階は段階の前提（blocked by）に、段階は親の前提に張り、親が進行中なら
+// 入れ、ゲートが入口で未着手にする）。前の段階は段階の前提（blocked by）に、段階は親の前提に張り、親が進行中なら
 // 未着手へ戻す（段階が全部閉じるまで、親は前提待ちで振り出されない）。
 import { readFileSync } from "node:fs";
 import { readTask } from "../src/github.js";

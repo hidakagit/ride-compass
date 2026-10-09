@@ -45,7 +45,7 @@ docs/conventions/ にある。flow.md の節を指す行に当たったら、先
 | 作業 | 読む節 |
 |---|---|
 | 開発機の対話のセッションでタスクを進める（裏の作業役に任せるときも） | flow.md: 開発機の対話のセッション／.claude/commands/review.md: 回すとき |
-| タスクに着手する | flow.md: 1つのタスクを触るのは1者だけ・作る担当（1〜3）・前後関係と組（探す）・issue の形（規模M以上は最初に背景・方針を書く） |
+| タスクに着手する | flow.md: 1つのタスクを触るのは1者だけ・作る担当（1〜3）・前後関係と組（探す）・issue の形（1つの Pull Request に収まらない・方針を選ぶタスクは最初に背景・方針を書く） |
 | 新しい仕組みを作る・設計を判断する | docs/architecture/design-principles.md（全文）／.claude/commands/review.md: 判断原則 |
 | backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／comments.md: ルール・判定基準（新しくコメントを書く/既存コメントを見直す/コードを撤去するとき）・残すと決めたものの行き先／logging.md: 基本原則・使う仕組み（新規実装はこれらを使うこと） |
 | APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | deployment-sync.md: コミットと同時に揃えるもの |
@@ -57,12 +57,12 @@ docs/conventions/ にある。flow.md の節を指す行に当たったら、先
 | テストを書く | testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・テストの足場で、本来のNGを覆わない・挙動を変えるなら、テストを先に書く・当たるパターン（パターン1〜）／fixing.md: 書かないテスト |
 | テストや検査を回す | testing-operations.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
 | 画面を撮る | flow.md: 作る担当（5 の画面の変更のキャプチャ） |
-| コミットする | flow.md: コミット・ラベルと種類と欄（規模の札）／fixing.md: 報告と段取り（実装の増減）／deployment-sync.md: コミットと同時に揃えるもの |
+| コミットする | flow.md: コミット／fixing.md: 報告と段取り（実装の増減）／deployment-sync.md: コミットと同時に揃えるもの |
 | PR を出す | flow.md: 作る担当（4〜6）・分布の前後 |
 | PR を確かめてマージする | flow.md: 確かめる担当・Pull Request のあと・競合を解く |
 | 本番へ書く | flow.md: 自動で進めないもの・本番へ書く／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
-| 起票する | flow.md: 改善を起票する・issue の形・ラベルと種類と欄（規模の札・優先度の見積もり）・前後関係と組 |
+| 起票する | flow.md: 改善を起票する・issue の形・ラベルと種類と欄（優先度の見積もり）・前後関係と組 |
 | 問う・保留する | flow.md: 問い・答え・保留と棚卸 |
 | 文書を書く | 上の「ドキュメント階層」／documentation.md（全文）／comments.md: 残すと決めたものの行き先 |
 | 流れの道具（`tools/flow-gate`・担当のワークフロー）を変える | flow.md: ゲートを変える・公開する・担当の権限・担当が書けないファイル・確かめる担当（1 の書き込みのある道具を流す） |
