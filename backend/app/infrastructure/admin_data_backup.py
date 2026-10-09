@@ -2,7 +2,7 @@
 
 退避のスクリプトは本番VMのホストで動き、置けた時刻（UTC、ISO 8601）を1行だけ`MARKER_PATH`へ書く。ホストの
 `/home/ubuntu/ridecompass-cache-data`がコンテナの`data/`（`deploy-backend.yml`の`-v`）なので、スクリプトの書き先と
-この名前は揃える。止まっても知らせが来ないため、`/health`が経過時間を返し、見回りが読んで気づく。
+この名前は揃える。止まっても知らせが来ないため、`/health`が経過時間を返し、それを読んで気づく。
 """
 
 from datetime import datetime
@@ -24,7 +24,7 @@ def backup_age_hours(now: datetime) -> float | None:
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
-        # `/health`が毎回読むので、ここで落とすとそれを待つデプロイと見回りまで止まる。読めない理由はここでしか分からない。
+        # `/health`が毎回読むので、ここで落とすとそれを待つデプロイまで止まる。読めない理由はここでしか分からない。
         log_throttled_warning(
             "admin-data-backup", "管理データのバックアップの印のファイルが読めない path=%s error=%r", MARKER_PATH, exc
         )
