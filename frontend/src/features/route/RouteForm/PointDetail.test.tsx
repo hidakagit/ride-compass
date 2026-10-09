@@ -6,7 +6,7 @@
  * なると候補を下げる。引いたあとに地図を
  * 動かしても引き直さない。引けないとき・当たらないときはそう出す。打つ欄を押すと保存した地点を出し、打った文字を名前に含むものに
  * 絞り、選んだ地点を上げる。置いた地点を名前を付けて保存し、保存した地点なら保存をやめられる。狭い画面では、欄を押してから閉じる
- * まで欄を上側に出したままにする。
+ * まで欄を上側に出したままにし、その間は地図で置く待ちでも欄の空の案内に地図で置く案内を出さない。
  *
  * ここで見ないもの:
  * - 地点ごとの呼び名・出どころ・名前・地図で置く操作・消す・「現在地に戻す」・上限、候補を選んだあとに打った文字と一覧を消すこと →
@@ -81,6 +81,7 @@ function renderDetail({
   mapCenter = TOKYO_STATION,
   found = null as PlaceCandidate | null,
   at = null as Coordinates | null,
+  armed = false,
 } = {}) {
   const onChoose = vi.fn();
   const detail = (center: Coordinates) => (
@@ -94,7 +95,7 @@ function renderDetail({
       armLabel="地図で選ぶ"
       usage=""
       chooseResult=""
-      armed={false}
+      armed={armed}
       onArmToggle={() => {}}
       originLocated
       mapCenter={center}
@@ -336,5 +337,16 @@ describe("PointDetail 狭い画面", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "目的地の候補を閉じる" }));
     expect(raised()).toBeNull();
+  });
+
+  it("地図で置く待ちでも、上側に出している間は地図が隠れているので、欄の空の案内に地図で置く案内を出さない", async () => {
+    renderDetail({ armed: true });
+    expect(searchBox()).toHaveAttribute("placeholder", "地図をタップ");
+
+    await userEvent.click(searchBox());
+    expect(searchBox()).toHaveAttribute("placeholder", "住所・施設で探す");
+
+    await userEvent.click(screen.getByRole("button", { name: "目的地の候補を閉じる" }));
+    expect(searchBox()).toHaveAttribute("placeholder", "地図をタップ");
   });
 });
