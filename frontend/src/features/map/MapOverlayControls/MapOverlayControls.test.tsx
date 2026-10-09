@@ -1,7 +1,7 @@
 /**
  * `MapOverlayControls.tsx`——「表示」のボタンが開く一覧が、レイヤーを群（源泉の並び）へ束ね、行のチェックでON/OFFし、
  * ⓘ・▶を行のすぐ下に開いて説明・内訳・案内・取得状態を読ませ、内訳から凡例を絞り込めること。群はたため、群ごとに
- * 一覧に並べる項目を選べ、どちらも次の訪問でも保つこと。末尾のまとめての操作が、押せるときだけ押せること。
+ * 一覧に並べる項目を選べ、どちらも次の訪問でも保つこと。群の見出しのチェックで、一覧に並ぶ行をまとめて出し入れできること。末尾のまとめての操作が、押せるときだけ押せること。
  *
  * 群・カテゴリの名前と並びはbackendの宣言（生成物）から導き、テストでも書き写さない。
  *
@@ -72,11 +72,16 @@ async function setup(layers: OverlayLayerChip[], overrides: { anyLegendHidden?: 
   return { user, props, list: screen.getByRole("dialog", { name: LIST_NAME }), ...view };
 }
 
-/** 一覧に並んでいる行の名前（行のチェックボックスの名前）。 */
+const groupToggleName = (label: string) => `${label}をまとめて表示/非表示`;
+
+/** 一覧に並んでいる行の名前（行のチェックボックスの名前。群の見出しのチェックは除く）。 */
 const rowNames = (list: HTMLElement) =>
   within(list)
     .queryAllByRole("checkbox")
-    .map((box) => box.getAttribute("aria-label"));
+    .map((box) => box.getAttribute("aria-label"))
+    .filter(
+      (name) => !MAP_OVERLAY_GROUP_ORDER.some((group) => name === groupToggleName(MAP_OVERLAY_GROUP_LABELS[group])),
+    );
 
 /** 行のtitle（行の名前のチェックボックスを包むラベルが持つ）。 */
 const rowTitle = (name: string) => screen.getByRole("checkbox", { name }).closest("label")?.getAttribute("title");
@@ -271,6 +276,27 @@ describe("群", () => {
     await second.user.click(chooser());
     expect(rowNames(second.list)).toEqual(["kept", "dropped"]);
     expect(second.props.onToggle).not.toHaveBeenCalled();
+  });
+
+  it("群の見出しのチェックは、一覧に並ぶ行をまとめて出し入れする（1つでも消えていれば全部出し、全部出ていれば全部消す）。外した項目は触らない", async () => {
+    const groupToggle = () => screen.getByRole("checkbox", { name: groupToggleName(ROAD_LABEL) });
+    const partly = await setup([chip("shown", { on: true }), chip("hidden"), chip("dropped")]);
+    await partly.user.click(screen.getByRole("button", { name: `${ROAD_LABEL}の表示項目を選ぶ` }));
+    await partly.user.click(screen.getByRole("checkbox", { name: "droppedを一覧に並べる" }));
+    await partly.user.click(screen.getByRole("button", { name: `${ROAD_LABEL}の表示項目を選ぶ` }));
+
+    expect(groupToggle()).not.toBeChecked();
+    await partly.user.click(groupToggle());
+    expect(partly.props.onToggle.mock.calls).toEqual([["hidden", true]]);
+    partly.unmount();
+
+    const all = await setup([chip("shown", { on: true }), chip("hidden", { on: true }), chip("dropped")]);
+    expect(groupToggle()).toBeChecked();
+    await all.user.click(groupToggle());
+    expect(all.props.onToggle.mock.calls).toEqual([
+      ["shown", false],
+      ["hidden", false],
+    ]);
   });
 });
 

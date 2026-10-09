@@ -446,7 +446,7 @@ page-composition.md「生成に関するフィードバックの置き場」）�
 現在地が取れないときの案内（上記）は出発地の「地図で選ぶ」を指すため、既定の周回モードにもその入口が要る。
 
 - 地図のピンは3つとも同じ丸いバッジ（`features/map/MapView/useMapMarkers.tsx: createPointMarkerElement`、出発地だけは
-  現在地アイコン入りの白バッジ）で、**どれもつかんで動かせる**。**行頭の印と地図のピンは
+  現在地アイコン入りの、テーマの面の色（`--color-surface`。ダークなら暗い台）のバッジ）で、**どれもつかんで動かせる**。**行頭の印と地図のピンは
   同じ図形を使う**（`components/PinMark/PinMark.tsx`が中身と背景色を持ち、出発地の現在地の印はアイコン集の
   `components/ui/icons/icons.tsx: LocateIcon`。地図側はMarkerへ渡す要素へ出発地の印をportalで描き、経由地・目的地の
   文字は`components/PinMark/PinMark.tsx: pinMarkText`を要素の文字として入れる）——同じものを2箇所で描くと、片方だけ直したときに

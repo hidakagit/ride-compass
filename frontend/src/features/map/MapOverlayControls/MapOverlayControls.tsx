@@ -224,10 +224,11 @@ function LegendDetails({
 }
 
 /** 地図の上に浮かせる一覧。画面の端・下端に収まる大きさはRadixが測り、ⓘと▶は一覧の中の行の下に開く——一覧の上に
- * 別の浮きパネルを重ねると、スマホの幅では行そのものを覆い、下端で切れる。 */
+ * 別の浮きパネルを重ねると、スマホの幅では行そのものを覆い、下端で切れる。重なり順は`Popover`の既定（下部シートより上）の
+ * まま——下端まで伸びた一覧がスマホの下部シート・タブバーの下へ潜ると、潜った行を押せない。 */
 const FLOATING_PANEL_CLASS = cn(
   cardVariants({ variant: "glass" }),
-  "z-[var(--z-map-detail)] max-w-[min(calc(100vw-2*var(--space-3)),var(--radix-popover-content-available-width))] overflow-y-auto px-3 py-2",
+  "max-w-[min(calc(100vw-2*var(--space-3)),var(--radix-popover-content-available-width))] overflow-y-auto px-3 py-2",
 );
 
 const FILTERED_LABEL = "絞り込み中";
@@ -479,9 +480,24 @@ export default function MapOverlayControls({
     const collapsed = collapsedGroups.includes(group);
     const choosing = choosingGroup === group;
     const isHidden = (member: OverlayLayerChip) => hiddenIds.includes(hiddenKeyOf(group, member.id));
+    const listed = members.filter((member) => !isHidden(member));
+    const allOn = listed.length > 0 && listed.every((member) => member.on);
     return [
       <section key={group} aria-label={label} className="flex flex-col">
         <div className="mt-1.5 flex items-center gap-1">
+          {/* 1つのチェックボックスで両方向を兼ねる（凡例の軸の見出しと同じ）。対象は一覧に並ぶ行だけで、外した項目は出さない。 */}
+          <span
+            className="inline-flex"
+            data-usage="この群の一覧に並ぶ情報を、まとめて地図に出し入れします。全部出ていれば全部消し、1つでも消えていれば全部出します。"
+          >
+            <Checkbox
+              checked={allOn}
+              onCheckedChange={() => {
+                for (const member of listed) if (member.on === allOn) onToggle(member.id, !allOn);
+              }}
+              aria-label={`${label}をまとめて表示/非表示`}
+            />
+          </span>
           <h3 className="m-0 min-w-0 flex-1 text-[length:var(--font-size-xs)] font-bold" style={GROUP_COLORS[group]}>
             <Button
               variant="ghost"
@@ -520,17 +536,15 @@ export default function MapOverlayControls({
         ) : (
           !collapsed && (
             <ul className="m-0 flex list-none flex-col p-0" data-usage={LIST_USAGE}>
-              {members
-                .filter((member) => !isHidden(member))
-                .map((member) => (
-                  // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
-                  <LayerRow
-                    key={member.id}
-                    layer={member}
-                    panel={panelContentFor(member, handlers)}
-                    onToggle={onToggle}
-                  />
-                ))}
+              {listed.map((member) => (
+                // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
+                <LayerRow
+                  key={member.id}
+                  layer={member}
+                  panel={panelContentFor(member, handlers)}
+                  onToggle={onToggle}
+                />
+              ))}
             </ul>
           )
         )}
