@@ -258,7 +258,7 @@ road_bearing_deg)`のフィーチャー単位dict（勾配は属する区間の`
 
 **暗黙の前提（モジュール間の隠れた依存）**: この入力のSQLは`em.average_grade IS NOT NULL`を
 要求するため、[elevation.md](elevation.md)の
-派生（`derive_raster_materials.py`）が該当区間の勾配を出していない（または勾配を出さないと
+派生（`derive_elevation.py`）が該当区間の勾配を出していない（または勾配を出さないと
 決めた区間）の場合、その鍵は勾配タイルの結果から静かに除外される——エラーには
 ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。
 

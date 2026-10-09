@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.batch import derive_raster_materials, derive_topology
+from app.batch import derive_elevation, derive_topology
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.region import BoundingBox
@@ -103,7 +103,7 @@ async def test_the_report_counts_missing_values_per_population_on_the_database(r
         PRODUCT_PRIORITY[0], 15, area, lambda lon, lat: 50.0 if lat < 35.6815 else None))
     async with raw_connection() as conn:
         await derive_topology.derive(conn)
-        await derive_raster_materials.derive(conn)
+        await derive_elevation.derive(conn)
 
     report = await MaterialCoverageService(MaterialCoverageQuery(road_graph_session)).get_material_coverage()
     by_id = {e.material_id: e for e in report.materials}
