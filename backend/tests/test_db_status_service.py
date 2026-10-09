@@ -2,7 +2,7 @@
 
 入口は`build_db_status_report`（数を値で受ける）。しきい値の境界の入力は本物の定数から組み立てる。
 
-ここで見ないもの: 数の読み出し → `infrastructure/db_status.py`、応答への受け渡し・503 → `test_db_status_routes.py`
+ここで見ないもの: 数の読み出し → `test_db_status_query.py`、応答への受け渡し・503 → `test_db_status_routes.py`
 """
 
 from datetime import datetime, timezone

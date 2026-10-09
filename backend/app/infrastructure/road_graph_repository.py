@@ -254,6 +254,22 @@ def material_from_clause(
     return "".join(f"\n{line}" for line in lines) + "\n"
 
 
+def edge_material_table(expression: str) -> str:
+    """`expression`が読む区間の値（`em`）の列を持つ表の名前。区間1本にその表の行は0か1なので、表を別名`em`で
+    直に走査すれば、区間へ結ばずに値のある区間を数えられる。
+
+    `em`の列を1つの表からだけ読む式でなければ送出する（`wm`を読む・2つの表にまたがる・宣言に無い列を読む）。
+    """
+    tables = set()
+    for alias, name in _MATERIAL_REFERENCE.findall(expression):
+        if alias != "em" or name not in _EDGE_MATERIAL_COLUMNS:
+            raise ValueError(f"区間の値の表1つで読めない式: {alias}.{name}")
+        tables.add(_EDGE_MATERIAL_COLUMNS[name].table.name)
+    if len(tables) != 1:
+        raise ValueError(f"区間の値の表1つで読めない式: {expression}")
+    return tables.pop()
+
+
 # --- タイルが焼く単位 ---------------------------------------------------------
 
 #: どちらの単位も`feature_key`という同じ名前で出す。フロントは`promoteId`でこれを
