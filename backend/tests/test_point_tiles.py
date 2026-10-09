@@ -163,6 +163,7 @@ async def test_convenience_stores_come_from_the_stop_places_and_not_from_openstr
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"convenience": 1, "toilets": 1})
 
 
+@pytest.mark.usefixtures("placed_address_dictionary")
 async def test_only_a_convenience_store_carries_its_name(road_graph_repository):
     """コンビニは押すと店の名前で外の地図を開けるように名前を持つ。OpenStreetMap の点は名前を焼かない。"""
     await _ingest_pois([(LON + FAR, LAT, {**TOILETS, "name": "公園のトイレ"})])
