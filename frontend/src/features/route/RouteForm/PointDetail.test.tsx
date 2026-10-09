@@ -2,7 +2,8 @@
  * `RouteForm/PointDetail.tsx`——押した地点の詳しく。探して置いた地点の辺りと、代表の位置にすぎないことを出す。地図で選んだ地点と
  * 辺りの無い施設には、位置から引いた辺りを出す（探した住所には引かない）。打つ欄は住所・施設の
  * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・地図の真ん中からの直線距離・種類・当たった段）を欄の下に
- * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。引いたあとに地図を
+ * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。文字数に足りなく
+ * なると候補を下げる。引いたあとに地図を
  * 動かしても引き直さない。引けないとき・当たらないときはそう出す。打つ欄を押すと保存した地点を出し、打った文字を名前に含むものに
  * 絞り、選んだ地点を上げる。置いた地点を名前を付けて保存し、保存した地点なら保存をやめられる。
  *
@@ -11,6 +12,7 @@
  *   `RouteForm/RouteForm.test.tsx`
  * - 周回で経由地・目的地を選んだときのモードの切り替えと、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
  * - 置いた地点へ地図を寄せること・地図の上でピンを動かすこと → `e2e/map-runtime.spec.ts`
+ * - 狭い画面で、候補が出ている間に欄と候補をキーボードの上の見える範囲へ出すこと（レイアウトの実寸） → `e2e/map-runtime.spec.ts`
  * - 打ちかけの語の続きの候補・施設の候補とその並びを返すこと、位置の辺りの決め方 → backend の `tests/test_place_search_route.py`
  * - 出発地・経由地・目的地のどの位置を渡すか（現在地を取れていない出発地は渡さない） → `RouteForm/RouteForm.test.tsx`
  *
@@ -184,6 +186,25 @@ describe("PointDetail 打つ欄", () => {
     await userEvent.type(searchBox(), enough.slice(-1));
     await screen.findByRole("list", { name: "地点の候補" });
     expect(sent.map((request) => request.query)).toEqual([{ q: enough, ...sentCenter(TOKYO_STATION) }]);
+  });
+
+  it("文字を引き始める長さより短くすると候補を下げ、打ち直すとその文字の候補を出す", async () => {
+    const sent = onBackend("GET", "/api/place-search", (request) =>
+      Response.json({ candidates: request.query.q === "浅草寺" ? [FACILITY] : [AZA] }),
+    );
+    renderDetail();
+
+    await userEvent.type(searchBox(), "丸の内");
+    await screen.findByRole("list", { name: "地点の候補" });
+
+    // 空の欄は、どの引き始める長さにも足りない。
+    await userEvent.clear(searchBox());
+    expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
+
+    await userEvent.type(searchBox(), "浅草寺");
+    const list = await screen.findByRole("list", { name: "地点の候補" });
+    expect(within(list).getByRole("button")).toHaveTextContent(FACILITY.name);
+    expect(sent.map((request) => request.query.q)).toEqual(["丸の内", "浅草寺"]);
   });
 
   it("かな漢字の変換中は引かず、確定してから引く", async () => {

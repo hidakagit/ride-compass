@@ -264,7 +264,7 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 
 **生データの読み方（`source`の値・キーの型）は`infrastructure/source_models.py`の副問い合わせだけが持つ**
 （例: 道の`ways_source_sql`・`ways_lookup_sql`、ノードの`NODES_SOURCE_SQL`・`nodes_lookup_sql`、事故の
-`ACCIDENTS_SOURCE_SQL`、Overtureの地点の`OVERTURE_PLACES_SOURCE_SQL`、文化財の建造物の`BUNKA_HERITAGES_SOURCE_SQL`、住所の`ABR_PREFECTURES_SOURCE_SQL`・`ABR_CITIES_SOURCE_SQL`・`ABR_TOWNS_SOURCE_SQL`・`ESTAT_SMALL_AREAS_SOURCE_SQL`、標高・土地被覆のタイル`DEM_TILES_SQL`・`LANDCOVER_TILES_SQL`）。
+`ACCIDENTS_SOURCE_SQL`・`accidents_within_sql`、Overtureの地点の`OVERTURE_PLACES_SOURCE_SQL`、文化財の建造物の`BUNKA_HERITAGES_SOURCE_SQL`、住所の`ABR_PREFECTURES_SOURCE_SQL`・`ABR_CITIES_SOURCE_SQL`・`ABR_TOWNS_SOURCE_SQL`・`ESTAT_SMALL_AREAS_SOURCE_SQL`、標高・土地被覆のタイル`DEM_TILES_SQL`・`LANDCOVER_TILES_SQL`）。
 派生の段もタイル配信もグラフの読み出しも同じ副問い合わせから読むため、取込の入れ方を変えたときに
 直す場所が1つで済む。読み手は`source_features`をソース名で絞らない。ソース名と取込の状態の綴りも
 同じファイルの`StrEnum`（`Source`・`SourceRunStatus`）だけが持つ。綴りの食い違いはエラーにならず
@@ -730,7 +730,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | `road.py` | 路面を表すタグの読み方の正準定義（surfaceの区分`SURFACE_CLASSES`、tracktypeの等級`TRACK_GRADES`と、2つを合成した路面の見込み`SURFACE_ESTIMATES`）。材料の値式・PostGIS側MVT生成SQL・地図の表示行・値の呼び名・走行モデルの転がり抵抗が共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`（同じ地形を逆方向に走った値も自分で導く`reversed_as`）・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `stop_place.py` | 立ち寄り先の群（`StopPlaceGroup`。点のタイルの属性`group`の値）・文化財の所有者から寺社を見分ける語と式・寺社をまとめる距離（`TEMPLE_SHRINE_SUFFIXES`・`temple_shrine_owner_sql`・`HERITAGE_MERGE_RADIUS_M`等）・Overtureの分類の語から群への表と式（`OVERTURE_GROUP_WORDS`・`overture_group_sql`。取込が落とす地点を決める`OVERTURE_GROUPED_WORDS`も）・同じ店をまとめる距離とチェーンの見分け方（`MERGE_RADIUS_M`・`CHAIN_WORDS`・`chain_text_sql`・`chain_sql`）・言語違いの同じ場所を連絡先で寄せる群と距離・日本語の名前か・連絡先の比べる形（`CONTACT_MERGE_RADIUS_M`・`japanese_name_sql`・`contacts_sql`）・表へ入れる地点（`kept_sql`）・ATMの地点の名前の直し（`store_name_sql`）。配布の列の読み替えは`infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`・`BUNKA_HERITAGES_SOURCE_SQL`が持つ |
-| `accident.py` | 警察庁の事故を道路へ帰属させ数えるときの判断。生データの列から判定を組み立てるSQL断片・自転車とみなす当事者種別・帰属の距離・重み付けの定数（本票の度分秒の読み取りは取込のアダプタ`npa_honhyo.py`が、本票の列名と当事者種別のコードの読み替えは`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`が持つ） |
+| `accident.py` | 警察庁の事故を道路へ帰属させ数えるときの判断。生データの列から判定を組み立てるSQL断片・自転車とみなす当事者種別・帰属の距離・重み付けの定数（本票の度分秒の読み取りは取込のアダプタ`npa_honhyo.py`が、本票の列名と当事者種別のコードの読み替えは`infrastructure/source_models.py`の事故の副問い合わせ（全件の`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`と範囲で絞る`infrastructure/source_models.py: accidents_within_sql`が共有する）が持つ） |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、取込が道の頂点でなくても採る補給・休憩のタグ（`SUPPLY_POI_TAGS`・`has_supply_poi_tag`）、停止要因の数える種別への畳み方と信号の読み替え（`COUNT_KIND_OF`・`count_kind_sql`・`stop_kind_sql`・`kinds_shown_as`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）と片方向にだけ通れるかの式（`one_way_sql`）・道の形の向きと逆向きのそれぞれに通れるか（`travel_allowed`）、交差点判定の次数しきい値、停止要因の場所・交差点を端で分け持つ割合（`PLACE_SHARE_PER_END`・`place_count_sql`）、交差点の階級（`HIGHWAY_RANK`）。取込のタグ（取込のアダプタが1件ずつ当てる）を除き、派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かのしきい値と判定のSQL式（`divided_sql`）。材料`oneway`の値式（`oneway_material_sql`。地図の一方通行と評価が同じ式を読む）は、片方向にだけ通れる道（`traffic.py: one_way_sql`）から上下線の片側を外す |
 
