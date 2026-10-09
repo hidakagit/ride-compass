@@ -136,6 +136,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 
 - CIで落ちた並びは、手元で`--randomly-seed=<runのID>`を付けると同じ並びになる（CIはrunのIDを種に渡す。
   `.github/workflows/ci.yml`）。`-n`を付けずに流すと、ワーカーの中の順まではCIと揃わない。
+- 手元の回の種は、実行の見出しに`Using --randomly-seed=…`と出る（`-q`では出ない）。
 - 前回と同じ並びは`--randomly-seed=last`、混ぜずに流すのは`-p no:randomly`。
 
 ### 止まったテストを落とす（pytest-timeout）
@@ -144,6 +145,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 
 - 開発機（Windows）では、時間切れで**プロセスごと終わる**（後片付けも以降のテストも走らない）。テストDBに残った行は、
   次の実行でそのファイルのエンジンの準備（`tests/conftest.py: road_graph_engine`）が消す。
+- CI（Linux）はシグナル方式: 時間切れのテストだけが失敗になり、後片付けも走って残りへ進む。
 - 上限は、`--durations`で測ったふだんの1件の最長の数倍に置く（値の根拠は`backend/pytest.ini`のコメント）。
   1件だけ長いと分かっているテストは`@pytest.mark.timeout(<秒>)`で個別に上げる。
 
@@ -245,7 +247,7 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
   スクリプトの先頭にある。撮影は「開く版」（`--app`: 本番・作業ツリー・git の版）×「応答」（`--api`: e2e のモック
   `frontend/e2e/fixtures.ts: installApiMocks`・本物の backend。`--backend` で選んだパスの頭だけを作業ツリーの backend が返す）×「脚本」
   （`frontend/capture/context.ts: CaptureScript`）に分かれ、手元で起動する版には本番と同じ組の環境変数を渡す。
-  見せたい状態（位置・レイヤー・レンズ・凡例・応答の差し替え等）は引数でなく脚本で書く。脚本は作業ツリーの外に置ける。
+  見せたい状態（位置・レイヤー・レンズ・凡例・応答の差し替え等）は引数でなく脚本で書く。脚本は受け取る口だけを使い何も読み込まない（だから作業ツリーの外に置ける）。
   地図を開く・レンズを選ぶ・読み終わりを待つ段取りは`e2e-live/live.ts`、画面を進める段取りは
   `e2e/fixtures.ts`・`e2e/states.ts`を使い、書き直さない。地図に描かれた、押すと開くもの（道・点・ルートの区間・乗り換えの帯等）は、
   経度・緯度を渡さずに`e2e/fixtures.ts: clickFeature`で押す。撮れる対象・呼べる段取りを増やすときは口を変えず、地図の当たり判定の
