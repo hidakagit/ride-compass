@@ -47,9 +47,10 @@ STORE = ["shopping", "convenience_store"]
 
 
 def _place(place_id: str, lon: float, hierarchy: list[str], *, confidence: float = 0.9,
-           brand: str | None = None, lat: float = LAT) -> dict:
+           brand: str | None = None, lat: float = LAT, websites: list[str] | None = None,
+           phones: list[str] | None = None) -> dict:
     return {"id": place_id, "lon": lon, "lat": lat, "confidence": confidence, "name": place_id,
-            "brand": brand, "hierarchy": hierarchy}
+            "brand": brand, "hierarchy": hierarchy, "websites": websites, "phones": phones}
 
 
 def _write_parquet(path: Path, places: list[dict]) -> None:
@@ -59,13 +60,13 @@ def _write_parquet(path: Path, places: list[dict]) -> None:
             "CREATE TABLE p (id VARCHAR, geometry GEOMETRY,"
             " bbox STRUCT(xmin DOUBLE, xmax DOUBLE, ymin DOUBLE, ymax DOUBLE), confidence DOUBLE,"
             ' names STRUCT("primary" VARCHAR), brand STRUCT(names STRUCT("primary" VARCHAR)),'
-            ' taxonomy STRUCT("primary" VARCHAR, hierarchy VARCHAR[]))')
+            ' taxonomy STRUCT("primary" VARCHAR, hierarchy VARCHAR[]), websites VARCHAR[], phones VARCHAR[])')
         for p in places:
             conn.execute(
                 "INSERT INTO p VALUES (?, ?::GEOMETRY, {'xmin': ?, 'xmax': ?, 'ymin': ?, 'ymax': ?}, ?,"
-                " {'primary': ?}, {'names': {'primary': ?}}, {'primary': ?, 'hierarchy': ?::VARCHAR[]})",
+                " {'primary': ?}, {'names': {'primary': ?}}, {'primary': ?, 'hierarchy': ?::VARCHAR[]}, ?, ?)",
                 [p["id"], f"POINT ({p['lon']} {p['lat']})", p["lon"], p["lon"], p["lat"], p["lat"], p["confidence"],
-                 p["name"], p["brand"], p["hierarchy"][-1], p["hierarchy"]])
+                 p["name"], p["brand"], p["hierarchy"][-1], p["hierarchy"], p["websites"], p["phones"]])
         conn.execute(f"COPY p TO '{path}' (FORMAT parquet)")
 
 
@@ -227,3 +228,42 @@ async def test_an_atm_in_a_store_is_the_store(derive_conn, overture_dir):
         "セブン-イレブン 渋谷本町1丁目店": "convenience",
         "ファミリーマート横須賀長井一丁目": "convenience",
         "ファミリーマート宇佐美246号溝の口【ASD】": "convenience"}
+
+
+async def test_a_place_without_a_japanese_name_goes_to_the_japanese_place_with_the_same_contact(derive_conn, overture_dir):
+    """同じ場所が言語違いの別の行で入っているのを、日本語の名前の行へ寄せる（六義園の周りの行の形）。ウェブサイト・電話の
+    書き方の揺れは同じ連絡先とみなす。遠くの地点とも共有する連絡先・日本語の名前どうし・日本語でない名前どうし・
+    違う群・飲食は寄せない。"""
+    park = ["sports_and_recreation", "park"]
+    hotel = ["lodging", "hotel"]
+    site = "https://www.tokyo-park.or.jp/park/format/index031.html"
+    places = [
+        _place("ろくぎえん", LON, park, websites=[site], phones=["+81339412222"]),
+        # 書き方の違う同じウェブサイト・電話で、景色・名所の距離（200m）以内 → 寄る
+        _place("ริกุงิเอ็ง", LON + 150 * M, park, websites=["http://tokyo-park.or.jp/park/format/index031.html/"]),
+        _place("Rikugien Gardens", LON - 150 * M, park, phones=["03-3941-2222"]),
+        # 1km 先の地点も持つ電話（区の公園の窓口） → 残る
+        _place("Rikugi Kouen", LON + 10 * M, park, phones=["+81358031252"]),
+        _place("六義公園", LON + APART, park, phones=["03-5803-1252"]),
+        # 連絡先が無い → 残る
+        _place("Rikugien, Komagome", LON + 20 * M, park),
+        # 日本語の名前どうし（同じ公園の中の別の場所） → 両方
+        _place("ペリー公園", LON + 2 * APART, park, phones=["0468347531"]),
+        _place("ペリー記念館", LON + 2 * APART + 50 * M, park, phones=["0468347531"]),
+        # 日本語でない名前どうし → 両方
+        _place("Sushi Sui", LON + 3 * APART, park, phones=["0356511147"]),
+        _place("Ningyocho Iki", LON + 3 * APART + 5 * M, park, phones=["0356511147"]),
+        # 違う群 → 両方
+        _place("Hotel Hamarikyu", LON + 4 * APART, hotel, phones=["0335410200"]),
+        _place("浜離宮恩賜庭園", LON + 4 * APART + 5 * M, park, phones=["0335410200"]),
+        # 泊まるも、群の距離（30m）以内なら寄る
+        _place("Okunikko Kogen Hotel", LON + 5 * APART, hotel, phones=["0288622121"]),
+        _place("奥日光高原ホテル", LON + 5 * APART + 10 * M, hotel, phones=["0288622121"]),
+        # 飲食 → 両方
+        _place("Bar Izayoi", LON + 6 * APART, FOOD, phones=["0443228660"]),
+        _place("Bar 十六夜", LON + 6 * APART + 10 * M, FOOD, phones=["0443228660"]),
+    ]
+
+    assert set(await _stop_places(derive_conn, overture_dir, places)) == {
+        "ろくぎえん", "Rikugi Kouen", "六義公園", "Rikugien, Komagome", "ペリー公園", "ペリー記念館", "Sushi Sui",
+        "Ningyocho Iki", "Hotel Hamarikyu", "浜離宮恩賜庭園", "奥日光高原ホテル", "Bar Izayoi", "Bar 十六夜"}
