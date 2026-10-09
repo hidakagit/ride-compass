@@ -1,6 +1,6 @@
 """変異テストの結果を集計する。backend の下で、測った版と同じ版のチェックアウトで打つ（テスト関数の行数を tests/ から数える）。
 
-引数: 成果物を取ってきた場所（gh run download で mutation-<番号> のディレクトリが並ぶ所）
+引数: 成果物を取ってきた場所（gh run download で mutation-<番号> のディレクトリが並ぶ所）［当て直しの成果物の場所］
 出すもの（標準出力と、同じ場所の summary.json・pertest.json・survivors.json）:
 - 層ごとの変異スコア（95%の幅つき）。テストの当たらない変異は回していないので、別に数える
 - テスト1本ごとの発見と重なり（ほかに無い発見・全部の発見を保つ最小の組・広く壊れたときにしか落ちない）と、その行数
@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 ART = sys.argv[1]
+RECHECK_ART = sys.argv[2] if len(sys.argv) > 2 else None
 shard_dirs = sorted(glob.glob(os.path.join(ART, "mutation-*")))
 rows = json.load(open(os.path.join(shard_dirs[0], "rows.json"), encoding="utf-8"))
 stats = json.load(open(os.path.join(shard_dirs[0], "mutmut-stats.json"), encoding="utf-8"))
@@ -68,6 +69,16 @@ def wilson(k, n):
 
 
 res = {m: status(m) for m in done}
+# 当て直し（テスト全体を当てた生き残り。importtime.py）で落ちたものを「テスト全体で落ちた」へ移す。どのテストが
+# 落ちたかは、テストごとの発見に足さない（記録のテストの外で見つけたもので、重なりの数を変えない）。
+if RECHECK_ART:
+    for d in glob.glob(os.path.join(RECHECK_ART, "mutation-*")):
+        path = os.path.join(d, "results.jsonl")
+        if os.path.exists(path):
+            for line in open(path, encoding="utf-8"):
+                r = json.loads(line)
+                if res.get(r["mutant"]) == "survived" and r["status"] != "survived":
+                    res[r["mutant"]] = "full"
 print("状態", dict(collections.Counter(res.values())))
 by = collections.defaultdict(collections.Counter)
 for m in done:
@@ -76,19 +87,20 @@ for m in done:
 no_test_by = collections.Counter(layer(m) for m in untested)
 no_test_by["全体"] = len(untested)
 summary = {}
-print("\n| 層 | 回した変異 | 落ちた | 集める時点で落ちた | 時間切れ | 生き残り | ほか | スコア | 95%の幅 | テストの当たらない変異 |")
+print("\n| 層 | 回した変異 | 落ちた | 集める時点で落ちた | 時間切れ | テスト全体で落ちた | 生き残り | ほか | スコア | 95%の幅 |"
+      " テストの当たらない変異 |")
 for name in sorted(by, key=lambda x: (x == "全体", x)):
     c = by[name]
     n = sum(c.values())
-    det = c["killed"] + c["timeout"] + c["collect"]
+    det = c["killed"] + c["timeout"] + c["collect"] + c["full"]
     other = n - det - c["survived"]
     lo, hi = wilson(det, n)
     summary[name] = {"n": n, "detected": det, **c, "other": other, "no_tests": no_test_by[name]}
-    print(f"| {name} | {n} | {c['killed']} | {c['collect']} | {c['timeout']} | {c['survived']} | {other} | {det / n:.1%} | "
-          f"{lo:.1%}〜{hi:.1%} | {no_test_by[name]} |")
+    print(f"| {name} | {n} | {c['killed']} | {c['collect']} | {c['timeout']} | {c['full']} | {c['survived']} | {other} | "
+          f"{det / n:.1%} | {lo:.1%}〜{hi:.1%} | {no_test_by[name]} |")
 
 survivors = sorted(m for m in done if res[m] == "survived")
-odd = {m: results[m] for m in done if res[m] not in ("killed", "survived", "timeout", "collect")}
+odd = {m: results[m] for m in done if res[m] not in ("killed", "survived", "timeout", "collect", "full")}
 killed = [m for m in done if res[m] == "killed"]
 print("\n落ちたが失敗の記録が無い", sum(1 for m in killed if not kills.get(m)), "／ ほかの終わり方", len(odd))
 
