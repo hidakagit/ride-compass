@@ -252,31 +252,59 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   expect(styleErrors).toEqual([]);
 });
 
-// 狭い画面では打つ欄の下の候補が「ルート設定」のシートの中に出る。シートの高さに切られず候補を押せて、選んだ地点が地図に立つことを
-// 実ブラウザの寸法で見る（単体テストはレイアウトの実寸を持たない）。
-test("モバイル: 目的地を探すと候補をシートの中で選べ、選ぶと地点の並びにその名前が出て地図にピンが立つ", async ({
+/** スマホのキーボードの高さ（6.1 型の iPhone、変換の候補の帯なし）。 */
+const KEYBOARD_PX = 301;
+
+/**
+ * キーボードが出たときにブラウザがすることを、見える範囲（visual viewport）の高さで見立てる。Playwright の Chromium は
+ * ソフトウェアキーボードを出さないので、見える範囲を下から縮めて縮んだことを知らせる（fixed の基準は縮めない）。
+ */
+async function showKeyboard(page: Page): Promise<number> {
+  return page.evaluate((keyboard) => {
+    const viewport = window.visualViewport!;
+    const height = window.innerHeight - keyboard;
+    Object.defineProperty(viewport, "height", { configurable: true, get: () => height });
+    viewport.dispatchEvent(new Event("resize"));
+    return height;
+  }, KEYBOARD_PX);
+}
+
+// 狭い画面では、候補が出ると打つ欄と候補を画面の上側へ出し、候補はキーボードの上までの中で送る。候補が多くてもキーボードに
+// 覆われずに末尾まで押せて、選んだ地点が地図に立つことを実ブラウザの寸法で見る（単体テストはレイアウトの実寸を持たない）。
+test("モバイル: 目的地を探すと候補を画面の上側でキーボードに隠れずに選べ、選ぶと地点の並びにその名前が出て地図にピンが立つ", async ({
   page,
 }) => {
-  const candidate = {
+  const candidates = Array.from({ length: 30 }, (_, index) => ({
     kind: "facility",
     level: "point",
-    name: "浅草寺",
+    name: `浅草寺${index + 1}`,
     area: "台東区浅草二丁目",
-    latitude: 35.7148,
+    latitude: 35.7148 + index * 0.001,
     longitude: 139.7967,
-  };
+  }));
+  // 末尾の候補を選ぶ（候補が多いと、隠れうるのは末尾の側）。
+  const candidate = candidates[candidates.length - 1];
   await openMobileApp(page, {
-    routes: (p) => p.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates: [candidate] } })),
+    routes: (p) => p.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates } })),
   });
   const settings = await openMobileSheet(page, "ルート設定");
   await settings.getByRole("radio", { name: "目的地", exact: true }).click();
   const searchBox = settings.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
+  await searchBox.click();
+  const keyboardTop = await showKeyboard(page);
   await searchBox.fill("浅草寺");
   await searchBox.press("Enter");
-  const choice = settings
-    .getByRole("list", { name: "地点の候補" })
-    .getByRole("button", { name: new RegExp(candidate.name) });
-  await expect(choice).toBeInViewport();
+  const list = settings.getByRole("list", { name: "地点の候補" });
+  await expect(list).toBeVisible();
+  const box = (await searchBox.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(keyboardTop);
+  const choice = list.getByRole("button", { name: new RegExp(`${candidate.name}\\b`) });
+  // 一覧の下端まで送る（中ほどへ送ると、一覧の下端がキーボードの裏にあっても見えてしまう）。
+  await choice.evaluate((element) => element.scrollIntoView({ block: "end" }));
+  const choiceBox = (await choice.boundingBox())!;
+  expect(choiceBox.y).toBeGreaterThan(box.y + box.height);
+  expect(choiceBox.y + choiceBox.height).toBeLessThanOrEqual(keyboardTop);
   await choice.click();
 
   await expect(settings.getByRole("button", { name: `目的地: ${candidate.name}` })).toBeVisible();
