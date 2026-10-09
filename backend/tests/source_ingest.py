@@ -43,6 +43,17 @@ def way_record(way_id: int, points: Sequence[tuple[float, float]], node_ids: Seq
                         attrs={WAY_KIND_TAG: "cycleway", **(tags or {})}, payload=way_payload(node_ids))
 
 
+#: 道の見本を置く基準の点（経度, 緯度）と、ノードの間隔（度。約100m）。
+WAY_ORIGIN = (139.70, 35.68)
+WAY_STEP = 0.001
+
+
+def zigzag_point(node_id: int, origin: tuple[float, float] = WAY_ORIGIN, step: float = WAY_STEP) -> tuple[float, float]:
+    """道の見本のノード`node_id`の (経度, 緯度)。`origin`から東へ`step`ずつ進み、奇数のノードは`step`だけ北へずらす
+    （道の区間が一直線に並ばず、方位が区間ごとに変わる）。"""
+    return (origin[0] + step * node_id, origin[1] + step * (node_id % 2))
+
+
 def point_record(key: int | str, lon: float, lat: float,
                  attrs: dict[str, Any] | None = None) -> SourceRecord:
     """点のソース（`osm_node`・`accident`）の1件。"""

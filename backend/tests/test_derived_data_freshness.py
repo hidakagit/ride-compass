@@ -125,7 +125,7 @@ async def test_作り直した直後は値や行の無い道と区間があっ�
     await ingest_records(Source.OSM_WAY, [
         way_record(way_id, [points[n] for n in nodes], nodes) for way_id, nodes in ((100, [1, 2]), (200, [3, 4]))])
     await ingest_records(Source.ABR, [abr_prefecture_record("130001", "東京都", *points[1])])
-    assert await derive_cli.run(postgis_database_url(), None) == 0
+    assert await derive_cli.run(postgis_database_url()) == 0
 
     report = await _report(road_graph_session)
 

@@ -33,6 +33,7 @@ from app.infrastructure import (
     tile_persistent_cache,
 )
 from app.infrastructure.derived_data_freshness import derived_tables
+from app.infrastructure.derived_data_meta import DerivedStageRow
 from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
@@ -373,8 +374,10 @@ async def raw_connection():
         await conn.close()
 
 
-#: 生データと、派生の段が書く表（表の印から導く）。派生の段を生の接続で回すテストは、これを空にしてから取り込む。
-INGESTED_TABLES = (*(table.name for table in derived_tables()), "source_features", "source_runs")
+#: 生データと、派生の段が書く表（表の印から導く）と段の指紋の記録。派生の段を生の接続で回すテストは、これを空にしてから
+#: 取り込む——記録が残ると、空にした表を作り直さずに段を飛ばしうる。
+INGESTED_TABLES = (*(table.name for table in derived_tables()), DerivedStageRow.__tablename__, "source_features",
+                   "source_runs")
 
 
 async def empty_ingested_tables(conn) -> None:

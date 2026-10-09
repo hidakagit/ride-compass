@@ -22,7 +22,7 @@ from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, PARTY_TYPE_CODES
 from tests.conftest import empty_ingested_tables
-from tests.source_ingest import ingest_records, point_record, way_record
+from tests.source_ingest import WAY_ORIGIN, WAY_STEP, ingest_records, point_record, way_record, zigzag_point
 
 # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -32,8 +32,8 @@ pytestmark = [
     pytest.mark.postgis,
 ]
 
-BASE_LON, BASE_LAT = 139.70, 35.68
-STEP = 0.001
+BASE_LON, BASE_LAT = WAY_ORIGIN
+STEP = WAY_STEP
 
 #: (wayのid, 参照ノードid列)。3本ともノード3で接する。ノード3の上で起きた事故は
 #: 3区間のどれからも距離0になる。
@@ -52,12 +52,8 @@ OTHER_PARTY = "59"
 CROSSING = {"highway": "crossing"}
 
 
-def _point(node_id: int) -> tuple[float, float]:
-    return (BASE_LON + STEP * node_id, BASE_LAT + STEP * (node_id % 2))
-
-
 def _road(way_id: int, node_ids: list[int]):
-    return way_record(way_id, [_point(n) for n in node_ids], node_ids)
+    return way_record(way_id, [zigzag_point(n) for n in node_ids], node_ids)
 
 
 def _north_of_way(meters: float) -> tuple[float, float]:
@@ -76,7 +72,7 @@ def _accident(key: str, position: tuple[float, float], *, bicycle: bool = True, 
 
 async def _ingest_accidents(conn: asyncpg.Connection, *accidents) -> None:
     """ノード3の上の事故に`accidents`を加えて、事故を取り込み直す。"""
-    await ingest_records("accident", [_accident("tied", _point(TIED_NODE)), *accidents], conn=conn)
+    await ingest_records("accident", [_accident("tied", zigzag_point(TIED_NODE)), *accidents], conn=conn)
 
 
 async def _accidents(conn: asyncpg.Connection) -> dict[tuple[int, int], float]:
@@ -135,7 +131,7 @@ async def test_a_crossing_near_a_signal_is_counted_as_a_signal(counts_conn):
     地図も同じ読み替えで信号の点を出す（`test_point_tiles.py`）。信号のノード9は道から北へ約10mで、
     どの区間にも乗らない。
     """
-    lon, lat = _point(TIED_NODE)
+    lon, lat = zigzag_point(TIED_NODE)
     await _derive_with_nodes(counts_conn, {
         TIED_NODE: ((lon, lat), CROSSING), 9: ((lon, lat + 0.0001), {"highway": "traffic_signals"})})
 
@@ -156,10 +152,10 @@ async def test_rerun_on_changed_input_keeps_no_count_the_input_no_longer_support
         return (await counts_conn.fetchval(f"SELECT {total} FROM edge_materials"),
                 await counts_conn.fetchval(f"SELECT {total} FROM way_materials"))
 
-    await _derive_with_nodes(counts_conn, {TIED_NODE: (_point(TIED_NODE), CROSSING)})
+    await _derive_with_nodes(counts_conn, {TIED_NODE: (zigzag_point(TIED_NODE), CROSSING)})
     before = await counted()
     await ingest_records("accident", [], conn=counts_conn)
-    await _derive_with_nodes(counts_conn, {TIED_NODE: (_point(TIED_NODE), {})})
+    await _derive_with_nodes(counts_conn, {TIED_NODE: (zigzag_point(TIED_NODE), {})})
     after = await counted()
 
     assert before[0] > 0 and before[1] == before[0]
