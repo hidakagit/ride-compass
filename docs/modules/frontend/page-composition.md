@@ -239,7 +239,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 | 種別 | コンポーネント |
 |---|---|
 | 地図本体 | `features/map/MapView/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
-| 地図オーバーレイ制御 | `MapOverlayControls`（地図の左上の「表示」のボタンと一覧）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（「表示」の右に並ぶレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度）・`MapResetMenu`（右の列の末尾の、まとめて戻すメニュー） |
+| 地図オーバーレイ制御 | `MapOverlayControls`（地図の左上の「表示」のボタンと一覧）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図の上の中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
 | ルート結果 | `features/route/RouteOutcome/RouteOutcome.tsx`（「ルート結果」の中身: 空の状態・候補の一覧［縦タブ］・候補の操作・区間の詳細・編集面）・`RouteAxisProfile`（候補ごとのタブの中身、軸別難易度） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
@@ -322,8 +322,9 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 `WindBearingSlider`ダイヤルをRadix Popoverで開く。
 
 地図右上は、MapLibreのズーム+/−・回転（`MapView.tsx: NavigationControl`）の下へ
-`TravelBearingControl`・`RideConditionBar`・「現在地に移動」・「まとめて戻す」（`MapResetMenu`）を積んだ**1本の列**で、幅・間隔・アイコンの大きさは
-`globals.css`の`--map-ctrl-*`だけが持つ。MapLibre側のボタンの幅もそこで列の幅へ広げ、
+`TravelBearingControl`・`RideConditionBar`・「現在地に移動」を積んだ**1本の列**で、幅・間隔・アイコンの大きさは
+`globals.css`の`--map-ctrl-*`だけが持つ。MapLibre側のボタンの幅と面の色もそこで列にそろえ（面はテーマに従い、ダークでは
+MapLibreの絵を明るさだけ反転する）、
 アプリのボタンを積み始める位置はNavigationControlの既定のボタン数（3つ）から導く——
 どこか1か所だけ別の値を持つと、その継ぎ目だけ間隔や幅がずれる。値を出すボタンは高さだけが
 中身に合わせて伸びる。地図の下側には操作を浮かせない（スマホでシートを開いても地図の下側が見える）。

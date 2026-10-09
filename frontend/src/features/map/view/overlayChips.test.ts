@@ -4,10 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
-  isAxisStudioLayer,
   TILE_VERSIONS_MISSING_NOTICE,
   TILE_ZOOM_TOO_WIDE_NOTICE,
-  type ChipLayerDescriptor,
 } from "@/features/map/layers/mapLayers";
 import { roadLegendAxes } from "@/features/map/scene/legends";
 
@@ -17,7 +15,6 @@ import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 const catalog = mapCatalogOf([rampEntry("ramp_a", [1]), dedicatedEntry("dedicated_b", [1])]);
 const LAYERS = buildMapLayers(catalog);
-const CHIP_LAYERS = LAYERS.filter((layer): layer is ChipLayerDescriptor => !isAxisStudioLayer(layer));
 
 type Options = Parameters<typeof overlayChips>[0];
 function chips(options: Partial<Options> = {}) {
@@ -25,28 +22,21 @@ function chips(options: Partial<Options> = {}) {
     layers: LAYERS,
     visibility: buildDefaultLayerVisibility(),
     hidden: {},
-    screenLegends: {},
     dataStatus: {},
     zoomTooWideLayerIds: [],
     versionMissingLayerIds: [],
     catalogSettled: true,
-    hasSelectedRoute: true,
     ...options,
   });
 }
 const chipOf = (list: ReturnType<typeof chips>, id: string) => list.find((chip) => chip.id === id)!;
 
 describe("overlayChips（地図上チップの状態）", () => {
-  it("軸スタジオ由来のレイヤーはチップにしない", () => {
+  it("軸スタジオ由来のレイヤーと、ルートにひもづくレイヤーはチップにしない（どちらも色分けが持つ）", () => {
     const ids = chips().map((chip) => chip.id);
     expect(ids).not.toContain("axis:ramp_a");
+    expect(ids).not.toContain("route");
     expect(ids).toContain("tunnel");
-  });
-
-  it("ルートにひもづくレイヤーは、候補を選ぶまで押せない", () => {
-    expect(chipOf(chips({ hasSelectedRoute: false }), "route").disabled).toBe(true);
-    expect(chipOf(chips({ hasSelectedRoute: false }), "tunnel").disabled).toBe(false);
-    expect(chipOf(chips(), "route").disabled).toBe(false);
   });
 
   it("タイル世代が無いときは、カタログを取り終えていれば失敗・取得中なら読み込み中として出す", () => {
@@ -66,17 +56,12 @@ describe("overlayChips（地図上チップの状態）", () => {
     expect(chipOf(list, "tunnel")).toMatchObject({ notice: null, dataStatus: undefined });
   });
 
-  it("▶パネルの凡例は、絞り込める凡例（隠した行つき）・表示専用の凡例・画面から渡した凡例の順", () => {
+  it("▶パネルの凡例は、絞り込める凡例（いまの凡例にある隠した行つき）と表示専用の凡例", () => {
     const [road] = roadLegendAxes();
     const [, second] = road.entries;
-    const screenLegend = { label: "画面から", legend: [] };
-    const list = chips({
-      hidden: { [road.axisId]: [second.key, "gone"] },
-      screenLegends: { [road.layerId]: [screenLegend] },
-    });
+    const list = chips({ hidden: { [road.axisId]: [second.key, "gone"] } });
     const details = chipOf(list, road.layerId).legendDetails ?? [];
     expect(details[0]).toMatchObject({ axisId: road.axisId, hiddenKeys: [second.key] });
-    expect(details.at(-1)).toEqual({ ...screenLegend, hiddenKeys: [] });
 
     const precipitation = chipOf(list, "precipitationNowcast").legendDetails ?? [];
     expect(precipitation.length).toBeGreaterThan(0);
