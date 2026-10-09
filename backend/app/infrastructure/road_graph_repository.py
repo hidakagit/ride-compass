@@ -420,9 +420,15 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                     SELECT ST_Azimuth(ST_StartPoint(src.geom)::geography,
                                       ST_EndPoint(src.geom)::geography) AS azimuth
                 ) ref
-                JOIN road_edges re
-                  ON re.osm_way_id = src.osm_way_id
-                 AND (src.segment_index IS NULL OR re.segment_index = src.segment_index)
+                CROSS JOIN LATERAL (
+                    -- 区間を道ごとに主キーの索引で引く。`OFFSET 0`は副問い合わせを外の結合へ
+                    -- 畳ませないためのもの——畳まれると、道の単位と区間の単位を1つの条件で結ぶ
+                    -- `OR`のために、計画が区間の表を全件読んでハッシュを作る形を選びうる。
+                    SELECT * FROM road_edges r
+                    WHERE r.osm_way_id = src.osm_way_id
+                      AND (src.segment_index IS NULL OR r.segment_index = src.segment_index)
+                    OFFSET 0
+                ) re
                 {material_from_clause([_GRADIENT_SQL], 're.osm_way_id', 're.segment_index')}
                 WHERE ({_GRADIENT_SQL}) IS NOT NULL
                   AND ref.azimuth IS NOT NULL
