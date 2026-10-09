@@ -2,7 +2,8 @@
  * `RouteForm/PointDetail.tsx`——押した地点の詳しく。探して置いた地点の辺りと、代表の位置にすぎないことを出す。地図で選んだ地点と
  * 辺りの無い施設には、位置から引いた辺りを出す（探した住所には引かない）。打つ欄は住所・施設の
  * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を欄の下に
- * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。引いたあとに地図を
+ * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。文字数に足りなく
+ * なると候補を下げる。引いたあとに地図を
  * 動かしても引き直さない。引けないとき・当たらないときはそう出す。
  *
  * ここで見ないもの:
@@ -165,6 +166,25 @@ describe("PointDetail 打つ欄", () => {
     await userEvent.type(searchBox(), enough.slice(-1));
     await screen.findByRole("list", { name: "地点の候補" });
     expect(sent.map((request) => request.query)).toEqual([{ q: enough, ...sentCenter(TOKYO_STATION) }]);
+  });
+
+  it("文字を引き始める長さより短くすると候補を下げ、打ち直すとその文字の候補を出す", async () => {
+    const sent = onBackend("GET", "/api/place-search", (request) =>
+      Response.json({ candidates: request.query.q === "浅草寺" ? [FACILITY] : [AZA] }),
+    );
+    renderDetail();
+
+    await userEvent.type(searchBox(), "丸の内");
+    await screen.findByRole("list", { name: "地点の候補" });
+
+    // 空の欄は、どの引き始める長さにも足りない。
+    await userEvent.clear(searchBox());
+    expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
+
+    await userEvent.type(searchBox(), "浅草寺");
+    const list = await screen.findByRole("list", { name: "地点の候補" });
+    expect(within(list).getByRole("button")).toHaveTextContent(FACILITY.name);
+    expect(sent.map((request) => request.query.q)).toEqual(["丸の内", "浅草寺"]);
   });
 
   it("かな漢字の変換中は引かず、確定してから引く", async () => {
