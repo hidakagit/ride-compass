@@ -35,6 +35,7 @@ from app.domain.address_area import (
     ADDRESS_AREA_LEVELS,
     CONTINUABLE_LEVELS,
     MACHIAZA_TYPE_LEVELS,
+    chome_name,
     search_keys,
     standardize_address,
 )
@@ -135,7 +136,7 @@ def _build_areas(prefectures: Sequence[asyncpg.Record], cities: Sequence[asyncpg
             areas[area_id] = _Area(area_id, row["city_code"], "oaza", row["oaza"], None, _point(row),
                                    search_keys([*heads, ("oaza", row["oaza"])]))
             continue
-        name = row["chome"] if row["chome"] else row["koaza"]
+        name = chome_name(row["chome_number"], row["chome"]) if row["chome"] else row["koaza"]
         if not name:
             continue
         if row["chome"]:

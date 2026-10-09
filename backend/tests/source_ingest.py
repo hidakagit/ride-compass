@@ -23,6 +23,7 @@ from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_s
 from app.batch.source_adapters.gsi_dem_tile import NODATA, SCALE, pack_elevations
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_adapters.osm_pbf import way_payload
+from app.domain.address_area import standardize_address
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target, load_source_profile
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.source_models import WAY_KIND_TAG
@@ -71,7 +72,8 @@ def abr_town_record(code: str, town_id: str, town_type: str, city: tuple[str, st
     return SourceRecord(
         natural_key=f"{code}:{town_id}", geom_wkb=shapely.to_wkb(Point(lon, lat)),
         attrs={"lg_code": code, "machiaza_id": town_id, "machiaza_type": town_type, "pref": prefecture, "county": "",
-               "city": city_name, "ward": ward, "oaza_cho": oaza, "chome": chome, "koaza": koaza, "ablt_date": "",
+               "city": city_name, "ward": ward, "oaza_cho": oaza, "chome": chome,
+               "chome_number": standardize_address(chome).rstrip("-"), "koaza": koaza, "ablt_date": "",
                "rsdt_addr_flg": "0", "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
 
 

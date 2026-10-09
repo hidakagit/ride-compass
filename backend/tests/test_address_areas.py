@@ -23,6 +23,7 @@ import shapefile
 from app.batch import derive_addresses
 from app.batch.ingest import ingest_source
 from app.batch.source_adapters import abr, estat_small_area
+from app.domain.address_area import standardize_address
 from app.batch.source_profile import Target, load_source_profile
 from app.infrastructure.source_models import Source
 from tests.conftest import empty_ingested_tables
@@ -77,7 +78,7 @@ def _town(code: str, town_id: str, town_type: str, *, oaza: str = "", chome: str
     _, prefecture, county, city, ward, _, _ = CITY_BY_CODE[code]
     return {"lg_code": code, "machiaza_id": town_id, "machiaza_type": town_type, "pref": prefecture,
             "county": county, "city": city, "ward": ward, "oaza_cho": oaza, "chome": chome,
-            "chome_number": chome[:1], "koaza": koaza, "rsdt_addr_flg": flag, "status_flg": "1",
+            "chome_number": standardize_address(chome).rstrip("-"), "koaza": koaza, "rsdt_addr_flg": flag, "status_flg": "1",
             "ablt_date": abolished}
 
 
@@ -236,8 +237,8 @@ async def test_区画は範囲の中の町字とその祖先が親でつなが�
         "1330510001101": ("1330510001000", "aza", "坊主岳", None),
         "1330510000101": ("133051", "aza", "上の原", None),
         "1410110001000": ("141011", "oaza", "鶴見中央", None),
-        "1410110001001": ("1410110001000", "aza", "１丁目", None),
-        "1410110001002": ("1410110001000", "aza", "２丁目", None),
+        "1410110001001": ("1410110001000", "aza", "一丁目", None),
+        "1410110001002": ("1410110001000", "aza", "二丁目", None),
         "1120380002000": ("112038", "oaza", "大字安行", None),
     }
     center = await derive_conn.fetchrow(

@@ -307,7 +307,8 @@ ABR_CITIES_SOURCE_SQL = _abr_sql(
 #: ABR の町字（大字・町、丁目、小字等。町字区分`machiaza_type`で分かれる）。`city_code`は属す市区町村（区）の`code`。
 ABR_TOWNS_SOURCE_SQL = _abr_sql(
     {"lg_code": "city_code", "machiaza_id": "town_id", "machiaza_type": "town_type", "pref": "prefecture",
-     "county": "county", "city": "city", "ward": "ward", "oaza_cho": "oaza", "chome": "chome", "koaza": "koaza",
+     "county": "county", "city": "city", "ward": "ward", "oaza_cho": "oaza", "chome": "chome",
+     "chome_number": "chome_number", "koaza": "koaza",
      "ablt_date": "abolished"},
     "attrs ? 'machiaza_id'")
 
