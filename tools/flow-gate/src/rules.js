@@ -8,8 +8,14 @@ export const SCAN = 30; // 今の問いを探すために読むコメントの�
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
 
 // 今日（日本時間）の日付と、着手可能日が今日より先ならその日（無ければ null）。
-export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
-export const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
+const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
+const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
+
+// 作る担当へ振り出さずに待つ理由（無ければ null）: 開いた前提・ラベル coordinator.devLabel・今日より先の着手可能日。見回り
+// （src/dispatch.js: ready）と後始末（src/after.js: settle）が同じ見分けを使う。
+export const waitsFor = (config, { blocked, labels, startOn }, now = new Date()) =>
+  blocked ? "開いた前提（blocked by）" : labels.includes(config.coordinator.devLabel) ? `ラベル「${config.coordinator.devLabel}」`
+    : waitsUntil(startOn, now) ? `着手可能日 ${startOn}` : null;
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
 const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
@@ -46,7 +52,8 @@ export function parseQuestion(text) {
   return { text: question, plans: plans.map((l) => l.slice(2).trim()), material };
 }
 
-// ステータスを動かすときに issue へ残すコメント。
+// ステータスを動かすときに issue へ残すコメント。見回りの作業時間（src/dispatch.js: workload）は同じ形を worksAfter で読むので、
+// 形を変えるときは worksAfter も一緒に変える。
 export const notes = {
   start: (kind, url) => `### ${kind}担当の着手\n\n実行: ${url}`,
   reason: (to, why) => `${to}にする理由: ${why}`,
@@ -54,6 +61,16 @@ export const notes = {
   // ゲートが Pull Request の閉じで書く。どれもタスクを未着手か完了へ動かす。
   pullRequest: (pr, rest) => `Pull Request [#${pr.number} ${pr.title.replace(/[[\]]/g, "\\$&")}](${pr.html_url}) ${rest}`,
 };
+
+// コメント（notes の形か問い）の直後に、タスクが作業の状態（進行中・検証中）にいるか。記録の形でなければ null。
+// 着手は作る担当なら進行中へ動かし、確かめる担当なら検証中のまま書く。
+export function worksAfter(config, body) {
+  const text = normalize(body);
+  if (parseQuestion(text) || /^Pull Request \[#\d+ /.test(text)) return false;
+  if (/^### \S+?担当の着手\n/.test(text)) return true;
+  const to = /^(\S+?)にする理由: /.exec(text)?.[1] ?? /「([^」]+)」へ戻しました。$/.exec(text)?.[1];
+  return config.statuses.includes(to) ? [config.working, config.review].includes(to) : null;
+}
 
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。
 export const nextChoices = (config, from) =>

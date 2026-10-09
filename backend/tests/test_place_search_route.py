@@ -22,6 +22,8 @@
 - 入力の長さ（`domain/place_search.py: PlaceQuery`の制約で、FastAPIが422で返す）
 """
 
+import math
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -352,6 +354,23 @@ async def test_facilities_with_the_same_name_beyond_the_limit_are_the_nearest_on
     assert response.status_code == 200
     assert [c["longitude"] for c in response.json()["candidates"]] == [
         LON + i / 10 for i in range(count - 1, count - 1 - PLACE_PREDICTION_LIMIT, -1)
+    ]
+
+
+@pytest.mark.usefixtures("area")
+async def test_a_facility_nearer_on_the_ground_comes_first_even_when_degrees_scaled_by_latitude_say_otherwise():
+    """経度の差に中心の緯度の余弦を掛けて度で比べると遠い店でも、測地の距離で近ければ先に出る。東西の1度は南北の1度に
+    余弦を掛けたものより地球の扁平の分だけ長いので、北の店は、東の上限の件数の店より度では遠く、地面では近い。"""
+    north = LAT + 0.01 * math.cos(math.radians(LAT)) * 1.002
+    await _ingest_facilities(
+        [_facility_record(i, "喫茶ことり", LON + 0.01 - i / 1e6, LAT) for i in range(PLACE_PREDICTION_LIMIT)]
+        + [_facility_record(PLACE_PREDICTION_LIMIT, "喫茶ことり", LON, north)])
+
+    response = await _search("喫茶ことり")
+
+    assert response.status_code == 200
+    assert [(c["longitude"], c["latitude"]) for c in response.json()["candidates"]] == [(LON, north)] + [
+        (LON + 0.01 - i / 1e6, LAT) for i in range(PLACE_PREDICTION_LIMIT - 1, 0, -1)
     ]
 
 
