@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
+import { ClearPointsIcon } from "@/components/ui/icons/icons";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import { cn } from "@/lib/cn";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -148,7 +149,7 @@ export default function RoutePoints({
           {...common}
           role="origin"
           title="出発地"
-          source={originManual ? sourceOf(originFound) : "現在地"}
+          source={originManual ? sourceOf(originFound) : undefined}
           name={originName}
           found={originFound}
           at={originLocated ? origin : null}
@@ -342,8 +343,7 @@ export default function RoutePoints({
         </div>
         {/* 消すものが無い間も押せない状態で残す（置き場が動くと、並びの名前の出し分けが揺れる）。 */}
         <Button
-          variant="ghost"
-          size="xs"
+          size="panelIcon"
           className="flex-none"
           aria-label="経由地と目的地を全部消す"
           disabled={waypointCount === 0 && destination === null}
@@ -353,7 +353,7 @@ export default function RoutePoints({
           }}
           usage="置いた経由地と目的地を全部消します。出発地はそのままです。"
         >
-          全部消す
+          <ClearPointsIcon size={18} />
         </Button>
       </div>
       {renderDetail()}

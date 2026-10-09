@@ -22,7 +22,7 @@ interface PointDetailProps {
   title: string;
   /** 印に入れる字（経由地の番号。地図のピンと同じ）。 */
   markLabel?: string;
-  /** どうやって置いた地点か（探して選んだ地点／地図で選んだ地点／現在地）。置いていなければ無し。 */
+  /** どうやって置いた地点か（探して選んだ地点／地図で選んだ地点）。置いていない・現在地なら無し（名前が現在地と言う）。 */
   source?: string;
   /** 地点の名前（探した施設・住所の名前／地図で選んだ地点／現在地／未設定）。経由地を足すときは無し。 */
   name?: string;
@@ -121,7 +121,7 @@ export default function PointDetail({
       <div className="flex min-w-0 items-start gap-2">
         <PointMark role={role} label={markLabel} originLocated={originLocated} className="mt-0.5" />
         <div className="min-w-0 flex-auto">
-          {/* 呼び名・名前・出どころを1行に並べ、入らなければ折り返す。出どころが名前と同じ（地図で選んだ地点・現在地）なら重ねて出さない。 */}
+          {/* 呼び名・名前・出どころを1行に並べ、入らなければ折り返す。出どころが名前と同じ（地図で選んだ地点）なら重ねて出さない。 */}
           <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
             <span
               className={cn(
