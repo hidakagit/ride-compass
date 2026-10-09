@@ -1,6 +1,6 @@
 """テストが`app.domain`の関数・クラスを差し替えていないことの検査。
 
-自分のdomainの関数・クラスは差し替えずに本物を通す（docs/conventions/testing.md「確かめる高さ」）。
+自分のdomainの関数・クラスは差し替えずに本物を通す（.claude/rules/testing.md「確かめる高さ」）。
 差し替えると、テストは実装の途中の手順を写したものになり、作り替えを越えられない。
 差し替えてよい宣言のデータ（`TUNING_VALUES`・`MATERIAL_CATALOG`等）は関数・クラスではないので、ここでは落ちない。
 
@@ -82,7 +82,7 @@ def test_tests_do_not_replace_domain_functions_or_classes() -> None:
 
     assert violations == [], (
         "`app.domain`の関数・クラスを差し替えているテストがある。本物を通し、入力（宣言のデータ・引数）で"
-        "条件を作ること（docs/conventions/testing.md「確かめる高さ」）:\n  " + "\n  ".join(violations)
+        "条件を作ること（.claude/rules/testing.md「確かめる高さ」）:\n  " + "\n  ".join(violations)
     )
 
 

@@ -327,7 +327,7 @@ Execution Time: 1605.6 ms      （jit=off なら 678.6 ms）
 ## 本番Redisの設定
 
 Redisは「TTL付きキャッシュ、または実データ源へのフォールバックが必ず効くcache-aside」
-専用の層で、**正本データを持たない**（方針は[caching.md](../conventions/caching.md)）。
+専用の層で、**正本データを持たない**（方針は[caching.md](../../.claude/rules/caching.md)）。
 本番はOracle Cloud VMへネイティブに導入する（backendコンテナが`--network=host`のため
 追加設定なしで到達できる）。ローカル開発は`docker-compose.yml`のredisサービス。
 

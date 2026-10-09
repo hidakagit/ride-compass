@@ -1,3 +1,11 @@
+---
+paths:
+  - "backend/app/infrastructure/**"
+  - "backend/app/services/**"
+  - "backend/app/api/**"
+  - "backend/app/domain/**"
+---
+
 # キャッシュ方針
 
 サーバー側で「一度得た値をどこに・どれだけ持つか」の決め方をここに集約する。
@@ -120,7 +128,7 @@ Redisを選ぶと、RAMを恒久的に占有したうえで`volatile-lru`の退�
 
 鍵・読み書きの骨格・掃除は`infrastructure/`のモジュールが持ち（例: 地域タイルは`region_tile_cache.py`）、`services/`とは値で
 やり取りする。Redisと同じく、上の層が`tile_cache.py`・`tile_persistent_cache.py`を直にimportすると`lint-imports`が落ちる
-（[directory-layout.md](../architecture/directory-layout.md)「backend」）。
+（[directory-layout.md](../../docs/architecture/directory-layout.md)「backend」）。
 
 現在のディスク保持（本番実測、2026-09-07）:
 
@@ -182,7 +190,7 @@ per_second`＝5.0で自主制限しているが、これはプロセス内の制
 ### ワーカー複数化に備えて注意すること
 
 backendは1プロセスでしか正しく動かず、ワーカーを増やすと起動を止める（`infrastructure/single_process.py: require_single_worker`。
-[cross-cutting-infrastructure.md](../modules/backend/cross-cutting-infrastructure.md)「1プロセスの境界」）。
+[cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)「1プロセスの境界」）。
 複数化するときに問題になるのは**キャッシュだけではない**:
 
 - **APSchedulerのバッチ**（アメダス更新10分・JMAタイルのプリウォーム10分・MSM同期30分）は
@@ -205,7 +213,7 @@ backendは1プロセスでしか正しく動かず、ワーカーを増やすと
 
 **呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査は
 そのモジュールが持ち、`services/`とは値でやり取りする（例: `infrastructure/jma_amedas_store.py`）。
-上の層がRedisの接続を直にimportすると`lint-imports`が落ちる（[directory-layout.md](../architecture/directory-layout.md)「backend」）。
+上の層がRedisの接続を直にimportすると`lint-imports`が落ちる（[directory-layout.md](../../docs/architecture/directory-layout.md)「backend」）。
 `services/`がプロセス内（`cachetools`）に持つ、自分で求めた値のキャッシュはこの規則の外にある。
 
 ```python
@@ -356,7 +364,7 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えても、MVTの世代は手で上げない
 ——`infrastructure/cache_identity.py: tile_version`がDBの世代と焼き込みの形の署名から決める。
-同じコミットで揃えるのは生成物（[deployment-sync.md](deployment-sync.md)「コミットと同時に揃えるもの」）。
+同じコミットで揃えるのは生成物（[deployment-sync.md](../../docs/conventions/deployment-sync.md)「コミットと同時に揃えるもの」）。
 手で上げる世代定数は、署名に表れない土地被覆の画素の変化を表す`LANDCOVER_REVISION`だけ。
 
 ## 直接使ってよい場所
@@ -373,5 +381,5 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 
 - クライアント側の`Cache-Control`: `backend/app/api/cache_policy.py`の対応表
 - 外部API取得層の共通骨格: `simple_api_client.py: cached_fetch`
-- 各キャッシュの実装詳細: [docs/modules/backend/cross-cutting-infrastructure.md](../modules/backend/cross-cutting-infrastructure.md)
-- ログの出し方（`log_external_call`のfields）: [docs/conventions/logging.md](logging.md)
+- 各キャッシュの実装詳細: [docs/modules/backend/cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)
+- ログの出し方（`log_external_call`のfields）: [.claude/rules/logging.md](logging.md)

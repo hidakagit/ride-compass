@@ -1,3 +1,11 @@
+---
+paths:
+  - "backend/app/**"
+  - "frontend/src/lib/**"
+  - "frontend/src/hooks/useDebugLog.ts"
+  - "frontend/src/components/DebugConsole/**"
+---
+
 # ログ方針（実運用調査のためのログレベル・粒度）
 
 RideCompassのログは本番のbackendコンテナのログだけで障害調査を完結させることを目的とする。
@@ -86,7 +94,7 @@ RideCompassのログは本番のbackendコンテナのログだけで障害調�
   `request_log.py: JstLogFormatter`が行い、書式（`LOG_FORMAT`）も同モジュールが1つだけ持つ。
 - フロントのデバッグログはブラウザのローカル時刻。両者を並べて読むために時間帯を揃えてある。
 - コンテナの`TZ`は変えない（素の`datetime.now()`の意味まで変わり、スケジューラ・DBへ書く
-  時刻へ波及するため）。詳細は[modules/backend/cross-cutting-infrastructure.md](../modules/backend/cross-cutting-infrastructure.md)参照。
+  時刻へ波及するため）。詳細は[modules/backend/cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)参照。
 
 ### 処理ステージのサマリ
 

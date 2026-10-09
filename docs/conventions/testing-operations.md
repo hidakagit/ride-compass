@@ -1,7 +1,7 @@
 # テストと検査の回し方
 
 手元とCIで、検査とテストをどこでどう回すかを持つ。何を確かめるか・テストが要るか・書き方は
-[testing.md](testing.md)が持つ。
+[testing.md](../../.claude/rules/testing.md)が持つ。
 
 ## 手元の検査の回し方
 
@@ -12,7 +12,7 @@
   masterでは`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイを起動しない（下の「検査の置き場」）。手元では、CIの結論より先に
   知らないと作業が無駄になる答えだけを、その答えに要る最小の範囲で取る。
 - **回してよい場面は3つ**。どれでもなければ回さずにpushし、CIの結論を待つ。
-  1. **CIが落ちた失敗を再現して直すとき**（[testing.md](testing.md)「テストが落ちたときの直し方」）。回すのは落ちた失敗に届く範囲だけ。
+  1. **CIが落ちた失敗を再現して直すとき**（[testing.md](../../.claude/rules/testing.md)「テストが落ちたときの直し方」）。回すのは落ちた失敗に届く範囲だけ。
   2. **テストそのものを書く・書き換えるとき**（新しいテスト・起こし直し・足場の作り直し）。書いた形をほかのファイルへ
      写す前に、書いたファイルが動くかを見る（1ファイル回して初めて分かる足場の誤りを、全部のファイルへ写してから直さないため）。
      回すのは書いた・直したテストファイルだけで、1ファイルを書くたびにそのファイルを回してよい。
@@ -39,7 +39,7 @@
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった
     ファイルだけを実行する。フルスイートを影響範囲の調査に使わない。
-  - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing.md](testing.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**:
+  - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing.md](../../.claude/rules/testing.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**:
     全ソース・全テストを母集団にするのでどの変更にも届くが、importを辿っても
     シンボルをgrepしても出てこない（backend: `python -m pytest backend/tests/structure -q`、
     frontend: `./node_modules/.bin/vitest run src/structure`）。
@@ -176,7 +176,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 変わった回に落ちる**——その失敗は実装の欠陥ではなく、テストの隠れた順序依存である。
 
 - 混ぜるのはモジュールの中だけで、モジュールをまたいでテストを混ぜ合わせない。ファイル単位でエンジンと
-  イベントループを共有するPostGIS統合テスト（[testing.md](testing.md)パターン2）の前提はそのまま成り立つ。
+  イベントループを共有するPostGIS統合テスト（[testing.md](../../.claude/rules/testing.md)パターン2）の前提はそのまま成り立つ。
 - 種は実行の見出しに`Using --randomly-seed=…`と出る（`-q`では出ない）。CIはrunのIDを種に渡している
   （`.github/workflows/ci.yml`）ので、CIで落ちた並びは手元で`--randomly-seed=<runのID>`を付けると
   同じ並びになる。CIはその並びを複数のワーカーへ配るため、手元で`-n`を付けずに1本で流すと、
@@ -208,7 +208,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 では同じDBを再利用するので、PostGIS拡張とテーブルの作成を毎回払わない。
 再利用する表が前の実行で宣言と違う形になっていれば（表を入れ替える実装・ORMの宣言を一時に壊して回した等）、ファイルごとの
 エンジンの準備（`tests/conftest.py: road_graph_engine`）が`scripts/schema_gap.py`で差を測り、表を消して今の宣言から作り直す。
-壊れ方の確かめ（[testing.md](testing.md)「そのテストは要るか（3問を順に）」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
+壊れ方の確かめ（[testing.md](../../.claude/rules/testing.md)「そのテストは要るか（3問を順に）」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
 
 環境ごとに必要な作業（開発機で一度だけ付ける権限・拡張）と、作業ツリーを消したあとの残骸の片付けは付録にある。
 
@@ -256,7 +256,7 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
 
 ## E2E・画面の撮影の走らせ方
 
-何をE2Eで見るか・書き方は[testing.md](testing.md)パターン4が持つ。
+何をE2Eで見るか・書き方は[testing.md](../../.claude/rules/testing.md)パターン4が持つ。
 
 - **`npm run test:e2e`**（`npm run build:e2e`→`playwright test`）。CIのe2eジョブも同じ
   コマンドを使う。`build:e2e`は型の検査を外した本番ビルドで（`next.config.ts`の`typescript.ignoreBuildErrors`）、

@@ -518,7 +518,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 **旧世代の掃除**（`region_tile_cache.py: prune_other_generations`）: 起動直後と`PRUNE_INTERVAL_HOURS`ごとに、
 `main.py`の定期ジョブが`RegionService.prune_other_tile_generations`（中身は`tile_version_service.py`の同名の関数）を呼び、今配っている世代の鍵でない地域タイルを消す。
 世代を読めていない系統（`x-`の世代・土地被覆のラスタが1枚も開けない）は消さず、系統の表に無い系統の鍵は消す。
-同じ置き場の基礎地図・地理院のタイル（鍵が`region/`で始まらない）には触らない。理由は[キャッシュ方針](../../conventions/caching.md)「無効化」。
+同じ置き場の基礎地図・地理院のタイル（鍵が`region/`で始まらない）には触らない。理由は[キャッシュ方針](../../../.claude/rules/caching.md)「無効化」。
 
 ### 路面タイルが1フィーチャーとして焼く単位（`EDGE_UNIT_MIN_ZOOM`）
 
@@ -666,7 +666,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 `road_surface.properties`が画面へ配る——画面は識別子・道路名の列名を持たない（材料の列は材料の`tile_property`）。
 名前を変えると焼き込みSQLの文字列が変わるので、タイルの形の署名も変わって作り直しが起きる。`tile_cache.py`はタイルの生バイトを配信パスを鍵にディスク
 （`DATA_DIR/tile_cache/`）へ置く`diskcache`の包みで、容量の上限と退避はライブラリが持つ
-（退避の順を書いた順にしている理由は[キャッシュ方針](../../conventions/caching.md)「ディスクを選ぶときの責任」）。
+（退避の順を書いた順にしている理由は[キャッシュ方針](../../../.claude/rules/caching.md)「ディスクを選ぶときの責任」）。
 読み書きの失敗（ディスクフル等）は未キャッシュ扱いにし、タイル配信自体を失敗させない。
 
 **読み書きは必ず`asyncio.to_thread`経由で呼ぶ**。中身は同期のディスクI/Oで、地図の初期

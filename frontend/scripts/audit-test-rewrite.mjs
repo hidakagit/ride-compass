@@ -1,4 +1,4 @@
-// 起こし直したテストを外から測る（docs/conventions/testing.md「既存テストを直さず、実装から起こし直す」の手順3）。
+// 起こし直したテストを外から測る（.claude/rules/testing.md「既存テストを直さず、実装から起こし直す」の手順3）。
 //
 //   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--ref <git の版>] [--summary]
 //
