@@ -56,6 +56,23 @@ def abr_prefecture_record(code: str, name: str, lon: float, lat: float) -> Sourc
                                          "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
 
 
+def abr_city_record(code: str, prefecture: str, city: str, lon: float, lat: float, *, county: str = "",
+                    ward: str = "") -> SourceRecord:
+    """住所の生データ（`abr`）の市区町村1件（`ward`があれば政令市の区）。列は`abr_prefecture_record`と同じく配布の列の名前。"""
+    return point_record(code, lon, lat, {"lg_code": code, "pref": prefecture, "county": county, "city": city,
+                                         "ward": ward, "ablt_date": ""})
+
+
+def abr_town_record(city: SourceRecord, town_id: str, town_type: str, lon: float, lat: float, *, oaza: str = "",
+                    chome: str = "", koaza: str = "") -> SourceRecord:
+    """住所の生データ（`abr`）の町字1件。`city`（`abr_city_record`）の市区町村に属す。`town_type`は町字区分（1 大字・町、
+    2 丁目、3 小字）。"""
+    names = {column: city.attrs[column] for column in ("lg_code", "pref", "county", "city", "ward")}
+    return point_record(f"{names['lg_code']}:{town_id}", lon, lat, {
+        **names, "machiaza_id": town_id, "machiaza_type": town_type, "oaza_cho": oaza, "chome": chome,
+        "koaza": koaza, "ablt_date": ""})
+
+
 def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
                 attrs: dict[str, Any]) -> SourceRecord:
     """面のソース（例: `lulc`）のタイル1枚。"""

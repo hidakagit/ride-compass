@@ -4301,13 +4301,10 @@
             "type": "string",
             "enum": [
               "prefecture",
-              "county",
               "city",
               "ward",
               "oaza",
               "aza",
-              "block",
-              "building",
               "point"
             ],
             "title": "Level"

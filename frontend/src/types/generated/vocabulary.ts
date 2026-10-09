@@ -163,10 +163,6 @@ export const vocabulary = {
       "label": "都道府県"
     },
     {
-      "key": "county",
-      "label": "郡"
-    },
-    {
       "key": "city",
       "label": "市区町村"
     },
@@ -181,14 +177,6 @@ export const vocabulary = {
     {
       "key": "aza",
       "label": "字・丁目"
-    },
-    {
-      "key": "block",
-      "label": "街区・地番"
-    },
-    {
-      "key": "building",
-      "label": "号"
     },
     {
       "key": "point",
