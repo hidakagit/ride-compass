@@ -50,6 +50,8 @@ jobs:
       # マージを GITHUB_TOKEN で打つと master の CI とデプロイが起きないので、hidakagit のトークンで打つ。
       FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
       GH_TOKEN: ${{ secrets.CODE_TOKEN }}
+      # Mapillary の API（graph.mapillary.com・tiles.mapillary.com）の読み取り。tasks#69 の街灯の点の付き方の測定に使う。
+      MAPILLARY_TOKEN: ${{ secrets.MAPILLARY_TOKEN }}
       ISSUE: ${{ inputs.issue }}
       KIND: ${{ inputs.kind }}
       # 担当の実行は最初の結果で終わり、裏の処理の知らせで起こし直されない。Bash の run_in_background と裏の subagent を外す
