@@ -122,10 +122,10 @@ async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landc
             f"SELECT lc_valid_pixels, lc_{first} FROM edge_materials"
             f" UNION ALL SELECT lc_valid_pixels, lc_{first} FROM way_materials")]
 
-    await derive_landcover.derive(conn)
+    await derive_landcover.derive(conn, previous=None)
     before = await shares()
     await _ingest_tile(conn, _raster(NODATA))
-    await derive_landcover.derive(conn)
+    await derive_landcover.derive(conn, previous=None)
 
     # 前提: 1回目は区間にも道にも値が付いている。
     assert len(before) == 2
@@ -141,7 +141,7 @@ async def test_only_pixels_in_the_band_around_the_road_are_counted(landcover_con
     await _ingest_tile(conn, _ring_raster(*(value for _, value in classes)))
     inside, ring, outside = (landcover_key(name) for name, _ in classes)
 
-    await derive_landcover.derive(conn)
+    await derive_landcover.derive(conn, previous=None)
 
     rows = await conn.fetch(
         f"SELECT lc_{inside} AS inside, lc_{ring} AS ring, lc_{outside} AS outside"
