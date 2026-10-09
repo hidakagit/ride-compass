@@ -122,8 +122,8 @@
   python scripts/axis_apply.py --delete <axis_id> [--apply <指紋>]
   ```
 
-  道具は本番の管理APIを読み書きするので、**打つのはユーザー**で、担当も開発機の対話のセッションも打たない（頼み方は
-  [flow.md](flow.md)「自動で進めないもの」）。差（項目ごとの「前 → 後」）と指紋を見て承認してから、同じ指紋で書く。宛先と認証情報は
+  道具は本番の管理APIを読み書きするので、担当は打たず、開発機の対話のセッションがユーザーがチャットで言ったときだけ打つ
+  （[flow.md](flow.md)「本番へ書く」）。差（項目ごとの「前 → 後」）と指紋をチャットで見せ、書くよう言われてから、同じ指紋で書く。宛先と認証情報は
   `backend/.env.oracle.local`の`BACKEND_ORIGIN`（本番backendの直接のオリジン）・`ADMIN_BASIC_AUTH_USERNAME`・
   `ADMIN_BASIC_AUTH_PASSWORD`に置く。JSONは1回当てたら役目を終えるもので、`docs/records/`へは置かない（維持しない階層。
   記録はタスクの issue に書く）。本番の写しとして直し続けない（次に変えるときは本番の今の定義から新しいJSONを作る）。
