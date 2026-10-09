@@ -9,7 +9,7 @@
 | 線（粗） | `way_materials` | 道1本に付く値 |
 | 線（細） | `road_edges` / `edge_materials` | 交差点で切った区間の形と、区間に付く値 |
 | 地点 | `stop_places` | 立ち寄り先。道の網とは別の点で、OpenStreetMap由来の値を持たない |
-| 住所の区画 | `address_areas` / `address_search_keys` / `address_boundary_links` / `address_blocks` | 区画と、区画を引く鍵と、小地域の境界に当たる区画と、区画の中の街区・地番 |
+| 住所の区画 | `address_areas` / `address_search_keys` / `address_blocks` | 区画と、区画を引く鍵と、区画の中の街区・地番 |
 
 面（ラスタ）の派生は持たない——面の生データを読む出口は「そのまま見せる」か「線へ
 落とす」のどちらかで、面のままの中間結果を要る相手がいない。
@@ -311,17 +311,6 @@ class AddressSearchKeyRow(Base):
     continuable: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
 
-class AddressBoundaryLinkRow(Base):
-    """e-Stat の小地域の境界1つと、それに当たる住所の区画（大字・町か丁目・字）。境界の多角形は生データに置いたまま読む。"""
-
-    __tablename__ = "address_boundary_links"
-    __table_args__ = ({"info": DERIVED},)
-
-    #: 境界の小地域のコード（生データ`estat_small_area`の鍵）。
-    key_code: Mapped[str] = mapped_column(String, primary_key=True)
-    area_id: Mapped[str] = mapped_column(String, ForeignKey("address_areas.area_id"), nullable=False)
-
-
 class AddressBlockRow(Base):
     """住所の区画（丁目・字か大字・町）の中の街区1つ。住居表示の区域はアドレス・ベース・レジストリの街区、それ以外の区域は
     街区レベル位置参照情報の地番から作る（`batch/derive_addresses.py`）。番地まで打った入力が、区画の鍵と番号で引く。"""
@@ -374,7 +363,7 @@ class StopPlaceRow(Base):
     confidence: Mapped[float] = mapped_column(REAL, nullable=False)
     #: チェーンの名前。無ければ個店。
     brand: Mapped[str | None] = mapped_column(String, nullable=True)
-    #: 辺り（市区町村から字・丁目まで。位置を含む小地域の境界に結んだ住所の区画の名前）。地点の検索が名前に添え、同じ名前の
-    #: 店を見分ける。位置を含む境界が無いか、境界が区画に結ばれていなければNULL。
+    #: 辺り（市区町村から字・丁目まで。位置を含む小地域の境界の名前）。地点の検索が名前に添え、同じ名前の店を見分ける。
+    #: 位置を含む名前のある境界が無ければNULL。
     area: Mapped[str | None] = mapped_column(String, nullable=True)
     geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)

@@ -1,12 +1,12 @@
-"""住所の区画の表（`address_areas`・`address_search_keys`・`address_boundary_links`・`address_blocks`）を、アドレス・ベース・
-レジストリと e-Stat の小地域の境界と街区レベル位置参照情報の配布の形から作る。
+"""住所の区画の表（`address_areas`・`address_search_keys`・`address_blocks`）を、アドレス・ベース・レジストリと
+街区レベル位置参照情報の配布の形から作る。
 
-入口は取込（`ingest_source`。アダプタ`abr`・`estat_small_area`・`isj_block`は本物で、手元の zip を読む）と派生の段
-（`derive_addresses.derive`）。配布の形の小さな見本（ABR の CSV の zip・e-Stat の Shapefile の zip・位置参照情報の
-Shift_JIS の CSV の zip）を置き場に書き、表に入った区画・鍵・結び付き・街区を見る。範囲は道路の取込の範囲で、見本の道を範囲の宣言つきで取り込んで決める。
+入口は取込（`ingest_source`。アダプタ`abr`・`isj_block`は本物で、手元の zip を読む）と派生の段
+（`derive_addresses.derive`）。配布の形の小さな見本（ABR の CSV の zip・位置参照情報の Shift_JIS の CSV の zip）を置き場に
+書き、表に入った区画・鍵・街区を見る。範囲は道路の取込の範囲で、見本の道を範囲の宣言つきで取り込んで決める。
 
 ここで見ないもの:
-- 配布元から手元へ写す取得（`scripts/fetch_abr.py`・`scripts/fetch_estat_small_areas.py`）→ どのテストも通さない
+- 配布元から手元へ写す取得（`scripts/fetch_abr.py`・`scripts/fetch_isj_blocks.py`）→ どのテストも通さない
   （網の向こうを読むだけで、範囲に掛かる都道府県の決め方はアダプタと同じ関数を通る）
 - 表記の揃え方の1つずつ → `test_address_area.py`
 """
@@ -18,11 +18,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-import shapefile
 
 from app.batch import derive_addresses
 from app.batch.ingest import ingest_source
-from app.batch.source_adapters import abr, estat_small_area, isj_block
+from app.batch.source_adapters import abr, isj_block
 from app.domain.address_area import standardize_address
 from app.batch.source_profile import Target, load_source_profile
 from app.infrastructure.source_models import Source
@@ -39,7 +38,6 @@ pytestmark = [
 BBOX = (35.40, 139.20, 35.80, 139.80)
 PROFILE = replace(load_source_profile(None), target=Target(bbox=BBOX))
 SNAPSHOT = PROFILE.source(Source.ABR).rows.snapshot
-SURVEY = PROFILE.source(Source.ESTAT_SMALL_AREA).rows.survey
 ISJ_VERSION = PROFILE.source(Source.ISJ_BLOCK).rows.version
 
 # 配布の CSV の見出し（配布のまま）。
@@ -160,33 +158,6 @@ PARCELS = [
     ("神奈川県", "横浜市鶴見区", "無関係", "", "6", 139.672, 35.502, "0", "1", "0"),
 ]
 
-#: 境界の多角形を作る1辺の半分（度）。
-HALF = 0.001
-
-
-def _box(lon: float, lat: float, half: float = HALF) -> list[list[float]]:
-    """点を囲む四角（Shapefile の外周の向き＝時計回り）。"""
-    return [[lon - half, lat - half], [lon - half, lat + half], [lon + half, lat + half], [lon + half, lat - half],
-            [lon - half, lat - half]]
-
-
-#: 境界: (都道府県, 市区町村, 町丁・字等, 名前, 区分, 多角形の外周の並び)。
-BOUNDARIES = [
-    # 同じ小地域が2枚に分かれている。
-    ("13", "104", "002402", "西新宿２丁目", 8101, [_box(139.692, 35.688), _box(139.70, 35.70)]),
-    ("13", "104", "002400", "西新宿", 8101, [_box(139.66, 35.66)]),
-    ("13", "104", "002500", "西新宿北部", 8101, [_box(139.65, 35.65)]),
-    # 1つの丁目を分けた小地域は、名前の途中に括弧の印を挟む。
-    ("13", "104", "002412", "西新宿（一）２丁目", 8101, [_box(139.62, 35.62)]),
-    ("13", "104", "002600", "西新宿", 8154, [_box(139.64, 35.64)]),
-    ("13", "104", "009900", "無関係", 8101, [_box(139.50, 35.50)]),
-    # 平井と坊主岳の代表点を囲む、名前の無い小地域。
-    ("13", "305", "000000", "", 8101, [_box(139.265, 35.7425, 0.01)]),
-    ("14", "101", "001000", "学区鶴見中央", 8101, [_box(139.60, 35.60)]),
-    ("11", "203", "000200", "安行", 8101, [_box(139.75, 35.79)]),
-]
-
-
 def _write_csv_zip(path: Path, columns: str, rows: list[dict[str, str]]) -> None:
     text = io.StringIO()
     writer = csv.DictWriter(text, fieldnames=columns.split(","), restval="", lineterminator="\n")
@@ -248,41 +219,18 @@ def _write_isj() -> None:
             archive.writestr(f"{ISJ_VERSION}.html", "<html></html>")
 
 
-def _write_estat() -> None:
-    for prefecture in ("11", "13", "14"):
-        shp, shx, dbf = io.BytesIO(), io.BytesIO(), io.BytesIO()
-        with shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON, encoding="cp932") as writer:
-            for name, kind, size in (("KEY_CODE", "C", 11), ("PREF", "C", 2), ("CITY", "C", 3), ("S_AREA", "C", 6),
-                                     ("S_NAME", "C", 96), ("HCODE", "N", 4), ("AREA_MAX_F", "C", 1)):
-                writer.field(name, kind, size=size)
-            for pref, city, s_area, name, hcode, rings in BOUNDARIES:
-                if pref != prefecture:
-                    continue
-                for index, ring in enumerate(rings):
-                    writer.poly([ring])
-                    writer.record(pref + city + s_area, pref, city, s_area, name, hcode, "M" if index == 0 else "")
-        path = estat_small_area.boundary_path(SURVEY, prefecture)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(path, "w") as archive:
-            for suffix, data in ((".shp", shp), (".shx", shx), (".dbf", dbf)):
-                archive.writestr(f"r2ka{prefecture}{suffix}", data.getvalue())
-
-
 @pytest.fixture
 def address_data(monkeypatch, tmp_path):
     """見本の配布を置き場に書く。"""
     monkeypatch.setattr(abr, "DATA_DIR", tmp_path / "abr")
-    monkeypatch.setattr(estat_small_area, "DATA_DIR", tmp_path / "estat")
     monkeypatch.setattr(isj_block, "DATA_DIR", tmp_path / "isj")
     _write_abr()
-    _write_estat()
     _write_isj()
 
 
 async def _derive(conn) -> None:
     """見本を取り込み、範囲の宣言つきで道を1本取り込んで、住所の段を流す。"""
     await ingest_source(conn, PROFILE, Source.ABR)
-    await ingest_source(conn, PROFILE, Source.ESTAT_SMALL_AREA)
     await ingest_source(conn, PROFILE, Source.ISJ_BLOCK)
     await ingest_records("osm_way", [way_record(1, [(139.70, 35.69), (139.701, 35.691)], [1, 2])], conn=conn, bbox=BBOX)
     await derive_addresses.derive(conn)
@@ -343,25 +291,6 @@ async def test_区画は書き始める段の違う別形の鍵で引ける(deri
         f"{head}{koaza}" for head in ("東京都西多摩郡日ノ出町", "西多摩郡日ノ出町", "日ノ出町", "東京都日ノ出町")
         for koaza in ("上ノ原", "字上ノ原")}
     assert continuable == {"prefecture": {True}, "city": {True}, "ward": {True}, "oaza": {True}, "aza": {False}}
-
-
-async def test_小地域の境界は名前か中の代表点で区画に結ぶ(derive_conn, address_data):
-    """同じ名前 → 名前の頭（大字＋集落名）→ 名前のお尻（学区＋町名）の順で名前で結び、名前で結べない境界は中に代表点が
-    ある区画（字・丁目を先に）に結ぶ。名前の括弧の中は除いて結ぶ（分けた丁目が大字でなく丁目に結ぶ）。どれにも当たらない
-    境界と、通常の小地域でない境界（水面）は行にならない。"""
-    await _derive(derive_conn)
-
-    links = {row["key_code"]: row["area_id"] for row in await derive_conn.fetch("SELECT * FROM address_boundary_links")}
-
-    assert links == {
-        "13104002402": "1310410024002",
-        "13104002412": "1310410024002",
-        "13104002400": "1310410024000",
-        "13104002500": "1310410024000",
-        "13305000000": "1330510001101",
-        "14101001000": "1410110001000",
-        "11203000200": "1120380002000",
-    }
 
 
 async def test_街区は住居表示の区域でABRの街区を鍵で地番の区域で位置参照情報の地番を名前で区画に結ぶ(derive_conn, address_data):
