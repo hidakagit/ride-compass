@@ -81,13 +81,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （`docs/conventions/flow.md`「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
-   題名と本文は、そのまま master のコミットになるので、`docs/conventions/flow.md`「コミット」の書式で書く（題名が件名
-   `tasks#<番号>: …`、本文が背景・課題・成果・検証・増減・残り）。書式の中に、次のものを入れる:
-   - 課題: 約束の差分（足した約束・消した約束・変えた約束を1行ずつ。約束は利用者や運用から見た振る舞いで、issue の要約・
-     完了の条件・設計書の決まりの言葉で書く）。約束が増えない変更で実装かテストの行が増えたら、増えた行ごとの理由
-   - 増減: `python scripts/review_checks.py change` の出力の「増減:」「規模:」の行（規模の札は記録で、Project の欄は付け直さない）
-   - 検証: 下の確かめ方と、`backend/scripts/lost_constraints.py` が出した「消えた」制約の1件ずつの処置（移した先・意図して
-     外した理由）
+   題名と本文は、そのまま master のコミットになる（`docs/conventions/flow.md`「コミット」）。本文は `.github/pull_request_template.md`
+   を作業ツリーの外へ写し、各節の `<…>` をその節に書くものへ置き換えて作る（節の外の行を最初の節より前に足さない）。
+   `node tools/flow-gate/bin/pr-body.js <本文のファイル>` で形を照らしてから `--body-file <本文のファイル>` で渡す（`gh pr create` の
+   `--template` は `--body-file` と併せられず、手で書く画面の下書きにしか使えない）。形に沿わない本文は Pull Request の CI
+   （Claude Gate の flow-gate）が落とす。検証の節には、下の確かめ方も書く。
    画面に届く変更は、後からの判断の記録として、修正が波及する範囲（変えたコード——部品・hooks・backend の応答等——を使う・見せる画面と状態のすべて）を漏らさず撮り、
    修正前後のキャプチャを Pull Request のコメントに貼る（`node tools/flow-gate/bin/attach.js <Pull Request の番号> '<画像>#<見出し>' ...`。
    見出しに画面・幅など、何を撮ったかを書く。下の「貼り方」。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
@@ -111,7 +109,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
    `[Excess Sensitive Detail]` で断られうる。`--attach` の付いた書き込みそのものは断られない）。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `attach.js` で足す。
-   本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（`gh pr edit` と、欄を選ばない
+   本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（直すと CI が形を照らし直す。`gh pr edit` と、欄を選ばない
    `gh pr view` は、組織を読む権限の無いトークンでは断られる）。
    出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml`・Docs Consistency・Claude Gate のどれも）の id を
    `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --event pull_request --json databaseId` で引く

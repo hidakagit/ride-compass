@@ -45,6 +45,6 @@ class PlaceSearchService:
         return PlaceSearchResult(candidates=[*addresses, *facilities])
 
     async def area_at(self, point: LatLon) -> PlaceArea:
-        """`point`を含む小地域の境界に結んだ町字の辺り。範囲では絞らない（区画の表に入るのは範囲の中の区画だけ）。"""
+        """`point`を含む小地域の境界の辺り。範囲では絞らない（境界の生データは取込の範囲に掛かる都道府県の分だけ）。"""
         async with self._open_reads() as reads:
             return PlaceArea(area=await reads.areas.area_at(point))

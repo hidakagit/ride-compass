@@ -1,17 +1,19 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
 // 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
-// src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
-// 打つ口だけを差し替える。
+// src/attach.js: attach）・31（Pull Request の本文の形。src/pullrequest.js: checkBody）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
+// 打つ口だけを差し替える。31 の2つ目だけは、本物のテンプレート（.github/pull_request_template.md）を読む。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）・
-// 道具（bin/attach.js）が打つ gh。
+// 道具（bin/attach.js）が打つ gh・31 の断る文言。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { keepLog, settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
 import { askTask, moveTask } from "../src/move.js";
 import { attach } from "../src/attach.js";
+import { checkBody } from "../src/pullrequest.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
 test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開いた Pull Request・待つ理由があれば戻し、それ以外（持ち時間を超えた・Cancel されたも）は保留", () => {
@@ -157,4 +159,27 @@ test("30 画像は1枚ずつ貼り、貼れなければそこで止まって、�
   const r = at([{ status: 0, stdout: "https://github.com/c/1\n", stderr: "" }, { status: 1, stdout: "", stderr: "HTTP 502" }]);
   assert.deepEqual(r.calls, ["a.png#前", "b.png#後"]);
   assert.match(r.error, /b\.png#後 を貼れなかった（HTTP 502）\n貼った: 前: https:\/\/github.com\/c\/1/);
+});
+
+test("31 Pull Request の本文は、テンプレートの節を全部この順で1つずつ持ち、どの節も埋めてあるときだけ通る", () => {
+  const template = "背景: <なぜ>\n課題: <何を>\n残り: <何が>\n";
+  const passes = (body) => checkBody(template, body).length === 0;
+  const rows = [
+    ["背景: a\n課題:\n- 足した約束: b\n範囲: c\n残り: なし\n\n🤖 Generated", true], // 節の中の「名前: 」の行と、最後の節のあとの行
+    ["背景: a\r\n課題: b\r\n残り: なし\r\n", true], // GitHub の画面から書いた本文
+    ["tasks#1。\n背景: a\n課題: b\n残り: なし", false], // 最初の節より前の行
+    ["背景: a\n残り: なし", false], // 欠けた節
+    ["課題: b\n背景: a\n残り: なし", false], // 違う順
+    ["背景: a\n課題: b\n課題: c\n残り: なし", false], // 2度出る節
+    ["背景: a\n課題:\n\n残り: なし", false], // 空の節
+    ["背景: a\n課題: <何を>\n残り: なし", false], // テンプレートのままの節
+  ];
+  assert.deepEqual(rows.map(([body]) => passes(body)), rows.map(([, ok]) => ok));
+});
+
+test("31 本物のテンプレートで、増減の節に「規模:」の行を続けた本文が通る", () => {
+  const template = readFileSync(new URL("../../../.github/pull_request_template.md", import.meta.url), "utf8");
+  const body = template.replace(/<[^>\n]*>/g, "書いた")
+    .replace("増減: 書いた", "増減: 実装 +1/−0・テスト +1/−0・文書 +0/−0\n規模: S（実装＋テスト 2行。200以下 S・1000以下 M・超えると L。本番DBへ書くタスクは行数によらず L）");
+  assert.deepEqual([body.includes("\n規模: S"), checkBody(template, body)], [true, []]);
 });

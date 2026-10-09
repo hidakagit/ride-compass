@@ -120,13 +120,12 @@ STAGES: tuple[DeriveStage, ...] = (
     DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_materials", "way_materials"),
                 per_edge=True),
     DeriveStage("ways", derive_way_materials, frozenset({Source.OSM_WAY}), ("topology",), ("way_materials",)),
-    # 住所の区画は、施設の辺り（立ち寄り先の段）を区画から決められるよう、その前に置く。道路（`osm_way`）は
-    # パーティションを読まず、取込の記録から範囲だけを読む（読んだ数の見張りに出ないので、手で挙げる）。
-    DeriveStage("addresses", derive_addresses,
-                frozenset({Source.ABR, Source.ESTAT_SMALL_AREA, Source.ISJ_BLOCK, Source.OSM_WAY}), (),
-                ("address_areas", "address_search_keys", "address_boundary_links", "address_blocks")),
+    # 住所の区画は、道路（`osm_way`）のパーティションを読まず、取込の記録から範囲だけを読む（読んだ数の見張りに出ないので、
+    # 手で挙げる）。
+    DeriveStage("addresses", derive_addresses, frozenset({Source.ABR, Source.ISJ_BLOCK, Source.OSM_WAY}), (),
+                ("address_areas", "address_search_keys", "address_blocks")),
     DeriveStage("stop_places", derive_stop_places,
-                frozenset({Source.OVERTURE_PLACE, Source.BUNKA_HERITAGE, Source.ESTAT_SMALL_AREA}), ("addresses",),
+                frozenset({Source.OVERTURE_PLACE, Source.BUNKA_HERITAGE, Source.ESTAT_SMALL_AREA}), (),
                 ("stop_places",)),
 )
 

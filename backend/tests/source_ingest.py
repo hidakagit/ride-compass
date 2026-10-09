@@ -109,13 +109,13 @@ def isj_block_record(prefecture: str, city: str, oaza: str, number: str, lon: fl
                         geom_wkb=shapely.to_wkb(Point(lon, lat)), attrs=attrs)
 
 
-def estat_small_area_record(key_code: str, name: str, ring: Sequence[tuple[float, float]]) -> SourceRecord:
-    """小地域の境界（`estat_small_area`）の1件。`key_code`は都道府県2桁・市区町村3桁・町丁・字等6桁、`ring`は多角形の
-    外周の (経度, 緯度) の列。"""
+def estat_small_area_record(key_code: str, city: str, name: str, ring: Sequence[tuple[float, float]]) -> SourceRecord:
+    """小地域の境界（`estat_small_area`）の1件。`key_code`は都道府県2桁・市区町村3桁・町丁・字等6桁、`city`と`name`は
+    市区町村と町丁・字等の名前（配布の書き方。政令市は市と区をつなぐ）、`ring`は多角形の外周の (経度, 緯度) の列。"""
     return SourceRecord(
         natural_key=key_code, geom_wkb=shapely.to_wkb(Polygon(ring)),
         attrs={"KEY_CODE": key_code, "PREF": key_code[:2], "CITY": key_code[2:5], "S_AREA": key_code[5:],
-               "S_NAME": name, "HCODE": 8101})
+               "CITY_NAME": city, "S_NAME": name, "HCODE": 8101})
 
 
 def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,

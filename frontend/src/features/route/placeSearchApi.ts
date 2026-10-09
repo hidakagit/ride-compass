@@ -15,7 +15,7 @@ export async function searchPlaces(query: string, near: Coordinates): Promise<Pl
   return data.candidates;
 }
 
-/** 置いた位置の辺り（市区町村から字・丁目まで）。区画に結んだ境界の外ならnull。 */
+/** 置いた位置の辺り（市区町村から字・丁目まで）。名前のある境界の外ならnull。 */
 export async function areaAt(point: Coordinates): Promise<string | null> {
   const data = await requestApi(
     (init) =>
