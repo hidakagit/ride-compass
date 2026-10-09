@@ -8,7 +8,7 @@
 
 import pytest
 
-from app.domain.address_area import standardize_address
+from app.domain.address_area import chome_name, standardize_address
 
 
 @pytest.mark.parametrize(("typed", "listed"), [
@@ -44,3 +44,16 @@ def test_書き方の違う同じ住所は同じ形に揃う(typed, listed):
 def test_揃えた形は丁目を区切りにし番地をそのまま続ける():
     """丁目の鍵（「西新宿2-」）を頭に持つ形になり、番地まで打った入力でも丁目までの鍵が頭に当たる。"""
     assert standardize_address("東京都 新宿区 西新宿二丁目八番一号") == "東京都新宿区西新宿2-8番1号"
+
+
+@pytest.mark.parametrize(("number", "written", "name"), [
+    ("4", "４丁目", "四丁目"),
+    ("4", "四丁目", "四丁目"),
+    ("10", "１０丁目", "十丁目"),
+    ("42", "４２丁目", "四十二丁目"),
+    ("6", "６丁", "六丁"),
+])
+def test_丁目の名前は番号から漢数字でそろえる(number, written, name):
+    """ABR の丁目の表記（全角の算用数字・漢数字・「丁」）が混ざっても、区画の名前は漢数字の同じ見た目になり、鍵も変わらない。"""
+    assert chome_name(number, written) == name
+    assert standardize_address(name) == standardize_address(written)

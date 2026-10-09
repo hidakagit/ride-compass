@@ -94,8 +94,7 @@ def address_dictionary_dir(monkeypatch, tmp_path) -> Path:
 
 @pytest.fixture
 def placed_address_dictionary(address_dictionary_dir) -> None:
-    """置き場に足場の辞書（`tests/address_dictionary_fixture.py: PLACES`）を書いた状態。立ち寄り先の派生の段は、入れた地点の
-    辺りをこの辞書で引く。"""
+    """置き場に足場の辞書（`tests/address_dictionary_fixture.py: PLACES`）を書いた状態。地点の検索は住所をこの辞書で引く。"""
     write_dictionary(address_dictionary_dir)
 
 

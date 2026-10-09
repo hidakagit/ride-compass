@@ -58,15 +58,10 @@
   ```
   sudo docker run --rm --network=host --memory=4g \
     -v /home/ubuntu/ridecompass-cache-data:/app/data \
-    -v /home/ubuntu/ridecompass-address-dictionary:/app/address_dictionary \
     --env-file /home/ubuntu/ridecompass-backend.env \
     ridecompass-backend:latest \
     python -m app.batch.derive_cli
   ```
-
-- 住所の辞書（`/app/address_dictionary`）は、立ち寄り先の段が施設の辺りを逆引きするのに読む。**読むだけ（`:ro`）にしない**——
-  逆引きの索引を辞書の置き場に作り、引くたびにも索引のファイルへ書き戻す（[地点の検索](../modules/backend/place-search.md)「施設の辺り」）。
-  索引の無い版で初めて流すと、作るのに数分余計にかかる。外すと立ち寄り先の段が辞書を開けずに止まり、何も入れ替わらない。
 
 - 住所の区画の段は、住所の生データ（`abr`）の取込が無いと止まり、作り直し全体が何も入れ替えない。初めて流す前と住所を取り直すときは、
   同じ別のコンテナで取得と取込を先に打つ（手順は[data-sources.md](../architecture/data-sources.md)「住所の区画の元データ」）。

@@ -23,6 +23,7 @@ import shapefile
 from app.batch import derive_addresses
 from app.batch.ingest import ingest_source
 from app.batch.source_adapters import abr, estat_small_area
+from app.domain.address_area import standardize_address
 from app.batch.source_profile import Target, load_source_profile
 from app.infrastructure.source_models import Source
 from tests.conftest import empty_ingested_tables
@@ -77,7 +78,7 @@ def _town(code: str, town_id: str, town_type: str, *, oaza: str = "", chome: str
     _, prefecture, county, city, ward, _, _ = CITY_BY_CODE[code]
     return {"lg_code": code, "machiaza_id": town_id, "machiaza_type": town_type, "pref": prefecture,
             "county": county, "city": city, "ward": ward, "oaza_cho": oaza, "chome": chome,
-            "chome_number": chome[:1], "koaza": koaza, "rsdt_addr_flg": flag, "status_flg": "1",
+            "chome_number": standardize_address(chome).rstrip("-"), "koaza": koaza, "rsdt_addr_flg": flag, "status_flg": "1",
             "ablt_date": abolished}
 
 
@@ -130,6 +131,8 @@ BOUNDARIES = [
     ("13", "104", "002402", "西新宿２丁目", 8101, [_box(139.692, 35.688), _box(139.70, 35.70)]),
     ("13", "104", "002400", "西新宿", 8101, [_box(139.66, 35.66)]),
     ("13", "104", "002500", "西新宿北部", 8101, [_box(139.65, 35.65)]),
+    # 1つの丁目を分けた小地域は、名前の途中に括弧の印を挟む。
+    ("13", "104", "002412", "西新宿（一）２丁目", 8101, [_box(139.62, 35.62)]),
     ("13", "104", "002600", "西新宿", 8154, [_box(139.64, 35.64)]),
     ("13", "104", "009900", "無関係", 8101, [_box(139.50, 35.50)]),
     # 平井と坊主岳の代表点を囲む、名前の無い小地域。
@@ -234,8 +237,8 @@ async def test_区画は範囲の中の町字とその祖先が親でつなが�
         "1330510001101": ("1330510001000", "aza", "坊主岳", None),
         "1330510000101": ("133051", "aza", "上の原", None),
         "1410110001000": ("141011", "oaza", "鶴見中央", None),
-        "1410110001001": ("1410110001000", "aza", "１丁目", None),
-        "1410110001002": ("1410110001000", "aza", "２丁目", None),
+        "1410110001001": ("1410110001000", "aza", "一丁目", None),
+        "1410110001002": ("1410110001000", "aza", "二丁目", None),
         "1120380002000": ("112038", "oaza", "大字安行", None),
     }
     center = await derive_conn.fetchrow(
@@ -269,13 +272,15 @@ async def test_区画は書き始める段の違う別形の鍵で引ける(deri
 
 async def test_小地域の境界は名前か中の代表点で区画に結ぶ(derive_conn, address_data):
     """同じ名前 → 名前の頭（大字＋集落名）→ 名前のお尻（学区＋町名）の順で名前で結び、名前で結べない境界は中に代表点が
-    ある区画（字・丁目を先に）に結ぶ。どれにも当たらない境界と、通常の小地域でない境界（水面）は行にならない。"""
+    ある区画（字・丁目を先に）に結ぶ。名前の括弧の中は除いて結ぶ（分けた丁目が大字でなく丁目に結ぶ）。どれにも当たらない
+    境界と、通常の小地域でない境界（水面）は行にならない。"""
     await _derive(derive_conn)
 
     links = {row["key_code"]: row["area_id"] for row in await derive_conn.fetch("SELECT * FROM address_boundary_links")}
 
     assert links == {
         "13104002402": "1310410024002",
+        "13104002412": "1310410024002",
         "13104002400": "1310410024000",
         "13104002500": "1310410024000",
         "13305000000": "1330510001101",

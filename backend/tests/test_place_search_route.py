@@ -4,16 +4,17 @@
 施設の表を引く層（`infrastructure/stop_place_search.py`）の判断を見る: 候補の種類・段・表示名・位置、入力の空白を除くこと、
 何も当たらない入力は空、旧い市の名前を今の住所で出すこと（大字の無い区域はその市区町村で）、今は無い区画を落とすこと、
 対象範囲の外の候補を落とすこと、打ちかけの入力の続きを足すこと（並び・1文字から・件数の上限・位置を持たない節）、
-施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の真ん中に近い店から上限まで）、施設に添える辺り（立ち寄り先の
-派生の段が住所の辞書を逆引きして入れる。市区町村から字・丁目まで、旧い住所の節を除く、大字の無い区域は市区町村まで）、
+施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の真ん中に近い店から上限まで）、施設に添える辺り、
 住所と施設を混ぜる並び、
 辞書が無ければ503、対象範囲を読めなければ502、回数制限。
 辞書はテストの足場が数件の節で書いたもの（`tests/address_dictionary_fixture.py`）を本物の検索で引く。対象範囲は道路の
-取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、注入から本物を通す。
+取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、注入から本物を通す。施設の辺りは
+住所の生データと小地域の境界を取り込み、住所の派生の段を本物のまま流して作る。
 
 ここで見ないもの:
 - 対象範囲を読むこと（どの取込の記録の範囲か） → `test_ingested_area.py`
 - 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
+- 施設の辺りの決め方（辺の上・境界の外・結べない境界） → `test_stop_place_areas.py`
 - 回数制限の窓 → `test_rate_limiter.py`
 - Cache-Control の値と、失敗の応答に付けないこと → `test_cache_policy.py`
 - 入力の長さ（`domain/place_search.py: PlaceQuery`の制約で、FastAPIが422で返す）
@@ -25,7 +26,7 @@ import pytest
 import pytest_asyncio
 from jageocoder.address import AddressLevel
 
-from app.batch import derive_stop_places
+from app.batch import derive_addresses, derive_stop_places
 from app.config import settings
 from app.domain.place_search import PLACE_PREDICTION_LIMIT
 from app.domain.region import BoundingBox
@@ -41,7 +42,14 @@ from tests.address_dictionary_fixture import (
     write_dictionary,
 )
 from tests.conftest import postgis_database_url, raw_connection
-from tests.source_ingest import ingest_records, point_record
+from tests.source_ingest import (
+    abr_city_record,
+    abr_prefecture_record,
+    abr_town_record,
+    estat_small_area_record,
+    ingest_records,
+    point_record,
+)
 
 pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
 
@@ -251,11 +259,8 @@ async def test_the_search_is_rate_limited_per_client():
 
 # --- 施設 ----------------------------------------------------------------------
 
-#: 足場の辞書で、新宿の位置（`LON`・`LAT`）の辺り。
-SHINJUKU_AREA = "新宿区西新宿二丁目"
-
-
-def _facility(name: str, longitude: float, latitude: float = LAT, area: str = SHINJUKU_AREA) -> dict:
+def _facility(name: str, longitude: float, latitude: float = LAT, area: str | None = None) -> dict:
+    """施設の候補。辺りは住所の区画と境界を取り込んだテスト（施設の辺りの節）だけが持つ。"""
     return {"kind": "facility", "level": "point", "name": name, "area": area, "latitude": latitude,
             "longitude": longitude}
 
@@ -318,7 +323,6 @@ async def test_facilities_with_the_same_name_beyond_the_limit_are_the_nearest_on
     response = await _search("喫茶ことり", near_longitude=near_longitude)
 
     assert response.status_code == 200
-    # 辺りは足場の辞書で最も近い節しだいで、並びと関係しないので比べない（施設の辺りの節で見る）。
     assert [c["longitude"] for c in response.json()["candidates"]] == [
         LON + i / 10 for i in range(count - 1, count - 1 - PLACE_PREDICTION_LIMIT, -1)
     ]
@@ -350,7 +354,7 @@ async def test_facilities_come_between_addresses_matching_the_whole_input_and_th
     assert response.status_code == 200
     assert response.json() == {"candidates": [
         _address(kosugiyu_town, "神奈川県川崎市小杉湯町", "oaza"),
-        _facility("小杉湯", LON, area="川崎市小杉湯町"),
+        _facility("小杉湯", LON),
         _address(kosugi, "神奈川県川崎市小杉", "oaza"),
     ]}
 
@@ -360,45 +364,38 @@ async def test_facilities_come_between_addresses_matching_the_whole_input_and_th
 
 @pytest.mark.usefixtures("area", "placed_address_dictionary")
 async def test_facilities_of_the_same_name_show_the_area_each_one_is_in():
-    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（市区町村から字・丁目まで）で見分ける。"""
+    """チェーンの名前で探すと同じ表示名の店が並ぶので、辺り（店の位置を含む小地域の境界に結んだ町字の、市区町村から先の
+    名前）で見分ける。"""
+    shinjuku, iwatsuki = ("東京都", "新宿区", ""), ("埼玉県", "さいたま市", "岩槻区")
+    await ingest_records("abr", [
+        abr_prefecture_record("130001", "東京都", 139.69, 35.69),
+        abr_prefecture_record("110001", "埼玉県", 139.65, 35.86),
+        abr_city_record("131041", "東京都", "新宿区", 139.70, 35.69),
+        abr_city_record("111007", "埼玉県", "さいたま市", 139.645, 35.86),
+        abr_city_record("111104", "埼玉県", "さいたま市", 139.69, 35.95, ward="岩槻区"),
+        abr_town_record("131041", "0024000", "1", shinjuku, LON - 0.01, LAT, oaza="西新宿"),
+        abr_town_record("131041", "0024002", "2", shinjuku, LON, LAT, oaza="西新宿", chome="二丁目"),
+        abr_town_record("111104", "0001000", "1", iwatsuki, 139.70, 35.95, oaza="本町"),
+    ])
+    await ingest_records("estat_small_area", [
+        estat_small_area_record("13104002402", "西新宿２丁目", [
+            (LON - 0.002, LAT - 0.002), (LON - 0.002, LAT + 0.002), (LON + 0.002, LAT + 0.002),
+            (LON + 0.002, LAT - 0.002), (LON - 0.002, LAT - 0.002)]),
+        estat_small_area_record("11110000100", "本町", [
+            (139.69, 35.94), (139.69, 35.96), (139.71, 35.96), (139.71, 35.94), (139.69, 35.94)]),
+    ])
+    async with raw_connection() as conn:
+        await derive_addresses.derive(conn)
     await _ingest_facilities([
-        _facility_record(1, "ファミリーマート", SHINJUKU_8.longitude, SHINJUKU_8.latitude),
-        _facility_record(2, "ファミリーマート", SHIBUYA_HONMACHI.longitude, SHIBUYA_HONMACHI.latitude),
+        _facility_record(1, "ファミリーマート", LON, LAT),
+        _facility_record(2, "ファミリーマート", 139.70, 35.95),
     ])
 
     response = await _search("ファミリーマート")
 
     assert response.status_code == 200
     assert response.json() == {"candidates": [
-        _facility("ファミリーマート", SHINJUKU_8.longitude, SHINJUKU_8.latitude, "新宿区西新宿二丁目"),
-        _facility("ファミリーマート", SHIBUYA_HONMACHI.longitude, SHIBUYA_HONMACHI.latitude, "渋谷区本町"),
+        _facility("ファミリーマート", LON, LAT, "新宿区西新宿二丁目"),
+        _facility("ファミリーマート", 139.70, 35.95, "さいたま市岩槻区本町"),
     ]}
 
-
-@pytest.mark.parametrize(("places", "expected_area"), [
-    # 旧い市の節は、今の住所の節と並んで当たる（今の住所の節より近いこともある）。
-    pytest.param((Place("埼玉県", AddressLevel.PREF, 139.649, 35.85736, (
-        Place("さいたま市", AddressLevel.CITY, 139.645502, 35.861515, (
-            Place("岩槻区", AddressLevel.WARD, 139.694182, 35.949882, (
-                Place("本町", AddressLevel.OAZA, LON + 0.002, LAT),
-            ), "postcode:3390000"),
-        )),
-        Place("岩槻市", AddressLevel.CITY, 139.694182, 35.949882, (
-            Place("本町", AddressLevel.OAZA, LON + 0.001, LAT, note="ref:埼玉県さいたま市岩槻区本町"),
-        )),
-    )),), "さいたま市岩槻区本町", id="旧い住所の節を除き、市から区へつなぐ"),
-    pytest.param((Place("茨城県", AddressLevel.PREF, 140.446793, 36.341813, (
-        Place("龍ケ崎市", AddressLevel.CITY, 140.182265, 35.911594, (
-            Place(".", AddressLevel.OAZA, LON, LAT, (Place("3710番地", AddressLevel.BLOCK, LON, LAT),)),
-        ), "postcode:3010000"),
-    )),), "龍ケ崎市", id="大字の無い区域は市区町村まで"),
-])
-@pytest.mark.usefixtures("area")
-async def test_the_area_is_the_nearest_current_address_from_the_city(address_dictionary_dir, places, expected_area):
-    write_dictionary(address_dictionary_dir, places)
-    await _ingest_facilities([_facility_record(1, "小杉湯", LON, LAT)])
-
-    response = await _search("小杉湯")
-
-    assert response.status_code == 200
-    assert response.json() == {"candidates": [_facility("小杉湯", LON, area=expected_area)]}

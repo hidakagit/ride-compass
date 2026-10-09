@@ -1,7 +1,9 @@
-"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方。
+"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方・区画の祖先から
+辺りの名前を組み立てる形。
 
 区画の表（`address_areas`）と鍵の表（`address_search_keys`）は派生の段（`batch/derive_addresses.py`）が作り、
-ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）を持つ。
+ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）・
+施設の辺りの名前（`area_label`）を持つ。
 アドレス・ベース・レジストリ（ABR）の列の読み方は`infrastructure/source_models.py`が持ち、ここへは名前で届く。
 """
 
@@ -28,7 +30,8 @@ HYPHEN_CHARACTERS = "‐‑‒–—―−-"
 #: 住所の揃え方で`-`へ寄せる文字。ハイフンの類に長音（NFKC のあとの「ー」。半角の「ｰ」もここへ寄る）を足したもの。
 _HYPHENS = re.compile(f"[ー{HYPHEN_CHARACTERS}]")
 _SPACES = re.compile(r"\s+")
-_KANJI_DIGITS = {"〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_KANJI_NUMERALS = "〇一二三四五六七八九"
+_KANJI_DIGITS = {c: n for n, c in enumerate(_KANJI_NUMERALS)}
 _KANJI_NUMBER = re.compile("[〇一二三四五六七八九十]+")
 _CHOME = re.compile(r"(\d+)丁目?")
 _KE = re.compile("[ヶヵケがゖ]")
@@ -60,6 +63,26 @@ def standardize_address(text: str) -> str:
     text = text.replace("大字", "")
     text = _KE.sub("ケ", text)
     return _NO.sub("ノ", text)
+
+
+def chome_name(number: str, written: str) -> str:
+    """丁目の区画の名前（「四丁目」「四十二丁目」「六丁」）。
+
+    ABR の丁目の表記は「４丁目」「四丁目」「６丁」が市区町村ごとに混ざるので、番号（`chome_number`）から漢数字で作り、
+    見た目をそろえる。「丁」で終わる表記は「丁」のまま。
+    """
+    tens, ones = divmod(int(number), 10)
+    digits = ("" if tens < 2 else _KANJI_NUMERALS[tens]) + ("十" if tens else "") + (_KANJI_NUMERALS[ones] if ones else "")
+    return digits + ("丁" if written.endswith("丁") else "丁目")
+
+
+def area_label(chain: Iterable[tuple[str, str]]) -> str:
+    """施設の辺りの名前（「川口市元郷四丁目」「さいたま市岩槻区本町」）。
+
+    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。市区町村から先の名前をつなぎ、都道府県は持たない
+    （政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない）。
+    """
+    return "".join(name for level, name in chain if level != "prefecture")
 
 
 def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) -> frozenset[str]:
