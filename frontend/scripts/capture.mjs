@@ -57,7 +57,7 @@ function run(command, args, { cwd = frontendRoot, env = {} } = {}) {
 }
 
 /**
- * 手元で起動する版へ渡す環境変数。本番（Render のダッシュボードの値と Render が入れる RENDER_GIT_COMMIT・RENDER_GIT_REPO_SLUG。docs/architecture/tech-stack.md
+ * 手元で起動する版へ渡す環境変数。本番（Render のダッシュボードの値と Render が入れる RENDER_GIT_COMMIT。docs/architecture/tech-stack.md
  * 「本番の宛先」）と同じく、API もタイルも backend へ直接向け、ビルド（NEXT_PUBLIC_ を埋め込む）と起動の両方へ渡す。管理画面
  * （src/proxy.ts）の資格情報は撮影用の値で、capture/context.ts: openAdmin が同じ環境変数から読む。
  */
@@ -69,7 +69,6 @@ function frontendEnv(target, commit) {
     ADMIN_BASIC_AUTH_USERNAME: "capture",
     ADMIN_BASIC_AUTH_PASSWORD: "capture",
     RENDER_GIT_COMMIT: commit,
-    RENDER_GIT_REPO_SLUG: "hidakagit/ride-compass",
   };
 }
 
