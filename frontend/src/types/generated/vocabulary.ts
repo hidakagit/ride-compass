@@ -179,6 +179,10 @@ export const vocabulary = {
       "label": "字・丁目"
     },
     {
+      "key": "block",
+      "label": "街区・地番"
+    },
+    {
       "key": "point",
       "label": "地点"
     }

@@ -1,9 +1,10 @@
-r"""アドレス・ベース・レジストリ（都道府県・市区町村・町字のテキストと位置参照拡張）を配布元から手元へ写す（取込とは分ける）。
+r"""アドレス・ベース・レジストリ（都道府県・市区町村・町字・住居表示の街区のテキストと位置参照拡張）を配布元から手元へ写す
+（取込とは分ける）。
 
 取込はローカルのファイルを読むだけにする（`source_adapters/abr.py`）。
 
-取るのは全国の1ファイルずつ（都道府県・市区町村・町字のテキストと、都道府県・市区町村の代表点）と、町字の代表点のうち
-取込の範囲（`target.bbox`）に掛かる都道府県のもの（`source_adapters/abr.py: prefectures_in_range`。市区町村の代表点から
+取るのは全国の1ファイルずつ（都道府県・市区町村・町字のテキストと、都道府県・市区町村の代表点）と、町字の代表点と
+住居表示の街区のテキストと代表点のうち取込の範囲（`target.bbox`）に掛かる都道府県のもの（`source_adapters/abr.py: prefectures_in_range`。市区町村の代表点から
 決めるので、市区町村の代表点を先に取る）。取得の手順（読めるものは落とし直さない・一時ファイル経由・落とし終えたら
 開いてみる）は`app.batch.common.fetch_verified`が持つ。
 
@@ -29,9 +30,9 @@ from app.batch.source_adapters.abr import (  # noqa: E402
     NATIONWIDE_ARCHIVES,
     archive_path,
     archive_url,
+    prefecture_stems,
     prefectures_in_range,
     read_rows,
-    town_position_stem,
 )
 from app.batch.source_profile import load_source_profile  # noqa: E402
 
@@ -61,7 +62,7 @@ def fetch(snapshot: str, bbox: tuple[float, float, float, float]) -> bool:
         return False
     prefectures = prefectures_in_range(read_rows(archive_path(snapshot, "mt_city_pos_all")), bbox)
     logger.info("範囲に掛かる都道府県: %s", ", ".join(prefectures))
-    return all([_fetch(snapshot, town_position_stem(code)) for code in prefectures])
+    return all([_fetch(snapshot, stem) for code in prefectures for stem in prefecture_stems(code)])
 
 
 def main() -> int:

@@ -27,7 +27,7 @@ interface PointDetailProps {
   title: string;
   /** 印に入れる字（経由地の番号。地図のピンと同じ）。 */
   markLabel?: string;
-  /** どうやって置いた地点か（探して選んだ地点／地図で選んだ地点／現在地）。置いていなければ無し。 */
+  /** どうやって置いた地点か（探して選んだ地点／地図で選んだ地点）。置いていない・現在地なら無し（名前が現在地と言う）。 */
   source?: string;
   /** 地点の名前（探した施設・住所の名前／地図で選んだ地点／現在地／未設定）。経由地を足すときは無し。 */
   name?: string;
@@ -107,9 +107,9 @@ export default function PointDetail({
     if (listOpen) formRef.current?.scrollIntoView({ block: "start" });
   }, [listOpen, candidates]);
 
-  // 代表の位置（探した住所）は行きたい所そのものではないので、そこの辺りは引かない。
+  // 探した住所は名前が辺りを含み、代表の位置なら行きたい所そのものでもないので、辺りは引かない。
   const representative = found !== null && isRepresentative(found);
-  const areaPoint = found?.area == null && !representative ? at : null;
+  const areaPoint = found?.kind !== "address" && found?.area == null ? at : null;
   const placedArea = useQuery(
     {
       queryKey: ["place-area", areaPoint?.latitude, areaPoint?.longitude],
@@ -157,17 +157,25 @@ export default function PointDetail({
       <div className="flex min-w-0 items-start gap-2">
         <PointMark role={role} label={markLabel} originLocated={originLocated} className="mt-0.5" />
         <div className="min-w-0 flex-auto">
-          <p
-            className={cn(
-              textVariants({ variant: "note" }),
-              "group-data-[armed=true]:text-[var(--color-accent-strong)]",
+          {/* 呼び名・名前・出どころを1行に並べ、入らなければ折り返す。出どころが名前と同じ（地図で選んだ地点）なら重ねて出さない。 */}
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+            <span
+              className={cn(
+                textVariants({ variant: "note" }),
+                "group-data-[armed=true]:text-[var(--color-accent-strong)]",
+              )}
+            >
+              {title}
+            </span>
+            {name !== undefined && (
+              <span className={cn(textVariants({ variant: "body" }), "font-bold [overflow-wrap:anywhere]")}>
+                {name}
+              </span>
             )}
-          >
-            {source === undefined ? title : `${title}・${source}`}
+            {source !== undefined && source !== name && (
+              <span className={textVariants({ variant: "note" })}>{source}</span>
+            )}
           </p>
-          {name !== undefined && (
-            <p className={cn(textVariants({ variant: "body" }), "font-bold [overflow-wrap:anywhere]")}>{name}</p>
-          )}
           {(area !== null || representative) && (
             <p className="flex min-w-0 flex-wrap items-center gap-1">
               {area !== null && (
@@ -180,34 +188,82 @@ export default function PointDetail({
         </div>
       </div>
 
-      <form
-        ref={formRef}
-        role="search"
-        className="scroll-mt-1"
-        onSubmit={(event) => {
-          event.preventDefault();
-          lookup.submit();
-        }}
-      >
-        <input
-          id={inputId}
-          type="search"
-          aria-label={`${title}を住所・施設で探す`}
-          placeholder={armed ? armedHint : placed ? "住所・施設で探して置き直す" : "住所・施設で探す"}
-          disabled={full}
-          enterKeyHint="search"
-          className={cn(
-            "w-full rounded-sm border border-[var(--color-border)] bg-transparent px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--foreground)] placeholder:text-[var(--color-muted)]",
-            "focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]",
-          )}
-          {...inputProps}
-          onFocus={() => setBrowsing(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") closeList();
+      {/* 打つ欄と地図で置く操作・消す等を1行に並べ、入らなければ操作を次の行へ送る。 */}
+      <div className="flex flex-wrap items-center gap-1">
+        <form
+          ref={formRef}
+          role="search"
+          className="min-w-[9rem] flex-1 scroll-mt-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            lookup.submit();
           }}
-          data-usage={`住所か施設の名前を入れて探します。${PREDICTION_MIN_LENGTH}文字から、打つのを止めると候補が出ます。候補を選ぶと${chooseResult}。`}
-        />
-      </form>
+        >
+          <input
+            id={inputId}
+            type="search"
+            aria-label={`${title}を住所・施設で探す`}
+            placeholder={armed ? armedHint : placed ? "住所・施設で置き直す" : "住所・施設で探す"}
+            disabled={full}
+            enterKeyHint="search"
+            className={cn(
+              "w-full rounded-sm border border-[var(--color-border)] bg-transparent px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--foreground)] placeholder:text-[var(--color-muted)]",
+              "focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]",
+            )}
+            {...inputProps}
+            onFocus={() => setBrowsing(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeList();
+            }}
+            data-usage={`住所か施設の名前を入れて探します。${PREDICTION_MIN_LENGTH}文字から、打つのを止めると候補が出ます。候補を選ぶと${chooseResult}。`}
+          />
+        </form>
+        <Toggle
+          variant="plain"
+          className={
+            armed
+              ? "flex-none rounded-sm bg-[var(--color-accent)] px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--color-surface)]"
+              : "flex-none rounded-sm px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]"
+          }
+          pressed={armed}
+          disabled={full}
+          aria-label={
+            full ? `${title}は上限まで置いてあります` : armed ? `${title}の指定をやめる` : `${title}を${armLabel}`
+          }
+          onClick={onArmToggle}
+          usage={usage}
+        >
+          {armed ? "やめる" : full ? "上限" : armLabel}
+        </Toggle>
+        {extra}
+        {at !== null &&
+          (savedHere !== null ? (
+            <Button
+              size="panelIcon"
+              className="ml-auto flex-none"
+              aria-label={`「${savedHere.name}」の保存をやめる`}
+              onClick={() => savedPlaces.remove(savedHere)}
+              usage="保存した地点から外します。置いた地点はそのまま残ります。"
+            >
+              <SavedPlaceIcon />
+            </Button>
+          ) : (
+            <Button
+              size="panelIcon"
+              className="ml-auto flex-none"
+              aria-label="地点を保存"
+              aria-haspopup="dialog"
+              aria-expanded={naming}
+              onClick={() => {
+                setPlaceNameDraft(null);
+                setNaming(true);
+              }}
+              usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
+            >
+              <SavePlaceIcon />
+            </Button>
+          ))}
+      </div>
 
       {listOpen && (
         <div className="relative flex flex-col gap-1 rounded-sm border border-[var(--color-border)] p-1 pr-8">
@@ -262,54 +318,6 @@ export default function PointDetail({
           )}
         </div>
       )}
-
-      <div className="flex flex-wrap items-center gap-1">
-        <Toggle
-          variant="plain"
-          className={
-            armed
-              ? "flex-none rounded-sm bg-[var(--color-accent)] px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--color-surface)]"
-              : "flex-none rounded-sm px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]"
-          }
-          pressed={armed}
-          disabled={full}
-          aria-label={
-            full ? `${title}は上限まで置いてあります` : armed ? `${title}の指定をやめる` : `${title}を${armLabel}`
-          }
-          onClick={onArmToggle}
-          usage={usage}
-        >
-          {armed ? "やめる" : full ? "上限" : armLabel}
-        </Toggle>
-        {extra}
-        {at !== null &&
-          (savedHere !== null ? (
-            <Button
-              size="panelIcon"
-              className="ml-auto"
-              aria-label={`「${savedHere.name}」の保存をやめる`}
-              onClick={() => savedPlaces.remove(savedHere)}
-              usage="保存した地点から外します。置いた地点はそのまま残ります。"
-            >
-              <SavedPlaceIcon />
-            </Button>
-          ) : (
-            <Button
-              size="panelIcon"
-              className="ml-auto"
-              aria-label="地点を保存"
-              aria-haspopup="dialog"
-              aria-expanded={naming}
-              onClick={() => {
-                setPlaceNameDraft(null);
-                setNaming(true);
-              }}
-              usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
-            >
-              <SavePlaceIcon />
-            </Button>
-          ))}
-      </div>
       <DialogRoot open={naming} onOpenChange={setNaming}>
         <DialogContent title="地点を保存">
           <form

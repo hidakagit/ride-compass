@@ -39,6 +39,14 @@ const AZA: PlaceCandidate = {
   latitude: 35.679,
   longitude: 139.764,
 };
+const BLOCK: PlaceCandidate = {
+  kind: "address",
+  level: "block",
+  name: "東京都千代田区丸の内一丁目9番",
+  area: null,
+  latitude: 35.681,
+  longitude: 139.767,
+};
 const FACILITY: PlaceCandidate = {
   kind: "facility",
   level: "point",
@@ -116,15 +124,19 @@ async function searchFor(text: string) {
 describe("PointDetail 置いた地点", () => {
   it.each([
     ["施設", FACILITY, `${FACILITY.name}${FACILITY.area}`, false],
-    ["住所", AZA, `${AZA.name}代表の位置`, true],
-  ])("探して置いた%sは、名前に施設の辺りを添え、住所には代表の位置と出す", (_kind, found, text, representative) => {
-    // 辺りの口へ問い合わせない（応答を与えていない要求はテストを落とす）。
-    renderDetail({ found, at: { latitude: found.latitude, longitude: found.longitude } });
+    ["区画で当たった住所", AZA, `${AZA.name}代表の位置`, true],
+    ["街区・地番まで当たった住所", BLOCK, BLOCK.name, false],
+  ])(
+    "探して置いた%sは、名前に施設の辺りを添え、区画で当たった住所には代表の位置と出す",
+    (_kind, found, text, representative) => {
+      // 辺りの口へ問い合わせない（応答を与えていない要求はテストを落とす）。
+      renderDetail({ found, at: { latitude: found.latitude, longitude: found.longitude } });
 
-    const detail = screen.getByRole("region", { name: "目的地" });
-    expect(detail.textContent).toContain(`目的地${text}`);
-    expect(within(detail).queryByText("代表の位置") !== null).toBe(representative);
-  });
+      const detail = screen.getByRole("region", { name: "目的地" });
+      expect(detail.textContent).toContain(`目的地${text}`);
+      expect(within(detail).queryByText("代表の位置") !== null).toBe(representative);
+    },
+  );
 
   it.each([
     ["地図で選んだ地点", null, "目的地未設定"],

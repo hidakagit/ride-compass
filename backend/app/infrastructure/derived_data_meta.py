@@ -67,7 +67,8 @@ class DerivedColumnRow(Base):
 
 
 class DerivedStageRow(Base):
-    """今の`public`の派生の表を作ったときの、段ごとの入力の指紋（`derive_cli.py: stage_fingerprints`）。段ごとに1行。
+    """今の`public`の派生の表を作ったときの、段ごとの入力の指紋（`derive_cli.py: stage_fingerprints`）。段ごとに1行で、
+    区間ごとに写す段は前の段を除いた入力の指紋の行も持つ。
 
     次の作り直しは、指紋がこの記録と同じ段を流さず、写した前回の値を使う。読むのは作り直しだけ。
     `derived_source_runs`と同じく作業用のスキーマへ写して書き、表ごと入れ替える——段を流した作り直しが途中で

@@ -19,15 +19,17 @@ from app.domain.strict_model import StrictModel
 PlaceKind = Literal["address", "facility"]
 PLACE_KIND_LABELS: dict[PlaceKind, str] = {"address": "住所", "facility": "施設"}
 
-#: 当たった段（粗い→細かい）。`point`の前までが住所の区画の段（`domain/address_area.py: ADDRESS_AREA_LEVELS`）。
-#: 最後の`point`は施設そのものの点（範囲の代表点ではない）。
-PlaceMatchLevel = Literal["prefecture", "city", "ward", "oaza", "aza", "point"]
+#: 当たった段（粗い→細かい）。`block`の前までが住所の区画の段（`domain/address_area.py: ADDRESS_AREA_LEVELS`）。
+#: `block`は区画の中の街区（住居表示の区域）か地番（それ以外の区域）で、番地まで打った入力だけが当たる
+#: （`domain/address_area.py: BLOCK_KINDS`）。最後の`point`は施設そのものの点（範囲の代表点ではない）。
+PlaceMatchLevel = Literal["prefecture", "city", "ward", "oaza", "aza", "block", "point"]
 PLACE_MATCH_LEVEL_LABELS: dict[PlaceMatchLevel, str] = {
     "prefecture": "都道府県",
     "city": "市区町村",
     "ward": "区",
     "oaza": "大字・町",
     "aza": "字・丁目",
+    "block": "街区・地番",
     "point": "地点",
 }
 
@@ -45,18 +47,22 @@ PLACE_PREDICTION_LIMIT = 10
 PLACE_PREDICTION_DELAY_SECONDS = 0.4
 
 #: 住所の区画の表（`domain/address_area.py`）の元データの出典。アドレス・ベース・レジストリは CC BY 4.0、e-Stat の境界は
-#: 政府標準利用規約（第2.0版）で、どちらも出典と加工した旨を書く（docs/architecture/data-sources.md）。
+#: 政府標準利用規約（第2.0版）で、どちらも出典と加工した旨を書く。街区レベル位置参照情報は位置参照情報利用約款の第2条で、
+#: 加工したものにも出典を書く（docs/architecture/data-sources.md）。
 ADDRESS_AREA_ATTRIBUTIONS: tuple[str, ...] = (
     '住所: 「<a href="https://www.digital.go.jp/policies/base_registry_address/" target="_blank" rel="noreferrer">'
-    "アドレス・ベース・レジストリ</a>」（デジタル庁）の町字マスター・位置参照拡張を加工して作成"
+    "アドレス・ベース・レジストリ</a>」（デジタル庁）の町字マスター・住居表示の街区マスター・位置参照拡張を加工して作成"
     ' (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>)',
     '住所の境界: 出典 <a href="https://www.e-stat.go.jp/" target="_blank" rel="noreferrer">政府統計の総合窓口(e-Stat)</a>。'
     "「令和2年国勢調査 小地域（町丁・字等別）境界データ」（総務省統計局）を加工して作成",
+    '住所の地番: 「<a href="https://nlftp.mlit.go.jp/isj/" target="_blank" rel="noreferrer">街区レベル位置参照情報</a>」'
+    "（国土交通省）を加工して作成",
 )
 
 
 class PlaceCandidate(StrictModel):
-    """検索の候補1件。住所なら`name`は都道府県から当たった段までをつないだ表示名で、位置はその段の代表点。
+    """検索の候補1件。住所なら`name`は都道府県から当たった段までをつないだ表示名で、位置はその段の代表点（街区・地番は
+    その街区・地番の代表点）。
     施設なら施設の名前と、施設の位置。"""
 
     kind: PlaceKind

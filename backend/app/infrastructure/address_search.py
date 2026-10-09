@@ -1,10 +1,11 @@
-"""住所の区画の表（`address_search_keys`・`address_areas`）を、入力した文字列で引く（地点の検索の住所の候補）。
+"""住所の区画の表（`address_search_keys`・`address_areas`・`address_blocks`）を、入力した文字列で引く（地点の検索の住所の候補）。
 
 入力を鍵と同じ揃え方（`domain/address_area.py: standardize_address`）にかけ、鍵を3通りで引く。
 
 - 全部に当たる: 鍵が入力と同じか、入力に区切りを足したもの（「本町2」で二丁目の鍵「本町2-」）。
 - 番地付き: 入力の頭に当たる最も長い鍵のうち、残りの頭が番地の形（`NUMBERED_REMAINDER_PATTERN`）のもの
-  （「西新宿2-8-1」で二丁目の鍵「西新宿2-」）。番地は持たないので、番地まで打った入力は丁目・字までに当たる。
+  （「西新宿2-8-1」で二丁目の鍵「西新宿2-」）。残りの最初の数字（`BLOCK_NUMBER_PATTERN`。「8」）を、その区画の街区の番号
+  として街区の表で引き、当たれば街区・地番に、当たらなければ区画（丁目・字か大字）に当たる。号は持たない。
 - 続き: 続きに使う鍵（大字・町の段まで）のうち、入力を頭に持つもの（「西新」で「西新宿」）。長さごとの件数を部分索引で
   数え、短いほうから数えて上限に届く長さまでの鍵だけを引く（1文字の入力でも、当たる鍵の全部を読まない）。
 
@@ -12,10 +13,17 @@
 （表に入る区画は派生の段が取込の範囲で決める）。
 """
 
-from sqlalchemy import text
+from sqlalchemy import RowMapping, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.address_area import ADDRESS_AREA_LEVELS, NUMBERED_REMAINDER_PATTERN, area_label, standardize_address
+from app.domain.address_area import (
+    ADDRESS_AREA_LEVELS,
+    BLOCK_NUMBER_PATTERN,
+    NUMBERED_REMAINDER_PATTERN,
+    area_label,
+    block_label,
+    standardize_address,
+)
 from app.domain.geo import LatLon
 from app.domain.place_search import PLACE_PREDICTION_LIMIT, PLACE_PREDICTION_MIN_LENGTH, PlaceCandidate
 from app.infrastructure.address_area_lookup import area_chains_sql
@@ -24,26 +32,27 @@ from app.infrastructure.address_area_lookup import area_chains_sql
 _CONTINUATION_LENGTH_WINDOW = 40
 
 # 同じ区画に当たった鍵は1件にまとめる（当たり方は「全部に当たる・続き」を、鍵は短いほうを採る）。並びは「全部に当たる・続き」
-# → 番地付き、その中は段の粗いもの → 鍵の短いもの → 検索の中心に近いもの（測地の距離）——段を鍵の長さより先にするのは、
-# 1文字の入力（「柏」）で同じ名前の大字が上限を埋め、市区町村（「柏市」）が漏れないため。並びの最後の鍵は、同じ位置の
+# → 番地付き、その中は段の粗いもの → 鍵の短いもの → 検索の中心に近いもの（測地の距離。街区・地番はその点から）
+# ——段を鍵の長さより先にするのは、1文字の入力（「柏」）で同じ名前の大字が上限を埋め、市区町村（「柏市」）が漏れないため。並びの最後の鍵は、同じ位置の
 # 区画の並びを毎回同じにするため。表示名は、上限までの区画から`parent_id`をたどった祖先の名前で組み立てる
 # （`address_area_lookup.py: area_chains_sql`）。
 # 鍵の等号と`LIKE`は、索引で引けるよう引数を直に比べる（`LIKE`の頭の文字列が別の表の列のように問い合わせを組み立てる時に
 # 分からないと、索引の範囲にできず表の全部を読む）。
 _SEARCH_SQL = text(f"""
     WITH hits AS (
-        SELECT area_id, 0 AS numbered, length(key) AS len
+        SELECT area_id, 0 AS numbered, length(key) AS len, CAST(NULL AS text) AS number
         FROM address_search_keys
         WHERE key = :query OR key = :query_with_separator
         UNION ALL
-        SELECT area_id, 1, len FROM (
-            SELECT area_id, length(key) AS len, rank() OVER (ORDER BY length(key) DESC) AS longest
+        SELECT area_id, 1, len, number FROM (
+            SELECT area_id, length(key) AS len, rank() OVER (ORDER BY length(key) DESC) AS longest,
+                   substring(substr(CAST(:query AS text), length(key) + 1) from :block_number) AS number
             FROM address_search_keys
             WHERE key = ANY(CAST(:heads AS text[]))
               AND substr(CAST(:query AS text), length(key) + 1) ~ :numbered_remainder
         ) numbered WHERE longest = 1
         UNION ALL
-        SELECT area_id, 0, length(key)
+        SELECT area_id, 0, length(key), NULL
         FROM address_search_keys
         WHERE :continues AND continuable AND key LIKE :prefix AND length(key) > :query_length
           AND length(key) <= coalesce((
@@ -56,16 +65,17 @@ _SEARCH_SQL = text(f"""
               WHERE counted.total >= CAST(:limit AS integer)), 2147483647)
     ),
     found AS (
-        SELECT a.area_id,
-               row_number() OVER (ORDER BY min(h.numbered), array_position(CAST(:levels AS text[]), a.level),
-                                  min(h.len),
-                                  ST_Distance(a.geom::geography,
+        SELECT a.area_id, b.number, b.kind, coalesce(b.geom, a.geom) AS geom,
+               row_number() OVER (ORDER BY min(h.numbered), array_position(CAST(:levels AS text[]), a.level), min(h.len),
+                                  ST_Distance(coalesce(b.geom, a.geom)::geography,
                                               ST_SetSRID(ST_MakePoint(:near_lon, :near_lat), 4326)::geography),
                                   a.area_id) AS position
-        FROM hits h JOIN address_areas a USING (area_id)
-        GROUP BY a.area_id, a.level, a.geom
+        FROM hits h
+        JOIN address_areas a USING (area_id)
+        LEFT JOIN address_blocks b ON b.area_id = h.area_id AND b.number = h.number
+        GROUP BY a.area_id, a.level, a.geom, b.number, b.kind, b.geom
     )
-    SELECT a.level, c.levels, c.names, ST_Y(a.geom) AS latitude, ST_X(a.geom) AS longitude
+    SELECT a.level, f.number, f.kind, c.levels, c.names, ST_Y(f.geom) AS latitude, ST_X(f.geom) AS longitude
     FROM found f
     JOIN address_areas a USING (area_id)
     JOIN ({area_chains_sql("SELECT area_id FROM found WHERE position <= CAST(:limit AS integer)")}) c USING (area_id)
@@ -97,14 +107,20 @@ class AddressSearchQuery:
             "prefix": _like_prefix(q),
             "heads": [q[:n] for n in range(1, len(q))],
             "numbered_remainder": NUMBERED_REMAINDER_PATTERN,
+            "block_number": BLOCK_NUMBER_PATTERN,
             "continues": len(q) >= PLACE_PREDICTION_MIN_LENGTH,
             "levels": list(ADDRESS_AREA_LEVELS),
             "near_lat": near.latitude, "near_lon": near.longitude,
             "limit": PLACE_PREDICTION_LIMIT,
         })).mappings()
-        return [
-            PlaceCandidate(kind="address", level=row["level"],
-                           name=area_label(zip(row["levels"], row["names"], strict=True), full=True),
-                           area=None, latitude=row["latitude"], longitude=row["longitude"])
-            for row in rows
-        ]
+        return [_candidate(row) for row in rows]
+
+
+def _candidate(row: RowMapping) -> PlaceCandidate:
+    """区画か、番地まで当たった街区・地番の候補。"""
+    name = area_label(zip(row["levels"], row["names"], strict=True), full=True)
+    if row["number"] is None:
+        return PlaceCandidate(kind="address", level=row["level"], name=name, area=None,
+                              latitude=row["latitude"], longitude=row["longitude"])
+    return PlaceCandidate(kind="address", level="block", name=block_label(name, row["number"], row["kind"]), area=None,
+                          latitude=row["latitude"], longitude=row["longitude"])

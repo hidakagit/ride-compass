@@ -1,5 +1,6 @@
-"""住所の区画（`address_areas`）・区画を引く鍵（`address_search_keys`）・小地域の境界に当たる区画（`address_boundary_links`）を、
-アドレス・ベース・レジストリ（生データ`abr`）と e-Stat の小地域の境界（`estat_small_area`）から作り直す。
+"""住所の区画（`address_areas`）・区画を引く鍵（`address_search_keys`）・小地域の境界に当たる区画（`address_boundary_links`）・
+区画の中の街区と地番（`address_blocks`）を、アドレス・ベース・レジストリ（生データ`abr`）と e-Stat の小地域の境界
+（`estat_small_area`）と街区レベル位置参照情報（`isj_block`）から作り直す。
 
 **区画の木はここで作る**。取込は配布の行をそのまま入れるだけで、段・親・範囲の判断は派生の側にある。段の語彙・町字区分と段の
 対応・表記の揃え方・鍵の作り方は`domain/address_area.py`が持つ。
@@ -17,8 +18,13 @@
   境界は、中に代表点がある区画（字・丁目を先に）に結ぶ。それも無い境界は行にしない。同じ鍵に区画が2つ以上当たれば
   区画のIDの小さいほう。境界の名前の括弧の中は除いて結ぶ——1つの町丁・字を分けた小地域は、名前の途中に括弧の印を挟む
   （「横山（一）四丁目」「下九沢（番一）」）ので、除かないと頭の大字にしか当たらない。
+- 街区は、住居表示の区域では ABR の街区（廃止の日の無い行）を町字の鍵（`<市区町村>`＋`<町字ID>`）でそのまま区画に結ぶ。
+  それ以外の区域は、位置参照情報の住居表示でない行を、市区町村の名前（郡・政令市の区を含む書き方）で市区町村に当て、
+  その中で大字・丁目名＋小字・通称名を境界と同じ名前の結び方で区画に結ぶ。ABR の街区を1つでも持つ区画（住居表示の区域）
+  には位置参照情報の地番を入れない。同じ区画に同じ番号が2つ以上当たれば（区画にしない小字の地番が大字に寄る等）1つにする。
 
-`abr`の取込が無ければ止まる（区画の無い作り直しは、検索と施設の辺りを黙って空にする）。境界の取込が無ければ結び付きは空。
+`abr`の取込が無ければ止まる（区画の無い作り直しは、検索と施設の辺りを黙って空にする）。境界の取込が無ければ結び付きは空、
+位置参照情報の取込が無ければ地番は空（住居表示の街区は入る）。
 道の網とは何も読み合わない。施設の辺り（立ち寄り先の段）を区画から決められるよう、立ち寄り先の段より前に置く。
 """
 
@@ -42,10 +48,12 @@ from app.domain.address_area import (
 from app.domain.place_search import PlaceMatchLevel
 from app.infrastructure.road_graph_repository import INGESTED_BBOX_SQL
 from app.infrastructure.source_models import (
+    ABR_BLOCKS_SOURCE_SQL,
     ABR_CITIES_SOURCE_SQL,
     ABR_PREFECTURES_SOURCE_SQL,
     ABR_TOWNS_SOURCE_SQL,
     ESTAT_SMALL_AREAS_SOURCE_SQL,
+    ISJ_BLOCKS_SOURCE_SQL,
     Source,
     latest_succeeded_run_sql,
 )
@@ -77,6 +85,36 @@ FROM {ESTAT_SMALL_AREAS_SOURCE_SQL} e
 JOIN address_areas a ON a.level = ANY($1::text[]) AND ST_Covers(e.geom, a.geom)
 WHERE NOT EXISTS (SELECT 1 FROM address_boundary_links l WHERE l.key_code = e.key_code)
 ORDER BY e.key_code, a.level = $2 DESC, a.area_id
+"""
+
+
+#: 住居表示の区域の街区を、町字の鍵で区画に結んで入れる。
+_INSERT_RESIDENTIAL_BLOCKS = f"""
+INSERT INTO address_blocks (area_id, number, kind, geom)
+SELECT DISTINCT ON (a.area_id, b.number) a.area_id, b.number, 'residential', ST_SetSRID(ST_MakePoint(b.lon, b.lat), 4326)
+FROM {ABR_BLOCKS_SOURCE_SQL} b
+JOIN address_areas a ON a.area_id = b.city_code || b.town_id
+WHERE b.abolished = '' AND b.number <> ''
+ORDER BY a.area_id, b.number, b.lon, b.lat
+"""
+
+_PARCEL_LINKS = """
+CREATE TEMP TABLE _parcel_links (prefecture text, city text, oaza text, koaza text, area_id text) ON COMMIT DROP
+"""
+
+#: 住居表示でない区域の地番を、名前で結べた区画に入れる。住居表示の街区を持つ区画には入れない。
+_INSERT_PARCELS = f"""
+INSERT INTO address_blocks (area_id, number, kind, geom)
+SELECT DISTINCT ON (l.area_id, i.number) l.area_id, i.number, 'parcel', i.geom
+FROM {ISJ_BLOCKS_SOURCE_SQL} i
+JOIN _parcel_links l USING (prefecture, city, oaza, koaza)
+WHERE NOT i.residential AND i.number <> ''
+  AND NOT EXISTS (SELECT 1 FROM address_blocks b WHERE b.area_id = l.area_id)
+ORDER BY l.area_id, i.number, i.koaza
+"""
+
+_PARCEL_NAMES = f"""
+SELECT prefecture, city, oaza, koaza FROM {ISJ_BLOCKS_SOURCE_SQL} i WHERE NOT residential GROUP BY 1, 2, 3, 4
 """
 
 
@@ -185,8 +223,8 @@ def _name_key(name: str) -> str:
     return standardize_address(name.removeprefix("字")).replace("字", "").rstrip("-")
 
 
-def _link_by_name(areas: Sequence[_Area], boundaries: Sequence[asyncpg.Record]) -> list[tuple[str, str]]:
-    """名前で結べた (境界のコード, 区画)。"""
+def _names_by_city(areas: Sequence[_Area]) -> dict[tuple[str, str], str]:
+    """(市区町村（5桁）, 区画の名前（大字＋丁目・字を揃えた形）) → 区画。同じ鍵に区画が2つ以上当たれば区画のIDの小さいほう。"""
     by_id = {area.area_id: area for area in areas}
     by_name: dict[tuple[str, str], str] = {}
     for area in areas:
@@ -198,24 +236,68 @@ def _link_by_name(areas: Sequence[_Area], boundaries: Sequence[asyncpg.Record]) 
         key = (area.area_id[:5], _name_key(full))
         if key not in by_name or area.area_id < by_name[key]:
             by_name[key] = area.area_id
+    return by_name
 
+
+def _match_name(by_name: dict[tuple[str, str], str], city: str, written: str) -> str | None:
+    """`city`（5桁）の中で名前`written`に当たる区画。同じ → 頭に当たる最も長い → お尻に当たる最も長い（2文字以上）の順。
+    名前の括弧の中は除く。"""
+    name = _name_key(_PARENTHESIZED.sub("", written))
+    if not name:
+        return None
+    candidates = [name,
+                  *(name[:n] for n in range(len(name) - 1, _PARTIAL_NAME_MIN_LENGTH - 1, -1)),
+                  *(name[n:] for n in range(1, len(name) - _PARTIAL_NAME_MIN_LENGTH + 1))]
+    return next((by_name[(city, c)] for c in candidates if (city, c) in by_name), None)
+
+
+def _link_by_name(areas: Sequence[_Area], boundaries: Sequence[asyncpg.Record]) -> list[tuple[str, str]]:
+    """名前で結べた (境界のコード, 区画)。"""
+    by_name = _names_by_city(areas)
     links = []
     for boundary in boundaries:
-        name = _name_key(_PARENTHESIZED.sub("", boundary["name"]))
-        if not name:
-            continue
-        city = boundary["city_code"]
-        candidates = [name,
-                      *(name[:n] for n in range(len(name) - 1, _PARTIAL_NAME_MIN_LENGTH - 1, -1)),
-                      *(name[n:] for n in range(1, len(name) - _PARTIAL_NAME_MIN_LENGTH + 1))]
-        hit = next((by_name[(city, c)] for c in candidates if (city, c) in by_name), None)
+        hit = _match_name(by_name, boundary["city_code"], boundary["name"])
         if hit is not None:
             links.append((boundary["key_code"], hit))
     return links
 
 
+def _cities_by_name(areas: Sequence[_Area]) -> dict[tuple[str, str], str]:
+    """(都道府県の名前, 市区町村の名前を揃えた形) → 市区町村（5桁）。名前は市区町村だけの形・郡を付けた形・政令市の区は
+    市と区をつないだ形（街区レベル位置参照情報の市区町村名の書き方）。"""
+    by_id = {area.area_id: area for area in areas}
+    cities: dict[tuple[str, str], str] = {}
+    for area in areas:
+        if area.level not in ("city", "ward"):
+            continue
+        chain = [area]
+        while chain[-1].parent_id is not None:
+            chain.append(by_id[chain[-1].parent_id])
+        prefecture = chain[-1].name
+        if area.level == "ward":
+            names = [chain[1].name + area.name] if chain[1].level == "city" else [area.name]
+        else:
+            names = [area.name, (area.county_name or "") + area.name]
+        for name in names:
+            cities[(prefecture, standardize_address(name))] = area.area_id[:5]
+    return cities
+
+
+def _link_parcels(areas: Sequence[_Area], names: Sequence[asyncpg.Record]) -> list[tuple[str, str, str, str, str]]:
+    """地番の名前（都道府県・市区町村・大字・丁目・小字）ごとに、境界と同じ結び方（`_match_name`）で結べた区画。"""
+    cities = _cities_by_name(areas)
+    by_name = _names_by_city(areas)
+    links = []
+    for row in names:
+        city = cities.get((row["prefecture"], standardize_address(row["city"])))
+        hit = None if city is None else _match_name(by_name, city, row["oaza"] + row["koaza"])
+        if hit is not None:
+            links.append((row["prefecture"], row["city"], row["oaza"], row["koaza"], hit))
+    return links
+
+
 async def derive(conn: asyncpg.Connection) -> int:
-    """住所の区画・鍵・境界の結び付きを入れ直し、入れた区画の数を返す。"""
+    """住所の区画・鍵・境界の結び付き・街区を入れ直し、入れた区画の数を返す。"""
     started = time.perf_counter()
     if await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql(Source.ABR)} latest") is None:
         raise RuntimeError("住所の生データ（abr）の取込が無い。scripts/fetch_abr.py と"
@@ -226,8 +308,9 @@ async def derive(conn: asyncpg.Connection) -> int:
     boundaries = await conn.fetch(f"SELECT key_code, city_code, name FROM {ESTAT_SMALL_AREAS_SOURCE_SQL} e")
     keys = [(key, area.area_id, area.level in CONTINUABLE_LEVELS) for area in areas for key in sorted(area.keys)]
     named = _link_by_name(areas, boundaries)
+    parcel_links = _link_parcels(areas, await conn.fetch(_PARCEL_NAMES))
     async with conn.transaction():
-        await conn.execute("TRUNCATE address_boundary_links, address_search_keys, address_areas")
+        await conn.execute("TRUNCATE address_blocks, address_boundary_links, address_search_keys, address_areas")
         await conn.execute(_AREAS)
         await conn.copy_records_to_table("_address_areas", records=[
             (a.area_id, a.parent_id, a.level, a.name, a.county_name, *a.point) for a in areas])
@@ -236,7 +319,13 @@ async def derive(conn: asyncpg.Connection) -> int:
                                          columns=["key", "area_id", "continuable"])
         await conn.copy_records_to_table("address_boundary_links", records=named, columns=["key_code", "area_id"])
         by_point = int((await conn.execute(_LINK_BY_POINT, ["oaza", "aza"], "aza")).split()[-1])
-    await conn.execute("ANALYZE address_areas, address_search_keys, address_boundary_links")
-    logger.info("住所: 区画 %d件・鍵 %d件、境界 %d件のうち名前で %d件・代表点で %d件を結んだ / %.1f秒",
-                len(areas), len(keys), len(boundaries), len(named), by_point, time.perf_counter() - started)
+        residential = int((await conn.execute(_INSERT_RESIDENTIAL_BLOCKS)).split()[-1])
+        await conn.execute(_PARCEL_LINKS)
+        await conn.copy_records_to_table("_parcel_links", records=parcel_links)
+        parcels = int((await conn.execute(_INSERT_PARCELS)).split()[-1])
+    await conn.execute("ANALYZE address_areas, address_search_keys, address_boundary_links, address_blocks")
+    logger.info("住所: 区画 %d件・鍵 %d件、境界 %d件のうち名前で %d件・代表点で %d件を結んだ。街区 %d件・地番 %d件"
+                "（地番の名前 %d通りを区画に結んだ） / %.1f秒",
+                len(areas), len(keys), len(boundaries), len(named), by_point, residential, parcels,
+                len(parcel_links), time.perf_counter() - started)
     return len(areas)
