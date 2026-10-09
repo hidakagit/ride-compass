@@ -4,10 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
-  isAxisStudioLayer,
   TILE_VERSIONS_MISSING_NOTICE,
   TILE_ZOOM_TOO_WIDE_NOTICE,
-  type ChipLayerDescriptor,
 } from "@/features/map/layers/mapLayers";
 import { roadLegendAxes } from "@/features/map/scene/legends";
 
@@ -17,7 +15,6 @@ import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 const catalog = mapCatalogOf([rampEntry("ramp_a", [1]), dedicatedEntry("dedicated_b", [1])]);
 const LAYERS = buildMapLayers(catalog);
-const CHIP_LAYERS = LAYERS.filter((layer): layer is ChipLayerDescriptor => !isAxisStudioLayer(layer));
 
 type Options = Parameters<typeof overlayChips>[0];
 function chips(options: Partial<Options> = {}) {
