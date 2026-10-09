@@ -20,18 +20,17 @@
 重心に最も近い建物（重心は境内の外に落ちることがある）、名前は所有者の名前。1つの建物に寺社の所有者が2人いれば、
 両方の寺社に入る。
 
-辺り（`area`）は、入れた地点の位置を住所の辞書で逆引きして入れる（`infrastructure/address_dictionary.py: areas`）。
-逆引きはSQLでできないので、ここだけ位置を取り出してスレッドで引き、一時の表から書き戻す。辞書を開けなければ止まる。
-
-道の網とは何も読み合わないので、どの段の後ろに置いてもよい。
+辺り（`area`）は、入れた地点の位置を含む小地域の境界に結んだ住所の区画（`infrastructure/address_area_lookup.py`）の、
+市区町村から先の名前（`domain/address_area.py: area_label`）。区画の表を読むので、住所の段（`derive_addresses.py`）の
+後ろに置く。それ以外に道の網とは何も読み合わない。
 """
 
-import asyncio
 import logging
 import time
 
 import asyncpg
 
+from app.domain.address_area import area_label
 from app.domain.geo import ground_m_sql
 from app.domain.stop_place import (
     CONTACT_MERGE_RADIUS_M,
@@ -50,7 +49,7 @@ from app.domain.stop_place import (
     store_name_sql,
     temple_shrine_owner_sql,
 )
-from app.infrastructure import address_dictionary
+from app.infrastructure.address_area_lookup import area_chains_sql, boundary_area_sql
 from app.infrastructure.source_models import BUNKA_HERITAGES_SOURCE_SQL, OVERTURE_PLACES_SOURCE_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_stop_places")
@@ -158,24 +157,35 @@ ORDER BY normalized_name, merge_key, ST_Distance({ground_m_sql("geom")}, {ground
 """
 
 
-_POSITIONS = "SELECT source, source_key, ST_X(geom) AS longitude, ST_Y(geom) AS latitude FROM stop_places"
+#: 入れた地点ごとの、位置を含む小地域の境界に結んだ区画（結べなければNULL）。一時の表は統計を持たないので、書き戻しで
+#: 結ぶ前に`ANALYZE`する。
+_PLACE_AREAS = f"""
+CREATE TEMP TABLE _place_areas ON COMMIT DROP AS
+SELECT s.source, s.source_key, {boundary_area_sql("s.geom")} AS area_id FROM stop_places s;
+ANALYZE _place_areas
+"""
 
-_AREAS = "CREATE TEMP TABLE _areas (source text, source_key text, area text) ON COMMIT DROP"
+_AREA_CHAINS = area_chains_sql("SELECT area_id FROM _place_areas WHERE area_id IS NOT NULL")
+
+_AREA_LABELS = "CREATE TEMP TABLE _area_labels (area_id text, label text) ON COMMIT DROP"
 
 _SET_AREAS = """
-UPDATE stop_places s SET area = a.area FROM _areas a WHERE s.source = a.source AND s.source_key = a.source_key
+ANALYZE _area_labels;
+UPDATE stop_places s SET area = l.label
+FROM _place_areas p JOIN _area_labels l ON l.area_id = p.area_id
+WHERE s.source = p.source AND s.source_key = p.source_key
 """
 
 
 async def _fill_areas(conn: asyncpg.Connection) -> int:
-    """入れた地点の辺りを入れ、辺りの付いた地点の数を返す。"""
-    places = await conn.fetch(_POSITIONS)
-    names = await asyncio.to_thread(address_dictionary.areas, [(p["longitude"], p["latitude"]) for p in places])
-    await conn.execute(_AREAS)
-    await conn.copy_records_to_table("_areas", records=[
-        (place["source"], place["source_key"], name) for place, name in zip(places, names, strict=True)])
+    """入れた地点の辺りを入れ、辺りの付いた地点の数を返す。取り出すのは地点に当たった区画の祖先だけで、地点は取り出さない。"""
+    await conn.execute(_PLACE_AREAS)
+    chains = await conn.fetch(_AREA_CHAINS)
+    await conn.execute(_AREA_LABELS)
+    await conn.copy_records_to_table("_area_labels", records=[
+        (row["area_id"], area_label(zip(row["levels"], row["names"], strict=True))) for row in chains])
     await conn.execute(_SET_AREAS)
-    return sum(name is not None for name in names)
+    return await conn.fetchval("SELECT count(*) FROM stop_places WHERE area IS NOT NULL")
 
 
 async def derive(conn: asyncpg.Connection) -> int:

@@ -224,10 +224,11 @@ function LegendDetails({
 }
 
 /** 地図の上に浮かせる一覧。画面の端・下端に収まる大きさはRadixが測り、ⓘと▶は一覧の中の行の下に開く——一覧の上に
- * 別の浮きパネルを重ねると、スマホの幅では行そのものを覆い、下端で切れる。 */
+ * 別の浮きパネルを重ねると、スマホの幅では行そのものを覆い、下端で切れる。重なり順は`Popover`の既定（下部シートより上）の
+ * まま——下端まで伸びた一覧がスマホの下部シート・タブバーの下へ潜ると、潜った行を押せない。 */
 const FLOATING_PANEL_CLASS = cn(
   cardVariants({ variant: "glass" }),
-  "z-[var(--z-map-detail)] max-w-[min(calc(100vw-2*var(--space-3)),var(--radix-popover-content-available-width))] overflow-y-auto px-3 py-2",
+  "max-w-[min(calc(100vw-2*var(--space-3)),var(--radix-popover-content-available-width))] overflow-y-auto px-3 py-2",
 );
 
 const FILTERED_LABEL = "絞り込み中";
@@ -400,19 +401,35 @@ function LayerRow({
 
 /** 群の中で一覧に並べる項目を選ぶ。外した項目は、群を開いても並べない。 */
 function ItemChooser({
+  label,
   members,
   isHidden,
   onToggleHidden,
+  onSetAllHidden,
 }: {
+  label: string;
   members: readonly OverlayLayerChip[];
   isHidden: (member: OverlayLayerChip) => boolean;
   onToggleHidden: (member: OverlayLayerChip) => void;
+  onSetAllHidden: (hidden: boolean) => void;
 }) {
+  const allListed = members.every((member) => !isHidden(member));
   return (
     <ul
       className="m-0 flex list-none flex-col gap-0.5 py-0.5 pl-0"
       data-usage="チェックを外した項目は、この一覧に並べません。地図に出していれば消えます。"
     >
+      {/* 1つのチェックボックスで両方向を兼ねる（凡例の軸の見出しと同じ）。 */}
+      <li data-usage="この群の項目をまとめて選びます。全部並んでいれば全部外し、1つでも外れていれば全部並べます。">
+        <label className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[length:var(--font-size-sm)] font-bold">
+          <Checkbox
+            checked={allListed}
+            onCheckedChange={() => onSetAllHidden(allListed)}
+            aria-label={`${label}の項目をすべて選ぶ/外す`}
+          />
+          すべて
+        </label>
+      </li>
       {members.map((member) => {
         const hidden = isHidden(member);
         return (
@@ -469,6 +486,15 @@ export default function MapOverlayControls({
     if (hiding && member.on) onToggle(member.id, false);
   }
 
+  /** 群の項目をまとめて外す・並べる。1つずつ外すときと同じく、外す項目のONはOFFにし、並べ直してもONにはしない。 */
+  function setAllHidden(group: MapOverlayGroup, members: readonly OverlayLayerChip[], hiding: boolean) {
+    const keys = members.map((member) => hiddenKeyOf(group, member.id));
+    setHiddenIds((prev) =>
+      hiding ? [...prev, ...keys.filter((key) => !prev.includes(key))] : prev.filter((id) => !keys.includes(id)),
+    );
+    if (hiding) for (const member of members) if (member.on) onToggle(member.id, false);
+  }
+
   const groups = MAP_OVERLAY_GROUP_ORDER.flatMap((group) => {
     const members = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
       layers.filter((layer) => layer.category === category && mapOverlayGroupFor(layer) === group),
@@ -479,6 +505,7 @@ export default function MapOverlayControls({
     const collapsed = collapsedGroups.includes(group);
     const choosing = choosingGroup === group;
     const isHidden = (member: OverlayLayerChip) => hiddenIds.includes(hiddenKeyOf(group, member.id));
+    const listed = members.filter((member) => !isHidden(member));
     return [
       <section key={group} aria-label={label} className="flex flex-col">
         <div className="mt-1.5 flex items-center gap-1">
@@ -516,21 +543,25 @@ export default function MapOverlayControls({
           </Button>
         </div>
         {choosing ? (
-          <ItemChooser members={members} isHidden={isHidden} onToggleHidden={(member) => toggleHidden(group, member)} />
+          <ItemChooser
+            label={label}
+            members={members}
+            isHidden={isHidden}
+            onToggleHidden={(member) => toggleHidden(group, member)}
+            onSetAllHidden={(hiding) => setAllHidden(group, members, hiding)}
+          />
         ) : (
           !collapsed && (
             <ul className="m-0 flex list-none flex-col p-0" data-usage={LIST_USAGE}>
-              {members
-                .filter((member) => !isHidden(member))
-                .map((member) => (
-                  // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
-                  <LayerRow
-                    key={member.id}
-                    layer={member}
-                    panel={panelContentFor(member, handlers)}
-                    onToggle={onToggle}
-                  />
-                ))}
+              {listed.map((member) => (
+                // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
+                <LayerRow
+                  key={member.id}
+                  layer={member}
+                  panel={panelContentFor(member, handlers)}
+                  onToggle={onToggle}
+                />
+              ))}
             </ul>
           )
         )}

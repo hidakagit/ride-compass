@@ -150,7 +150,6 @@ async def test_supply_pois_are_never_merged(road_graph_repository):
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"toilets": 2})
 
 
-@pytest.mark.usefixtures("placed_address_dictionary")
 async def test_convenience_stores_come_from_the_stop_places_and_not_from_openstreetmap(road_graph_repository):
     """補給の点のコンビニは立ち寄り先の群「コンビニ」の行から出し、OpenStreetMap の`shop=convenience`は出さない。
     ほかの群の立ち寄り先は補給の点に出ない。"""
@@ -163,7 +162,6 @@ async def test_convenience_stores_come_from_the_stop_places_and_not_from_openstr
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"convenience": 1, "toilets": 1})
 
 
-@pytest.mark.usefixtures("placed_address_dictionary")
 async def test_only_a_convenience_store_carries_its_name(road_graph_repository):
     """コンビニは押すと店の名前で外の地図を開けるように名前を持つ。OpenStreetMap の点は名前を焼かない。"""
     await _ingest_pois([(LON + FAR, LAT, {**TOILETS, "name": "公園のトイレ"})])
@@ -228,7 +226,6 @@ async def test_an_accident_point_carries_bicycle_fatal_and_year(road_graph_repos
 # --- 立ち寄り先 ----------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("placed_address_dictionary")
 async def test_a_stop_place_point_carries_its_group_confidence_and_name(road_graph_repository):
     """立ち寄り先は事故と同じく対象範囲を一括で取り込むので、道を取り込んでいない所でも出す。タイルの外の地点と、
     補給の点に出す群「コンビニ」は出ない。"""

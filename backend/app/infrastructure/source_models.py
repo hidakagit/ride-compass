@@ -45,6 +45,8 @@ class Source(StrEnum):
     ACCIDENT = "accident"
     OVERTURE_PLACE = "overture_place"
     BUNKA_HERITAGE = "bunka_heritage"
+    ABR = "abr"
+    ESTAT_SMALL_AREA = "estat_small_area"
     DEM = "dem"
     LULC = "lulc"
 
@@ -281,6 +283,41 @@ BUNKA_HERITAGES_SOURCE_SQL = (
     "(SELECT natural_key AS heritage_id, geom,"
     " attrs->>'bunka-14-s' AS owners"
     f" FROM {_TABLE} WHERE source = '{Source.BUNKA_HERITAGE}')"
+)
+
+
+def _abr_sql(columns: dict[str, str], kind: str) -> str:
+    """アドレス・ベース・レジストリの生データのうち`kind`の行。列は ABR の列の名前 → 出す名前（空の値は空の文字列）。"""
+    selected = ", ".join(f"coalesce(attrs->>'{raw}', '') AS {name}" for raw, name in columns.items())
+    return (f"(SELECT {selected}, ST_X(geom) AS lon, ST_Y(geom) AS lat"
+            f" FROM {_TABLE} WHERE source = '{Source.ABR}' AND {kind})")
+
+
+#: アドレス・ベース・レジストリ（1回の取込に都道府県・市区町村・町字が混ざる）の都道府県（1件=1つの代表点）。
+#: 3種は持つ列で分ける（町字だけが`machiaza_id`を、市区町村と町字だけが`city`を持つ）。ABR の列の名前はここだけが名指す。
+ABR_PREFECTURES_SOURCE_SQL = _abr_sql(
+    {"lg_code": "code", "pref": "name", "ablt_date": "abolished"}, "NOT attrs ? 'city'")
+
+#: ABR の市区町村（政令市の区を含む。区の行は`ward`を持つ）。
+ABR_CITIES_SOURCE_SQL = _abr_sql(
+    {"lg_code": "code", "pref": "prefecture", "county": "county", "city": "city", "ward": "ward",
+     "ablt_date": "abolished"},
+    "attrs ? 'city' AND NOT attrs ? 'machiaza_id'")
+
+#: ABR の町字（大字・町、丁目、小字等。町字区分`machiaza_type`で分かれる）。`city_code`は属す市区町村（区）の`code`。
+ABR_TOWNS_SOURCE_SQL = _abr_sql(
+    {"lg_code": "city_code", "machiaza_id": "town_id", "machiaza_type": "town_type", "pref": "prefecture",
+     "county": "county", "city": "city", "ward": "ward", "oaza_cho": "oaza", "chome": "chome",
+     "chome_number": "chome_number", "koaza": "koaza",
+     "ablt_date": "abolished"},
+    "attrs ? 'machiaza_id'")
+
+#: e-Stat の小地域の境界（1件=1つの小地域の多角形）。`city_code`は都道府県＋市区町村の5桁、`name`は小地域の名前
+#: （町丁・字等。名前の無い小地域は空）。配布の dbf の列の名前はここだけが名指す。
+ESTAT_SMALL_AREAS_SOURCE_SQL = (
+    "(SELECT natural_key AS key_code, (attrs->>'PREF') || (attrs->>'CITY') AS city_code,"
+    " coalesce(attrs->>'S_NAME', '') AS name, geom"
+    f" FROM {_TABLE} WHERE source = '{Source.ESTAT_SMALL_AREA}')"
 )
 
 

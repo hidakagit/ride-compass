@@ -1,5 +1,5 @@
-// Claude が Project の欄（規模・優先度・着手可能日）を書く。優先度は、入っていれば誰かが決めた値（ユーザーが付けた・起票で
-// 見積もった・親から継いだ）なので、別の値へは書き換えない。起票の直後の issue は Project に入るまで待つ（入れるのは GitHub の
+// Claude が Project の欄（優先度・着手可能日）を書く。優先度は、入っていれば誰かが決めた値（ユーザーが付けた・起票で
+// 見積もった）なので、別の値へは書き換えない。起票の直後の issue は Project に入るまで待つ（入れるのは GitHub の
 // 組み込みの自動化で、入るまでに間がある）。値を渡さなければ書かずに、Project の欄（Status を含む）の今の値を出す（空の欄は null）。
 import { readTask, setField } from "../src/github.js";
 import { args, bot, config, isNumber } from "./cli.js";

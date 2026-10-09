@@ -21,7 +21,7 @@ from app.infrastructure import derived_data_meta, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.source_models import PARTY_TYPE_CODES
 from tests.conftest import postgis_database_url, raw_connection
-from tests.source_ingest import ingest_records, point_record, way_record
+from tests.source_ingest import abr_prefecture_record, ingest_records, point_record, way_record
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -64,6 +64,11 @@ async def _ingest_ways(conn: asyncpg.Connection, way_100_tags: dict[str, str] | 
         for way_id, node_ids, tags in WAYS], conn=conn)
 
 
+async def _ingest_addresses(conn: asyncpg.Connection) -> int:
+    """住所の生データ（都道府県1つ）を取り込み、`run_id`を返す。住所の段は`abr`の取込が無いと止まる。"""
+    return await ingest_records("abr", [abr_prefecture_record("130001", "東京都", *_point(1))], conn=conn)
+
+
 async def _schemas(conn: asyncpg.Connection) -> set[str]:
     """一時の表のスキーマ（接続ごとに作られ、残る）を除いたスキーマ。作り直しが作業用のスキーマを残さないことを見る。"""
     return {row["nspname"] for row in await conn.fetch(
@@ -93,6 +98,7 @@ async def derived_before(road_graph_engine, schemas_at_start, road_network_root)
             await conn.execute("TRUNCATE " + ", ".join(DERIVED) + ", source_features, source_runs, derived_data_meta CASCADE")
             await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)], conn=conn)
             await _ingest_ways(conn)
+            await _ingest_addresses(conn)
             assert await derive_cli.run(postgis_database_url(), None) == 0
             yield conn
         finally:
@@ -235,6 +241,7 @@ async def test_a_rebuild_records_the_latest_succeeded_import_of_every_source(der
     way_run = await _ingest_ways(derived_before)
     node_run = await ingest_records("osm_node", [point_record(n, *_point(n)) for n in range(1, 5)],
                                     conn=derived_before)
+    address_run = await _ingest_addresses(derived_before)
 
     def breaks():
         yield point_record(1, *_point(1))
@@ -245,7 +252,8 @@ async def test_a_rebuild_records_the_latest_succeeded_import_of_every_source(der
 
     assert await derive_cli.run(postgis_database_url(), None) == 0
 
-    assert await derived_data_meta.read_source_runs(derived_before) == {"osm_way": way_run, "osm_node": node_run}
+    assert await derived_data_meta.read_source_runs(derived_before) == {
+        "osm_way": way_run, "osm_node": node_run, "abr": address_run}
 
 
 async def _record_a_column_added_after_the_rebuild(conn: asyncpg.Connection) -> None:

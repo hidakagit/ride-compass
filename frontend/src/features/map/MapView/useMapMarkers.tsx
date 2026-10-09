@@ -17,7 +17,7 @@ import { SelectedSpotIcon } from "@/components/ui/icons/icons";
 import palette from "@/types/generated/palette.json";
 import { runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 
-// 出発地点は現在地の記号（十字線と中心の点）を白い円に乗せる。左右対称なので、アンカーは地点＝中心（"center"）。
+// 出発地点は現在地の記号（十字線と中心の点）を面の色（テーマに従う）の円に乗せる。左右対称なので、アンカーは地点＝中心（"center"）。
 // 中身の印はReactでportalして描く。
 function createOriginMarkerElement(): HTMLDivElement {
   const el = document.createElement("div");

@@ -23,14 +23,6 @@ import type { Coordinates, PlaceCandidate } from "@/types/route";
 
 import PointDetail from "./PointDetail";
 
-const BLOCK: PlaceCandidate = {
-  kind: "address",
-  level: "block",
-  name: "東京都千代田区丸の内一丁目9番",
-  area: null,
-  latitude: 35.681,
-  longitude: 139.767,
-};
 const AZA: PlaceCandidate = {
   kind: "address",
   level: "aza",
@@ -98,10 +90,9 @@ async function searchFor(text: string) {
 describe("PointDetail 置いた地点", () => {
   it.each([
     ["施設", FACILITY, `${FACILITY.name}${FACILITY.area}`, false],
-    ["字・丁目で当たった住所", AZA, `${AZA.name}代表の位置`, true],
-    ["街区で当たった住所", BLOCK, BLOCK.name, false],
+    ["住所", AZA, `${AZA.name}代表の位置`, true],
   ])(
-    "探して置いた%sは、名前に施設の辺りを添え、街区より粗い段で当たった住所には代表の位置と出す",
+    "探して置いた%sは、名前に施設の辺りを添え、住所には代表の位置と出す",
     (_kind, found, text, representative) => {
       renderDetail({ found });
 
@@ -114,7 +105,7 @@ describe("PointDetail 置いた地点", () => {
 
 describe("PointDetail 打つ欄", () => {
   it("入れた住所・施設の候補を種類と当たった段（施設は辺りと地図の真ん中からの距離も）つきで並べ、選んだ候補を上げる", async () => {
-    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK, AZA, FACILITY] }));
+    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA, FACILITY] }));
     const { onChoose } = renderDetail();
 
     await searchFor(" 丸の内 ");
@@ -125,18 +116,14 @@ describe("PointDetail 打つ欄", () => {
       within(list)
         .getAllByRole("button")
         .map((row) => row.textContent),
-    ).toEqual([
-      `${BLOCK.name}住所街区・地番`,
-      `${AZA.name}住所字・丁目`,
-      `${FACILITY.name}${FACILITY.area}4.6km施設地点`,
-    ]);
+    ).toEqual([`${AZA.name}住所字・丁目`, `${FACILITY.name}${FACILITY.area}4.6km施設地点`]);
 
     await userEvent.click(within(list).getByRole("button", { name: new RegExp(AZA.name) }));
     expect(onChoose).toHaveBeenCalledExactlyOnceWith(AZA);
   });
 
   it("打ちかけでも、決まった文字数から、打つのが止まると引く", async () => {
-    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
+    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
     renderDetail();
     const enough = "千代田区丸の内".slice(0, routeGenerateConfig.place_prediction_min_length);
 
@@ -151,7 +138,7 @@ describe("PointDetail 打つ欄", () => {
   });
 
   it("かな漢字の変換中は引かず、確定してから引く", async () => {
-    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [BLOCK] }));
+    const sent = onBackend("GET", "/api/place-search", () => Response.json({ candidates: [AZA] }));
     renderDetail();
     const box = searchBox();
 
@@ -188,9 +175,9 @@ describe("PointDetail 打つ欄", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("当たる住所・施設がありません。");
 
     onBackend("GET", "/api/place-search", () =>
-      Response.json({ detail: "住所の検索は今は使えません" }, { status: 503 }),
+      Response.json({ detail: "対象範囲を読めませんでした" }, { status: 502 }),
     );
     await searchFor("丸の内");
-    expect(await screen.findByRole("alert")).toHaveTextContent("住所の検索は今は使えません");
+    expect(await screen.findByRole("alert")).toHaveTextContent("対象範囲を読めませんでした");
   });
 });

@@ -44,7 +44,7 @@ def _run(monkeypatch, capsys, *argv: str) -> str:
     return capsys.readouterr().out
 
 
-def test_change_splits_lines_by_kind_and_labels_the_size(repo, monkeypatch, capsys):
+def test_change_splits_lines_by_kind(repo, monkeypatch, capsys):
     base = _commit(repo, {"app/old.py": "a\nb\nc\n", "README.md": "x\n"})
     _commit(
         repo,
@@ -65,19 +65,16 @@ def test_change_splits_lines_by_kind_and_labels_the_size(repo, monkeypatch, caps
 
     # 移したファイルは移す前と後の差だけを数える（+1）。ワークフローは総量と同じく実装、コードでないファイルは設定。
     assert "増減: 実装 +16/−2・テスト +4/−0・文書 +3/−0・設定 +3/−0・生成物 +8/−0" in out
-    assert "規模: S（実装＋テスト 22行。" in out
 
 
-@pytest.mark.parametrize(("lines", "label"), [(200, "S"), (201, "M"), (1000, "M"), (1001, "L")])
-def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, capsys, lines, label):
+def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, capsys):
     base = _commit(repo, {"README.md": "x\n"})
     git(repo, "checkout", "-q", "-b", "work")
-    (repo / "app.py").write_text("a\n" * lines, encoding="utf-8")
+    (repo / "app.py").write_text("a\n" * 1001, encoding="utf-8")
 
     out = _run(monkeypatch, capsys, "change", "--base", base)
 
-    assert f"増減: 実装 +{lines:,}/−0・テスト +0/−0・文書 +0/−0" in out
-    assert f"規模: {label}（" in out
+    assert "増減: 実装 +1,001/−0・テスト +0/−0・文書 +0/−0" in out
 
 
 def test_metrics_counts_everything_outside_the_product_places_as_tooling(repo, capsys):

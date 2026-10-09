@@ -1,88 +1,27 @@
 // 振り出しの見回りの1周の判断と、Project の状況の更新の書き込み。
-import { waitsUntil, worksAfter } from "./rules.js";
+import { waitsUntil } from "./rules.js";
 
-const ITEMS = `query Items($o: String!, $n: Int!, $q: String!, $st: String!, $p: String!, $sz: String!, $s: String!, $c: String) {
+const ITEMS = `query Items($o: String!, $n: Int!, $q: String!, $st: String!, $p: String!, $s: String!, $c: String) {
   organization(login: $o) { projectV2(number: $n) { field(name: $p) { ... on ProjectV2SingleSelectField { options { name } } }
   items(first: 100, after: $c, query: $q) { pageInfo { hasNextPage endCursor } nodes {
     status: fieldValueByName(name: $st) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-    size: fieldValueByName(name: $sz) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     start: fieldValueByName(name: $s) { ... on ProjectV2ItemFieldDateValue { date } }
-    content { ... on Issue { number closedAt labels(first: 20) { nodes { name } } blockedBy(first: 50) { nodes { state } } } } } } } } }`;
-
-// 作業の記録: コメント（rules.js: notes の形と問い）と閉じ。1つの issue で読めるのは新しい 100 件まで。
-const RECORDS = (numbers) => `query Records($o: String!, $n: String!) { repository(owner: $o, name: $n) {
-  ${numbers.map((k) => `i${k}: issue(number: ${k}) { ...R }`).join(" ")} } }
-  fragment R on Issue { timelineItems(last: 100, itemTypes: [ISSUE_COMMENT, CLOSED_EVENT]) { nodes { __typename
-    ... on ClosedEvent { createdAt } ... on IssueComment { createdAt body author { login } } } } }`;
-
-// 作業時間（時間）: 作業の状態にいた区間の和。区間は記録の始まり（coordinator.recordsSince）より後の着手からで、区間が1つも
-// 無ければ null。記録として読むのは Claude とゲートのコメントだけ（GraphQL は App の名義を [bot] を付けずに返す）。
-function workHours(config, items, now) {
-  const writers = [config.claude, config.gate.replace(/\[bot\]$/, "")];
-  let inside = false;
-  let since = null;
-  let total = null;
-  for (const item of items.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-    const works = item.__typename === "ClosedEvent" ? false : writers.includes(item.author?.login) ? worksAfter(config, item.body) : null;
-    if (works === null || works === inside) continue;
-    const at = Date.parse(item.createdAt);
-    if (works) since = at >= Date.parse(config.coordinator.recordsSince) ? at : null;
-    else if (since !== null) total = (total ?? 0) + at - since;
-    inside = works;
-  }
-  if (inside && since !== null) total = (total ?? 0) + now.getTime() - since;
-  return total === null ? null : total / 3600e3;
-}
-
-// 番号ごとの作業時間（区間の無いものは持たない）。1回の要求で 50 件ずつ読む。
-async function readWorkHours(gh, config, numbers, now) {
-  const [o, n] = config.repository.split("/");
-  const hours = new Map();
-  for (let k = 0; k < numbers.length; k += 50) {
-    const part = numbers.slice(k, k + 50);
-    const r = (await gh.gql(RECORDS(part), { o, n })).repository;
-    for (const number of part) {
-      const h = workHours(config, r[`i${number}`].timelineItems.nodes, now);
-      if (h !== null) hours.set(number, h);
-    }
-  }
-  return hours;
-}
-
-// 作業の状態にいるタスク（作業時間を足したもの。区間の無いものは除く）と、その規模の想定（時間）。想定は、完成で閉じた同じ規模の
-// うち作業時間を持つ直近 coordinator.recent 件の p90。見回りは決まった間隔ごとに回るので、記録は作業の状態にいるタスクと、
-// その規模の想定の母集団の分だけ読む（作業時間を持たないものがあれば、次に新しいものを読み足す）。
-export async function workload(gh, config, open, done, now = new Date()) {
-  const { recent, recordsSince } = config.coordinator;
-  const working = open.filter((t) => [config.working, config.review].includes(t.status));
-  const hours = await readWorkHours(gh, config, working.map((t) => t.number), now);
-  const sizes = new Set(working.map((t) => t.size).filter(Boolean));
-  const queues = Object.groupBy(done.filter((t) => sizes.has(t.size) && t.closedAt >= recordsSince).toSorted((a, b) => b.closedAt.localeCompare(a.closedAt)), (t) => t.size);
-  const found = {};
-  for (let want; (want = Object.entries(queues).flatMap(([size, q]) => q.splice(0, recent - (found[size]?.length ?? 0)))).length; ) {
-    const got = await readWorkHours(gh, config, want.map((t) => t.number), now);
-    for (const t of want) if (got.has(t.number)) (found[t.size] ??= []).push(got.get(t.number));
-  }
-  return {
-    tasks: working.filter((t) => hours.has(t.number)).map((t) => ({ ...t, workHours: hours.get(t.number) })),
-    expected: Object.fromEntries(Object.entries(found).map(([size, v]) => [size, v.toSorted((a, b) => a - b)[Math.floor(0.9 * v.length)]])),
-  };
-}
+    content { ... on Issue { number labels(first: 20) { nodes { name } } blockedBy(first: 50) { nodes { state } } } } } } } } }`;
 
 // Project のタスクを読む（query は Project の絞り込み。開いたものは "is:open"）。ranks は優先度の欄の選択肢の並び。
 export async function readTasks(gh, config, query) {
-  const { owner, number, statusField, priorityField, sizeField, startField, urgentLabel } = config.project;
+  const { owner, number, statusField, priorityField, startField, urgentLabel } = config.project;
   const tasks = [];
   let ranks = [];
   for (let c = null; ; ) {
-    const p = (await gh.gql(ITEMS, { o: owner, n: number, q: query, st: statusField, p: priorityField, sz: sizeField, s: startField, c })).organization.projectV2;
+    const p = (await gh.gql(ITEMS, { o: owner, n: number, q: query, st: statusField, p: priorityField, s: startField, c })).organization.projectV2;
     ranks = p.field?.options.map((o) => o.name) ?? [];
-    for (const { content: t, status, priority, size, start } of p.items.nodes.filter((i) => i.content?.number)) {
+    for (const { content: t, status, priority, start } of p.items.nodes.filter((i) => i.content?.number)) {
       const labels = t.labels.nodes.map((l) => l.name);
       tasks.push({
-        number: t.number, status: status?.name ?? null, labels, urgent: labels.includes(urgentLabel), priority: priority?.name ?? null, size: size?.name ?? null,
-        startOn: start?.date ?? null, blocked: t.blockedBy.nodes.some((b) => b.state !== "CLOSED"), closedAt: t.closedAt,
+        number: t.number, status: status?.name ?? null, labels, urgent: labels.includes(urgentLabel), priority: priority?.name ?? null,
+        startOn: start?.date ?? null, blocked: t.blockedBy.nodes.some((b) => b.state !== "CLOSED"),
       });
     }
     if (!p.items.pageInfo.hasNextPage) return { tasks, ranks };
@@ -126,40 +65,15 @@ export function pick(config, candidates, running) {
   return candidates.filter((t) => free[t.kind]-- > 0);
 }
 
-// 管理データのバックアップが最後に置けてからの時間を、本番の backend の /health から読む（hours。/health に欄が無ければ undefined）。
-// 宛先はコードのリポジトリの変数 coordinator.backendVariable から取る（道具に宛先を書かない。docs/architecture/tech-stack.md
-// 「本番の宛先」）。読めなければ error に理由を持つ。
-export async function readBackup(repo, config) {
-  try {
-    const origin = (await repo.rest("GET", `/repos/${config.code.repository}/actions/variables/${config.coordinator.backendVariable}`)).value;
-    const res = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(10e3) });
-    if (!res.ok) throw new Error(`/health: ${res.status}`);
-    return { hours: (await res.json()).admin_data_backup_age_hours };
-  } catch (e) {
-    return { error: e.message };
-  }
-}
-
-// バックアップについて気づくべきこと（無ければ null）。止まった・記録が無いか印のファイルが読めない・/health を読めない、のどれも出す。
-function backupNote(max, { error, hours }) {
-  if (error) return `読めなかった: ${error}`;
-  if (hours === undefined) return "読めなかった: /health に admin_data_backup_age_hours が無い";
-  if (hours === null) return "記録が無いか読めない（まだ1回も置けていない・印のファイルが壊れた。理由は backend のログ）";
-  return hours > max ? `${hours}時間前から置けていない（上限 ${max}時間）` : null;
-}
-
-// 状況の更新の中身。気づくべきもの（想定を超えたタスク・振り出せる仕事があるのに空いた枠・一番新しい実行が失敗したタスク・
-// 管理データのバックアップ）があれば At risk。working と expected は workload の結果、runs は担当の実行の新しい順（終わったものは
-// conclusion を持つ）、idle は枠が空いている理由（無ければ null）、backup は readBackup の結果。
-export function summary(config, { watcher, tasks, working, expected: limit, runs, started, waiting, idle, backup }) {
+// 状況の更新の中身。気づくべきもの（進行中なのに動いている担当が無いタスク・振り出せる仕事があるのに空いた枠・一番新しい実行が
+// 失敗したタスク）があれば At risk。runs は担当の実行の新しい順（終わったものは conclusion を持つ）、idle は枠が空いている理由（無ければ null）。
+export function summary(config, { watcher, tasks, runs, started, waiting, idle }) {
   const latest = new Map();
   for (const r of runs) if (!latest.has(r.number)) latest.set(r.number, r);
   const notes = [
-    ...working.filter((t) => t.workHours > (limit[t.size] ?? Infinity))
-      .map((t) => `- #${t.number}（${t.size}）が想定を超えている: 作業時間 ${t.workHours.toFixed(1)}時間 ／ 想定 ${limit[t.size].toFixed(1)}時間`),
+    ...tasks.filter((t) => t.status === config.working && !runs.some((r) => r.number === t.number && !r.conclusion)).map((t) => `- #${t.number} が${config.working}なのに、動いている担当が無い`),
     ...(idle ? [`- 振り出せる仕事があるのに枠が空いている: ${idle}`] : []),
     ...[...latest.values()].filter((r) => r.conclusion === "failure" && tasks.some((t) => t.number === r.number)).map((r) => `- #${r.number} の${r.kind}担当の実行が失敗で終わった [実行](${r.url})`),
-    ...[backupNote(config.coordinator.backupMaxHours, backup)].filter(Boolean).map((note) => `- 管理データのバックアップ: ${note}`),
   ];
   const lines = [`振り出しの見回り（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
   for (const [kind, n] of Object.entries(config.coordinator.slots)) {

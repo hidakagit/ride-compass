@@ -6,8 +6,9 @@ import type { PinRole } from "@/types/route";
 // ——パネルとピンが同じものを指していることを、色と形だけで読めるようにする。
 
 export const PIN_MARK_BACKGROUND: Record<PinRole, string> = {
-  // 出発地は白いバッジの中に現在地の印を描く。
-  origin: palette.semantic.pin_origin_background,
+  // 出発地は面の色のバッジの中に現在地の印を描く。面はテーマに従う（ダークなら暗い台）ので、配信された1つの値ではなく
+  // CSSのトークンを読む（`lib/paletteCssVariables.ts`の決まり）。
+  origin: "var(--color-surface)",
   waypoint: palette.semantic.pin_waypoint,
   destination: palette.semantic.pin_destination,
 };

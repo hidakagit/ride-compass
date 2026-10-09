@@ -1,7 +1,7 @@
 /**
  * `MapOverlayControls.tsx`——「表示」のボタンが開く一覧が、レイヤーを群（源泉の並び）へ束ね、行のチェックでON/OFFし、
  * ⓘ・▶を行のすぐ下に開いて説明・内訳・案内・取得状態を読ませ、内訳から凡例を絞り込めること。群はたため、群ごとに
- * 一覧に並べる項目を選べ、どちらも次の訪問でも保つこと。末尾のまとめての操作が、押せるときだけ押せること。
+ * 一覧に並べる項目を選べ、どちらも次の訪問でも保つこと。「表示する項目を選ぶ」の「すべて」で、群の項目をまとめて選べること。末尾のまとめての操作が、押せるときだけ押せること。
  *
  * 群・カテゴリの名前と並びはbackendの宣言（生成物）から導き、テストでも書き写さない。
  *
@@ -271,6 +271,27 @@ describe("群", () => {
     await second.user.click(chooser());
     expect(rowNames(second.list)).toEqual(["kept", "dropped"]);
     expect(second.props.onToggle).not.toHaveBeenCalled();
+  });
+
+  it("「表示する項目を選ぶ」の「すべて」は、1つでも外れていれば全部並べ、全部並んでいれば全部外す（外す項目のONはOFFにする）", async () => {
+    const { user, props, list } = await setup([chip("shown", { on: true }), chip("off"), chip("dropped")]);
+    const chooser = () => screen.getByRole("button", { name: `${ROAD_LABEL}の表示項目を選ぶ` });
+    const all = () => screen.getByRole("checkbox", { name: `${ROAD_LABEL}の項目をすべて選ぶ/外す` });
+
+    await user.click(chooser());
+    expect(all()).toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "droppedを一覧に並べる" }));
+    expect(all()).not.toBeChecked();
+    await user.click(all());
+    await user.click(chooser());
+    expect(rowNames(list)).toEqual(["shown", "off", "dropped"]);
+    expect(props.onToggle).not.toHaveBeenCalled();
+
+    await user.click(chooser());
+    await user.click(all());
+    await user.click(chooser());
+    expect(rowNames(list)).toEqual([]);
+    expect(props.onToggle.mock.calls).toEqual([["shown", false]]);
   });
 });
 

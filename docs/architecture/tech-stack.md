@@ -23,7 +23,6 @@
 | 標高 | 国土地理院DEMタイル（APIキー不要、日本国内限定） | 評価の材料（勾配）は取込バッチだけが叩き、**ルート生成・評価が実行時に取りに行く経路は無い**。地図の地形の表示は、backendが実行時に取りに行って中継し、ディスクに持つ |
 | 土地被覆 | Esri × Impact Observatory の10m LULC（GeoTIFF） | リポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする |
 | 立ち寄り先の地点 | Overture Maps の places（GeoParquet）を DuckDB（MIT）で取込の範囲だけ切り出す | 取得と取込のバッチだけが使う（`backend/requirements-batch.txt`）。利用条件と版の入れ替えは[data-sources.md](data-sources.md) |
-| 住所の検索 | `jageocoder`（MIT）＋配布の住所の辞書（街区まで・全国。入れて約1.4GB） | 外部の検索サービス・別のサーバーを使わず、backendが手元の辞書を引く。辞書はリポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする。立ち寄り先の派生の段も、施設の辺りを逆引きするのに引く（逆引きの索引を辞書の置き場に書くので、派生の作り直しは書けるようにマウントする。[deployment-sync.md](../conventions/deployment-sync.md)「派生データの作り直し」）。版の制約は下記 |
 | 管理データの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerが取り直せない管理データを置き、バケットのライフサイクルの規則が古いものを消す。仕組みと登録の手順は[deployment-sync.md](../conventions/deployment-sync.md)付録「管理データのバックアップ」 |
 | タスクの流れのゲート | Cloudflare Workers（`tools/flow-gate/wrangler.toml`。Webhookを受けるWorkerと、Cloudflare Accessで守る回答フォームのWorker） | アプリの外の運用の道具で、本番の利用者の経路に無い。公開するトークンは下の「秘密の値とトークン」、決まりは[flow.md](../conventions/flow.md) |
 
@@ -71,13 +70,14 @@
 **上げるときは、上げた先でタプルを含む応答（例: `/api/admin/axis-definitions/preview-distribution`の`bins`）の
 推論した型がタプルのままかを`tsc --noEmit`で確かめる。**
 
-## `jageocoder`は辞書の版が読める版に留める
+## DependabotのPull Requestは、同じ版を取り込んだタスクが閉じる
 
-配布の住所の辞書は、ファイル名の末尾（`_v22`等）で読める`jageocoder`の版が決まっている（`_v22`は2.2.xだけ。
-辞書に同梱のREADMEの「データ形式について」）。`requirements.txt`は2.2.xで固定してある。**辞書の版を変えずに
-`jageocoder`だけを上げない**——CIのテストは足場がその版の`jageocoder`で書いた小さな辞書を引くので通り、本番の
-配布の辞書を開いたときに初めて食い違う。上げるときは、上げた先が読む`_v<NN>`の配布があることを配布の一覧で見て、
-辞書の版と一緒に上げる（手順は[data-sources.md](data-sources.md)「版を持つ配布物の入れ替え」）。
+Dependabotは、masterが同じ版になってもPull Requestを閉じないことがあり、閉じる条件は公式の文書に無い。依存の版上げを
+取り込むタスクは、同じ版を出しているDependabotのPull Requestをissueの本文に番号で名指し、完了の条件に
+「dependabot の #<番号> が閉じている」を書く（判定役は、issueが名指したDependabotのPull Requestだけを担当が閉じてよいものと
+読む。`tools/flow-gate/settings.json`の`autoMode`）。閉じるのは作る担当で、マージのあとの残りとして済ませる:
+`gh pr view <番号> -R hidakagit/ride-compass --json state`が`OPEN`なら
+`gh pr close <番号> -R hidakagit/ride-compass --comment "<取り込んだ Pull Request> で同じ版を取り込んだ"`で閉じる。
 
 ## Windows: `uvicorn --reload`の多重プロセス
 
@@ -110,8 +110,7 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
 
 **手元の道具は、backendの宛先を`backend/.env.oracle.local`の`BACKEND_ORIGIN`から読む**（読み方は
 `backend/scripts/_prod_env.py`。例: `axis_apply.py`）。道具のコードに宛先を書き込まない——IPが変わったとき、
-道具の側で直すのが各自の`BACKEND_ORIGIN`だけで済むようにするため。振り出しの見回りは、同じ値をコードのリポジトリの
-Actionsの変数`BACKEND_ORIGIN`から読む（宛先が変わったらここも書き換える）。
+道具の側で直すのが各自の`BACKEND_ORIGIN`だけで済むようにするため。
 
 ## デプロイの反映確認（backend/frontendで注入元が異なる）
 
@@ -257,8 +256,8 @@ CIだけに置いているため、CIの分数が尽きると検査そのもの�
 
 | 入れた場所 | 名前 | 中身（作った人・Resource owner・届く範囲・権限・期限） | 使う所 |
 |---|---|---|---|
-| hidakagit/ride-compassのActionsの秘密の値 | `CODE_TOKEN` | hidakagitが作ったfine-grained `ride-compass-actions`。Resource ownerはhidakagitで、届くのはhidakagit/ride-compassだけ。Actions・Contents・Issues・Pull requests・Variablesは読み書き、Commit statusesは読むだけ。期限は未記録 | `claude-task.yml`（checkout・Claudeの連携・ghの既定）・`claude-dispatch.yml`（盤面を読み担当を起こす・次の見回りを起こす） |
-| 同 | `FLOW_BOT_TOKEN` | hidakagit-botが作ったfine-grained。届くのはridecompass/ride-compass-tasksだけ。Contentsは読み書き（担当の手番の記録をリリースへ置く）。期限2027-09-29 | 担当と流れの道具が置き場へ書く・ゲートの公開のあと`refresh.js`。開発機ではユーザー環境変数の同じ名前 |
+| hidakagit/ride-compassのActionsの秘密の値 | `CODE_TOKEN` | hidakagitが作ったfine-grained `ride-compass-actions`。Resource ownerはhidakagitで、届くのはhidakagit/ride-compassだけ。Actions・Contents・Issues・Pull requests・Variables・Workflowsは読み書き（Workflowsは2026-10-09に足した。担当が`.github/workflows/`を自分でpushする）、Commit statusesは読むだけ。期限は未記録 | `claude-task.yml`（checkout・Claudeの連携・ghの既定）・`claude-dispatch.yml`（盤面を読み担当を起こす・次の見回りを起こす） |
+| 同 | `FLOW_BOT_TOKEN` | hidakagit-botが作ったfine-grained。届くのはridecompass/ride-compass-tasksだけ。Contentsは読み書き（書く用途だった担当の手番の記録は無くなった）。期限2027-09-29 | 担当と流れの道具が置き場へ書く。開発機ではユーザー環境変数の同じ名前 |
 | 同 | `CLAUDE_CODE_OAUTH_TOKEN` | Claudeの契約のトークン（GitHubのトークンではない） | `claude-task.yml` |
 | 同 | `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare | ゲートと回答フォームの公開（`claude-gate.yml`） |
 | 同 | `ORACLE_VM_HOST`・`ORACLE_VM_SSH_KEY` | 本番のVM | backendのデプロイ |
