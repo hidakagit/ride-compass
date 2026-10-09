@@ -9,7 +9,7 @@ from typing import Literal, NamedTuple
 from app.domain.display_palette import ORDERED_END_COLOR_NAMES
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
 from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
-from app.domain.place_search import ADDRESS_AREA_ATTRIBUTIONS, ADDRESS_DICTIONARY_ATTRIBUTION
+from app.domain.place_search import ADDRESS_AREA_ATTRIBUTIONS
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import DisplayAxisSpec
 from app.domain.region import ROAD_TILE_MIN_ZOOM
@@ -116,7 +116,7 @@ HILLSHADE_LAYER_ID = "hillshade"
 #: 出典も消える）。公共データ利用規約（PDL1.0）とCC BY 4.0は出典とは別に加工した旨を求め、標高からは勾配を、事故の点から
 #: は区間ごとの件数を、アメダスの観測からは雨の材料を、アメダスと推計気象分布からは天気を、区域の境界は簡略化して、配信タイルは欠けたズームを隣の
 #: ズームから補い降水の色を塗り替えて、MSMの格子は地点・時刻へ補間して使っている。気象レイヤーの出典もここが持つ（気象庁のデータは常設の表示
-#: で常に使うため）。住所の辞書は地点の検索で常に使い、文言は同梱のREADMEが決めたもの。立ち寄り先は出典を1か所にまとめるためここに置く。基礎地図は配信元のTileJSONが出典を持つので
+#: で常に使うため）。住所の区画は地点の検索で常に使う。立ち寄り先は出典を1か所にまとめるためここに置く。基礎地図は配信元のTileJSONが出典を持つので
 #: 入れない（入れると2回並ぶ）。データ源を足したら、利用条件（docs/architecture/data-sources.md）と合わせてここも見る。
 ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">'
@@ -134,7 +134,6 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '暑さ指数: 出典 <a href="https://www.wbgt.env.go.jp/" target="_blank" rel="noreferrer">環境省熱中症予防情報サイト</a>',
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
     "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
-    ADDRESS_DICTIONARY_ATTRIBUTION,
     *ADDRESS_AREA_ATTRIBUTIONS,
     # Overture の地点は出どころごとに表示が要る（公式の文書 https://docs.overturemaps.org/attribution/ ）。
     # Foursquare の行は Apache 2.0 で、ライセンスの写し・変えた旨・NOTICE の全文を渡す（frontend/public/licenses/）。

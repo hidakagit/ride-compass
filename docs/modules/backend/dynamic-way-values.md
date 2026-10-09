@@ -176,7 +176,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 短く持つ。下の「`RainWayService`」）。風は予報の格子点の風を配列でまとめて引くだけで計算が軽く、
 キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%。タイル中心1点の風を全wayへ配っていた版の
 本番実測）にとどまる一方、1エントリ190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
-809msを節約できるためキャッシュする（[docs/conventions/caching.md](../../conventions/caching.md)
+809msを節約できるためキャッシュする（[.claude/rules/caching.md](../../../.claude/rules/caching.md)
 「キャッシュしないという選択」参照）。
 
 保持層は**ディスク**（`tile_persistent_cache`＝diskcache）。失っても外部へは取りに行かず
@@ -208,7 +208,7 @@ TTLで失効し、書き込みのたびに`diskcache`が失効したものを消
 値は`{feature_key: 値}`のdict。TTLはこのモジュールが持つ（24時間。勾配の入力は道の向きと標高で決まりほぼ変わらない）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
 このモジュール自身は`log_external_call`で囲まない。hit/missは呼び出し元のサービスが自分の
 `log_external_call`の`fields["cache"]`へ書き、`/api/debug/stats`のそのカテゴリのヒット率に載る
-（[docs/conventions/logging.md](../../conventions/logging.md)「外部API・キャッシュアクセス」節）。
+（[.claude/rules/logging.md](../../../.claude/rules/logging.md)「外部API・キャッシュアクセス」節）。
 
 ## サービス実装
 
@@ -242,7 +242,7 @@ get_way_values(z, x, y, WindConditions(bearing_deg, speed_kmh, at))
 
 **この値はキャッシュしない**。タイル1枚ぶんを1回のMSM読み出しと配列演算で求めるだけで計算が軽く、
 保持コスト（1エントリ190KB）に見合う節約にならない（下の「キャッシュ」節と
-docs/conventions/caching.md「キャッシュしないという選択」）。
+.claude/rules/caching.md「キャッシュしないという選択」）。
 
 ### `GradientWayService`（`gradient_way_service.py`）
 

@@ -1,5 +1,5 @@
 """Pythonオブジェクトを、呼び出し元が設計したタプルの鍵でディスクへ永続化する汎用キャッシュ
-（保持層の選び方・無効化の方針は docs/conventions/caching.md）。
+（保持層の選び方・無効化の方針は .claude/rules/caching.md）。
 
 保存の実体は`diskcache`（SQLite＋ファイル）で、32KBを超える値はライブラリがファイルへ、
 以下はSQLite内へ格納する。シリアライズはpickle（`diskcache`の既定）。

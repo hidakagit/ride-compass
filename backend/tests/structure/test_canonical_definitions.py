@@ -17,7 +17,7 @@ APP_DIR = Path(__file__).resolve().parents[2] / "app"
 
 # 外部ライブラリが自分で作るロガー。こちらが名指しするのはレベル制御のためで、
 # アプリのログ出力そのものではないため命名規約の対象外。
-EXTERNAL_LIBRARY_LOGGERS = {"httpx", "jageocoder.itaiji"}
+EXTERNAL_LIBRARY_LOGGERS = {"httpx"}
 
 
 def _sources() -> list[tuple[str, str]]:
@@ -52,7 +52,7 @@ def test_the_badge_vocabulary_is_not_redefined_elsewhere():
 
 def test_loggers_use_the_documented_prefix():
     """`ridecompass.`以外が混ざると、接頭辞単位のレベル制御を入れたときにそちらだけ漏れる
-    （規約は`docs/conventions/logging.md`）。許可した名前が実態から消えたときも落とす。
+    （規約は`.claude/rules/logging.md`）。許可した名前が実態から消えたときも落とす。
     """
     pattern = re.compile(r'getLogger\("(?!ridecompass\.)([^"]+)"\)')
     named = {name for _, src in _sources() for name in pattern.findall(src)}

@@ -2,7 +2,7 @@
 
 入口は取込（`tests/source_ingest.py: ingest_records`）と派生の段（`derive_addresses.derive` → `derive_stop_places.derive`）。
 住所の生データ（都道府県・市区町村・町字）・小地域の境界・Overture の地点を取り込み、2つの段を作り直しと同じ順に流して、表に
-入った辺りを見る。住所の辞書の置き場は空にしておく——立ち寄り先の段は辞書を読まない。
+入った辺りを見る。
 
 ここで見ないもの:
 - 境界と区画の結び付け方（名前・頭・お尻・中の代表点） → `test_address_areas.py`
@@ -25,7 +25,6 @@ pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
     pytest.mark.xdist_group(name="postgis"),
     pytest.mark.postgis,
-    pytest.mark.usefixtures("address_dictionary_dir"),
 ]
 
 #: 道路の取込の範囲（min_lat, min_lon, max_lat, max_lon）。住所の区画はこの中の代表点の町字とその祖先。

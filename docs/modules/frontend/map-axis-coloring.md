@@ -372,7 +372,7 @@ features/map/view/useMapView.ts
   レイヤーはあるのに完全に無色のまま残る。
 
 専用配信軸の取得結果（値と取得中か）は、見え方の値（`MapLook.dedicatedWayValues`）の中で軸id→
-取得結果の1つの`Map`にまとまっている（design-principles.md構造仕様3）。
+取得結果の1つの`Map`にまとまっている（design-principles.md構造仕様3「軸ごとにpropを新設しない」）。
 `useDedicatedWayValues`も軸の配列を受け取る1つのフックで、軸ごとのフック呼び出しを持たない
 （Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできないため）。
 

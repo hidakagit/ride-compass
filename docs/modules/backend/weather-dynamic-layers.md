@@ -292,7 +292,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 `READERS`・`weatherSources.ts: sourceTimeline`）とbackendは言語が違うため同じ手順を両方が持つ。両方が同じ答えを
 出すことは、場面（別の要素の行が混ざる・実況が無い・中間ランの単発の行・段が重なる・途中の段が空等）ごとの入力と
 backendの答え、タイルで配る要素ごとのタイルのパスを`scripts/cross_language_expectations.py: jma_expectations`が表に
-して配り（生成物`jma-expectations.json`）、画面のテストが全行を通して確かめる（[テスト規約](../../conventions/testing.md)
+して配り（生成物`jma-expectations.json`）、画面のテストが全行を通して確かめる（[テスト規約](../../../.claude/rules/testing.md)
 「パターン11」）。読み方の種類を足すときは両方と表の場面に足す（backendは`read_target_times`の`match`が`assert_never`で、
 足し忘れをmypyが止める）。
 

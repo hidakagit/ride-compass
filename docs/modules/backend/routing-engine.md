@@ -875,7 +875,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
 ホットパスがバリデーションコストを避けるために使う。方位の呼び名と2地点の距離は画面も同じ計算を
 持つので、境界を含む入力とこのモジュールの答えを`scripts/cross_language_expectations.py: geo_expectations`が
-表にして生成物へ出し、画面のテストが全行を通す（置き場と作り方は[testing.md](../../conventions/testing.md)
+表にして生成物へ出し、画面のテストが全行を通す（置き場と作り方は[testing.md](../../../.claude/rules/testing.md)
 「パターン11」）。
 
 `errors.py`は`RoutingError`と`SearchAreaTooLargeError`を持つ。`RoutingError`は
@@ -968,7 +968,7 @@ backendは置き場を読むだけで、読むのは`current()`の1か所であ�
 
 カバレッジ判定（`is_covered`、`source_runs`への1クエリ）はキャッシュせず毎回PostGISへ
 問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
-判断をキャッシュしない理由は[docs/conventions/caching.md](../../conventions/caching.md)参照——別プロセスのバッチが
+判断をキャッシュしない理由は[.claude/rules/caching.md](../../../.claude/rules/caching.md)参照——別プロセスのバッチが
 取込の記録を書き換えるため、判断を保持すると古い範囲で答えうる。派生データそのものの
 書き換えへは、道路網の置き場の世代（派生の表を入れ替えた直後に置き換わる）で追随する。
 

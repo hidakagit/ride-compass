@@ -171,7 +171,7 @@ export function defaultAxisCatalogFixture(): components["schemas"]["AxisCatalogR
 /**
  * バックエンド・外部APIへの依存を断ち切るネットワークモックを登録する。
  * 各テストの冒頭（page.goto前）で呼ぶ。ここの応答はアプリを起動して画面を進めるための
- * 既定値であり、テストが判定する値を持たせない（docs/conventions/testing.md パターン4）。
+ * 既定値であり、テストが判定する値を持たせない（.claude/rules/testing.md パターン4）。
  * テストが自分の値を返すときは、この後に同じURLへ`page.route`を登録する（後から登録した
  * ルートが先に当たる）。
  */

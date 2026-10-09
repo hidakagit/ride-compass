@@ -16,7 +16,7 @@
 
 - **禁止**: 「以前は…」「tasks#123で…に変更した」「実機/実測で…だったため」といった
   経緯の説明、変更前後のbefore/afterの数値比較、事故・インシデントの詳細な顛末。
-  これらはタスクの issue（経緯の置き場。[documentation.md](../conventions/documentation.md)「用語集」）の役割である。
+  これらはタスクの issue（経緯の置き場。[documentation.md](../../.claude/rules/documentation.md)「用語集」）の役割である。
   **タスク番号もここへは書かない**——タスクの issue は閉じたあと更新されないため、
   維持する文書から辿らせると、指す先の中身が今のコードと合わなくなっても気づけない。
 - **許可**: 現在のコードが持つ制約・不変条件とその理由が、コードを正しく使うために
@@ -24,12 +24,12 @@
   **今も成り立つ設計上の理由**として1文で書いてよい。「なぜこの形か」の説明と「どういう
   経緯でこの形になったか」の説明は別物——前者は仕様の一部、後者は履歴。
 - **要素を数え上げない**（個数・全件の一覧）。示すべきは挙動で、代表例を挙げるのは
-  許容する。詳細は[documentation.md](../conventions/documentation.md)。このディレクトリの
+  許容する。詳細は[documentation.md](../../.claude/rules/documentation.md)。このディレクトリの
   **対象ファイル表だけは例外**——新しい実装ファイルの責務を逆引きするために全件を持つ
   （完全性は周期レビューで人が見る）。`backend/scripts/`もこの母集団に入り、どれかのモジュールの表に載せる。
 - **表・図を優先し、地の文を増やさない**。1関数・1テーブルにつき1〜2文を目安にする。
   実装の逐次説明（コードを上から読み下すような記述）はしない。何を書くかは
-  [documentation.md](../conventions/documentation.md)「適用範囲の目安」。
+  [documentation.md](../../.claude/rules/documentation.md)「適用範囲の目安」。
 - **「暗黙の前提」は現在の制約として書く**。「〜という前提が崩れると…になる」という
   形式は良いが、「なぜその前提を置いたか」の経緯は書かない。
 - 1モジュールの目安は300〜400行程度。大きく超える場合は、実装の説明を削れないか
@@ -58,9 +58,9 @@
 | 実行環境・プラットフォーム固有の制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | バンドラ・ホスティング・OSに由来する回避策 |
 | 外部データソースの利用条件 | [architecture/data-sources.md](../architecture/data-sources.md) | 商用利用の可否・出典と加工した旨の表記要件。提供元の公式ページにしか無い |
 | 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表の母集団にも入らない |
-| タスクの流れのゲート（`tools/flow-gate/`） | [conventions/flow.md](../conventions/flow.md)・[architecture/task-flow.md](../architecture/task-flow.md) | ステータスの遷移の表・問いと答えの形・回答フォーム。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
+| タスクの流れのゲート（`tools/flow-gate/`） | [conventions/flow.md](../conventions/flow.md) | ステータスの遷移の表・問いと答えの形・回答フォーム。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
 | クラウドのセッションの用意（`scripts/remote_dev/`） | [architecture/setup.md](../architecture/setup.md)「クラウドのセッション」 | 依存の導入とDB・Redisの起動 |
-| 壊れ方の確かめ（`scripts/break_tests.py`） | [conventions/testing.md](../conventions/testing.md)「そのテストは要るか（3問を順に）」の消す・まとめる前の段 | 壊れ方の一覧の形・断る条件・前の版のテストの並べ方 |
+| 壊れ方の確かめ（`scripts/break_tests.py`） | [.claude/rules/testing.md](../../.claude/rules/testing.md)「そのテストは要るか（3問を順に）」の消す・まとめる前の段 | 壊れ方の一覧の形・断る条件・前の版のテストの並べ方 |
 | チェックアウトの遅れの確かめ（`scripts/checkout_freshness.py`） | [architecture/setup.md](../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」 | どの道具が遅れで止まるか・早送りを打つ条件 |
 
 判断の目安は**「その制約を、コードだけを読んで知れるか」**。知れないならモジュール設計書の

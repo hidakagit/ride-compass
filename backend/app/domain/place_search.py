@@ -5,10 +5,7 @@
 `PlaceKind`と`PLACE_KIND_LABELS`へ1つずつ足し、口と答えの形は変えない。表示名は語彙と同じ並びで
 生成物（`vocabulary.ts`）が画面へ届ける。
 
-住所は住所の区画の表（`domain/address_area.py`）から引く。施設の辺りは、立ち寄り先の派生の段が配布の住所の辞書
-（`jageocoder`用）を逆引きして入れる。辞書の版は`ADDRESS_DICTIONARY_URL`のファイル名で決まり、出典の文言はその版に
-同梱のREADMEが求めるもの。版を上げるときは同梱のREADMEの文言を読み直して`ADDRESS_DICTIONARY_ATTRIBUTION`を合わせる
-（手順は docs/architecture/data-sources.md「版を持つ配布物の入れ替え」）。
+住所は住所の区画の表（`domain/address_area.py`）から引く。
 """
 
 from typing import Annotated, Literal
@@ -46,19 +43,6 @@ PLACE_PREDICTION_LIMIT = 10
 #: 画面が、打つのが止まってから引くまでの間。打ち続けたときの1分あたりの回数の最大がこれで決まり、口の回数制限
 #: （`config.py: place_search_rate_limit_per_minute`）はそれに当たらないようにこの値から導く。
 PLACE_PREDICTION_DELAY_SECONDS = 0.4
-
-#: 住所の辞書の配布（街区まで・全国）。配布の一覧は https://www.info-proto.com/static/jageocoder/ にある。
-ADDRESS_DICTIONARY_URL = "https://www.info-proto.com/static/jageocoder/20260417/v2/gaiku_all_v22.20260417.zip"
-#: 同梱のREADMEが「利用者から見えるところ」に書くよう求める文言。
-ADDRESS_DICTIONARY_ATTRIBUTION = (
-    "「位置参照情報（大字町丁目・街区レベル）令和6年」（国土交通省）、"
-    '「Geolonia 住所データ」（株式会社Geolonia） <a href="https://geolonia.github.io/japanese-addresses/"'
-    ' target="_blank" rel="noreferrer">https://geolonia.github.io/japanese-addresses/</a>、'
-    "「アドレス・ベース・レジストリ」（デジタル庁） "
-    '<a href="https://www.digital.go.jp/policies/base_registry_address_tos/" target="_blank" rel="noreferrer">'
-    "https://www.digital.go.jp/policies/base_registry_address_tos/</a> "
-    "をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用"
-)
 
 #: 住所の区画の表（`domain/address_area.py`）の元データの出典。アドレス・ベース・レジストリは CC BY 4.0、e-Stat の境界は
 #: 政府標準利用規約（第2.0版）で、どちらも出典と加工した旨を書く（docs/architecture/data-sources.md）。

@@ -14,12 +14,12 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `place_search.py`（種類・段の語彙と表示名、候補と答えの形、続きを足す最短の長さと件数（施設の件数も同じ）・画面が打ちかけで引くまでの間、住所の辞書の配布の版と出典の文言、住所の区画の元データの出典の文言）・`address_area.py`（住所の区画の段の語彙・続きに使う段・町字区分と段の対応、表記の揃え方、区画の名前から鍵を作る形、番地付きの残りの頭の形、区画の祖先から施設の辺りの名前と住所の表示名を組み立てる形。下の「住所の区画の表」「施設の辺り」） |
+| domain | `place_search.py`（種類・段の語彙と表示名、候補と答えの形、続きを足す最短の長さと件数（施設の件数も同じ）・画面が打ちかけで引くまでの間、住所の区画の元データの出典の文言）・`address_area.py`（住所の区画の段の語彙・続きに使う段・町字区分と段の対応、表記の揃え方、区画の名前から鍵を作る形、番地付きの残りの頭の形、区画の祖先から施設の辺りの名前と住所の表示名を組み立てる形。下の「住所の区画の表」「施設の辺り」） |
 | batch | `derive_addresses.py`（住所の区画・鍵・小地域の境界の結び付きを作る派生の段）・`source_adapters/abr.py`（アドレス・ベース・レジストリの配布の zip を読む。テキストと代表点を1行に合わせ、代表点の無い行を落とす。範囲に掛かる都道府県の決め方も持つ）・`source_adapters/estat_small_area.py`（e-Stat の小地域の境界の Shapefile の zip を読む。分かれた多角形を小地域のコードごとに1つにし、通常の小地域でない行を落とす） |
-| infrastructure | `address_search.py`（住所の区画の表を入力で引き、並べて上限で切り、祖先をたどった表示名の候補へ写す。下の「引き方」）・`address_area_lookup.py`（位置を含む小地域の境界に結んだ区画と、区画の祖先の並びを引く SQL の部品。祖先の並びは住所の表示名にも使う。下の「施設の辺り」）・`address_dictionary.py`（辞書の置き場と開き方。取得の道具が使う）・`stop_place_search.py`（立ち寄り先の表を名前で引いて点に近い順に並べ、施設の候補へ写す） |
+| infrastructure | `address_search.py`（住所の区画の表を入力で引き、並べて上限で切り、祖先をたどった表示名の候補へ写す。下の「引き方」）・`address_area_lookup.py`（位置を含む小地域の境界に結んだ区画と、区画の祖先の並びを引く SQL の部品。祖先の並びは住所の表示名にも使う。下の「施設の辺り」）・`stop_place_search.py`（立ち寄り先の表を名前で引いて点に近い順に並べ、施設の候補へ写す） |
 | services | `place_search_service.py`（対象範囲・住所・施設（渡された点に近い順）を同じ接続で読み、住所と施設を並べる） |
 | api | `routers/place_search.py`（回数制限と、範囲を読めないときの応答） |
-| scripts | `fetch_address_dictionary.py`（辞書を配布元から取り、引けることを確かめてから置き場へ入れる。デプロイが呼ぶ）・`fetch_abr.py`（アドレス・ベース・レジストリの全国の1ファイルずつと、範囲に掛かる都道府県の町字の代表点を取る）・`fetch_estat_small_areas.py`（範囲に掛かる都道府県の e-Stat の小地域の境界を取る） |
+| scripts | `fetch_abr.py`（アドレス・ベース・レジストリの全国の1ファイルずつと、範囲に掛かる都道府県の町字の代表点を取る）・`fetch_estat_small_areas.py`（範囲に掛かる都道府県の e-Stat の小地域の境界を取る） |
 
 ## 候補の形
 
@@ -61,7 +61,7 @@
 ## 施設の辺り
 
 施設の辺りは、立ち寄り先の派生の段（[静的な道路の属性](static-road-attributes.md)の立ち寄り先）が、入れた地点の位置を含む
-小地域の境界に結んだ住所の区画から決めて、表の列`area`に入れる。検索のたびには引かない。住所の辞書は読まない。
+小地域の境界に結んだ住所の区画から決めて、表の列`area`に入れる。検索のたびには引かない。
 
 | 項目 | 内容 |
 |---|---|
@@ -69,20 +69,6 @@
 | 名前 | 区画の祖先を`parent_id`でたどった並び（`address_area_lookup.py: area_chains_sql`）の、市区町村から先の名前をつないだもの（`domain/address_area.py: area_label`）。都道府県・郡は持たず、政令市は市と区をつなぐ。丁目の名前は番号から漢数字でそろえる（`domain/address_area.py: chome_name`） |
 | 引く量 | 地点ごとの区画は1つの SQL で決め、行を取り出すのは当たった区画の祖先の並びだけ（地点は取り出さない） |
 | 段の順 | 区画の表を読むので、住所の区画の段の後ろに流す（`derive_cli.py: STAGES`） |
-
-辞書を開くたびに`jageocoder`が出す異体字の表の知らせ（配布の辞書はどの版もその表を持たない）は、`main.py`がロガー
-`jageocoder.itaiji`のレベルを上げて抑える。
-
-## 辞書の置き場と版
-
-| 項目 | 内容 |
-|---|---|
-| 配布元の版 | `domain/place_search.py: ADDRESS_DICTIONARY_URL`（配布の版ごとのzip。ファイル名が版を表す）。出典の文言`ADDRESS_DICTIONARY_ATTRIBUTION`も同じ所に並べ、常時の出典（`domain/map_display.py: ALWAYS_SHOWN_ATTRIBUTIONS`）が読む |
-| 置き場 | `backend/address_dictionary/<版の名前>/`（本番はホスト側のディレクトリを、backendは読むだけでマウントする）。zipに同梱のREADME（利用条件）も同じ所に入る |
-| 作る時機 | `scripts/fetch_address_dictionary.py`（デプロイがコンテナを入れ替える前に毎回呼ぶ）。置き場に今の版があれば他の版を消すだけ。無ければzipを取り、一時の置き場へ入れ、1件引けることを確かめてから置き場の名前へ移し、zipを消す。引けなければ置き場を作らずに失敗で終わる。入れた回は他の版を消さない |
-| 版と読めるライブラリ | 辞書の版ごとに読める`jageocoder`の版が決まっている（docs/architecture/tech-stack.md「`jageocoder`は辞書の版が読める版に留める」） |
-
-版の上げ方と頻度は docs/architecture/data-sources.md「版を持つ配布物の入れ替え」が持つ。
 
 ## 住所の区画の表
 
@@ -109,5 +95,4 @@
 テストの住所は、ABR の行を取込の入口から入れて住所の派生の段を本物のまま流して作り（`tests/test_place_search_route.py`）、施設は
 Overture の地点を取り込んで立ち寄り先の派生の段を本物のまま流して作る。住所の区画の表は、配布の形の小さな見本（ABR の CSV の zip・
 e-Stat の Shapefile の zip）を置き場に書き、取込と派生の段を本物のまま流して作る（`tests/test_address_areas.py`）。施設の辺りは、
-住所・境界・地点を取り込み、住所の段と立ち寄り先の段を本物のまま流して見る（`tests/test_stop_place_areas.py`）。辞書の取得は、
-配布の辞書を置けないため、`jageocoder`の公開の型で数件の節だけの辞書を書いて見る（`tests/address_dictionary_fixture.py`）。
+住所・境界・地点を取り込み、住所の段と立ち寄り先の段を本物のまま流して見る（`tests/test_stop_place_areas.py`）。

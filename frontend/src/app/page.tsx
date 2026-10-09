@@ -20,14 +20,13 @@ import {
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import LensControl from "@/features/map/LensControl/LensControl";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
-import PlaceSearch from "@/features/route/PlaceSearch/PlaceSearch";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
 import { useSavedConditions } from "@/features/route/useSavedConditions";
 import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
-import type { Coordinates, PinRole } from "@/types/route";
+import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
@@ -52,7 +51,6 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { dotVariants } from "@/components/ui/Dot/Dot";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
@@ -101,9 +99,9 @@ export default function Home() {
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
   // 住所の検索で置いた地点。置くたびに地図をそこへ寄せる（ピンを直すのは地図の上なので）。
   const [foundPoint, setFoundPoint] = useState<Coordinates | null>(null);
-  function placeFound(role: PinRole, point: Coordinates) {
-    conditions.placeFound(role, point);
-    setFoundPoint(point);
+  function placeFound(role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) {
+    conditions.placeFound(role, candidate, waypointIndex);
+    setFoundPoint({ latitude: candidate.latitude, longitude: candidate.longitude });
   }
   const ride = useRideConditions();
   // 名前を付けて保存した生成の条件（「保存」タブ）。
@@ -325,6 +323,10 @@ export default function Home() {
         originManual={locationSource === "manual"}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
+        originFound={locationSource === "manual" ? conditions.foundAt(location) : null}
+        // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
+        mapCenter={mapView.center ?? location}
+        onPlaceFound={placeFound}
         weightsPanel={
           <RouteSettingsPanel
             routePreference={conditions.routePreference}
@@ -495,17 +497,6 @@ export default function Home() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* 住所の検索は地図の上端の帯。地図で地点を置ける間（ピンをつかんで直せる間）だけ出す。帯は地図に重ねず
-            （地図の上端の部品を動かさない）、候補の一覧と案内だけを地図に重ねる。 */}
-          {pointEditingEnabled && (
-            <PlaceSearch
-              // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
-              mapCenter={mapView.center ?? location}
-              onPlace={placeFound}
-              waypointsFull={conditions.waypoints.length >= routeGenerateConfig.max_waypoints}
-              routes={route.mapRoutes}
-            />
-          )}
           <div className="app-map-pane relative min-h-0 flex-1">
             <MapView
               routes={route.mapRoutes}
