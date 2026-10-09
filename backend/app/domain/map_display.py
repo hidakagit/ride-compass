@@ -6,7 +6,9 @@
 
 from typing import Literal, NamedTuple
 
+from app.domain.display_palette import ORDERED_END_COLOR_NAMES
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
+from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
 from app.domain.place_search import ADDRESS_DICTIONARY_ATTRIBUTION
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import DisplayAxisSpec
@@ -78,7 +80,9 @@ _TILE_KINDS: tuple[str, ...] = tuple(
 #: 読むレイヤーの1つだけ書き忘れても型が通り、その行だけ案内が出ない。
 MAP_LAYER_DATA_SOURCES: tuple[MapLayerDataSource, ...] = (
     *(MapLayerDataSource(kind, ROAD_TILE_MIN_ZOOM) for kind in _TILE_KINDS),
+    MapLayerDataSource("gsiRelief"),
     MapLayerDataSource("gsiTerrain", TERRAIN_MIN_ZOOM),
+    MapLayerDataSource("landcoverRaster", LANDCOVER_TILE_MIN_ZOOM),
     MapLayerDataSource("ownFetch"),
 )
 
@@ -150,8 +154,8 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
 
 
 def _static_layer_ids() -> tuple[str, ...]:
-    """地図へ出す一次属性（行の定義を持つ線・点）＋描き方の派生。"""
-    shown = [attr.attr_id for attr in PRIMARY_ATTRIBUTES if attr.display_axes]
+    """地図へ出す一次属性（線・点は行の定義を持つもの、面は幾何が面のもの）＋描き方の派生。"""
+    shown = [attr.attr_id for attr in PRIMARY_ATTRIBUTES if attr.display_axes or attr.geometry == "area"]
     return (*shown, HILLSHADE_LAYER_ID)
 
 
@@ -238,6 +242,15 @@ def _row_label(attr_id: str, key: str) -> str:
     return next(category.label for category in _first_axis(attr_id).categories if category.key == key)
 
 
+def ordered_ends_text(axis: DisplayAxisSpec) -> str:
+    """順序のある分類の色の向きの文。並びの先頭の行ほど濃く、末尾の行ほど明るく塗る（`display_palette.py: ordered_colors`）
+    ので、両端の行の名前と色の呼び名から組む。"""
+    if axis.palette != "ordered":
+        raise ValueError(f"{axis.key}は順序のある分類ではない")
+    dark, light = ORDERED_END_COLOR_NAMES
+    return f"「{axis.categories[0].label}」ほど{dark}、「{axis.categories[-1].label}」ほど{light}"
+
+
 def size_text(attr_id: str) -> str:
     """大きさで示す見方の文。半径を宣言した軸の、半径の最も大きい行の名前から組む。"""
     attribute = next(attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
@@ -254,6 +267,10 @@ def size_sentence(axis: DisplayAxisSpec) -> str:
         raise ValueError(f"{axis.key}は行ごとに違う半径を宣言していない")
     largest = max(axis.categories, key=lambda category: category.radius_px or 0)
     return f"{largest.label}は円を大きく表示します。"
+
+
+#: 面で塗らない土地被覆の分類（区間インスペクタの割合には出る）。
+_UNPAINTED_LANDCOVER = "・".join(cls.label for cls in LANDCOVER_CLASSES if not cls.painted)
 
 
 def _window_hours(source: str) -> str:
@@ -311,13 +328,45 @@ _DISASTER_BY_FRAME_RULE = _disaster_by_frame_rule()
 
 #: `_MAP_LAYER_IDS`の1つずつの宣言。並びが一覧の行の並び（種別の中の順）になる。**過不足は生成の時点で落ちる**（`MAP_LAYERS`）。
 _LAYER_SPECS: dict[str, MapLayerSpec] = {
-    # 坂の在りかだけを塗る。
+    "elevation": MapLayerSpec(
+        "gsiRelief",
+        "terrain",
+        description=("国土地理院の色別標高図を重ねる",),
+        panel_hint=("国土地理院の色別標高図を重ねる",),
+    ),
+    # 標高図（何mか）と区別できる名前にする（坂の在りかだけを塗る）。
     HILLSHADE_LAYER_ID: MapLayerSpec(
         "gsiTerrain",
         "terrain",
         label="起伏",
         description=("斜面に陰影を付ける[平地は塗らない]",),
         panel_hint=("国土地理院の標高データから斜面の陰影を作る。平らな所は塗らないため、下の地図の色が残る",),
+    ),
+    # 塗らないのは、広い範囲を単色で覆って基礎地図を隠すわりに何も足さない分類だけ（`LandcoverClass.painted`）。
+    "landcover": MapLayerSpec(
+        "landcoverRaster",
+        "terrain",
+        description=(f"周囲の緑・水辺・農地を面で重ねる{f'[{_UNPAINTED_LANDCOVER}は塗らない]' if _UNPAINTED_LANDCOVER else ''}",),
+        panel_hint=(
+            "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、"
+            f"評価軸が使う「道路の周囲{LANDCOVER_RING_OUTER_M:g}mの割合」とは違い、混ざらずそのまま見えます。"
+            + (
+                f"{_UNPAINTED_LANDCOVER}は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。"
+                f"地図の道を押して開く内訳には{_UNPAINTED_LANDCOVER}も出ます。"
+                if _UNPAINTED_LANDCOVER
+                else ""
+            ),
+        ),
+    ),
+    "highway": _tile_layer(
+        "highway",
+        "roadCondition",
+        description=(f"道路の種類を色で表示[{ordered_ends_text(_first_axis('highway'))}]",),
+        panel_hint=(
+            "OSMのhighwayタグを区分にまとめて色分けしています。"
+            f"「{_first_axis('highway').categories[0].label}」が最も濃く、下位の道ほど明るい色です。"
+            "ほかの道路のレイヤーと一緒に表示すると、同じ道に線を横へ並べて描きます。",
+        ),
     ),
     "surface": _tile_layer(
         "surface",
@@ -332,11 +381,31 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         ),
         hide_missing_rows=True,
     ),
+    "tracktype": _tile_layer(
+        "tracktype",
+        "roadCondition",
+        description=(f"農道・林道の路面の等級を色で表示[{ordered_ends_text(_first_axis('tracktype'))}]",),
+        panel_hint=(
+            "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、"
+            "材質のタグが無い農道・林道にも付いていることがあります。"
+            f"タグの無い道は「{LEGEND_SHARED_ROWS["noData"].label}」です。",
+        ),
+    ),
     "tunnel": _tile_layer(
         "tunnel",
         "roadCondition",
         description=("トンネル区間[OSMのtunnelタグ]を色分け表示",),
         panel_hint=("OSMのtunnelタグが該当する区間です。", LayerTextSlot("axes", "評価軸", "の材料の1つです。")),
+    ),
+    "oneway": _tile_layer(
+        "oneway",
+        "roadCondition",
+        description=("来た道を戻れない区間を色分け表示",),
+        panel_hint=(
+            "その向きにしか通れない区間です。上下線が分かれているだけの道[逆方向が数m隣にある]"
+            "は除いてあります。ルート探索は既に一方通行の向きを守っており[逆走経路自体が"
+            "生成されません]、このレイヤーは表示のみで評価には影響しません。",
+        ),
     ),
     # 当てはまらない道（大多数）を描くと地図が灰色の線で覆われるので、最初は隠す。
     "cycleway": _tile_layer(
