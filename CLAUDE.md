@@ -32,7 +32,7 @@
 
 | 作業 | 読む節 |
 |---|---|
-| タスクを進める（開発機の対話のセッション・裏の作業役も） | flow.md（全文）／pull-requests.md: 作る |
+| タスクを進める（開発機の対話のセッション・裏の作業役も） | flow.md（全文）／pull-requests.md: 作る／.claude/commands/review.md: 回すとき |
 | 新しい仕組みを作る・設計を判断する | docs/architecture/design-principles.md（全文）／.claude/commands/review.md: 判断原則 |
 | backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／comments.md: ルール・判定基準・残すと決めたものの行き先／logging.md: 基本原則・使う仕組み |
 | APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | deployment-sync.md: コミットと同時に揃えるもの |
