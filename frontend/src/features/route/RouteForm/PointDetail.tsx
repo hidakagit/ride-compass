@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef } from "react";
 
 import { Badge } from "@/components/ui/Badge/Badge";
@@ -8,7 +9,9 @@ import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { textVariants } from "@/components/ui/Text/Text";
 import PlaceCandidates, { isRepresentative } from "@/features/route/PlaceSearch/PlaceCandidates";
 import { PREDICTION_MIN_LENGTH, usePlaceLookup } from "@/features/route/PlaceSearch/usePlaceLookup";
+import { areaAt } from "@/features/route/placeSearchApi";
 import { cn } from "@/lib/cn";
+import { getQueryClient } from "@/lib/queryClient";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 
 import PointMark from "./PointMark";
@@ -25,6 +28,8 @@ interface PointDetailProps {
   name?: string;
   /** 探して置いた地点なら、その候補（辺りと、代表の位置かを出す）。 */
   found: PlaceCandidate | null;
+  /** 地点の位置。置いていない・現在地を取れていなければnull。辺りの無い地点は、ここから辺りを引いて出す。 */
+  at: Coordinates | null;
   /** 地点が置いてあるか。打つ欄の誘いを「置き直す」にする。 */
   placed: boolean;
   /** 地図で置く操作の名前（地図で選ぶ／地図で追加／地図で置き直す）。 */
@@ -51,7 +56,8 @@ interface PointDetailProps {
 }
 
 /**
- * 押した地点の詳しく: どの地点か・どうやって置いたか・名前・辺りと、住所・施設の名前を打って置き直す欄（候補は欄のすぐ下）、
+ * 押した地点の詳しく: どの地点か・どうやって置いたか・名前・辺り（探した施設は候補の辺り、地図で選んだ地点・現在地・辺りの
+ * 無い施設は位置から引いた辺り。探した住所は名前が住所なので出さない）と、住所・施設の名前を打って置き直す欄（候補は欄のすぐ下）、
  * 地図で置く操作と、消す・現在地に戻す。
  */
 export default function PointDetail({
@@ -61,6 +67,7 @@ export default function PointDetail({
   source,
   name,
   found,
+  at,
   placed,
   armLabel,
   extra,
@@ -85,6 +92,20 @@ export default function PointDetail({
   useEffect(() => {
     if (listing) formRef.current?.scrollIntoView({ block: "start" });
   }, [listing, candidates]);
+
+  // 代表の位置（探した住所）は行きたい所そのものではないので、そこの辺りは引かない。
+  const representative = found !== null && isRepresentative(found);
+  const areaPoint = found?.area == null && !representative ? at : null;
+  const placedArea = useQuery(
+    {
+      queryKey: ["place-area", areaPoint?.latitude, areaPoint?.longitude],
+      queryFn: () => areaAt(areaPoint!),
+      enabled: areaPoint !== null,
+    },
+    getQueryClient(),
+  );
+  // 引けない間・引けなかったときは辺りを出さない（名前と出どころは出ている）。
+  const area = found?.area ?? (areaPoint !== null ? (placedArea.data ?? null) : null);
 
   function choose(candidate: PlaceCandidate) {
     onChoose(candidate);
@@ -111,13 +132,13 @@ export default function PointDetail({
           {name !== undefined && (
             <p className={cn(textVariants({ variant: "body" }), "font-bold [overflow-wrap:anywhere]")}>{name}</p>
           )}
-          {found !== null && (found.area !== null || isRepresentative(found)) && (
+          {(area !== null || representative) && (
             <p className="flex min-w-0 flex-wrap items-center gap-1">
-              {found.area !== null && (
-                <span className={cn(textVariants({ variant: "note" }), "[overflow-wrap:anywhere]")}>{found.area}</span>
+              {area !== null && (
+                <span className={cn(textVariants({ variant: "note" }), "[overflow-wrap:anywhere]")}>{area}</span>
               )}
               {/* 当たった範囲の中ほどの位置で、行きたい所そのものではない（ピンを直すのは地図の上）。 */}
-              {isRepresentative(found) && <Badge variant="warning">代表の位置</Badge>}
+              {representative && <Badge variant="warning">代表の位置</Badge>}
             </p>
           )}
         </div>

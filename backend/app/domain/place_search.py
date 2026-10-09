@@ -75,3 +75,11 @@ class PlaceSearchResult(StrictModel):
     何も当たらなければ空。"""
 
     candidates: list[PlaceCandidate]
+
+
+class PlaceArea(StrictModel):
+    """位置の辺り（地図で置いた地点・現在地の詳しくに出す）。"""
+
+    #: 位置を含む小地域の境界に結んだ町字の、市区町村から字・丁目までの名前（施設の辺りと同じ形。「新宿区西新宿二丁目」）。
+    #: 区画に結んだ境界に含まれなければ持たない（海の上・範囲の外・結べなかった境界の中）。
+    area: str | None
