@@ -2,7 +2,7 @@
 //
 //   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--summary]
 //
-// 出すもの: テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
+// 出すもの: 実装を変えていないか（①）・テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
 // テストごとの「そのテストだけが届く行」。パスは frontend からの相対で渡す。
 // テストを渡さなければ、母集団を集める: src の *.test.ts(x) のうち、import の指定子（相対・@/）をテストの位置から解決すると
 // 渡した実装のパスになるもの（間接に通すテストは入らないので、要れば並べて渡す）。
@@ -191,6 +191,17 @@ if (implementationIsTest) {
 }
 
 console.log(`対象: ${implementation}`);
+// 実装の変更は origin/master との合流点から作業ツリーまでの差で見る（コミット済みの変更も含む）。
+const base = spawnSync("git", ["merge-base", "origin/master", "HEAD"], { cwd: frontendRoot, encoding: "utf-8" });
+if (base.status !== 0) {
+  console.log(`① 実装の変更: **測れない**（origin/master との合流点が取れない: ${base.stderr.trim()}）`);
+} else {
+  const diff = spawnSync("git", ["diff", "--stat", base.stdout.trim(), "--", implementation], {
+    cwd: frontendRoot,
+    encoding: "utf-8",
+  }).stdout.trim();
+  console.log(`① 実装の変更（origin/master との合流点から）: ${diff ? `**あり** → ${diff}` : "なし"}`);
+}
 console.log(
   `母集団（${implementationIsTest ? "実装のテストファイルそのもの" : givenTests.length > 0 ? "渡したもの" : "import の指定子で集めたもの"}）:`,
 );

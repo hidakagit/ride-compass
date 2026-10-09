@@ -88,7 +88,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 増減: `python scripts/review_checks.py change` の出力の行
    - 検証: 下の確かめ方と、`backend/scripts/lost_constraints.py` が出した「消えた」制約の1件ずつの処置（移した先・意図して
      外した理由）
-   画面に届く変更は、後からの判断の記録として、修正が波及する範囲（変えたコードが描く画面・状態のすべて）を漏らさず撮り、
+   画面に届く変更は、後からの判断の記録として、修正が波及する範囲（変えたコード——部品・hooks・backend の応答等——を使う・見せる画面と状態のすべて）を漏らさず撮り、
    修正前後のキャプチャを Pull Request のコメントに貼る（`node tools/flow-gate/bin/attach.js <Pull Request の番号> '<画像>#<見出し>' ...`。
    見出しに画面・幅など、何を撮ったかを書く。下の「貼り方」。画像はコミットに残さない）。画面は `node frontend/scripts/capture.mjs --script <脚本>` で撮る
      （開く版を `--app`、応答を `--api` で選び、見せたい状態までは脚本で進める。脚本の口と使い方はスクリプトの先頭、例は

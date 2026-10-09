@@ -428,11 +428,18 @@ def main() -> int:
     print("=" * 78)
 
     # --- ① 実装を変えていないか ---
-    status = subprocess.run(
-        ["git", "status", "--short", "--", args.implementation],
-        cwd=backend, capture_output=True, text=True, encoding="utf-8", errors="replace",
-    ).stdout.strip()
-    print(f"\n① 実装の変更: {'**あり** → ' + status if status else 'なし'}")
+    def git(*command: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *command], cwd=backend, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+
+    # origin/master との合流点から作業ツリーまでの差（コミット済みの変更も含む）。
+    base = git("merge-base", "origin/master", "HEAD")
+    if base.returncode != 0:
+        print(f"\n① 実装の変更: **測れない**（origin/master との合流点が取れない: {base.stderr.strip()}）")
+    else:
+        status = git("diff", "--stat", base.stdout.strip(), "--", args.implementation).stdout.strip()
+        print(f"\n① 実装の変更（origin/master との合流点から）: {'**あり** → ' + status if status else 'なし'}")
 
     defined, imported = module_symbols(impl_path)
     for test in tests:

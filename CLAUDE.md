@@ -57,7 +57,7 @@ docs/conventions/ にある（.claude/rules/・.claude/skills/ のものはパ�
 | 指摘・不具合を直す | .claude/rules/fixing.md（全文） |
 | テストを書く | .claude/rules/testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・テストの足場で、本来のNGを覆わない・挙動を変えるなら、テストを先に書く・当たるパターン（パターン1〜）／.claude/rules/fixing.md: 書かないテスト |
 | テストや検査を回す | .claude/skills/run-checks/SKILL.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／.claude/rules/testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
-| 画面を撮る | .claude/skills/task-work/SKILL.md: 作る担当（5 の画面の変更のキャプチャ） |
+| 画面を撮る | .claude/skills/task-work/SKILL.md: 作る担当（5 の画面に届く変更のキャプチャ） |
 | コミットする | flow.md: コミット／.claude/rules/fixing.md: 報告と段取り（実装の増減）／.claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
 | PR を出す | .claude/skills/task-work/SKILL.md: 作る担当（4〜6） |
 | PR を確かめてマージする | .claude/skills/task-work/SKILL.md: 確かめる担当・Pull Request のあと・競合を解く |
