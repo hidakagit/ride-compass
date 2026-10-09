@@ -101,7 +101,7 @@ _CLASSES = (
     SurfaceClass("class_empty", "タグの無い区分", {}, "speed.crr"),
 )
 _GRADES = (
-    TrackGrade("grade_a", "等級A", "class_b"),
+    TrackGrade("grade_a", "等級A", "class_b", "説明"),
 )
 
 
