@@ -68,9 +68,7 @@ export default function PlaceCandidates({ lookup, renderCandidate }: PlaceCandid
                   <span className={cn("ml-1.5", textVariants({ variant: "note" }))}>{candidate.area}</span>
                 )}
               </span>
-              {candidate.kind === "facility" && (
-                <span className="flex-none tabular-nums">{haversineKm(near, candidate).toFixed(1)}km</span>
-              )}
+              <span className="flex-none tabular-nums">{haversineKm(near, candidate).toFixed(1)}km</span>
               <Badge>{KIND_LABELS[candidate.kind]}</Badge>
               <Badge variant="outline">{LEVEL_LABELS[candidate.level]}</Badge>
             </>,

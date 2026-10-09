@@ -2,7 +2,7 @@
 
 経路から、サービス（`services/place_search_service.py`）と住所の区画の表を引く層（`infrastructure/address_search.py`）・
 施設の表を引く層（`infrastructure/stop_place_search.py`）の判断を見る: 住所の候補の段・表示名・位置、書き方の違う入力
-（空白・漢数字・長音）、全部に当たる・番地付き・続きの3通りの当たり方とその並び（段の粗いもの → 鍵の短いもの → 中心に近いもの）、
+（空白・漢数字・長音）、全部に当たる・番地付き・続きの3通りの当たり方とその並び（段の粗いもの → 全部に当たるもの → 続き → 中心に近いもの）、
 番地付きの残りの番号で当たる街区（住居表示の区域）と地番（それ以外の区域）、
 件数の上限、入力の一部にだけ当たった住所を出さないこと、施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の
 真ん中に近い店から上限まで）、施設に添える辺り、住所と施設を並べる順、対象範囲を読めなければ502、回数制限。
@@ -20,8 +20,9 @@
 - 回数制限の窓 → `test_rate_limiter.py`
 - Cache-Control の値と、失敗の応答に付けないこと → `test_cache_policy.py`
 - 入力の長さ（`domain/place_search.py: PlaceQuery`の制約で、FastAPIが422で返す）
-- 続きを長さごとに数えて引く鍵を切ること（時間を抑えるためのもので、答えは切らずに全部を並べたものと変わらない）
 """
+
+import math
 
 import httpx
 import pytest
@@ -216,7 +217,7 @@ async def test_areas_of_the_same_name_come_nearest_to_the_center_first(near, fir
 
 
 @pytest.mark.usefixtures("area")
-async def test_a_coarser_level_comes_before_shorter_keys():
+async def test_a_coarser_level_comes_before_an_exact_name():
     """1文字の「柏」で、全部に当たる大字の「柏」が上限を超えてあっても、続きの柏市（鍵「柏市」）が先頭に出る。"""
     chiba = abr_prefecture_record("120006", "千葉県", 140.1233, 35.6047)
     kashiwa = abr_city_record("122173", "千葉県", "柏市", 139.975, 35.8676)
@@ -234,10 +235,26 @@ async def test_a_coarser_level_comes_before_shorter_keys():
 
 
 @pytest.mark.usefixtures("area")
-async def test_continuations_are_the_shortest_ones_up_to_the_limit():
+async def test_an_exact_name_comes_before_a_nearer_continuation():
+    """「浅草」で、見ている所に近い「浅草橋」より、遠い「浅草」そのものが先に出る。"""
+    taito = abr_city_record("131067", "東京都", "台東区", 139.779, 35.712)
+    asakusa = _town(taito, "0001000", "1", 139.797, 35.715, oaza="浅草")
+    asakusabashi = _town(taito, "0002000", "1", 139.786, 35.697, oaza="浅草橋")
+    await _ingest_addresses([TOKYO, taito, asakusa, asakusabashi])
+
+    response = await _search("浅草", 139.786, 35.697)
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [
+        _address(asakusa, "東京都台東区浅草", "oaza"), _address(asakusabashi, "東京都台東区浅草橋", "oaza")]}
+
+
+@pytest.mark.usefixtures("area")
+async def test_continuations_are_the_shortest_ones_up_to_the_limit_nearest_first():
+    """続きは短い鍵から上限まで引き、その中を見ている所に近い順に並べる（長い鍵ほど近くに置く）。"""
     chiyoda = abr_city_record("131016", "東京都", "千代田区", 139.753595, 35.694003)
     oazas = {
-        length: _town(chiyoda, f"00{length:02d}000", "1", 139.76 + length / 1000, 35.69,
+        length: _town(chiyoda, f"00{length:02d}000", "1", 139.76 - length / 1000, 35.69,
                                 oaza="西" + "あ" * length)
         for length in range(PLACE_PREDICTION_LIMIT + 1, 0, -1)}
     await _ingest_addresses([TOKYO, chiyoda, *oazas.values()])
@@ -247,7 +264,7 @@ async def test_continuations_are_the_shortest_ones_up_to_the_limit():
     assert response.status_code == 200
     assert response.json() == {"candidates": [
         _address(oazas[length], f"東京都千代田区西{'あ' * length}", "oaza")
-        for length in range(1, PLACE_PREDICTION_LIMIT + 1)]}
+        for length in range(PLACE_PREDICTION_LIMIT, 0, -1)]}
 
 
 @pytest.mark.usefixtures("app_db")
@@ -337,6 +354,23 @@ async def test_facilities_with_the_same_name_beyond_the_limit_are_the_nearest_on
     assert response.status_code == 200
     assert [c["longitude"] for c in response.json()["candidates"]] == [
         LON + i / 10 for i in range(count - 1, count - 1 - PLACE_PREDICTION_LIMIT, -1)
+    ]
+
+
+@pytest.mark.usefixtures("area")
+async def test_a_facility_nearer_on_the_ground_comes_first_even_when_degrees_scaled_by_latitude_say_otherwise():
+    """経度の差に中心の緯度の余弦を掛けて度で比べると遠い店でも、測地の距離で近ければ先に出る。東西の1度は南北の1度に
+    余弦を掛けたものより地球の扁平の分だけ長いので、北の店は、東の上限の件数の店より度では遠く、地面では近い。"""
+    north = LAT + 0.01 * math.cos(math.radians(LAT)) * 1.002
+    await _ingest_facilities(
+        [_facility_record(i, "喫茶ことり", LON + 0.01 - i / 1e6, LAT) for i in range(PLACE_PREDICTION_LIMIT)]
+        + [_facility_record(PLACE_PREDICTION_LIMIT, "喫茶ことり", LON, north)])
+
+    response = await _search("喫茶ことり")
+
+    assert response.status_code == 200
+    assert [(c["longitude"], c["latitude"]) for c in response.json()["candidates"]] == [(LON, north)] + [
+        (LON + 0.01 - i / 1e6, LAT) for i in range(PLACE_PREDICTION_LIMIT - 1, 0, -1)
     ]
 
 

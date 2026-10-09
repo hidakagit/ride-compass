@@ -8,8 +8,8 @@
 全テーブルの行数は統計値（`n_live_tup`）ではなく**実数**を数える。統計は
 ANALYZEされていないテーブルでは桁が変わるほどずれるため、「取り込んだつもりが入っていない」の
 検出には使えない。1クエリで全テーブルぶんを数えるために
-`query_to_xml`を使う（テーブル名は`pg_stat_user_tables`由来で、`format('%I')`が識別子として
-引用するため外部入力の連結にはならない）。DB全体の走査を伴うので、呼び出しは管理APIの
+`query_to_xml`を使う（テーブル名は`pg_stat_user_tables`由来の`regclass`を文字列にしたもので、識別子として
+引用されるため外部入力の連結にはならない）。DB全体の走査を伴うので、呼び出しは管理APIの
 ボタン押下時のみ。
 """
 
@@ -26,17 +26,31 @@ from app.infrastructure.source_models import latest_succeeded_run_by_column_sql
 # PostGISが作る付属テーブル。アプリのデータではないため一覧から外す。
 _EXCLUDED_TABLES = ("spatial_ref_sys",)
 
+# 分割の親は葉の和で出す。親を数えると全部の葉を読み直し、葉も一覧に並ぶので生データを2回読む。
+# `pg_partition_tree`は分割の木に入らない表には行を返さないので、その表は自分を葉として数える。
 _TABLE_STATS_SQL = """
+WITH s AS (
+    SELECT * FROM pg_stat_user_tables
+    WHERE schemaname = 'public' AND relname <> ALL(:excluded)
+), leaves AS (
+    SELECT s.relid AS table_relid, coalesce(tree.relid, s.relid) AS leaf_relid
+    FROM s LEFT JOIN LATERAL pg_partition_tree(s.relid) tree ON true
+    WHERE tree.relid IS NULL OR tree.isleaf
+), leaf_counts AS MATERIALIZED (
+    SELECT leaf_relid,
+           (xpath('/row/cnt/text()',
+                  query_to_xml(format('SELECT count(*) AS cnt FROM %s', leaf_relid::regclass),
+                               false, true, '')))[1]::text::bigint AS row_count
+    FROM (SELECT DISTINCT leaf_relid FROM leaves) l
+)
 SELECT s.relname AS table_name,
-       (xpath('/row/cnt/text()',
-              query_to_xml(format('SELECT count(*) AS cnt FROM %I.%I', s.schemaname, s.relname),
-                           false, true, '')))[1]::text::bigint AS row_count,
+       coalesce((SELECT sum(c.row_count) FROM leaves l JOIN leaf_counts c USING (leaf_relid)
+                 WHERE l.table_relid = s.relid), 0)::bigint AS row_count,
        pg_total_relation_size(s.relid) AS total_bytes,
        s.n_dead_tup,
        greatest(s.last_analyze, s.last_autoanalyze) AS analyzed_at,
        greatest(s.last_vacuum, s.last_autovacuum) AS vacuumed_at
-FROM pg_stat_user_tables s
-WHERE s.schemaname = 'public' AND s.relname <> ALL(:excluded)
+FROM s
 ORDER BY pg_total_relation_size(s.relid) DESC
 """
 

@@ -398,7 +398,7 @@ JSはその旗を読むだけで数値を写さない:
 - デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ2区分
   「ルート設定 / ルート結果」を同じ順序で縦積み。各区分は独立した`Disclosure`折りたたみで、
   開閉状態は`generateOpen`・`outcomeOpen`（localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
-  `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「ルート生成」
+  `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「いまの設定を保存」と「ルート生成」の
   ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」の候補一覧は**左の縦タブ**
   （`Tabs.Root orientation="vertical"`）で、右に選択中候補の中身が並ぶ2カラム——横並びの
   タブは候補が増えると列が表示幅を超えて伸び、溢れた候補が存在ごと見えなくなる。
@@ -443,7 +443,7 @@ JSはその旗を読むだけで数値を写さない:
   分けず、急いで見るべき失敗と、開いても候補の無い候補0件だけを見分けさせる。点は色と形だけなので、意味をタブの`aria-description`にも持たせる。デスクトップと同じく
   「ルート設定」シートは`RouteForm`（タブの中身を描く。タブ列と選択状態は`page.tsx`側の
   `Tabs.Root`が持つ）を描画し、`headerLead`propへタブ列（`renderSettingsTabs()`）、
-  `headerAction`propへ`renderRouteSectionHeaderActions()`（「ルート生成」ボタンと、
+  `headerAction`propへ`renderRouteSectionHeaderActions()`（「いまの設定を保存」「ルート生成」のボタンと、
   条件が変わっている印）をデスクトップと同じヘルパーから渡し、`headerNote`propへ候補を出せなかった理由の1行を渡す。
 
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム

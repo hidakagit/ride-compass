@@ -22,7 +22,7 @@ import LensControl from "@/features/map/LensControl/LensControl";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
+import SavedConditionsPanel, { SaveConditionsButton } from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
 import { useSavedConditions } from "@/features/route/useSavedConditions";
 import { useSavedPlaces } from "@/features/route/useSavedPlaces";
@@ -256,21 +256,26 @@ export default function Home() {
             ? { tone: "warning", label: "生成条件が変更されています" }
             : null;
 
-  // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「ルート生成」は同じ行の右端に離して置く（どのタブを
-  // 見ていても押せる）。
+  // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「いまの設定を保存」「ルート生成」は同じ行の右端に離して置く
+  // （どのタブを見ていても押せる）。タブの間と左右の余白・操作の間を詰めているのは、スマホの幅で見出しの題・タブ・操作（条件の
+  // 変更の印も）を1行に切らずに収めるため。
   function renderSettingsTabs() {
     return (
-      <TabsList className="gap-2 overflow-visible border-b-0" aria-label="ルート設定">
-        <TabsTrigger value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
+      <TabsList className="gap-0 overflow-visible border-b-0" aria-label="ルート設定">
+        <TabsTrigger className="px-1.5" value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
           条件
         </TabsTrigger>
-        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。">
+        <TabsTrigger
+          className="px-1.5"
+          value="weights"
+          usage="道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。"
+        >
           重み
         </TabsTrigger>
-        <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
+        <TabsTrigger className="px-1.5" value="exclusions" usage="ルートに使わない道路の種類を選びます。">
           除外
         </TabsTrigger>
-        <TabsTrigger value="saved" usage="名前を付けて保存した地点と設定を並べます。">
+        <TabsTrigger className="px-1.5" value="saved" usage="名前を付けて保存した地点と設定を並べます。">
           保存
         </TabsTrigger>
       </TabsList>
@@ -279,7 +284,7 @@ export default function Home() {
 
   function renderRouteSectionHeaderActions() {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* 条件を変えている本人は設定の側を見ているので、押すべきボタンの隣でも知らせる。 */}
         {generation.conditionsDirty && (
           <InfoPopover
@@ -289,6 +294,14 @@ export default function Home() {
             生成条件が変更されています。表示中の候補は変更前の条件で作ったものです。
           </InfoPopover>
         )}
+        <SaveConditionsButton
+          saved={savedConditions.saved}
+          current={savedConditions.current}
+          suggestedName={savedConditions.suggestedName}
+          originManual={locationSource === "manual"}
+          originKnown={locationKnown}
+          onSave={savedConditions.save}
+        />
         <Button
           variant="primary"
           size="panelIcon"
@@ -346,11 +359,6 @@ export default function Home() {
         savedConditionsPanel={
           <SavedConditionsPanel
             saved={savedConditions.saved}
-            current={savedConditions.current}
-            suggestedName={savedConditions.suggestedName}
-            originManual={locationSource === "manual"}
-            originKnown={locationKnown}
-            onSave={savedConditions.save}
             onRecall={savedConditions.recall}
             onRemove={savedConditions.remove}
           />

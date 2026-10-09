@@ -1,12 +1,15 @@
 /**
- * 「保存」タブ（`SavedConditionsPanel.tsx`）——タブには保存の窓を開くボタンだけを置き、窓で保存する条件・重みの割合・除外と
- * 出発地の扱いを並べ、名前の欄に仮の名前を入れて出し、そのまま・書き換えて保存でき、保存すると窓を閉じる。出発地は固定するかを選べ、選ぶまでは地図で置いたかで決まる。
- * 同じ名前があれば上書きと分かるように出す。保存した設定を名前だけで並べ、「呼び出す」は窓で中身を見せて「反映する」を
- * 押したときだけ呼び出し、「消す」は確認の窓で「消す」を押したときだけ消す。
+ * 設定の保存（`SavedConditionsPanel.tsx`）。
+ * - 見出しの「いまの設定を保存」（`SaveConditionsButton`）——押すと窓で保存する条件・重みの割合・除外と出発地の扱いを並べ、
+ *   名前の欄に仮の名前を入れて出し、そのまま・書き換えて保存でき、保存すると窓を閉じる。出発地は固定するかを選べ、選ぶまでは
+ *   地図で置いたかで決まる。同じ名前があれば上書きと分かるように出す。
+ * - 「保存」タブの「設定」（`SavedConditionsPanel`）——保存した設定を名前だけで並べ、無ければ無いと出して保存の仕方を(i)に置く。
+ *   「呼び出す」は窓で中身を見せて「反映する」を押したときだけ呼び出し、「消す」は確認の窓で「消す」を押したときだけ消す。
  *
  * ここで見ないもの:
  * - 説明の文の作り方（割合・除外の名前） → `savedConditions.test.ts`
  * - 保存・呼び出し・削除で条件と一覧がどう変わるか → `useSavedConditions.test.ts`
+ * - (i)の奥の文（書いた文をそのまま出す）
  *
  * 差し替えたもの: 軸カタログの応答（網の層）。
  */
@@ -19,7 +22,7 @@ import type { GenerationConditionsSnapshot, SavedCondition } from "@/features/ro
 import { serveAxisCatalog } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse } from "@/testing/catalogAxes";
 
-import SavedConditionsPanel from "./SavedConditionsPanel";
+import SavedConditionsPanel, { SaveConditionsButton } from "./SavedConditionsPanel";
 
 const CURRENT: GenerationConditionsSnapshot = {
   routeMode: "loop",
@@ -41,21 +44,27 @@ const TRIP: SavedCondition = {
   routePreference: { axis_a: 1, axis_b: 3 },
 };
 
-function renderPanel(
+function renderSaveButton(
   saved: SavedCondition[] = [],
   { originManual = false, originKnown = true }: { originManual?: boolean; originKnown?: boolean } = {},
 ) {
-  const handlers = { onSave: vi.fn(), onRecall: vi.fn(), onRemove: vi.fn() };
+  const onSave = vi.fn();
   render(
-    <SavedConditionsPanel
+    <SaveConditionsButton
       saved={saved}
       current={CURRENT}
       suggestedName="周回 40km"
       originManual={originManual}
       originKnown={originKnown}
-      {...handlers}
+      onSave={onSave}
     />,
   );
+  return { onSave };
+}
+
+function renderPanel(saved: SavedCondition[] = []) {
+  const handlers = { onRecall: vi.fn(), onRemove: vi.fn() };
+  render(<SavedConditionsPanel saved={saved} {...handlers} />);
   return handlers;
 }
 
@@ -75,8 +84,8 @@ beforeEach(() => {
 });
 
 describe("保存", () => {
-  it("タブには窓を開くボタンだけを置き、窓で、いまの設定の条件と重みの割合を並べる", async () => {
-    renderPanel();
+  it("ボタンだけを置き、押すと窓で、いまの設定の条件と重みの割合を並べる", async () => {
+    renderSaveButton();
     expect(screen.queryByText("周回 40km・候補 8本")).not.toBeInTheDocument();
 
     const dialog = await openSaveDialog();
@@ -86,7 +95,7 @@ describe("保存", () => {
   });
 
   it("仮の名前が入った欄をそのまま保存でき、書き換えればその名前で保存し、保存すると窓を閉じる", async () => {
-    const { onSave } = renderPanel();
+    const { onSave } = renderSaveButton();
     let dialog = await openSaveDialog();
     expect(within(dialog).getByRole("textbox", { name: "保存する名前" })).toHaveValue("周回 40km");
 
@@ -105,7 +114,7 @@ describe("保存", () => {
   });
 
   it("同じ名前の設定があれば、保存のボタンが上書き保存になる", async () => {
-    renderPanel([LOOP]);
+    renderSaveButton([LOOP]);
     const dialog = await openSaveDialog();
     const nameField = within(dialog).getByRole("textbox", { name: "保存する名前" });
 
@@ -120,7 +129,7 @@ describe("保存", () => {
     ["現在地のままなら、既定で呼び出した時の現在地", { originManual: false }, false, false],
     ["分からない出発地は、地図で置いても固定できない", { originManual: true, originKnown: false }, false, true],
   ])("出発地: %s", async (_, origin, fixed, fixDisabled) => {
-    const { onSave } = renderPanel([], origin);
+    const { onSave } = renderSaveButton([], origin);
     const dialog = await openSaveDialog();
 
     expect(
@@ -132,7 +141,7 @@ describe("保存", () => {
   });
 
   it("現在地のままでも出発地を固定して保存でき、保存すると選び直す前の既定へ戻る", async () => {
-    const { onSave } = renderPanel();
+    const { onSave } = renderSaveButton();
     let dialog = await openSaveDialog();
 
     await userEvent.click(within(dialog).getByRole("radio", { name: "今の出発地に固定" }));
@@ -145,10 +154,11 @@ describe("保存", () => {
 });
 
 describe("保存した設定", () => {
-  it("無いうちはまだ無いと出す", () => {
+  it("無いうちはまだ無いと出し、保存の仕方を(i)に置く", () => {
     renderPanel();
 
     expect(screen.getByText("保存した設定はまだありません。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "設定の保存の仕方を表示" })).toBeInTheDocument();
   });
 
   it("行は名前だけを出し、条件・出発地・重み・除外は呼び出しの窓で読める", async () => {
