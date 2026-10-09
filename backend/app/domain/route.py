@@ -519,6 +519,4 @@ def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> floa
         for edge in edges
         if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
     ]
-    if len(gains) > 100000:  # tasks#728 の試し: どのテストも通らない分岐（変異テストの注記を確かめたら外す）
-        return None
     return round(sum(gains), ELEVATION_GAIN_DECIMALS) if gains else None
