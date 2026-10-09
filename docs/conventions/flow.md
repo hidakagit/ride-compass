@@ -175,7 +175,9 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 `autoMode` で、担当の置かれた環境（2つのリポジトリがユーザーのもの・担当は使い捨てのランナーの無人の作業役 等）と日常の操作
 （作業ブランチへの push と Pull Request を出す・タスクの issue を読む・コメントする・閉じる・`tools/flow-gate/bin` の道具を打つ 等）を
 教える。決して打たせない操作（master への push・強制の push・GitHub の API での書き込み・ワークフローの起動等）は、
-同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。拒否の規則はコマンドの文に当てるので、流れの道具が中で打つもの
+同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。ユーザーの答えが要る変更（規模の閾値の数を変える
+`scripts/size_thresholds.json` の編集）は `permissions.ask` に置く（どのモードでも自動では通らず、開発機ではユーザーに確かめ、
+担当には確かめる人がいないので通らない。Python 等のスクリプトの中の書き込みには当たらない）。拒否の規則はコマンドの文に当てるので、流れの道具が中で打つもの
 （`hold.js` が担当のワークフローを起こす要求等）には当たらず、読むだけでも
 `-X`・`-f` 等の付いた `gh api`（`-X GET` に `-f` で欄を渡す一覧・`gh api graphql`）は断られる。読むときは欄を URL に書き
 （`gh api 'repos/<所有者>/<リポジトリ>/actions/workflows/<ファイル>/runs?created=<範囲>'`）、`gh run list`・`gh issue view --json`（`blockedBy` 等）で済むものはそれを使う。自動モードそのものも同じファイルの `permissions.defaultMode` で

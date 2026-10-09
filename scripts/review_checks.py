@@ -274,9 +274,9 @@ def cmd_size(args: argparse.Namespace) -> int:
     counts = volume_counts(tracked_files())
     decided = json.loads(read(SIZE_THRESHOLDS)) if SIZE_THRESHOLDS.exists() else {}
     limits = decided.get("instruction_limits", {})
-    # 指示の文書は種類ごとの上限だけで見て、ファイルごとの閾値を持たせない。
+    # 指示の文書は種類ごとの上限だけで見て、ファイルごとに置いた閾値は上書きする。
     exceptions = sorted(f for f in decided.get("thresholds", {}) if instruction_limit(f, limits) is not None)
-    thresholds = {f: n for f, n in decided.get("thresholds", {}).items() if f not in exceptions}
+    thresholds = dict(decided.get("thresholds", {}))
     thresholds.update({f: limit for f in counts if (limit := instruction_limit(f, limits)) is not None})
     on_fire = decided.get("on_fire", {})
     groups: dict[str, list[str]] = defaultdict(list)
@@ -316,7 +316,7 @@ def cmd_size(args: argparse.Namespace) -> int:
             reasons.append(f"閾値{th:,}超過")
         if reasons:
             fired.append(f)
-        if th and f not in exceptions and instruction_limit(f, limits) is None and th > fitted_threshold(cur):
+        if th and instruction_limit(f, limits) is None and th > fitted_threshold(cur):
             slack.append(f"{f}（{th}→{fitted_threshold(cur)}）")
         delta = f"{cur - p:+d}" if p is not None else "新規"
         rate = f"{cur / th:.0%}" if th else "-"
