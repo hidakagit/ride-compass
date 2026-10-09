@@ -45,7 +45,7 @@ paths:
   - (a) 入力を値で受けて判断を持つ計算（関数・クラス。モジュールの状態を読み書きしない）
   - (b) テストが本物の値から境界の入力を組み立てる定数（`count = ID_CHUNK_SIZE + 1` 等）
   - (c) テストが差し替えるプロセス境界の置き場（ディスクのパス・OSのファイル。`infrastructure/road_network_store.py: ROOT`・
-    `infrastructure/container_memory.py: CGROUP_MEMORY_MAX`等）。置き場を引数や設定から受ける形にしない。
+    `infrastructure/container_memory.py: CGROUP_MEMORY_MAX`等）。本番がいつも同じ置き場を渡すだけなら、置き場を引数や設定から受ける形にしない（テストのための口になる）。
     3つ以上のテストが同じ置き場を差し替えるなら、差し替えは共有の fixture（`backend/tests/conftest.py: road_network_root`等）が持つ
 - **可変の状態（キャッシュ・接続・スケジューラ・時刻や世代の記録・集計）は、テストのために公開しない。**
   テストが空にしたい・差し替えたい状態は、上から順に直す。

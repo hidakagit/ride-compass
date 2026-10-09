@@ -134,8 +134,7 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
      ```
   3. 取り込んで派生を作る: `python scripts/bootstrap_database.py --from ingest`（外部ソースのファイルは先に
      手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）。このコンテナには
-     `-v /home/ubuntu/ridecompass-raster:/app/raster:ro`も足す（ラスタはDBと別にVMに置き、`deploy-backend.yml`が取得して置く。
-     VMごと失ったときは、先に`deploy-backend.yml`を`workflow_dispatch`で打ってラスタを置く）
+     `-v /home/ubuntu/ridecompass-raster:/app/raster:ro`も足す（ラスタはDBと別にVMに置き、`deploy-backend.yml`が取得してbackendへ同じ形で載せる）
   4. backendのコンテナを起動し直し（`sudo docker restart ridecompass-backend`、コンテナが無ければ
      `deploy-backend.yml`を`workflow_dispatch`で打つ）、戻ったことを確かめる:
      ```
