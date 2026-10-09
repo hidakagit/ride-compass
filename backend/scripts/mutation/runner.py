@@ -66,12 +66,12 @@ def stopping():
 DATA_LIMIT = 3584 * 1024 * 1024
 
 
-def run_child(cmd, env, limit, err_path):
+def run_child(cmd, env, limit, err_path, cwd=None):
     """子を起こして終わりを待つ。返すのは（終わりの値か時間切れの None・標準エラーの末尾・最大のメモリ MB か None）。"""
     with open(err_path, "w+b") as err_file:
         if os.name == "nt":
             try:
-                p = subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=err_file, timeout=limit)
+                p = subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=err_file, timeout=limit, cwd=cwd)
                 code = p.returncode
             except subprocess.TimeoutExpired:
                 code = None
@@ -80,7 +80,8 @@ def run_child(cmd, env, limit, err_path):
             import resource
             import signal
 
-            proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=err_file, start_new_session=True)
+            proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=err_file, start_new_session=True,
+                                    cwd=cwd)
             resource.prlimit(proc.pid, resource.RLIMIT_DATA, (DATA_LIMIT, DATA_LIMIT))
             deadline = time.time() + limit
             while True:
@@ -114,7 +115,13 @@ def work(slot):
             name = q.get_nowait()
         except queue.Empty:
             return
-        tests = sorted(tbf.get(name.partition("__mutmut_")[0], []))
+        base_kind, _, base_func = name.partition(":")
+        if base_func:
+            # 基準: 変異を入れずに、その関数の変異と同じテストの組み合わせを同じ並びで回す（BASE1・BASE2 は差し込んだ版を2回、
+            # ORIG は元の版）。基準で落ちるテストは、変異の回で落ちても見つけたとは言えない。
+            tests = sorted(tbf.get(base_func, []))
+        else:
+            tests = sorted(tbf.get(name.partition("__mutmut_")[0], []))
         if name in RECHECK:
             tests = FULL_SELECTION
             extra = XDIST
@@ -125,7 +132,8 @@ def work(slot):
         if not tests:
             rec = {"mutant": name, "status": "no tests", "seconds": 0}
         else:
-            env["MUTANT_UNDER_TEST"] = name
+            env["MUTANT_UNDER_TEST"] = "" if base_func else name
+            env["MUTKILL_NAME"] = name
             t0 = time.time()
             # テストの名前を引数に並べると命令行の長さの上限を超えうるので、ファイルで渡す（pytest の @ファイル）。
             args_file = os.path.join(args_dir, f"w{slot}.txt")
@@ -136,7 +144,8 @@ def work(slot):
             code, err, maxrss = run_child(
                 [sys.executable, "-m", "pytest", "-q", "--rootdir=.", "--tb=no", "-p", "no:cacheprovider",
                  "-p", "no:randomly", "-p", "mutkill", "-o", "timeout=60", *extra, f"@{args_file}"],
-                env, limit, os.path.join(args_dir, f"w{slot}.err"))
+                env, limit, os.path.join(args_dir, f"w{slot}.err"),
+                cwd=".." if base_kind == "ORIG" and base_func else None)  # 元の版は差し込んだ版の1つ上（backend）
             if code is None:
                 status = "timeout"
             else:

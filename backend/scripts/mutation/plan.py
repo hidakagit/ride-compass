@@ -38,6 +38,20 @@ random.Random(661).shuffle(pool)
 # 記録のテスト（その関数を通るテスト）で回す——テストを消したあと、消したテストが見つけていた変異を残る側が
 # 落とすかを確かめる。両方あれば recheck.txt を使う。
 HERE = os.path.dirname(os.path.abspath(__file__))
+# baseline.txt があれば、変異を入れない基準を回す（runner.py の説明）。行は関数の名前（mutmut の mangled name）か、
+# 全部の関数なら「*」。「+orig」の行があれば、元の版（差し込んでいない版）の基準も回す。
+BASELINE = os.path.join(HERE, "baseline.txt")
+if os.path.exists(BASELINE):
+    lines = [line.strip() for line in open(BASELINE, encoding="utf-8") if line.strip()]
+    funcs = sorted({r[1].partition("__mutmut_")[0] for r in rows if r[2] > 0})
+    if "*" not in lines:
+        funcs = [f for f in funcs if f in lines]
+    kinds = ["BASE1", "BASE2"] + (["ORIG"] if "+orig" in lines else [])
+    pool = [f"{k}:{f}" for f in funcs for k in kinds]
+    random.Random(661).shuffle(pool)
+    open(os.path.join(OUT, "all.txt"), "w", encoding="utf-8").write("\n".join(pool) + "\n")
+    print("baseline.txt の基準を回す", len(funcs), "関数", len(pool), "件")
+    raise SystemExit(0)
 for listed in ("recheck.txt", "only.txt"):
     if os.path.exists(os.path.join(HERE, listed)):
         pool = [line.strip() for line in open(os.path.join(HERE, listed), encoding="utf-8") if line.strip()]
