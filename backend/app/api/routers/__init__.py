@@ -27,6 +27,7 @@ from app.api.routers import (
     db_status,
     debug_admin,
     derived_data_freshness,
+    error_reports,
     gsi_tile,
     health,
     jma_tile,
@@ -54,3 +55,4 @@ api_router.include_router(material_catalog.router)
 api_router.include_router(debug_admin.router)
 api_router.include_router(derived_data_freshness.router)
 api_router.include_router(db_status.router)
+api_router.include_router(error_reports.router)

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.batch.common import asyncpg_dsn
 from app.infrastructure import (
     debug_log,
+    error_reports,
     jma_area_boundaries,
     rate_limiter,
     redis_client,
@@ -236,6 +237,17 @@ def _use_temp_disk_cache_dirs(tmp_path, monkeypatch, _keep_disk_caches_out_of_th
     """
     with _disk_caches_in(monkeypatch, lambda name: tmp_path / name):
         yield
+
+
+@pytest.fixture(autouse=True)
+def error_reports_path(monkeypatch, tmp_path) -> Path:
+    """エラーの記録の置き場（`error_reports.REPORTS_PATH`）を、テストごとの一時ディレクトリの下へ移したパス。
+
+    ERRORのログはどのテストからも出うるうえ、出るたびに記録が書かれるので、どのテストでも共有の`backend/data/`へ届かないようにする。
+    """
+    path = tmp_path / "error_reports.jsonl"
+    monkeypatch.setattr(error_reports, "REPORTS_PATH", path)
+    return path
 
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Button } from "@/components/ui/Button/Button";
+import { errorName, reportError } from "@/lib/errorReport";
 
 // Reactのレンダリング時例外はError Boundaryが無いとアプリ全体が白画面になる
 // （WeatherPanel/MapView等のnull未ガード箇所を踏んだ場合の最終防衛線）。App Routerの
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/Button/Button";
 export default function Error({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   useEffect(() => {
     console.error(error);
+    reportError("render", errorName(error));
   }, [error]);
 
   return (

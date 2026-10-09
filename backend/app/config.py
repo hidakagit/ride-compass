@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     place_search_rate_limit_per_minute: int = math.ceil(60 / PLACE_PREDICTION_DELAY_SECONDS)
     # 置いた位置の辺りは、地点を置く（地図をタップする・現在地を取る）たびに1回呼ばれる。1件は境界を索引で1つ引くだけ。
     place_area_rate_limit_per_minute: int = 60
+    # 画面は同じ報告を1回の表示で1度しか送らず、件数にも上限を置く。これは画面を通らずに送り続けるものを止める値。
+    client_error_rate_limit_per_minute: int = 30
     # ルート生成は最も高コストなエンドポイント（1件で数秒〜数十秒CPUを使い、探索範囲に比例して
     # メモリを使う）のため、per-IPレート制限に加えプロセス全体の同時実行数も絞る。
     # 1回の生成が扱える探索範囲の上限（`graph_service`）は、メモリ上限をこの件数で割って決まる。

@@ -1,0 +1,36 @@
+# 本番を決まった間隔で外から読み、おかしければ失敗させる。失敗はGitHub Actionsの失敗の知らせに乗る
+# （定期の実行の知らせは、このファイルのcronの行を最後に変えた人に届く。GitHubの公式の文書「Events that trigger workflows」の`schedule`）。
+#
+# `schedule`はGitHubの混み具合で遅れ、落とされることもある。読む幅を「前の回の始まりから」にして、遅れても落とされても
+# 次の回が隙間なく読む。
+name: Production Watch
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  errors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # 本番のbackend（docs/architecture/tech-stack.md「本番の宛先」）。
+      BACKEND_URL: https://193-123-166-150.sslip.io
+    steps:
+      - uses: actions/checkout@v5
+      - name: 前の回の始まりを読む
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 前の回が無ければ空のまま進む（スクリプトが既定の幅で読む）。
+          since=$(gh run list -R "$GITHUB_REPOSITORY" --workflow production-watch.yml --limit 5 --json databaseId,createdAt \
+            --jq "[.[] | select(.databaseId != ${{ github.run_id }})][0].createdAt // empty")
+          echo "since=$since" >> "$GITHUB_OUTPUT"
+      - name: 本番で記録されたエラーを読む
+        run: python3 scripts/production_errors.py "$BACKEND_URL" ${{ steps.previous.outputs.since }}

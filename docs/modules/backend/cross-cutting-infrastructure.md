@@ -24,6 +24,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | api | `rate_limit.py` | per-IPレート制限（`enforce_rate_limit`集約・`client_id`） |
 | api/routers | `health.py` | `/health`・`/api/debug/stats` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
+| api/routers | `error_reports.py` | 画面からのエラーの報告を受ける口と、記録したエラーを読む口（下の「本番のエラーの記録」） |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
 | infrastructure | `redis_json_cache.py` | Redisへ持つcache-asideの共通骨格（JSON・生のバイト列・Hash） |
@@ -35,6 +36,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `media_types.py` | 自前で作って配るタイルのメディアタイプ（MVT・PNG）。作る側・配る側・gzipの対象の判定が同じ値を読む |
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する（ヒット率・平均の計算元の回数・合計時間は応答に載せない） |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
+| infrastructure | `error_reports.py` | 本番で起きたエラー（ERRORのログと画面からの報告）の記録。ディスクの1ファイルに持ち、デプロイの入れ替えをまたいで残す（下の「本番のエラーの記録」） |
 | infrastructure | `admin_data_backup.py` | 管理データのバックアップが最後に置けてからの時間（`/health`が返す）。下の「取り直せない管理データのバックアップ」 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
 | infrastructure | `single_process.py` | 起動時にワーカー数を読み、複数なら起動を止める（プロセス内に持つ状態の前提を落ちる形にする） |
@@ -42,6 +44,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）と、プロセス内の値への反映（起動時の読み込みと、書いた直後） |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く。名前に添える対象（どの路面の見込み・停止要因の種別の値か）は、値を使う側の宣言（`domain/road.py`・`domain/traffic.py`）から引く |
 | scripts | `admin_data_dump_args.py` | 取り直せない管理データの表を書き出す`pg_dump`の引数（DB名と表）。表は印（`orm_base.IRREPLACEABLE`）から導く |
+| scripts（リポジトリの根） | `production_errors.py` | 本番の記録したエラーを読み、1件でもあれば失敗する（定期の見張り`production-watch.yml`が呼ぶ） |
 | ops | `admin_data_backup.sh` | 本番VMのホストで、上の引数で`pg_dump`し、Object Storageの非公開バケットへ置き、置けた時刻を書く |
 | ops | `ridecompass-admin-data-backup.service`・`ridecompass-admin-data-backup.timer` | それを毎日打つsystemdのユニット（VMへの登録は手で1回） |
 | scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す。宣言どおりの表を同じ接続の一時スキーマへ作ってから巻き戻すまでの間に、`public`とカタログを突き合わせる——制約・既定値・索引の式をPostgreSQLが正規化した形で比べるので、CHECKの式・主キー・一意も比べられる。名前は比べない。取込が作る子パーティション（生データの区画）は、列のNULL許容だけをアダプタの宣言（`batch/ingest.py: partition_required_columns`）と比べ、カタログの値だけを読む（取込が入れ直している最中でも、そのロックを待たずに測れる）。本番DBへは、backendのデプロイがコンテナを入れ替えたあとに毎回当てる（差があればデプロイが失敗で終わる。docs/architecture/tech-stack.md「デプロイの反映確認」）ほか、手で`run_probe.py`から当てる |
@@ -267,8 +270,9 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 |---|---|---|
 | `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at`・`admin_data_backup_age_hours`（管理データのバックアップが最後に置けてからの時間。記録が無いか印のファイルが読めなければnull（読めない理由はWARNINGのログ）。下の「取り直せない管理データのバックアップ」） |
 | `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数）と、予報（MSM）の同期の鮮度 |
+| `GET /api/debug/errors?since=<時刻>` | 不要（粗いラベルのみ、秘匿情報なし） | `since`以後に記録したエラーの件数と直近の数件（下の「本番のエラーの記録」） |
 
-どちらも集計値だけで機微情報を含まないため無認証。本番DBがコードの期待に追いついているか
+どれも集計値か粗いラベルだけで機微情報を含まないため無認証。本番DBがコードの期待に追いついているか
 （取込runの成否・テーブルの実数・統計とVACUUM）は、管理APIの`GET /api/admin/db-status`
 （[静的道路属性・タイル配信](static-road-attributes.md)「本番DBの状態」節）が返す。
 
@@ -289,6 +293,24 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 常時ログ出力には影響しない。`_LogRingBufferHandler`は各行を`(levelno, 整形済み文字列)`
 のタプルで保持し、`min_level`フィルタは整形済み文字列を`[LEVELNAME]`のような
 部分文字列でパースせずこの数値で判定する。
+
+## 本番のエラーの記録（`error_reports.py`）
+
+本番で起きたエラーを1件1行で記録し、定期の見張り（`.github/workflows/production-watch.yml`）が`GET /api/debug/errors`で
+前の回からの分を読んで、1件でもあれば失敗させる（GitHub Actionsの失敗の知らせに乗る）。
+
+| 出どころ | 記録するもの |
+|---|---|
+| backend | ルートロガーに足したハンドラ（`install_error_log_handler`、`main.py`起動時に1回）が、ERROR以上のログ1行を1件にする。種類はロガーの名前、名前は例外の型 |
+| 画面 | `POST /api/client-errors`に届いた報告。本文は`text/plain`のJSON（画面の`navigator.sendBeacon`がCORSの事前の問い合わせを起こさない形で送り、CORSの設定が食い違っていても届く）。種類は決まった語、名前とパスは決まった文字と長さだけを受け、ほかは記録せず422 |
+
+- 1件が持つのは時刻・出どころ・種類・名前・画面のパス・リクエストIDだけ。例外の文・スタック・座標・本文・ヘッダー・接続元は
+  持たない（読む口が無認証のため）。文とスタックはログにだけ残り、リクエストIDで引ける。
+- 置き場は`data/`の下のファイルで、本番ではホストのディレクトリ（`deploy-backend.yml`の`-v`）なのでデプロイの入れ替えで消えない。
+  プロセスの中だけに持つと、次の見張りの回より前のデプロイで消える。DBに置かないのは、表を足すと本番のスキーマを人が埋める
+  作業が要るため。ファイルが`TRIM_BYTES`を超えたら新しい`KEEP_REPORTS`件へ切り詰める。
+- 書けなくても投げない（記録はエラーの起きた処理の付け足し）。書けない理由はWARNINGで出す——ERRORで出すと記録のハンドラへ戻る。
+- 拾わないもの: WARNINGで扱う準異常（外部APIの失敗・429）と、例外を出さずに値が欠けるだけの誤り。
 
 ## Redisのcache-aside（`redis_json_cache.py`）
 

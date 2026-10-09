@@ -644,6 +644,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/client-errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["receive_client_error_api_client_errors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read_error_reports_api_debug_errors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1130,6 +1162,34 @@ export interface components {
             dropped_on_map: number[];
             /** Bands On Map */
             bands_on_map: number[];
+        };
+        /** ErrorReport */
+        ErrorReport: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "backend" | "frontend";
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Page */
+            page: string | null;
+            /** Request Id */
+            request_id: string | null;
+        };
+        /** ErrorReportsResponse */
+        ErrorReportsResponse: {
+            /** Count */
+            count: number;
+            /** Recent */
+            recent: components["schemas"]["ErrorReport"][];
         };
         /** ExternalCallStats */
         ExternalCallStats: {
@@ -3279,6 +3339,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DbStatusReport"];
+                };
+            };
+        };
+    };
+    receive_client_error_api_client_errors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "text/plain": {
+                    /**
+                     * Kind
+                     * @enum {string}
+                     */
+                    kind: "exception" | "rejection" | "render" | "network" | "timeout";
+                    /** Name */
+                    name: string;
+                    /** Page */
+                    page: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_error_reports_api_debug_errors_get: {
+        parameters: {
+            query: {
+                since: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorReportsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

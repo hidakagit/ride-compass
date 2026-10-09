@@ -20,6 +20,7 @@ from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
+from app.infrastructure.error_reports import install_error_log_handler
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure import road_network_store
 from app.infrastructure.region_tile_cache import PRUNE_INTERVAL_HOURS
@@ -42,6 +43,7 @@ for _handler in logging.getLogger().handlers:
     format_log_lines(_handler)
 
 install_ring_buffer_handler()
+install_error_log_handler()
 
 # httpxは1リクエストごとに"HTTP Request: ..."をINFOで出す。外部呼び出しの記録は
 # log_external_call(debug_log.py)が担うため、タイルプロキシ等でログを埋めるだけのこれは抑える。

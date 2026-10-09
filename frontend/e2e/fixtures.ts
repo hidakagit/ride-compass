@@ -205,6 +205,9 @@ export async function installApiMocks(page: Page): Promise<void> {
 
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: defaultAxisCatalogFixture() }));
 
+  // 画面のエラーの報告（`lib/errorReport.ts`）。受け取るだけで中身を返さない口。
+  await page.route(`${API_BASE}/api/client-errors`, (route) => route.fulfill({ status: 204 }));
+
   // 地点の詳しくが、置いた位置の辺りを引く。辺り無し（境界の外）で答える。
   await page.route(`${API_BASE}/api/place-area*`, (route) => route.fulfill({ json: { area: null } }));
 

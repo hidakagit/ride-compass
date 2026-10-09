@@ -2,11 +2,12 @@ import createClient, { type Middleware } from "openapi-fetch";
 
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
+import { reportNetworkFailure } from "@/lib/errorReport";
 import { formatErrorDetail } from "@/lib/apiError";
 import type { paths } from "@/types/generated/api";
 
 // backendのAPIを呼ぶ口と、全呼び出しが共有する骨格（開始・通信の失敗・HTTPの失敗・解析の失敗・成功をdebugLogへ残し、
-// 失敗を日本語の文言の`Error`で投げる）。パス・問い合わせ・本文・応答の型はopenapi-fetchがOpenAPIの生成物から推論する。
+// 通信の失敗をbackendへ報告し、失敗を日本語の文言の`Error`で投げる）。パス・問い合わせ・本文・応答の型はopenapi-fetchがOpenAPIの生成物から推論する。
 
 /** 呼ぶたびに`globalThis.fetch`を引く（作った時点の関数を握ると、このモジュールを読み込んだ後に`fetch`を差し替える網（テストのmsw）が届かない）。 */
 const fetchNow = (request: Request) => fetch(request);
@@ -110,6 +111,7 @@ export async function requestApi<R extends ApiResult>(
         },
         "error",
       );
+      reportNetworkFailure(isTimeout ? "timeout" : "network", category);
       return new Error(`${messages.failure}[${isTimeout ? "タイムアウト" : "通信エラー"}]`, { cause: error });
     },
   };

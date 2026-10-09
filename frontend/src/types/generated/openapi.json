@@ -2002,6 +2002,95 @@
           }
         ]
       }
+    },
+    "/api/client-errors": {
+      "post": {
+        "operationId": "receive_client_error_api_client_errors_post",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "exception",
+                      "rejection",
+                      "render",
+                      "network",
+                      "timeout"
+                    ],
+                    "title": "Kind"
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:\\-]{1,80}$",
+                    "title": "Name"
+                  },
+                  "page": {
+                    "type": "string",
+                    "pattern": "^/[A-Za-z0-9_.\\-/]{0,199}$",
+                    "title": "Page"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "kind",
+                  "name",
+                  "page"
+                ],
+                "title": "ClientErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/debug/errors": {
+      "get": {
+        "operationId": "read_error_reports_api_debug_errors_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorReportsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3402,6 +3491,86 @@
           "bands_on_map"
         ],
         "title": "DisplayThresholdsPreviewResponse"
+      },
+      "ErrorReport": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "backend",
+              "frontend"
+            ],
+            "title": "Source"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "at",
+          "source",
+          "kind",
+          "name",
+          "page",
+          "request_id"
+        ],
+        "title": "ErrorReport"
+      },
+      "ErrorReportsResponse": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorReport"
+            },
+            "type": "array",
+            "title": "Recent"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "count",
+          "recent"
+        ],
+        "title": "ErrorReportsResponse"
       },
       "ExternalCallStats": {
         "properties": {
