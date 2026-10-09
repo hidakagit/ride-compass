@@ -12,6 +12,10 @@
 前の段の指紋も入力に入れるので、流した段を読む後ろの段は必ず流れる。全部の段が同じなら、写しも道路網の配列も
 入れ替えもせずに終える。段は単独の入口を持たない。
 
+**区間の値がその区間の形と前の段の外の入力だけで決まる段（`DeriveStage.per_edge`）は、区間ごとに前回の値を写す。**
+前の段が区間を作り直して段が流れても、前の段を除いた入力の指紋が前回と同じなら、段へ前回の表のスキーマ（`public`。
+入れ替えまで前回の表が残っている）を渡し、形の同じ区間は前回の値を写させて、残りの区間だけを計算させる。
+
 段が何を読むかは`STAGES`の宣言が持ち、宣言の漏れは段が読んだ表の数で見張る（`tests/test_derive_skip.py: test_each_stage_declares_what_it_reads_and_writes`）。
 前の段（`after`）には、読む表を書く段と、自分が書く表の行を入れる・消す段を挙げる。同じ表の別の列だけを書く段は
 挙げない——その段が流れても、自分の列は前回の値のまま正しい（例: `landcover`は`counts`を挙げない）。
@@ -87,9 +91,20 @@ class DeriveStage:
     tables: tuple[str, ...]
     #: `derive`の引数の名前 → 渡す較正値のid。
     tuning: Mapping[str, str] = field(default_factory=dict)
+    #: 区間の値が、その区間の形と前の段の外の入力だけで決まり、ほかの区間を読まない。`derive`は引数`previous`に
+    #: 前回の表のスキーマ（写せないならNone）を受け、形の同じ区間へ前回の値を写す。
+    per_edge: bool = False
 
-    async def run(self, conn: asyncpg.Connection, tuning: Mapping[str, float]) -> None:
-        await self.module.derive(conn, **{argument: tuning[param] for argument, param in self.tuning.items()})
+    async def run(self, conn: asyncpg.Connection, tuning: Mapping[str, float], previous: str | None) -> None:
+        arguments: dict[str, object] = {argument: tuning[param] for argument, param in self.tuning.items()}
+        if self.per_edge:
+            arguments["previous"] = previous
+        await self.module.derive(conn, **arguments)
+
+
+def _outside_key(stage: DeriveStage) -> str:
+    """区間ごとに写す段の、前の段を除いた入力の指紋を記録する名前。"""
+    return f"{stage.name}/outside"
 
 
 #: 区間を切る段が行を作り直す表（区間・ノード・道・区間の値）。
@@ -102,12 +117,14 @@ STAGES: tuple[DeriveStage, ...] = (
     DeriveStage("counts", derive_counts, frozenset({Source.OSM_NODE, Source.OSM_WAY, Source.ACCIDENT}),
                 ("topology", "nodes"), ("edge_materials", "way_materials")),
     DeriveStage("elevation", derive_elevation, frozenset({Source.OSM_WAY, Source.DEM}), ("topology",), ("edge_materials",)),
-    DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_materials", "way_materials")),
+    DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_materials", "way_materials"),
+                per_edge=True),
     DeriveStage("ways", derive_way_materials, frozenset({Source.OSM_WAY}), ("topology",), ("way_materials",)),
     # 住所の区画は、施設の辺り（立ち寄り先の段）を区画から決められるよう、その前に置く。道路（`osm_way`）は
     # パーティションを読まず、取込の記録から範囲だけを読む（読んだ数の見張りに出ないので、手で挙げる）。
-    DeriveStage("addresses", derive_addresses, frozenset({Source.ABR, Source.ESTAT_SMALL_AREA, Source.OSM_WAY}), (),
-                ("address_areas", "address_search_keys", "address_boundary_links")),
+    DeriveStage("addresses", derive_addresses,
+                frozenset({Source.ABR, Source.ESTAT_SMALL_AREA, Source.ISJ_BLOCK, Source.OSM_WAY}), (),
+                ("address_areas", "address_search_keys", "address_boundary_links", "address_blocks")),
     DeriveStage("stop_places", derive_stop_places,
                 frozenset({Source.OVERTURE_PLACE, Source.BUNKA_HERITAGE, Source.ESTAT_SMALL_AREA}), ("addresses",),
                 ("stop_places",)),
@@ -116,8 +133,8 @@ STAGES: tuple[DeriveStage, ...] = (
 
 def stage_fingerprints(runs: Mapping[str, int], tuning: Mapping[str, float],
                        columns: Mapping[str, frozenset[str]], database: str) -> dict[str, str]:
-    """段ごとの入力の指紋（段の名前 → 指紋）。`runs`は全ソースの成功した最新の取込、`columns`は派生の表の宣言の列、
-    `database`はDBの版（PostgreSQLとPostGIS）。"""
+    """段ごとの入力の指紋（段の名前 → 指紋）。区間ごとに写す段は、前の段を除いた入力の指紋も`_outside_key`の名前で持つ。
+    `runs`は全ソースの成功した最新の取込、`columns`は派生の表の宣言の列、`database`はDBの版（PostgreSQLとPostGIS）。"""
     runtime = {"python": sys.version, "libraries": library_versions(), "database": database}
     fingerprints: dict[str, str] = {}
     for stage in STAGES:
@@ -129,8 +146,14 @@ def stage_fingerprints(runs: Mapping[str, int], tuning: Mapping[str, float],
             "code": code_fingerprint(stage.module.__name__),
             "runtime": runtime,
         }
-        fingerprints[stage.name] = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+        if stage.per_edge:
+            fingerprints[_outside_key(stage)] = _digest({key: value for key, value in inputs.items() if key != "after"})
+        fingerprints[stage.name] = _digest(inputs)
     return fingerprints
+
+
+def _digest(inputs: Mapping[str, object]) -> str:
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
 
 
 #: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、作り直しは排他の鍵
@@ -273,7 +296,8 @@ async def run(database_url: str) -> int:
                 continue
             stage_started = time.perf_counter()
             logger.info("段 %s を開始（%d/%d）", stage.name, changed.index(stage) + 1, len(changed))
-            await stage.run(conn, tuning)
+            reusable = stage.per_edge and recorded.get(_outside_key(stage)) == fingerprints[_outside_key(stage)]
+            await stage.run(conn, tuning, "public" if reusable else None)
             logger.info("段 %s 完了 / %s", stage.name,
                         format_duration(time.perf_counter() - stage_started))
         revision = (await conn.fetchval("SELECT revision FROM derived_data_meta") or 0) + 1

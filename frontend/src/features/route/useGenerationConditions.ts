@@ -139,6 +139,12 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     setArmedPinRole(role);
     setReplacingWaypoint(waypointIndex);
   }, []);
+  // 経由地と目的地を一度に消す。消したあとは目的地モードに入ったときと同じく、次のタップで目的地を置ける状態にする。
+  const clearPoints = useCallback(() => {
+    setWaypoints([]);
+    setDestination(null);
+    armPinRole("destination");
+  }, [armPinRole]);
 
   // 距離の入力（文字列のまま）。表示中の候補を作った条件と比べて「生成条件が変更されています」を出すため、入力の形で持つ。
   const [distanceInput, setDistanceInput] = useStoredState(DISTANCE_STORAGE_KEY, "30", {
@@ -249,6 +255,7 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     destination,
     setDestination,
     clearDestination,
+    clearPoints,
     armedPinRole,
     waypointToReplace,
     armPinRole,

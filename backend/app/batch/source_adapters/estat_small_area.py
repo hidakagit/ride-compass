@@ -98,10 +98,15 @@ def _boundary_paths(rows: EstatSmallAreaRows, prefectures: list[str]) -> list[Pa
     return paths
 
 
+def range_inputs(profile: SourceProfile) -> AdapterInputs:
+    """範囲に掛かる都道府県を決めるのに読む入力（ABR の市区町村の代表点と、その取った日を宣言する ABR のソース）。"""
+    return AdapterInputs(files=(_city_positions_path(profile),), sources=tuple(abr.name for abr in _abr_sources(profile)))
+
+
 def estat_small_area_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
-    return AdapterInputs(
-        files=(_city_positions_path(profile), *_boundary_paths(spec.rows, range_prefectures(profile))),
-        sources=tuple(abr.name for abr in _abr_sources(profile)))
+    in_range = range_inputs(profile)
+    return AdapterInputs(files=(*in_range.files, *_boundary_paths(spec.rows, range_prefectures(profile))),
+                         sources=in_range.sources)
 
 
 def _to_wgs84(geometry: BaseGeometry, transformer: pyproj.Transformer) -> BaseGeometry:

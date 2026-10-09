@@ -20,6 +20,7 @@ import {
   Layers,
   ListChecks,
   MapPin,
+  MapPinX,
   Moon,
   Play,
   RotateCw,
@@ -543,3 +544,5 @@ export const HelpIcon = fromLucide(CircleQuestionMark);
 export const VersionIcon = fromLucide(GitCommitHorizontal);
 /** 地図で選んでいる区間の地点。 */
 export const SelectedSpotIcon = fromLucide(MapPin);
+/** 置いた経由地と目的地を一度に消す。ClearAllLayersIconと同じく、消す対象の形（地点のピン）にバツを添える。 */
+export const ClearPointsIcon = fromLucide(MapPinX);

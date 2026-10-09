@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
+import { ClearPointsIcon } from "@/components/ui/icons/icons";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import { cn } from "@/lib/cn";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -21,6 +22,7 @@ type RoutePointsConditions = Pick<
   | "removeWaypoint"
   | "destination"
   | "clearDestination"
+  | "clearPoints"
   | "armedPinRole"
   | "waypointToReplace"
   | "armPinRole"
@@ -75,6 +77,7 @@ export default function RoutePoints({
     removeWaypoint,
     destination,
     clearDestination,
+    clearPoints,
     armedPinRole,
     waypointToReplace,
     armPinRole,
@@ -146,7 +149,7 @@ export default function RoutePoints({
           {...common}
           role="origin"
           title="出発地"
-          source={originManual ? sourceOf(originFound) : "現在地"}
+          source={originManual ? sourceOf(originFound) : undefined}
           name={originName}
           found={originFound}
           at={originLocated ? origin : null}
@@ -298,44 +301,60 @@ export default function RoutePoints({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div ref={stripRef} role="group" aria-label="地点の並び" className="flex min-w-0 items-center gap-1">
-        {endChip("origin", "出発地", originName)}
-        {arrow}
-        {/* 番号の丸は押す所（24px四方）を隙間なく並べ、両端の名前に幅を残す。 */}
-        <span className="flex flex-none items-center">
-          {waypoints.map((point, index) => (
+      <div className="flex min-w-0 items-center gap-1">
+        <div ref={stripRef} role="group" aria-label="地点の並び" className="flex min-w-0 flex-1 items-center gap-1">
+          {endChip("origin", "出発地", originName)}
+          {arrow}
+          {/* 番号の丸は押す所（24px四方）を隙間なく並べ、両端の名前に幅を残す。 */}
+          <span className="flex flex-none items-center">
+            {waypoints.map((point, index) => (
+              <Button
+                key={index}
+                variant="ghost"
+                size="bare"
+                shape="pill"
+                className={cn(chipClass, "border-transparent p-px")}
+                aria-pressed={isShown({ role: "waypoint", index })}
+                aria-label={`経由地${index + 1}: ${foundAt(point)?.name ?? "地図で選んだ地点"}`}
+                onClick={() => select({ role: "waypoint", index })}
+              >
+                <PointMark role="waypoint" label={String(index + 1)} originLocated={originLocated} />
+              </Button>
+            ))}
             <Button
-              key={index}
               variant="ghost"
               size="bare"
               shape="pill"
-              className={cn(chipClass, "border-transparent p-px")}
-              aria-pressed={isShown({ role: "waypoint", index })}
-              aria-label={`経由地${index + 1}: ${foundAt(point)?.name ?? "地図で選んだ地点"}`}
-              onClick={() => select({ role: "waypoint", index })}
+              className={cn(
+                chipClass,
+                "ml-0.5 border-dashed px-1.5 py-0.5 text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]",
+              )}
+              aria-pressed={isShown({ role: "waypoint", index: null })}
+              aria-label={waypointCount >= MAX_WAYPOINTS ? "経由地は上限まで置いてあります" : "経由地を足す"}
+              disabled={waypointCount >= MAX_WAYPOINTS}
+              onClick={() => select({ role: "waypoint", index: null })}
+              usage="経由地を足します。地図をタップするか、住所・施設で探して置きます。"
             >
-              <PointMark role="waypoint" label={String(index + 1)} originLocated={originLocated} />
+              ＋
             </Button>
-          ))}
-          <Button
-            variant="ghost"
-            size="bare"
-            shape="pill"
-            className={cn(
-              chipClass,
-              "ml-0.5 border-dashed px-1.5 py-0.5 text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]",
-            )}
-            aria-pressed={isShown({ role: "waypoint", index: null })}
-            aria-label={waypointCount >= MAX_WAYPOINTS ? "経由地は上限まで置いてあります" : "経由地を足す"}
-            disabled={waypointCount >= MAX_WAYPOINTS}
-            onClick={() => select({ role: "waypoint", index: null })}
-            usage="経由地を足します。地図をタップするか、住所・施設で探して置きます。"
-          >
-            ＋
-          </Button>
-        </span>
-        {arrow}
-        {endChip("destination", "目的地", destinationName)}
+          </span>
+          {arrow}
+          {endChip("destination", "目的地", destinationName)}
+        </div>
+        {/* 消すものが無い間も押せない状態で残す（置き場が動くと、並びの名前の出し分けが揺れる）。 */}
+        <Button
+          size="panelIcon"
+          className="flex-none"
+          aria-label="経由地と目的地を全部消す"
+          disabled={waypointCount === 0 && destination === null}
+          onClick={() => {
+            clearPoints();
+            setChosen(null);
+          }}
+          usage="置いた経由地と目的地を全部消します。出発地はそのままです。"
+        >
+          <ClearPointsIcon size={18} />
+        </Button>
       </div>
       {renderDetail()}
     </div>

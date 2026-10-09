@@ -1,5 +1,6 @@
 """派生の作り直し（`batch/derive_cli.py`）が、入力（読むソースの取込・前の段・較正値・書く表の列・段のコード）が前回と
-同じ段を流さないことと、段の宣言（`STAGES`）が段の読むもの・書くものを漏らしていないこと。
+同じ段を流さないことと、区間ごとに写す段が前の段の外の入力が前回と同じとき形の同じ区間を数えないことと、段の宣言（`STAGES`）が
+段の読むもの・書くものを漏らしていないこと。
 
 流した段は段の関数が呼ばれたかで見る。飛ばした段のある作り直しの表の値は、同じ入力で全部の段を流した作り直しと比べる。
 どの生データにも行があり、どの段も値を書く小さな世界（道2本・信号・事故・標高と土地被覆のタイル・住所・小地域の境界・
@@ -30,12 +31,14 @@ from app.infrastructure.derived_data_freshness import declared_columns, derived_
 from app.infrastructure.source_models import PARTY_TYPE_CODES, Source
 from tests.conftest import empty_ingested_tables, postgis_database_url, raw_connection
 from tests.source_ingest import (
+    abr_block_record,
     abr_city_record,
     abr_prefecture_record,
     abr_town_record,
     dem_tile_records,
     estat_small_area_record,
     ingest_records,
+    isj_block_record,
     point_record,
     tile_record,
     way_record,
@@ -62,9 +65,13 @@ def _point(node_id: int) -> tuple[float, float]:
     return zigzag_point(node_id, (BASE_LON, BASE_LAT), STEP)
 
 
-async def _ingest_ways(conn: asyncpg.Connection) -> None:
+#: 道100の途中のノードを置き換え、道300を足した道。前回と同じ形で残る区間は道200の1本だけ。
+RESHAPED_WAYS = ((100, [1, 5, 3]), (200, [3, 4]), (300, [4, 6]))
+
+
+async def _ingest_ways(conn: asyncpg.Connection, ways=WAYS) -> None:
     await ingest_records("osm_way", [way_record(way_id, [_point(n) for n in nodes], nodes, {"highway": "residential"})
-                                     for way_id, nodes in WAYS], conn=conn)
+                                     for way_id, nodes in ways], conn=conn)
 
 
 async def _ingest_nodes(conn: asyncpg.Connection) -> None:
@@ -94,11 +101,15 @@ async def _ingest_landcover(conn: asyncpg.Connection) -> None:
 
 
 async def _ingest_addresses(conn: asyncpg.Connection) -> None:
+    town = abr_town_record("131041", "0024000", "1", SHINJUKU, *_point(2), oaza="西新宿")
     await ingest_records("abr", [
         abr_prefecture_record("130001", "東京都", *_point(1)),
         abr_city_record("131041", "東京都", "新宿区", *_point(1)),
-        abr_town_record("131041", "0024000", "1", SHINJUKU, *_point(2), oaza="西新宿"),
+        town,
+        abr_block_record(town, "008", "8", *_point(2)),
     ], conn=conn)
+    # 地番は住居表示の区域（ABR の街区を持つ区画）には入らないが、住所の段が読むことは数に出る。
+    await ingest_records("isj_block", [isj_block_record("東京都", "新宿区", "西新宿", "1", *_point(2))], conn=conn)
 
 
 async def _ingest_places(conn: asyncpg.Connection) -> None:
@@ -345,3 +356,58 @@ async def test_each_stage_declares_what_it_reads_and_writes(world, monkeypatch):
                     (mine.read - mine.written) & touched[prior.name].written or mine.written & touched[prior.name].rows):
                 missing.setdefault(stage.name, set()).add(prior.name)
     assert missing == {}
+
+
+def _together(*changes):
+    async def change(conn: asyncpg.Connection, monkeypatch, tmp_path: Path) -> None:
+        for apply in changes:
+            await apply(conn, monkeypatch, tmp_path)
+    return change
+
+
+@dataclass(frozen=True)
+class EdgeChange:
+    name: str
+    apply: Callable[[asyncpg.Connection, pytest.MonkeyPatch, Path], Awaitable[None]]
+    #: 土地被覆の段が (前回の値を写す区間, 数える区間) の本数。
+    counts: tuple[int, int]
+
+
+#: どれも道を取り直すので、区間を切る段が流れ、土地被覆の段も流れる。
+EDGE_CHANGES = [
+    EdgeChange("道を同じ形で取り直した", _reingest(_ingest_ways), (2, 0)),
+    EdgeChange("道の形を一部変え、道を足した", _reingest(lambda conn: _ingest_ways(conn, RESHAPED_WAYS)), (1, 2)),
+    EdgeChange("道と土地被覆を取り直した", _together(_reingest(_ingest_ways), _reingest(_ingest_landcover)), (0, 2)),
+    EdgeChange("道を取り直し、土地被覆の段のコードを変えた",
+               _together(_reingest(_ingest_ways),
+                         _edit_code("batch/derive_landcover.py", lambda text: text + "\n_EDITED = 1\n")), (0, 2)),
+]
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def built_from_ways(world):
+    """`WAYS`の道から作り直した後の接続。道の形を変えるテストがあるため、テストごとに作り直す。"""
+    await _ingest_ways(world)
+    assert await derive_cli.run(postgis_database_url()) == 0
+    return world
+
+
+@pytest.mark.parametrize("change", EDGE_CHANGES, ids=[change.name for change in EDGE_CHANGES])
+async def test_landcover_counts_only_edges_whose_shape_or_outside_inputs_changed_and_matches_a_full_rebuild(
+        built_from_ways, caplog, monkeypatch, tmp_path, change):
+    """土地被覆の取込とコードが前回と同じなら、形の同じ区間は前回の値を写し、形を変えた区間・新しい区間だけを数える。
+    取込かコードが変われば全区間を数える。区間と道の値は、同じ入力で全区間を数えた作り直しと同じ。"""
+    conn = built_from_ways
+    caplog.set_level(logging.INFO, logger="ridecompass.derive_landcover")
+    await change.apply(conn, monkeypatch, tmp_path)
+
+    assert await derive_cli.run(postgis_database_url()) == 0
+    counts = [record.args for record in caplog.records
+              if record.msg == "土地被覆: 形の変わらない区間 %d本へ前回の値を写し、%d本を数える"]
+    values = await _values(conn)
+
+    assert counts == [change.counts]
+
+    await conn.execute("DELETE FROM derived_stages")
+    assert await derive_cli.run(postgis_database_url()) == 0
+    assert await _values(conn) == values

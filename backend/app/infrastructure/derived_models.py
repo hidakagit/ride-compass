@@ -9,7 +9,7 @@
 | 線（粗） | `way_materials` | 道1本に付く値 |
 | 線（細） | `road_edges` / `edge_materials` | 交差点で切った区間の形と、区間に付く値 |
 | 地点 | `stop_places` | 立ち寄り先。道の網とは別の点で、OpenStreetMap由来の値を持たない |
-| 住所の区画 | `address_areas` / `address_search_keys` / `address_boundary_links` | 区画と、区画を引く鍵と、小地域の境界に当たる区画 |
+| 住所の区画 | `address_areas` / `address_search_keys` / `address_boundary_links` / `address_blocks` | 区画と、区画を引く鍵と、小地域の境界に当たる区画と、区画の中の街区・地番 |
 
 面（ラスタ）の派生は持たない——面の生データを読む出口は「そのまま見せる」か「線へ
 落とす」のどちらかで、面のままの中間結果を要る相手がいない。
@@ -37,7 +37,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import DERIVED, Base
 from app.infrastructure.source_models import Source
-from app.domain.address_area import ADDRESS_AREA_LEVELS
+from app.domain.address_area import ADDRESS_AREA_LEVELS, BLOCK_KINDS
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
@@ -320,6 +320,25 @@ class AddressBoundaryLinkRow(Base):
     #: 境界の小地域のコード（生データ`estat_small_area`の鍵）。
     key_code: Mapped[str] = mapped_column(String, primary_key=True)
     area_id: Mapped[str] = mapped_column(String, ForeignKey("address_areas.area_id"), nullable=False)
+
+
+class AddressBlockRow(Base):
+    """住所の区画（丁目・字か大字・町）の中の街区1つ。住居表示の区域はアドレス・ベース・レジストリの街区、それ以外の区域は
+    街区レベル位置参照情報の地番から作る（`batch/derive_addresses.py`）。番地まで打った入力が、区画の鍵と番号で引く。"""
+
+    __tablename__ = "address_blocks"
+    __table_args__ = (
+        vocabulary_check("address_blocks", "kind", frozenset(BLOCK_KINDS)),
+        {"info": DERIVED},
+    )
+
+    area_id: Mapped[str] = mapped_column(String, ForeignKey("address_areas.area_id"), primary_key=True)
+    #: 街区符号か地番（配布の表記のまま。「8」「123」「乙45」）。
+    number: Mapped[str] = mapped_column(String(collation="C"), primary_key=True)
+    #: 住居表示の街区（`residential`）か地番（`parcel`）。表示名で番号の後ろに付ける語が決まる（`BLOCK_KINDS`）。
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    #: 代表点。
+    geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
 
 
 #: 立ち寄り先の表へ地点を入れるソース。
