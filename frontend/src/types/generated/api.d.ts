@@ -1461,7 +1461,7 @@ export interface components {
              * Level
              * @enum {string}
              */
-            level: "prefecture" | "city" | "ward" | "oaza" | "aza" | "point";
+            level: "prefecture" | "city" | "ward" | "oaza" | "aza" | "block" | "point";
             /** Name */
             name: string;
             /** Area */

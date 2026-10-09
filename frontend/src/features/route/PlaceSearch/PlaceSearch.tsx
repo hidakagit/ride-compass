@@ -31,8 +31,9 @@ const LEVEL_LABELS = Object.fromEntries(vocabulary.placeMatchLevels.map((l) => [
 // 打ちかけで引き始める長さ（空白を除いた文字数）と、打つのが止まってから引くまでの間。口の回数制限はこの間から決まる。
 const PREDICTION_MIN_LENGTH = routeGenerateConfig.place_prediction_min_length;
 const PREDICTION_DELAY_MS = routeGenerateConfig.place_prediction_delay_seconds * 1000;
-// 住所は区画（都道府県から字・丁目まで）の代表の位置にすぎず、行きたい所から離れうる。施設（`point`）はその施設の位置。
-const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["point"]);
+// 区画（都道府県から字・丁目まで）で当たった住所は、その範囲の代表の位置にすぎず、行きたい所から離れうる。街区・地番
+// （`block`）は番地まで当たった点、施設（`point`）はその施設の位置。
+const PRECISE_LEVELS: ReadonlySet<PlaceCandidate["level"]> = new Set(["block", "point"]);
 
 const ROLE_CHOICES: { role: PinRole; label: string; placed: string; usage: string }[] = [
   {

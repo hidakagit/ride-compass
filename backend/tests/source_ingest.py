@@ -77,6 +77,27 @@ def abr_town_record(code: str, town_id: str, town_type: str, city: tuple[str, st
                "rsdt_addr_flg": "0", "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
 
 
+def abr_block_record(town: SourceRecord, block_id: str, number: str, lon: float, lat: float) -> SourceRecord:
+    """住所の生データ（`abr`）の住居表示の街区1件。`town`は属す町字（`abr_town_record`）、`number`は街区符号。"""
+    code, town_id = town.attrs["lg_code"], town.attrs["machiaza_id"]
+    return SourceRecord(
+        natural_key=f"{code}:{town_id}:{block_id}", geom_wkb=shapely.to_wkb(Point(lon, lat)),
+        attrs={"lg_code": code, "machiaza_id": town_id, "blk_id": block_id, "city": town.attrs["city"],
+               "ward": town.attrs["ward"], "oaza_cho": town.attrs["oaza_cho"], "chome": town.attrs["chome"],
+               "koaza": town.attrs["koaza"], "blk_num": number, "rsdt_addr_flg": "1", "ablt_date": "",
+               "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
+def isj_block_record(prefecture: str, city: str, oaza: str, number: str, lon: float, lat: float, *,
+                     koaza: str = "", residential: bool = False) -> SourceRecord:
+    """街区レベル位置参照情報（`isj_block`）の1件。名前は配布の書き方（市区町村は郡・政令市の区を含む）。"""
+    attrs = {"都道府県名": prefecture, "市区町村名": city, "大字・丁目名": oaza, "小字・通称名": koaza,
+             "街区符号・地番": number, "緯度": str(lat), "経度": str(lon), "住居表示フラグ": "1" if residential else "0",
+             "代表フラグ": "1", "更新前履歴フラグ": "0", "更新後履歴フラグ": "0"}
+    return SourceRecord(natural_key="|".join([prefecture, city, oaza, koaza, number]),
+                        geom_wkb=shapely.to_wkb(Point(lon, lat)), attrs=attrs)
+
+
 def estat_small_area_record(key_code: str, name: str, ring: Sequence[tuple[float, float]]) -> SourceRecord:
     """小地域の境界（`estat_small_area`）の1件。`key_code`は都道府県2桁・市区町村3桁・町丁・字等6桁、`ring`は多角形の
     外周の (経度, 緯度) の列。"""

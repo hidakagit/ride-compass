@@ -3,15 +3,16 @@
 経路から、サービス（`services/place_search_service.py`）と住所の区画の表を引く層（`infrastructure/address_search.py`）・
 施設の表を引く層（`infrastructure/stop_place_search.py`）の判断を見る: 住所の候補の段・表示名・位置、書き方の違う入力
 （空白・漢数字・長音）、全部に当たる・番地付き・続きの3通りの当たり方とその並び（段の粗いもの → 鍵の短いもの → 中心に近いもの）、
+番地付きの残りの番号で当たる街区（住居表示の区域）と地番（それ以外の区域）、
 件数の上限、入力の一部にだけ当たった住所を出さないこと、施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の
 真ん中に近い店から上限まで）、施設に添える辺り、住所と施設を並べる順、対象範囲を読めなければ502、回数制限。
-住所の区画の表は、アドレス・ベース・レジストリの行（施設の辺りは小地域の境界も）を取り込んで住所の派生の段を本物のまま
-流して作る。対象範囲は道路の取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、
+住所の区画の表は、アドレス・ベース・レジストリの行（街区を含む。地番は街区レベル位置参照情報の行、施設の辺りは小地域の境界も）
+を取り込んで住所の派生の段を本物のまま流して作る。対象範囲は道路の取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、
 注入から本物を通す。
 
 ここで見ないもの:
 - 対象範囲を読むこと（どの取込の記録の範囲か） → `test_ingested_area.py`
-- 住所の区画・鍵の作り方（範囲・祖先・鍵の別形） → `test_address_areas.py`、表記の揃え方の1つずつ → `test_address_area.py`
+- 住所の区画・鍵・街区の作り方（範囲・祖先・鍵の別形・地番を区画に結ぶ名前・住居表示の区域で ABR を採る） → `test_address_areas.py`、表記の揃え方の1つずつ → `test_address_area.py`
 - 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
 - 施設の辺りの決め方（辺の上・境界の外・結べない境界） → `test_stop_place_areas.py`
 - 回数制限の窓 → `test_rate_limiter.py`
@@ -34,11 +35,13 @@ from app.infrastructure import database, rate_limiter
 from app.main import app
 from tests.conftest import postgis_database_url, raw_connection
 from tests.source_ingest import (
+    abr_block_record,
     abr_city_record,
     abr_prefecture_record,
     abr_town_record,
     estat_small_area_record,
     ingest_records,
+    isj_block_record,
     point_record,
 )
 
@@ -92,9 +95,11 @@ async def _ingest_facilities(records: list[object]) -> None:
         await derive_stop_places.derive(conn)
 
 
-async def _ingest_addresses(records: list[SourceRecord]) -> None:
-    """アドレス・ベース・レジストリの行を取り込み、住所の区画の表を作る派生の段を流す（範囲は`area`の宣言）。"""
+async def _ingest_addresses(records: list[SourceRecord], parcels: list[SourceRecord] | None = None) -> None:
+    """アドレス・ベース・レジストリの行と街区レベル位置参照情報の行を取り込み、住所の区画の表を作る派生の段を流す
+    （範囲は`area`の宣言）。"""
     await ingest_records("abr", records)
+    await ingest_records("isj_block", parcels or [])
     async with raw_connection() as conn:
         await derive_addresses.derive(conn)
 
@@ -129,9 +134,16 @@ SHIBUYA_HONMACHI_CHOMES = [
     for number, chome in ((1, "一丁目"), (2, "二丁目"), (12, "十二丁目"))]
 IWATSUKI_HONMACHI = _town(IWATSUKI, "0020000", "1", 139.693159, 35.947813, oaza="本町")
 KOSUGI = _town(NAKAHARA, "0010000", "1", 139.66, 35.575, oaza="小杉")
+#: 住居表示の区域の街区（西新宿二丁目8番）。
+NISHI_SHINJUKU_2_8 = abr_block_record(NISHI_SHINJUKU_2, "008", "8", 139.6912, 35.6895)
+#: 住居表示でない区域（郡の町の大字）と、その地番。
+HINODE = abr_city_record("133051", "東京都", "日の出町", 139.257, 35.742, county="西多摩郡")
+HIRAI = _town(HINODE, "0001000", "1", 139.26, 35.74, oaza="大字平井")
+HIRAI_123 = isj_block_record("東京都", "西多摩郡日の出町", "大字平井", "123", 139.2612, 35.7415)
 ADDRESSES = [TOKYO, SAITAMA, KANAGAWA, SHINJUKU, SHIBUYA, ADACHI, SAITAMA_CITY, IWATSUKI, KAWASAKI, NAKAHARA,
              NISHI_SHINJUKU, NISHI_SHINJUKU_2, NISHIARAI, SHIBUYA_HONMACHI_TOWN, *SHIBUYA_HONMACHI_CHOMES,
-             IWATSUKI_HONMACHI, KOSUGI]
+             IWATSUKI_HONMACHI, KOSUGI, NISHI_SHINJUKU_2_8, HINODE, HIRAI]
+PARCELS = [HIRAI_123]
 
 
 def _address(record: SourceRecord, name: str, level: str) -> dict:
@@ -153,10 +165,17 @@ def _address(record: SourceRecord, name: str, level: str) -> dict:
         _address(SHIBUYA_HONMACHI_TOWN, "東京都渋谷区本町", "oaza"),
         _address(IWATSUKI_HONMACHI, "埼玉県さいたま市岩槻区本町", "oaza"),
     ], id="丁目の数字まで"),
-    pytest.param("西新宿2-8-1", [_address(NISHI_SHINJUKU_2, "東京都新宿区西新宿二丁目", "aza")], id="番地まで"),
-    pytest.param("西新宿二丁目八番一号", [_address(NISHI_SHINJUKU_2, "東京都新宿区西新宿二丁目", "aza")],
+    # 残りの最初の数字（8）を二丁目の街区の番号として引き、街区の点に当たる。号は持たない。
+    pytest.param("西新宿2-8-1", [_address(NISHI_SHINJUKU_2_8, "東京都新宿区西新宿二丁目8番", "block")], id="番地まで"),
+    pytest.param("西新宿二丁目八番一号", [_address(NISHI_SHINJUKU_2_8, "東京都新宿区西新宿二丁目8番", "block")],
                  id="番地まで漢数字で"),
-    pytest.param("西新宿2ー8ー1", [_address(NISHI_SHINJUKU_2, "東京都新宿区西新宿二丁目", "aza")], id="番地まで長音で"),
+    pytest.param("西新宿2ー8ー1", [_address(NISHI_SHINJUKU_2_8, "東京都新宿区西新宿二丁目8番", "block")],
+                 id="番地まで長音で"),
+    pytest.param("西新宿2-99-1", [_address(NISHI_SHINJUKU_2, "東京都新宿区西新宿二丁目", "aza")],
+                 id="無い街区の番号は丁目まで"),
+    pytest.param("日の出町平井123番地", [_address(HIRAI_123, "東京都日の出町大字平井123番地", "block")],
+                 id="地番まで"),
+    pytest.param("平井124", [_address(HIRAI, "東京都日の出町大字平井", "oaza")], id="無い地番は大字まで"),
     # 十二丁目までの町の「13」は、一丁目（鍵「本町1-」）にも十二丁目にも当てず、大字の本町の番地として読む。
     pytest.param("本町13-5", [
         _address(SHIBUYA_HONMACHI_TOWN, "東京都渋谷区本町", "oaza"),
@@ -170,7 +189,7 @@ def _address(record: SourceRecord, name: str, level: str) -> dict:
 ])
 @pytest.mark.usefixtures("area")
 async def test_addresses_are_the_areas_the_input_reaches(query, candidates):
-    await _ingest_addresses(ADDRESSES)
+    await _ingest_addresses(ADDRESSES, PARCELS)
 
     response = await _search(query)
 

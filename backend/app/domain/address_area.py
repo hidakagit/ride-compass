@@ -1,9 +1,10 @@
-"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方・区画の祖先から
-表示の名前を組み立てる形。
+"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）と、区画の中の街区・地番の語彙と、住所の表記を揃える形・検索の
+鍵の作り方・区画の祖先から表示の名前を組み立てる形。
 
-区画の表（`address_areas`）と鍵の表（`address_search_keys`）は派生の段（`batch/derive_addresses.py`）が作り、
-ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）・
-区画の表示の名前（施設の辺りと、地点の検索の住所の表示名。`area_label`）を持つ。
+区画の表（`address_areas`）・鍵の表（`address_search_keys`）・街区の表（`address_blocks`）は派生の段
+（`batch/derive_addresses.py`）が作り、ここは段と街区の種類の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・
+区画の名前から鍵を作る形（`search_keys`）・番地付きの残りから街区の番号を取る形（`BLOCK_NUMBER_PATTERN`）・
+区画と街区の表示の名前（施設の辺りと、地点の検索の住所の表示名。`area_label`・`block_label`）を持つ。
 アドレス・ベース・レジストリ（ABR）の列の読み方は`infrastructure/source_models.py`が持ち、ここへは名前で届く。
 """
 
@@ -26,6 +27,15 @@ MACHIAZA_TYPE_LEVELS: dict[str, PlaceMatchLevel] = {"1": "oaza", "2": "aza", "3"
 #: 番地まで打った入力（「西新宿2-8-1」）で、区画の鍵の後ろの残りの頭に来る文字（番地・地番の数字・区切り・甲乙丙丁の
 #: 地番）を見る正規表現（PostgreSQL の`~`）。残りは揃えた形（`standardize_address`）なので、数字は算用数字・区切りは`-`。
 NUMBERED_REMAINDER_PATTERN = "^[0-9甲乙丙丁-]"
+
+#: 番地付きの残り（揃えた形）から、区画の中の街区の番号（住居表示の街区符号か地番）を取る正規表現（PostgreSQL の
+#: `substring(... from ...)`。括弧の中が番号）。残りの頭の区切りを飛ばした最初の数字で、地番の頭の甲乙丙丁は番号に含める
+#: （「8-1」→「8」・「123番地」→「123」・「乙45」→「乙45」）。
+BLOCK_NUMBER_PATTERN = "^-?([甲乙丙丁]?[0-9]+)"
+
+#: 街区の種類 → 表示名で番号の後ろに付ける語。住居表示の区域の街区（アドレス・ベース・レジストリの街区符号）は「番」、
+#: それ以外の区域の地番（街区レベル位置参照情報）は「番地」。
+BLOCK_KINDS: dict[str, str] = {"residential": "番", "parcel": "番地"}
 
 #: ハイフン・ダッシュ・マイナスの類（長音を含まない）。最後を半角のハイフンにしてあり、正規表現の文字類の末尾に
 #: 置けばそのまま文字として読まれる。施設の名前の揃え方（`domain/stop_place.py: normalized_sql`）も同じ集合を除く。
@@ -88,6 +98,12 @@ def area_label(chain: Iterable[tuple[str, str]], *, full: bool = False) -> str:
     （政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない）。
     """
     return "".join(name for level, name in chain if full or level != "prefecture")
+
+
+def block_label(area: str, number: str, kind: str) -> str:
+    """街区・地番の表示の名前（「東京都新宿区西新宿二丁目8番」「東京都日の出町大字平井123番地」）。`area`は属す区画の
+    表示の名前（`area_label`）、`kind`は`BLOCK_KINDS`の鍵。"""
+    return f"{area}{number}{BLOCK_KINDS[kind]}"
 
 
 def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) -> frozenset[str]:

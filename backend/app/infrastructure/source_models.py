@@ -47,6 +47,7 @@ class Source(StrEnum):
     BUNKA_HERITAGE = "bunka_heritage"
     ABR = "abr"
     ESTAT_SMALL_AREA = "estat_small_area"
+    ISJ_BLOCK = "isj_block"
     DEM = "dem"
     LULC = "lulc"
 
@@ -293,8 +294,9 @@ def _abr_sql(columns: dict[str, str], kind: str) -> str:
             f" FROM {_TABLE} WHERE source = '{Source.ABR}' AND {kind})")
 
 
-#: アドレス・ベース・レジストリ（1回の取込に都道府県・市区町村・町字が混ざる）の都道府県（1件=1つの代表点）。
-#: 3種は持つ列で分ける（町字だけが`machiaza_id`を、市区町村と町字だけが`city`を持つ）。ABR の列の名前はここだけが名指す。
+#: アドレス・ベース・レジストリ（1回の取込に都道府県・市区町村・町字・住居表示の街区が混ざる）の都道府県（1件=1つの代表点）。
+#: 4種は持つ列で分ける（町字と街区だけが`machiaza_id`を、街区だけが`blk_id`を、都道府県のほかは`city`を持つ）。
+#: ABR の列の名前はここだけが名指す。
 ABR_PREFECTURES_SOURCE_SQL = _abr_sql(
     {"lg_code": "code", "pref": "name", "ablt_date": "abolished"}, "NOT attrs ? 'city'")
 
@@ -310,7 +312,13 @@ ABR_TOWNS_SOURCE_SQL = _abr_sql(
      "county": "county", "city": "city", "ward": "ward", "oaza_cho": "oaza", "chome": "chome",
      "chome_number": "chome_number", "koaza": "koaza",
      "ablt_date": "abolished"},
-    "attrs ? 'machiaza_id'")
+    "attrs ? 'machiaza_id' AND NOT attrs ? 'blk_id'")
+
+#: ABR の住居表示の街区（1件=1つの街区の代表点）。`city_code`・`town_id`は属す町字の鍵（`ABR_TOWNS_SOURCE_SQL`と同じ）、
+#: `number`は街区符号（「8」）。
+ABR_BLOCKS_SOURCE_SQL = _abr_sql(
+    {"lg_code": "city_code", "machiaza_id": "town_id", "blk_num": "number", "ablt_date": "abolished"},
+    "attrs ? 'blk_id'")
 
 #: e-Stat の小地域の境界（1件=1つの小地域の多角形）。`city_code`は都道府県＋市区町村の5桁、`name`は小地域の名前
 #: （町丁・字等。名前の無い小地域は空）。配布の dbf の列の名前はここだけが名指す。
@@ -318,6 +326,17 @@ ESTAT_SMALL_AREAS_SOURCE_SQL = (
     "(SELECT natural_key AS key_code, (attrs->>'PREF') || (attrs->>'CITY') AS city_code,"
     " coalesce(attrs->>'S_NAME', '') AS name, geom"
     f" FROM {_TABLE} WHERE source = '{Source.ESTAT_SMALL_AREA}')"
+)
+
+
+#: 国土交通省の街区レベル位置参照情報（1件=1つの街区符号か地番の代表点）。名前は配布の表記のまま（市区町村は郡・政令市の
+#: 区を含む「西多摩郡日の出町」「さいたま市岩槻区」、丁目は漢数字）、`number`は街区符号か地番、`residential`は住居表示の
+#: 区域の行か。配布の CSV の列の名前はここだけが名指す。
+ISJ_BLOCKS_SOURCE_SQL = (
+    "(SELECT attrs->>'都道府県名' AS prefecture, attrs->>'市区町村名' AS city,"
+    " coalesce(attrs->>'大字・丁目名', '') AS oaza, coalesce(attrs->>'小字・通称名', '') AS koaza,"
+    " attrs->>'街区符号・地番' AS number, attrs->>'住居表示フラグ' = '1' AS residential, geom"
+    f" FROM {_TABLE} WHERE source = '{Source.ISJ_BLOCK}')"
 )
 
 
