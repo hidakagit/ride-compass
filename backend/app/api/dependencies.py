@@ -29,8 +29,8 @@ from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_stat
 from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
 from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from app.infrastructure.material_coverage import MaterialCoverageQuery
-from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.place_area_query import PlaceAreaQuery
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.stop_place_search import StopPlaceSearchQuery
 from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
 from app.services.axis_preview_service import AxisPreviewService
