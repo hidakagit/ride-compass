@@ -353,7 +353,7 @@ export default function PointDetail({
               )}
               {!listOpen && (
                 <p className={textVariants({ variant: "hint" })}>
-                  住所か施設の名前を{PREDICTION_MIN_LENGTH}文字から打つと、候補が出ます。
+                  住所か施設の名前を打つと、候補が出ます（変換中は確定すると出ます）。
                 </p>
               )}
             </div>

@@ -321,12 +321,14 @@ describe("PointDetail 狭い画面", () => {
     await userEvent.click(searchBox());
     expect(raised()).not.toBeNull();
 
-    // 保存した地点にも当たらず、引き始める長さにも足りない文字。
-    await userEvent.type(searchBox(), "あ");
+    // 変換中の文字は引かず、保存した地点にも当たらない。
+    fireEvent.compositionStart(searchBox());
+    fireEvent.input(searchBox(), { target: { value: "あ" }, isComposing: true });
     expect(screen.queryByRole("list", { name: "保存した地点" })).toBeNull();
     expect(raised()).not.toBeNull();
 
-    await userEvent.type(searchBox(), "さくさ");
+    fireEvent.input(searchBox(), { target: { value: "浅草" }, isComposing: true });
+    fireEvent.compositionEnd(searchBox());
     await screen.findByRole("list", { name: "地点の候補" });
     await userEvent.clear(searchBox());
     expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
