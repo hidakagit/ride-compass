@@ -21,7 +21,7 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
 - 住所の区画の段は、住所の生データ（`abr`）の取込が無いと止まり、作り直し全体が何も入れ替えない。初めて流す前と住所を取り直すときは、
   同じ別のコンテナで取得と取込を先に打つ（手順は[data-sources.md](../../../docs/architecture/data-sources.md)「住所の区画の元データ」）。
 
-- **`/app/data`のマウントを外さない**（同じ入口が道路網全体の配列`data/road_network/`を作ってから表を入れ替える）。
+- **`/app/data`のマウントを外さない**（同じ入口が道路網全体の配列`data/road_network/`を作ってから表を入れ替える。配列は本番で数分かかる）。
   途中で落ちたとき（配列を作れなかったときを含む）は何も入れ替わらないので、原因を直して打ち直す。
 - 分布の前後: 作り直すたびに、上のコマンドを打つ前と終わった後に、派生の表の全部の値の列の分布を本番で測る
   （開発機の`backend`から`python scripts/run_probe.py scripts/derived_distribution.py`。`--column`を付けなければ
@@ -87,7 +87,8 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
      ```
      動的グループをDefault以外のアイデンティティ・ドメインに作ったときは、`dynamic-group '<ドメイン名>'/'ridecompass-vm'`と書く。
      バケットがテナンシのルートのコンパートメントにあるときは、`in compartment <コンパートメント名>`の代わりに`in tenancy`と書く
-     （場所の書き方は公式の文書「Policy Syntax」の Location）。5.も同じ。
+     （場所の書き方は公式の文書「Policy Syntax」の Location）。5.も同じ。ルートを`compartment`で書くと、コンソールが
+     `Compartment {<ルートの名前>} does not exist or is not part of the policy compartment subtree`で断る。
   4. VMで設定ファイルを置き、ユニットを登録し、1回打って確かめてからtimerを有効にする（ユニットはデプロイが
      揃える作業コピーのものを`systemctl link`で指す）:
      ```
@@ -133,7 +134,8 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
      ```
   3. 取り込んで派生を作る: `python scripts/bootstrap_database.py --from ingest`（外部ソースのファイルは先に
      手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）。このコンテナには
-     `-v /home/ubuntu/ridecompass-raster:/app/raster:ro`も足す
+     `-v /home/ubuntu/ridecompass-raster:/app/raster:ro`も足す（ラスタはDBと別にVMに置き、`deploy-backend.yml`が取得して置く。
+     VMごと失ったときは、先に`deploy-backend.yml`を`workflow_dispatch`で打ってラスタを置く）
   4. backendのコンテナを起動し直し（`sudo docker restart ridecompass-backend`、コンテナが無ければ
      `deploy-backend.yml`を`workflow_dispatch`で打つ）、戻ったことを確かめる:
      ```

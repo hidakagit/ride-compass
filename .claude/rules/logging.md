@@ -8,6 +8,7 @@ paths:
 
 # ログ方針（実運用調査のためのログレベル・粒度）
 
+本番のbackendコンテナのログだけで障害調査を完結できるようにする。
 **新しい機能・外部連携・エンドポイントを追加するときは、必ずこの方針に沿ってログを入れること。**
 
 ## 基本原則
@@ -73,8 +74,8 @@ paths:
 - ミドルウェア（`asgi_correlation_id`の`CorrelationIdMiddleware`、`main.py`で登録）が全リクエストへ
   付与し、レスポンスの`X-Request-ID`で返す。
 - フロントの`lib/apiClient.ts`はレスポンスヘッダから読み、DebugConsoleのdetailに含める
-  （画面へ出す失敗の文言には混ぜない）。
-- backendを呼ぶ新しい呼び出しも`lib/apiClient.ts`の骨格（`requestApi`）を通す。
+  （画面へ出す失敗の文言には混ぜない）。DebugConsoleのreq値でbackendのログを検索すれば、そのリクエストの全ログが引ける。
+- backendを呼ぶ新しい呼び出しも`lib/apiClient.ts`の骨格（`requestApi`）を通す（requestIdのログは骨格が持つ）。
 
 ### ログの時刻
 
