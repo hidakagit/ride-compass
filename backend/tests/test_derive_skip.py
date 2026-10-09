@@ -30,12 +30,14 @@ from app.infrastructure.derived_data_freshness import declared_columns, derived_
 from app.infrastructure.source_models import PARTY_TYPE_CODES, Source
 from tests.conftest import empty_ingested_tables, postgis_database_url, raw_connection
 from tests.source_ingest import (
+    abr_block_record,
     abr_city_record,
     abr_prefecture_record,
     abr_town_record,
     dem_tile_records,
     estat_small_area_record,
     ingest_records,
+    isj_block_record,
     point_record,
     tile_record,
     way_record,
@@ -94,11 +96,15 @@ async def _ingest_landcover(conn: asyncpg.Connection) -> None:
 
 
 async def _ingest_addresses(conn: asyncpg.Connection) -> None:
+    town = abr_town_record("131041", "0024000", "1", SHINJUKU, *_point(2), oaza="西新宿")
     await ingest_records("abr", [
         abr_prefecture_record("130001", "東京都", *_point(1)),
         abr_city_record("131041", "東京都", "新宿区", *_point(1)),
-        abr_town_record("131041", "0024000", "1", SHINJUKU, *_point(2), oaza="西新宿"),
+        town,
+        abr_block_record(town, "008", "8", *_point(2)),
     ], conn=conn)
+    # 地番は住居表示の区域（ABR の街区を持つ区画）には入らないが、住所の段が読むことは数に出る。
+    await ingest_records("isj_block", [isj_block_record("東京都", "新宿区", "西新宿", "1", *_point(2))], conn=conn)
 
 
 async def _ingest_places(conn: asyncpg.Connection) -> None:
