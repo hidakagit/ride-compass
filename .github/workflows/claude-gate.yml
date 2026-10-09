@@ -31,8 +31,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-  # 公開は Cloudflare の公式の wrangler-action で行い、直後に開いた issue を全部、今の規則が書くはずの姿（担当者・本文の先頭）へ
-  # 揃える（揃っていれば何も書かない）。tools/flow-gate/ の差分の有無で選ばず、master の先頭の実行が毎回公開する。差分で
+  # 公開は Cloudflare の公式の wrangler-action で行う。tools/flow-gate/ の差分の有無で選ばず、master の先頭の実行が毎回公開する。差分で
   # 選ぶと、ゲートを変えた push の公開が落ちたとき、ゲートを触らない次の push が公開せず、公開済みの版が古いまま残る。
   # 実行どうしは1本ずつ動かし、master の先頭でなくなった実行は公開しない（遅れて終わった古い実行が新しい版を上書きしない。
   # 新しい版は、その push の実行が公開する）。
@@ -66,11 +65,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: tools/flow-gate
           command: deploy --env form
-      - if: steps.head.outputs.latest == 'true'
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - if: steps.head.outputs.latest == 'true'
-        env:
-          FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
-        run: node tools/flow-gate/bin/refresh.js
