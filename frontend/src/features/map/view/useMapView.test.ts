@@ -11,6 +11,8 @@ import { HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TILE_VERSIONS_MISSING_NOTICE, TILE_ZOOM_TOO_WIDE_NOTICE } from "@/features/map/layers/mapLayers";
+import { ROAD_OTHER_KEY } from "@/features/map/scene/groups/roadLines";
+import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { onBackend, onSameOrigin } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import type { AxisCatalogEntry } from "@/types/route";
@@ -69,7 +71,7 @@ describe("useMapView", () => {
     const { result } = render();
 
     expect(result.current.lensControl.lens).toBe("difficulty");
-    await waitFor(() => expect(chip(result, "highway")?.dataStatus).not.toBe("loading"));
+    await waitFor(() => expect(chip(result, "surface")?.dataStatus).not.toBe("loading"));
     expect(result.current.lensControl.lens).toBe(lens);
     expect(result.current.look.lens).toBe(lens);
   });
@@ -77,7 +79,7 @@ describe("useMapView", () => {
   it("レンズを選ぶとルートのレイヤーを表示し、ルートの確定後に周りを塗らない設定なら全道路を塗らない", () => {
     serve();
     const { result, rerender } = render();
-    act(() => result.current.overlayControls.onToggle("route", false));
+    act(() => result.current.lensControl.onRouteShownChange(false));
 
     act(() => result.current.lensControl.onLensChange("axis_ramp"));
 
@@ -135,20 +137,53 @@ describe("useMapView", () => {
     act(() => result.current.lensControl.onToggleLegendKey(key));
 
     expect(result.current.lensControl.hiddenLegendKeys).toEqual([key]);
-    expect(result.current.bulk.anyLegendHidden).toBe(true);
+    expect(result.current.overlayControls.anyLegendHidden).toBe(true);
     act(() => vi.advanceTimersByTime(399));
-    expect(result.current.look.hiddenLegendKeys).toEqual({});
+    expect(result.current.look.hiddenLegendKeys.axis_ramp).toBeUndefined();
     act(() => vi.advanceTimersByTime(1));
-    expect(result.current.look.hiddenLegendKeys).toEqual({ axis_ramp: [key] });
+    expect(result.current.look.hiddenLegendKeys.axis_ramp).toEqual([key]);
     const allKeys = result.current.lensControl.legend.map((entry) => entry.key);
     act(() => result.current.lensControl.onSetHiddenLegendKeys(allKeys));
     expect(result.current.lensControl.hiddenLegendKeys).toEqual(allKeys);
 
-    act(() => result.current.bulk.showAllLegendRows());
+    act(() => result.current.overlayControls.onShowAllLegendRows());
     act(() => vi.advanceTimersByTime(400));
     expect(result.current.lensControl.hiddenLegendKeys).toEqual([]);
-    expect(result.current.look.hiddenLegendKeys).toEqual({});
+    expect(Object.values(result.current.look.hiddenLegendKeys).flat()).toEqual([]);
   });
+
+  it("「絞り込みをすべて解除」が押せるのは地図に出しているものの凡例で隠している間だけで、出していないレイヤーの最初に隠す行は数えない", () => {
+    serve();
+    const { result } = render();
+    expect(chip(result, "surface")).toMatchObject({ on: false, legendDetails: [{ hiddenKeys: [LEGEND_NO_DATA_KEY] }] });
+    expect(result.current.overlayControls.anyLegendHidden).toBe(false);
+
+    act(() => result.current.overlayControls.onToggle("surface", true));
+
+    expect(result.current.overlayControls.anyLegendHidden).toBe(true);
+  });
+
+  it.each([
+    { layer: "surface", row: "データなし（値の無い道が分からない属性）", key: LEGEND_NO_DATA_KEY },
+    { layer: "cycleway", row: "該当なし（タグの不在が当てはまらない属性）", key: ROAD_OTHER_KEY },
+  ])(
+    "値の無い道の行を最初は隠す層（$layer）は、$rowを地図でも凡例でも隠して始め、凡例で出すと次に開いたときも出たまま",
+    async ({ layer, key }) => {
+      serve();
+      const first = render();
+      const hiddenOf = (result: { current: ReturnType<typeof useMapView> }) => ({
+        legend: chip(result, layer)?.legendDetails?.[0].hiddenKeys,
+        map: result.current.look.hiddenLegendKeys[layer],
+      });
+      expect(hiddenOf(first.result)).toEqual({ legend: [key], map: [key] });
+
+      act(() => first.result.current.overlayControls.onLegendAxisSetHidden(layer, []));
+      first.unmount();
+
+      const { result } = render();
+      await waitFor(() => expect(hiddenOf(result)).toEqual({ legend: [], map: [] }));
+    },
+  );
 
   it("災害のチップの凡例で隠した情報は描かず、絞り込み中に数える", () => {
     serve();
@@ -158,7 +193,7 @@ describe("useMapView", () => {
 
     expect(result.current.look.dynamicWeather.disaster?.heavyRain?.visible).toBe(false);
     expect(result.current.look.dynamicWeather.disaster?.landslide?.visible).toBe(true);
-    expect(result.current.bulk.anyLegendHidden).toBe(true);
+    expect(result.current.overlayControls.anyLegendHidden).toBe(true);
     expect(chip(result, "disaster")?.legendDetails?.[0].hiddenKeys).toEqual(["heavyRain"]);
   });
 
@@ -180,19 +215,20 @@ describe("useMapView", () => {
     expect(chip(result, "disaster")?.legendDetails?.[0].hiddenKeys).toEqual(["heavyRain"]);
   });
 
-  it("表示中のレイヤーをすべて非表示にでき、地図へは中身が変わるか再描画を頼んだときだけ新しい値を渡す", () => {
+  it("表示中のレイヤーをすべて非表示にすると一覧の行だけを消してルートは残し、地図へは中身が変わるか再描画を頼んだときだけ新しい値を渡す", () => {
     serve();
     const { result, rerender } = render();
-    expect(result.current.bulk.anyLayerOn).toBe(true);
+    expect(result.current.overlayControls.layers.some((layer) => layer.on)).toBe(true);
+    expect(result.current.look.layerVisibility.route).toBe(true);
 
-    act(() => result.current.bulk.hideAllLayers());
+    act(() => result.current.overlayControls.onHideAllLayers());
 
-    expect(result.current.bulk.anyLayerOn).toBe(false);
-    expect(Object.values(result.current.look.layerVisibility).every((on) => !on)).toBe(true);
+    expect(result.current.overlayControls.layers.filter((layer) => layer.on)).toEqual([]);
+    expect(result.current.look.layerVisibility.route).toBe(true);
     const look = result.current.look;
     rerender({});
     expect(result.current.look).toBe(look);
-    act(() => result.current.bulk.redraw());
+    act(() => result.current.redrawMap());
     expect(result.current.look).toMatchObject({ ...look, refreshToken: 1 });
   });
 
@@ -200,10 +236,10 @@ describe("useMapView", () => {
     serve();
     const { result } = render();
 
-    act(() => result.current.look.onLayerDataStatusChange({ highway: "loading" }));
+    act(() => result.current.look.onLayerDataStatusChange({ surface: "loading" }));
     act(() => result.current.look.onViewportChange({ ...VIEWPORT, zoom: 8 }));
 
-    expect(chip(result, "highway")).toMatchObject({ dataStatus: "loading", notice: TILE_ZOOM_TOO_WIDE_NOTICE });
+    expect(chip(result, "surface")).toMatchObject({ dataStatus: "loading", notice: TILE_ZOOM_TOO_WIDE_NOTICE });
     expect(chip(result, "hillshade")?.notice).toBeNull();
     await waitFor(() => expect(chip(result, "disaster")?.dataStatus).toBe("empty"));
   });
@@ -218,21 +254,21 @@ describe("useMapView", () => {
 
       const { result } = render();
 
-      expect(chip(result, "highway")?.dataStatus).toBe("loading");
-      await waitFor(() => expect(chip(result, "highway")?.dataStatus).toBe("error"));
-      expect(chip(result, "highway")?.notice).toBe(TILE_VERSIONS_MISSING_NOTICE);
+      expect(chip(result, "surface")?.dataStatus).toBe("loading");
+      await waitFor(() => expect(chip(result, "surface")?.dataStatus).toBe("error"));
+      expect(chip(result, "surface")?.notice).toBe(TILE_VERSIONS_MISSING_NOTICE);
     },
   );
 
-  it("ルートの線の凡例は、ルートが確定してからルートのチップに出す", () => {
+  it("ルートの出し入れは色分けが持ち、候補を選ぶまで押せない", () => {
     serve();
     const { result, rerender } = render();
-    expect(chip(result, "route")?.legendDetails).toEqual([]);
+    expect(result.current.lensControl).toMatchObject({ routeShown: true, routeSelectable: false });
 
-    rerender({ hasDetail: true });
+    rerender({ hasSelectedRoute: true });
+    act(() => result.current.lensControl.onRouteShownChange(false));
 
-    expect(chip(result, "route")?.legendDetails).toEqual([
-      { label: "", legend: result.current.lensControl.legend, axisId: "difficulty", hiddenKeys: [] },
-    ]);
+    expect(result.current.lensControl).toMatchObject({ routeShown: false, routeSelectable: true });
+    expect(result.current.look.layerVisibility.route).toBe(false);
   });
 });

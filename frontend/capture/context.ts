@@ -49,10 +49,10 @@ export interface CaptureContext {
   /** 地図の色分け（レンズ）を名前で選び、読み終わりまで待つ。選べなければ、選べる名前を並べて止まる。 */
   chooseLens(label: string): Promise<void>;
   /**
-   * チップの名前で凡例の内訳を開き、その内訳を返す。チップが畳んだまとまりの中にあれば開く。`row` を渡せば、その行の説明も開く。
+   * 「表示」の一覧の行の名前で凡例の内訳を開き、その内訳を返す。一覧が閉じていれば開く。`row` を渡せば、その行の説明も開く。
    * 開けなければ、選べる名前を並べて止まる。
    */
-  openLegend(chip: string, row?: string): Promise<Locator>;
+  openLegend(layer: string, row?: string): Promise<Locator>;
   /** 地図の上の経度・緯度の点を押す。その点が画面の外か、地図の上に別の部品が重なっていれば止める。 */
   clickMap(lngLat: [number, number]): Promise<void>;
   /** 地図の見えている所（部品に覆われていない所）へ経度・緯度の点を寄せてから押す。点が画面の外や部品の下に来うるときに使う。 */
@@ -93,6 +93,9 @@ export interface WorktreeBackend {
  * jma_tile_upstream_max_requests_per_second）ので、地図が一度に取るタイルの数だけ待ちが積もる。
  */
 const WORKTREE_BACKEND_TIMEOUT_MS = 5 * 60_000;
+
+/** 「表示」のボタンと、押すと開く一覧の名前（`MapOverlayControls`）。 */
+const OVERLAY_LIST_NAME = "地図に出す情報";
 
 /**
  * ブラウザが --api の backend へ選んだパスの頭で取りに行くものを、作業ツリーの backend から取って返す。page.route の
@@ -208,29 +211,24 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       }
       await settle();
     },
-    async openLegend(chip, row) {
-      const trigger = page.getByRole("button", { name: `${chip}の凡例`, exact: true });
-      const seen = new Set<string>();
-      // まとまりの外のチップはそのまま出ているので、まず開かずに探し、無ければまとまりを1つずつ開く（開けるのは同時に1つ）。
-      for (const group of [null, ...mapDisplay.overlayGroups]) {
-        if (group) {
-          const header = page.getByRole("button", { name: group.label, exact: true });
-          if ((await header.getAttribute("aria-expanded")) === "false") await header.click();
-        }
-        if (await trigger.isVisible()) break;
-        for (const name of await ariaLabels(page, "の凡例")) seen.add(name);
-      }
+    async openLegend(layer, row) {
+      const trigger = page.getByRole("button", { name: `${layer}の凡例`, exact: true });
+      // ▶は「表示」の一覧の行にある。
+      const list = page.getByRole("dialog", { name: OVERLAY_LIST_NAME, exact: true });
+      if (!(await list.isVisible())) await page.getByRole("button", { name: OVERLAY_LIST_NAME, exact: true }).click();
+      await expect(list).toBeVisible();
       if (!(await trigger.isVisible())) {
-        throw new Error(`凡例「${chip}」を開けない。選べる凡例: ${[...seen].join(" / ")}`);
+        throw new Error(`凡例「${layer}」を開けない。選べる凡例: ${(await ariaLabels(list, "の凡例")).join(" / ")}`);
       }
-      const panel = page.getByRole("dialog", { name: `${chip}の内訳` });
+      // 内訳は一覧の行のすぐ下に開く。
+      const panel = page.getByRole("region", { name: `${layer}の内訳` });
       if (!(await panel.isVisible())) await trigger.click();
       await expect(panel).toBeVisible();
       if (row !== undefined) {
         const info = panel.getByRole("button", { name: `${row}の説明を表示`, exact: true });
         if (!(await info.isVisible())) {
           const rows = await ariaLabels(panel, "の説明を表示");
-          throw new Error(`凡例「${chip}」の行「${row}」の説明を開けない。説明のある行: ${rows.join(" / ")}`);
+          throw new Error(`凡例「${layer}」の行「${row}」の説明を開けない。説明のある行: ${rows.join(" / ")}`);
         }
         await info.click();
       }

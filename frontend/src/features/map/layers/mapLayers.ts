@@ -7,6 +7,7 @@ import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   AccidentIcon,
+  BicycleIcon,
   ElevationIcon,
   HillshadeIcon,
   LandcoverIcon,
@@ -120,6 +121,7 @@ const STATIC_LAYER_ICONS: Record<StaticMapLayerId, MapIconComponent> = {
   tracktype: TrackGradeIcon,
   tunnel: TunnelIcon,
   oneway: OnewayIcon,
+  cycleway: BicycleIcon,
   stop_poi: StopPoiIcon,
   supply_poi: SupplyPoiIcon,
   stop_place: StopPlaceIcon,
@@ -220,8 +222,6 @@ export function mapOverlayGroupFor(layer: { category?: MapLayerCategory }): MapO
 export interface ChipLayerDescriptor {
   id: MapLayerId;
   label: string;
-  /** チップの下の短い名前（チップの幅は文字数で決まるので、長い名前はここで縮める）。無ければlabel。 */
-  chipLabel?: string;
   kind: MapLayerKind;
   /** 省略できない（描く側の対応表で引く形だと、書き忘れても汎用のアイコンで見分けの付かないまま出続ける）。 */
   icon: MapIconComponent;
@@ -335,7 +335,6 @@ export function buildMapLayers({
       id: layer.id,
       label: layer.label,
       ...declaredLayer(layer),
-      chipLabel: layer.chipLabel ?? undefined,
       icon: STATIC_LAYER_ICONS[layer.id],
       readOnlyLegend: READ_ONLY_LEGENDS[layer.id],
       description: fillLayerText(layer.description, slots),
@@ -357,9 +356,6 @@ export function buildMapLayers({
     })),
   ];
 }
-
-/** 最上位のグループを同時に開いておける数（理由は`docs/modules/frontend/static-map-layers.md`）。 */
-export const MAP_OVERLAY_MAX_EXPANDED_GROUPS = 1;
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 

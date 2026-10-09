@@ -33,10 +33,10 @@ export const buttonVariants = cva(
          * 消えるのが遅れ、押した後も枠が青く見えるため消す。 */
         float:
           "pointer-events-auto touch-none border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--foreground)] shadow-float [-webkit-tap-highlight-color:transparent] hover:enabled:border-[var(--color-accent)]",
-        /** 地図右上のMapLibre純正コントロールの続きに見えるボタン。MapLibre側がテーマに追従しないため、
-         * 同じ列で色違いにならないよう固定色にする。寸法はglobals.cssの--map-ctrl-*（縦積みの位置計算と共有）。 */
+        /** 地図右上のMapLibre純正コントロールの続きに見えるボタン。面の色はテーマに従い、純正の側はglobals.cssが同じ色へ
+         * 揃える。寸法はglobals.cssの--map-ctrl-*（縦積みの位置計算と共有）。 */
         mapCtrl:
-          "pointer-events-auto touch-none rounded-[4px] border-0 bg-white text-[#333] shadow-[0_0_0_2px_rgba(0,0,0,0.1)] data-[state=open]:shadow-[0_0_2px_2px_#0096ff] [&_svg]:size-[var(--map-ctrl-icon-size)]",
+          "pointer-events-auto touch-none rounded-[4px] border-0 bg-[var(--color-surface)] text-[var(--foreground)] shadow-[0_0_0_2px_rgba(0,0,0,0.1)] data-[state=open]:shadow-[0_0_2px_2px_#0096ff] [&_svg]:size-[var(--map-ctrl-icon-size)]",
         /** メニューの1行（押すと1回動く。切り替えの行は`Toggle`の`menu`）。 */
         menu: "justify-start gap-2 border-0 bg-transparent text-left text-[var(--foreground)] hover:enabled:bg-[var(--color-surface-2)]",
         /** 見出し脇の(i)。開いている間はアクセント色。 */

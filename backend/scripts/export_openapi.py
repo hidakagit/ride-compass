@@ -344,7 +344,7 @@ def main() -> None:
             "semantic": SEMANTIC_COLORS,
         },
     )
-    # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びがチップの並び順。
+    # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びが「表示」の一覧の並び順。
     # **JSONではなくTypeScriptで出す。** JSONのimportは型が`string`へ広がり、
     # 存在しない値を渡しても型検査が通ってしまう（実際に広げた実績あり）。`as const`で
     # 出すと、画面側の型は源泉の値そのものに狭まる。
@@ -361,15 +361,15 @@ def main() -> None:
             ],
             "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
             "layerKinds": list(MAP_LAYER_KINDS),
-            # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示）。
+            # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示・最初に隠す行）。
             "layers": [
                 {
                     "id": layer_id,
                     "label": map_layer_label(layer_id, spec),
                     **_map_layer_entry(spec),
-                    "chipLabel": spec.chip_label,
                     "description": _layer_text(spec.description),
                     "panelHint": _layer_text(spec.panel_hint) or None,
+                    "hideMissingRows": spec.hide_missing_rows,
                 }
                 for layer_id, spec in MAP_LAYERS
             ],

@@ -2,13 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { installApiMocks, openMobileApp, openMobileSheet, seedStoredState } from "./fixtures";
 import { WIDTHS } from "./states";
 
-// 地図の右の列（拡大・縮小から、まとめて戻すまで）のボタンが、ほかの部品の下に潜らず押せ、継ぎ目の間隔が揃うこと（パターン4 観点1）。
+// 地図の右の列（拡大・縮小から、現在地まで）のボタンが、ほかの部品の下に潜らず押せ、継ぎ目の間隔が揃うこと（パターン4 観点1）。
 // 押す所の大きさ（24px四方）は全状態の走査が両方の幅で見るので、ここでは重なりと間隔だけを見る。どちらも実寸と重なりの順番で
 // 決まり、単体テストでは見えない。押す点（中心）のヒットテストがボタン自身か子孫を返せば、上に何も重なっていない。
 // 間隔は、方位のボタンから下の継ぎ目が全部 `--map-ctrl-stack-gap` であること（拡大・縮小・方位は MapLibre の1つの枠に
 // 隙間なく並ぶので見ない）。ボタンを包む要素が行の箱の分だけ高くなると、その継ぎ目だけ広がる。
 
-const RIGHT_COLUMN = /^(拡大|縮小|ドラッグで地図を回転|走行方位を設定|出発時刻|想定速度|現在地に移動|まとめて戻す)/;
+const RIGHT_COLUMN = /^(拡大|縮小|ドラッグで地図を回転|走行方位を設定|出発時刻|想定速度|現在地に移動)/;
 
 type ColumnButton = { name: string; onTop: boolean; top: number; bottom: number };
 
@@ -34,11 +34,11 @@ async function rightColumnButtons(page: Page): Promise<ColumnButton[]> {
 
 async function expectColumnSound(page: Page) {
   const column = await rightColumnButtons(page);
-  // 現在地とまとめて戻すが列の末尾まで並んでいること（見つからない名前を素通りさせない）。
+  // 現在地が列の末尾まで並んでいること（見つからない名前を素通りさせない）。
   expect(column.map(({ name }) => name)).toEqual(
-    expect.arrayContaining(["拡大", "縮小", "走行方位を設定", "現在地に移動", "まとめて戻す"]),
+    expect.arrayContaining(["拡大", "縮小", "走行方位を設定", "現在地に移動"]),
   );
-  expect(column.at(-1)?.name).toBe("まとめて戻す");
+  expect(column.at(-1)?.name).toBe("現在地に移動");
   expect(column.filter(({ onTop }) => !onTop)).toEqual([]);
 
   const stackGap = await page.evaluate(() =>
@@ -70,4 +70,29 @@ test("PC: 地図の右の列のボタンはほかの部品の下に潜らず、�
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
   await expectColumnSound(page);
+});
+
+// 「表示」の一覧は画面の下端まで伸びるので、スマホではシート・タブバーと重なる。重なった所でも一覧が上にあり、末尾まで押せること
+// （重なりの順番で決まり、単体テストでは見えない）。末尾がシートの上端より下にあることを先に見て、重なっていない配置で素通りさせない。
+test("スマホ: ルート設定のシートを開いたまま「表示」の一覧を末尾まで送っても、末尾の操作がシートの下に潜らず押せる", async ({
+  page,
+}) => {
+  await openMobileApp(page);
+  await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
+  const sheet = await openMobileSheet(page, "ルート設定");
+  await page.getByRole("button", { name: "地図に出す情報", exact: true }).click();
+  const last = page
+    .getByRole("dialog", { name: "地図に出す情報", exact: true })
+    .getByRole("button", { name: "絞り込みをすべて解除" });
+  await last.scrollIntoViewIfNeeded();
+
+  const sheetTop = (await sheet.boundingBox())!.y;
+  const lastBox = (await last.boundingBox())!;
+  expect(lastBox.y + lastBox.height / 2).toBeGreaterThan(sheetTop);
+  const onTop = await last.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit !== null && el.contains(hit);
+  });
+  expect(onTop).toBe(true);
 });

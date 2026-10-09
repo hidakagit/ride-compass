@@ -77,7 +77,7 @@
 | [静的道路属性・タイル配信](backend/static-road-attributes.md) | OSM取込・MVTタイル配信 |
 | [気象・動的レイヤー](backend/weather-dynamic-layers.md) | 気象庁MSM（数値予報モデル）・気象庁観測/防災データ |
 | [標高](backend/elevation.md) | GSI DEMタイル |
-| [地点の検索](backend/place-search.md) | 住所の辞書を手元で引き、出発地・経由地・目的地の候補を返す |
+| [地点の検索](backend/place-search.md) | 住所の辞書を手元で引き、出発地・経由地・目的地の候補を返す。住所の区画の表を作る |
 | [横断基盤](backend/cross-cutting-infrastructure.md) | DB・Redis・ログ・レート制限・ジョブ管理 |
 
 ## frontend
@@ -88,7 +88,7 @@
 | [ルート設定・結果パネル](frontend/route-settings-and-results.md) | 重み設定・候補一覧・軸別内訳 |
 | [地図: 軸・ルート色分け](frontend/map-axis-coloring.md) | dedicated_way_value_layer軸の描画 |
 | [地図: 動的気象レイヤー](frontend/dynamic-weather-layers.md) | 風・降水・キキクル等の地図表示 |
-| [地図: 静的レイヤー・道路表示](frontend/static-map-layers.md) | 路面・道路種別・POI・事故の地図表示 |
+| [地図: 静的レイヤー・道路表示](frontend/static-map-layers.md) | 路面・道路種別・自転車レーン・POI・事故の地図表示 |
 | [ページ全体構成・状態管理](frontend/page-composition.md) | `page.tsx`のコンポジション・永続化。特定モジュールの責務ではない共通部品（`BottomSheet`・`Disclosure`等）もここへ集約する |
 | [デザイン基盤](frontend/frontend-design-system.md) | `components/ui/`・デザイントークン（`globals.css`）・見た目は部品が持ち画面は並べ方だけを書く決まり |
 | [開発者機能](frontend/developer-tools.md) | デバッグログ・システム状況 |

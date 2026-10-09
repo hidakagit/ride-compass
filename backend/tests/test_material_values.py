@@ -161,6 +161,17 @@ async def test_a_cycleway_value_on_any_side_counts(road_graph_session):
     assert values == {1: True, 2: False}
 
 
+async def test_a_road_falls_in_the_first_cycleway_class_it_meets_and_a_road_without_any_has_none(road_graph_session):
+    values = await _way_values(road_graph_session, material_sql.CYCLEWAY_CLASS_SQL, {
+        1: {"highway": "residential", "cycleway:left": "lane", "cycleway:right": "track"},
+        2: {"highway": "residential", "cycleway": "lane", "bicycle": "yes"},
+        3: {"highway": "footway", "bicycle": "designated"},
+        4: {"highway": "residential", "cycleway": "no"},
+    })
+
+    assert values == {1: "separated", 2: "lane", 3: "shared", 4: None}
+
+
 # 停止要因の種別は区間の値の表の列名を決めるだけで、どの種別でも式は同じ。
 _POI_KIND = "signal"
 

@@ -29,7 +29,7 @@ from tests.route_world import (
     NetworkRepository,
     grid_network,
 )
-from tests.source_ingest import ingest_records, point_record, way_record
+from tests.source_ingest import abr_prefecture_record, ingest_records, point_record, way_record
 
 ONEWAY, BAD, UNKNOWN, MOTORWAY, NO_GRADIENT, NO_STOP_COUNT = sorted(WAYS)[:6]
 
@@ -106,6 +106,7 @@ async def test_the_real_repository_returns_each_direction_from_its_start_to_its_
     await ingest_records("osm_node", [point_record(n, COORDINATES[n][1], COORDINATES[n][0]) for n in (START, END)])
     await ingest_records("osm_way", [way_record(
         WAY, [(COORDINATES[n][1], COORDINATES[n][0]) for n in (START, END)], [START, END], {"highway": "residential"})])
+    await ingest_records("abr", [abr_prefecture_record("130001", "東京都", COORDINATES[START][1], COORDINATES[START][0])])
     assert await derive_cli.run(postgis_database_url(), None) == 0
 
     await _geometry_runs_from_the_start_node_to_the_end_node(road_graph_repository)

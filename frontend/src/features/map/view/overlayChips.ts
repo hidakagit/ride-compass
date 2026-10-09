@@ -1,8 +1,7 @@
 /** 地図上チップ（`MapOverlayControls`）へ渡す1枚ずつの状態と、レイヤーのON/OFFの保存形式。
  *
  * チップも▶パネルの中身も宣言から作る——チップはレイヤーカタログ（`buildMapLayers`）、絞り込める
- * 凡例は`scene/legends.ts`、表示専用の凡例は記述子の`readOnlyLegend`。画面の状態からしか
- * 作れない凡例（ルート線の段）だけを呼び出し側が渡す。
+ * 凡例は`scene/legends.ts`、表示専用の凡例は記述子の`readOnlyLegend`。
  */
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import {
@@ -29,44 +28,40 @@ interface ChipLegend {
   axisId?: string;
 }
 
-function chipLegends(layer: ChipLayerDescriptor, screenLegends: readonly ChipLegend[]): ChipLegend[] {
+function chipLegends(layer: ChipLayerDescriptor): ChipLegend[] {
   return [
     ...[...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()]
       .filter((axis) => axis.layerId === layer.id)
       .map((axis) => ({ label: axis.label, legend: axis.entries, axisId: axis.axisId })),
     ...(layer.readOnlyLegend ?? []),
-    ...screenLegends,
   ];
 }
 
-/** 地図上チップの一覧。軸スタジオ由来のレイヤーは出さない——表示はレンズだけが決める。チップの束ね方
- * （`mapLayers.ts: mapOverlayGroupFor`）は中分類しか見ないので、除くのはここの1か所で、束ねる前に除く。 */
+/** 地図上チップの一覧。軸スタジオ由来のレイヤーと、選択中のルートにひもづくレイヤー（`kind`が`dynamic`）は出さない
+ * ——どちらも出し入れは色分け（`LensControl`）が持つ。チップの束ね方（`mapLayers.ts: mapOverlayGroupFor`）は中分類しか
+ * 見ないので、除くのはここの1か所で、束ねる前に除く。 */
 export function overlayChips(options: {
   layers: readonly MapLayerDescriptor[];
   visibility: MapLayerVisibility;
   hidden: HiddenLegendKeys;
-  screenLegends: Partial<Record<MapLayerId, readonly ChipLegend[]>>;
   dataStatus: LayerDataStatusByLayer;
   zoomTooWideLayerIds: readonly MapLayerId[];
   /** タイル世代が届くまで描けず、いま世代が無いレイヤー。 */
   versionMissingLayerIds: readonly MapLayerId[];
   /** 軸カタログの取得を終えたか。終えたのに世代が無いなら、待っても直らない。 */
   catalogSettled: boolean;
-  /** 候補を選んでいるか。選ぶまで、ルートにひもづくレイヤーは押しても何も出ない。 */
-  hasSelectedRoute: boolean;
 }): OverlayLayerChip[] {
   const { hidden, catalogSettled } = options;
   return options.layers
     .filter((layer): layer is ChipLayerDescriptor => !isAxisStudioLayer(layer))
+    .filter((layer) => layer.kind !== "dynamic")
     .map((layer) => {
       const versionMissing = options.versionMissingLayerIds.includes(layer.id);
       return {
         id: layer.id,
         label: layer.label,
         icon: layer.icon,
-        chipLabel: layer.chipLabel ?? layer.label,
         on: options.visibility[layer.id] === true,
-        disabled: layer.kind === "dynamic" && !options.hasSelectedRoute,
         title: layer.description,
         notice:
           versionMissing && catalogSettled
@@ -74,13 +69,11 @@ export function overlayChips(options: {
             : options.zoomTooWideLayerIds.includes(layer.id)
               ? TILE_ZOOM_TOO_WIDE_NOTICE
               : null,
-        legendDetails: chipLegends(layer, options.screenLegends[layer.id] ?? []).map(
-          (axis): LegendFilterSummaryAxis => ({
-            ...axis,
-            hiddenKeys:
-              axis.axisId === undefined ? [] : presentHiddenKeys(axis.legend, hiddenKeysOf(hidden, axis.axisId)),
-          }),
-        ),
+        legendDetails: chipLegends(layer).map((axis): LegendFilterSummaryAxis => ({
+          ...axis,
+          hiddenKeys:
+            axis.axisId === undefined ? [] : presentHiddenKeys(axis.legend, hiddenKeysOf(hidden, axis.axisId)),
+        })),
         category: layer.category,
         panelHint: layer.panelHint,
         // 世代が無いとソースを作らないため、MapLibreのイベントは何も言わない。

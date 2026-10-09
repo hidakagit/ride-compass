@@ -21,7 +21,7 @@ from app.infrastructure.orm_base import Base
 from app.infrastructure.source_models import Source
 from app.services.derived_data_freshness_service import build_freshness_report
 from tests.conftest import postgis_database_url, raw_connection
-from tests.source_ingest import ingest_records, point_record, way_record
+from tests.source_ingest import abr_prefecture_record, ingest_records, point_record, way_record
 
 from datetime import datetime, timezone
 
@@ -124,6 +124,7 @@ async def test_作り直した直後は値や行の無い道と区間があっ�
     await ingest_records(Source.OSM_NODE, [point_record(n, *point) for n, point in points.items()])
     await ingest_records(Source.OSM_WAY, [
         way_record(way_id, [points[n] for n in nodes], nodes) for way_id, nodes in ((100, [1, 2]), (200, [3, 4]))])
+    await ingest_records(Source.ABR, [abr_prefecture_record("130001", "東京都", *points[1])])
     assert await derive_cli.run(postgis_database_url(), None) == 0
 
     report = await _report(road_graph_session)

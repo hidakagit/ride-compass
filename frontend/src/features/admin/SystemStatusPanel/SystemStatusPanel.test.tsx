@@ -46,7 +46,7 @@ function debugStats(overrides: Partial<DebugStats> = {}): DebugStats {
   };
 }
 
-const frontendVersion: FrontendVersion = { commit: null, started_at: "2026-09-24T00:00:00Z", recent: [] };
+const frontendVersion: FrontendVersion = { commit: null, started_at: "2026-09-24T00:00:00Z" };
 
 const STATS = "/api/debug/stats";
 const VERSION = "/api/version";

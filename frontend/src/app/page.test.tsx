@@ -11,7 +11,7 @@
  *   周回の間は目的地を地図へ出さないこと、住所の検索で経由地へ置けるのは置いた経由地が上限に届くまでのこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
- *   地図の右の列のまとめて戻すメニュー
+ *   地図の表示をまとめて戻す操作（「表示」の一覧の末尾と右上のメニュー）
  * - 画面の枠: スマホの下部タブとシート（1枚ずつ開く・地点を扱える間・結果の合図・候補を出せなかった理由の1行・ルートを収めるときに避ける
  *   シートの高さ・高さの保存と保存値の検査）、区分の開閉の保存、ヘッダーの「未取得」に並ぶ出所と「現在地に移動」の失敗、
  *   メニューから入る使い方の説明とデバッグログ
@@ -302,8 +302,9 @@ describe("ルートを作る", () => {
     fireEvent.change(await screen.findByLabelText("出発日時を直接指定"), { target: { value: "2026-10-05T09:00" } });
 
     // 道を押せるのは、道路のレイヤーを出している間。
-    await user.click(screen.getByRole("button", { name: "道路" }));
-    await user.click(screen.getByRole("button", { name: "路面" }));
+    await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
+    await user.click(screen.getByRole("checkbox", { name: "路面の種類" }));
+    await user.keyboard("{Escape}");
     clickMap(HERE, [{ layer: "road-tiles-surface", properties: { osm_way_id: 1 } }]);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
     expect(await screen.findByText(/この道だけで見た難易度/)).toBeInTheDocument();
@@ -412,6 +413,7 @@ describe("地図で扱えること", () => {
       kind: "address",
       level: "block",
       name: "東京都千代田区丸の内一丁目9番",
+      area: null,
       latitude: 35.681,
       longitude: 139.767,
     } as const;
@@ -547,23 +549,31 @@ describe("地図で扱えること", () => {
     });
   });
 
-  it("まとめて戻すメニュー: レイヤーを消すと全部消え、絞り込みを解くのは凡例で隠している間だけ押せる。再描画は地図の描き直しを求める。押すとメニューは閉じる", async () => {
+  it("地図の表示をまとめて戻す: 「表示」の一覧で行を全部消すとルートのほかの地図のレイヤーが消え、絞り込みを解くのは色分けの凡例を含めて凡例で隠している間だけ押せる。右上のメニューの再描画は地図の描き直しを求める", async () => {
     const { user } = renderHome();
-    // 押した項目のあと、メニューは閉じている（開いたままだと戻した地図の上に残る）。
-    const runFromMenu = async (name: string) => {
-      await user.click(screen.getByRole("button", { name: "まとめて戻す" }));
-      await user.click(screen.getByRole("button", { name }));
-      expect(screen.queryByRole("button", { name })).toBeNull();
-    };
-    const canRun = async (name: string) => {
-      await user.click(screen.getByRole("button", { name: "まとめて戻す" }));
-      const enabled = !(screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
+    const fromList = async <T,>(name: string, inspect: (button: HTMLButtonElement) => Promise<T> | T) => {
+      await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
+      const result = await inspect(screen.getByRole("button", { name }) as HTMLButtonElement);
       await user.keyboard("{Escape}");
-      return enabled;
+      return result;
     };
-    expect(mapOnScreen().visibleLayerIds()).not.toEqual([]);
-    await runFromMenu("表示中のレイヤーをすべて非表示");
-    expect(mapOnScreen().visibleLayerIds()).toEqual([]);
+    const canRun = (name: string) => fromList(name, (button) => !button.disabled);
+    const run = (name: string) => fromList(name, (button) => user.click(button));
+    // ルートの出し入れは色分けが持ち、一覧の操作では消さない。
+    const nonRouteLayers = () =>
+      mapOnScreen()
+        .visibleLayerIds()
+        .filter((id) => !id.startsWith("route-"));
+    await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
+    await user.click(screen.getByRole("checkbox", { name: "路面の種類" }));
+    await user.keyboard("{Escape}");
+    expect(nonRouteLayers()).not.toEqual([]);
+    const routeLayers = mapOnScreen()
+      .visibleLayerIds()
+      .filter((id) => id.startsWith("route-"));
+    await run("表示中のレイヤーをすべて非表示");
+    expect(nonRouteLayers()).toEqual([]);
+    expect(mapOnScreen().visibleLayerIds()).toEqual(routeLayers);
 
     expect(await canRun("絞り込みをすべて解除")).toBe(false);
     jobs.respond([FIRST], LOOP_CONDITIONS);
@@ -573,11 +583,12 @@ describe("地図で扱えること", () => {
     await user.click(legendAll);
     await user.keyboard("{Escape}");
     expect(await canRun("絞り込みをすべて解除")).toBe(true);
-    await runFromMenu("絞り込みをすべて解除");
+    await run("絞り込みをすべて解除");
     expect(await canRun("絞り込みをすべて解除")).toBe(false);
 
     const before = mapOnScreen().styles.length;
-    await runFromMenu("地図の表示を再描画");
+    await user.click(screen.getByRole("button", { name: "メニュー" }));
+    await user.click(screen.getByRole("button", { name: "地図の表示を再描画" }));
     expect(mapOnScreen().styles).toHaveLength(before + 1);
   });
 });

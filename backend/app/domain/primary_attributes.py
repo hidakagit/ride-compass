@@ -12,6 +12,7 @@ from app.domain.registry import (
     PointThinningSpec,
     PrimaryAttributeSpec,
 )
+from app.domain.material_sql import CYCLEWAY_CLASSES
 from app.domain.road import SURFACE_CLASSES, TRACK_GRADES, surface_class_description
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import TAG_KIND_RULES, kind_map_sql, kinds_shown_as, stop_kind_sql
@@ -112,7 +113,25 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
     ),
     ATTR_LANES := PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
     ATTR_MAXSPEED := PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
-    ATTR_CYCLEWAY := PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ", geometry="line"),
+    ATTR_CYCLEWAY := PrimaryAttributeSpec(
+        attr_id="cycleway",
+        tile_kind="road_surface",
+        label="自転車インフラ",
+        geometry="line",
+        # 行は材料「自転車の走る場所」の値そのもの。当てはまらない道は値を持たない（該当なし）。
+        display_axes=(
+            DisplayAxisSpec(
+                key="cycleway",
+                property="cycleway_class",
+                palette="nominal",
+                hue_slot=7,
+                categories=tuple(
+                    DisplayCategorySpec(key=c.key, label=c.label, values=(c.key,), description=c.description)
+                    for c in CYCLEWAY_CLASSES
+                ),
+            ),
+        ),
+    ),
     ATTR_SURFACE := PrimaryAttributeSpec(
         attr_id="surface",
         tile_kind="road_surface",

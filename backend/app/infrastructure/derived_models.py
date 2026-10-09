@@ -9,6 +9,7 @@
 | 線（粗） | `way_materials` | 道1本に付く値 |
 | 線（細） | `road_edges` / `edge_materials` | 交差点で切った区間の形と、区間に付く値 |
 | 地点 | `stop_places` | 立ち寄り先。道の網とは別の点で、OpenStreetMap由来の値を持たない |
+| 住所の区画 | `address_areas` / `address_search_keys` / `address_boundary_links` | 区画と、区画を引く鍵と、小地域の境界に当たる区画 |
 
 面（ラスタ）の派生は持たない——面の生データを読む出口は「そのまま見せる」か「線へ
 落とす」のどちらかで、面のままの中間結果を要る相手がいない。
@@ -29,11 +30,14 @@ from sqlalchemy import (
     REAL,
     SmallInteger,
     String,
+    column,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import DERIVED, Base
 from app.infrastructure.source_models import Source
+from app.domain.address_area import ADDRESS_AREA_LEVELS
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
@@ -262,6 +266,62 @@ class NodeMaterialRow(Base):
         SmallInteger, nullable=False, server_default="0")
 
 
+class AddressAreaRow(Base):
+    """住所の区画1つ（都道府県・市区町村・区・大字/町・丁目/字）。アドレス・ベース・レジストリから作る
+    （`batch/derive_addresses.py`）。表示の名前（全名・辺り）は持たず、`parent_id`をたどって組み立てる。"""
+
+    __tablename__ = "address_areas"
+    __table_args__ = (
+        vocabulary_check("address_areas", "level", frozenset(ADDRESS_AREA_LEVELS)),
+        CheckConstraint("(level = 'prefecture') = (parent_id IS NULL)", name="address_areas_root_is_prefecture"),
+        # 境界の中の代表点で区画を探す（境界と区画の結び付け）。
+        Index("idx_address_areas_geom", "geom", postgresql_using="gist"),
+        {"info": DERIVED},
+    )
+
+    #: 都道府県・市区町村・区は全国地方公共団体コード（6桁）、町字はそれに町字ID（7桁）をつないだもの。ABR に大字自身の
+    #: 行が無い大字は、子の町字IDの頭4桁に`000`をつないだもの（大字自身の行の町字IDの形）。
+    area_id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: 1つ粗い区画。丁目・字 → 大字（大字の無い字は市区町村か区）→ 区か市区町村 → 政令市 → 都道府県。都道府県はNULL。
+    parent_id: Mapped[str | None] = mapped_column(String, ForeignKey("address_areas.area_id"), nullable=True)
+    level: Mapped[str] = mapped_column(String, nullable=False)
+    #: 自分の段の名前だけ（「西新宿」「二丁目」）。
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    #: 郡に属す町村の行だけが持つ郡の名前。
+    county_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: 代表点。大字自身の行の無い大字は子の代表点の重心。
+    geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)
+
+
+class AddressSearchKeyRow(Base):
+    """住所の区画を引く鍵（表記の揺れを除いた形。`domain/address_area.py: standardize_address`）。1つの区画が書き始める段の
+    違う別形を何本も持つ。主キーの索引で等号と前方一致の両方を引く（照合順序`C`）。"""
+
+    __tablename__ = "address_search_keys"
+    __table_args__ = (
+        # 続きを引くとき、長さごとの件数を数えて短い鍵から引く。
+        Index("idx_address_search_keys_continuable", func.length(column("key")), "key",
+              postgresql_where=column("continuable")),
+        {"info": DERIVED},
+    )
+
+    key: Mapped[str] = mapped_column(String(collation="C"), primary_key=True)
+    area_id: Mapped[str] = mapped_column(String, ForeignKey("address_areas.area_id"), primary_key=True)
+    #: 続き（打ちかけの語を頭に持つ区画）に使う鍵か。大字・町の段までの区画の鍵が真。
+    continuable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class AddressBoundaryLinkRow(Base):
+    """e-Stat の小地域の境界1つと、それに当たる住所の区画（大字・町か丁目・字）。境界の多角形は生データに置いたまま読む。"""
+
+    __tablename__ = "address_boundary_links"
+    __table_args__ = ({"info": DERIVED},)
+
+    #: 境界の小地域のコード（生データ`estat_small_area`の鍵）。
+    key_code: Mapped[str] = mapped_column(String, primary_key=True)
+    area_id: Mapped[str] = mapped_column(String, ForeignKey("address_areas.area_id"), nullable=False)
+
+
 #: 立ち寄り先の表へ地点を入れるソース。
 STOP_PLACE_SOURCES: frozenset[str] = frozenset({Source.OVERTURE_PLACE, Source.BUNKA_HERITAGE})
 
@@ -295,4 +355,7 @@ class StopPlaceRow(Base):
     confidence: Mapped[float] = mapped_column(REAL, nullable=False)
     #: チェーンの名前。無ければ個店。
     brand: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: 辺り（市区町村から字・丁目まで。位置を住所の辞書で逆引きした名前）。地点の検索が名前に添え、同じ名前の店を見分ける。
+    #: 逆引きが旧い住所の節にしか当たらなければNULL。
+    area: Mapped[str | None] = mapped_column(String, nullable=True)
     geom: Mapped[object] = mapped_column(Geometry("POINT", srid=4326, spatial_index=False), nullable=False)

@@ -10,7 +10,6 @@ import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
 import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
 import MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
-import MapResetMenu from "@/features/map/MapResetMenu/MapResetMenu";
 import {
   ClearRoutesIcon,
   GenerateRoutesIcon,
@@ -400,6 +399,7 @@ export default function Home() {
               debugConsoleOpen={debugConsoleOpen}
               onToggleDebugConsole={() => setDebugConsoleOpen((v) => !v)}
               onStartUsageGuide={() => setUsageGuideActive(true)}
+              onRedrawMap={mapView.redrawMap}
             />
           </div>
         </div>
@@ -533,9 +533,20 @@ export default function Home() {
               measureRouteFitObscuredPx={measureRouteFitObscuredPx}
             />
 
-            <LensControl {...mapView.lensControl} />
-
-            <MapOverlayControls {...mapView.overlayControls} />
+            {/* 地図の左上に「表示」（重ねる情報の一覧）、上の中央に色分けを置く。 */}
+            <div
+              {...mapOverlayEdge("top")}
+              className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex"
+            >
+              <MapOverlayControls {...mapView.overlayControls} />
+            </div>
+            {/* 左右の余白は、右の縦の列を両側で避ける幅（中央に置くため）。 */}
+            <div
+              {...mapOverlayEdge("top")}
+              className="pointer-events-none absolute inset-x-0 top-3 z-[var(--z-map-control)] flex justify-center px-[calc(var(--map-ctrl-margin)_+_var(--map-ctrl-column-width)_+_var(--space-2))]"
+            >
+              <LensControl {...mapView.lensControl} />
+            </div>
 
             <FirstVisitIntro isMobile={isMobile} locationUnknown={locationFailure !== null} />
 
@@ -544,7 +555,7 @@ export default function Home() {
             <TravelBearingControl value={ride.bearingDeg} onChange={ride.setBearingDeg} />
 
             {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。
-              その下へ現在地とまとめて戻すメニューを続ける。 */}
+              その下へ現在地を続ける。 */}
             <div
               {...mapOverlayEdge("right")}
               className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)] flex flex-col gap-[var(--map-ctrl-stack-gap)]"
@@ -580,7 +591,6 @@ export default function Home() {
                   </p>
                 )}
               </div>
-              <MapResetMenu {...mapView.bulk} />
             </div>
           </div>
         </div>

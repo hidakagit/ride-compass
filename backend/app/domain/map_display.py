@@ -9,7 +9,7 @@ from typing import Literal, NamedTuple
 from app.domain.display_palette import ORDERED_END_COLOR_NAMES
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
 from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
-from app.domain.place_search import ADDRESS_DICTIONARY_ATTRIBUTION
+from app.domain.place_search import ADDRESS_AREA_ATTRIBUTIONS, ADDRESS_DICTIONARY_ATTRIBUTION
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import DisplayAxisSpec
 from app.domain.region import ROAD_TILE_MIN_ZOOM
@@ -27,7 +27,7 @@ class LayerCategory(NamedTuple):
     group: str
 
 
-#: 並びがそのままチップの並び順になる。
+#: 並びがそのまま「表示」の一覧の群の並び順になる。
 MAP_OVERLAY_GROUPS: tuple[OverlayGroup, ...] = (
     OverlayGroup("road", "道路"),
     OverlayGroup("environment", "環境"),
@@ -77,7 +77,7 @@ _TILE_KINDS: tuple[str, ...] = tuple(
 
 #: レイヤーの絵がどこから来るか。取得状態（読み込み中・空・失敗）の判定はここから導く。
 #: 最小ズームは配信の性質なので情報源の側で持つ——レイヤーごとに書くと、同じタイルを
-#: 読むレイヤーの1つだけ書き忘れても型が通り、そのチップだけ案内が出ない。
+#: 読むレイヤーの1つだけ書き忘れても型が通り、その行だけ案内が出ない。
 MAP_LAYER_DATA_SOURCES: tuple[MapLayerDataSource, ...] = (
     *(MapLayerDataSource(kind, ROAD_TILE_MIN_ZOOM) for kind in _TILE_KINDS),
     MapLayerDataSource("gsiRelief"),
@@ -87,7 +87,7 @@ MAP_LAYER_DATA_SOURCES: tuple[MapLayerDataSource, ...] = (
 )
 
 #: 値の性質。生データか、計算した推定か、時刻で中身が変わるか。
-#: 評価軸は"composite"で、地図チップには出さない。
+#: 評価軸は"composite"で、「表示」の一覧には出さない。
 MAP_LAYER_DATA_NATURES: tuple[str, ...] = ("raw", "composite", "dynamic")
 
 #: レイヤーの種別と、属するグループ。**種別を1つ足すときは必ず所属も決まる**。
@@ -135,6 +135,7 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
     "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
     ADDRESS_DICTIONARY_ATTRIBUTION,
+    *ADDRESS_AREA_ATTRIBUTIONS,
     # Overture の地点は出どころごとに表示が要る（公式の文書 https://docs.overturemaps.org/attribution/ ）。
     # Foursquare の行は Apache 2.0 で、ライセンスの写し・変えた旨・NOTICE の全文を渡す（frontend/public/licenses/）。
     '立ち寄り先: <a href="https://overturemaps.org/" target="_blank" rel="noreferrer">Overture Maps Foundation</a>'
@@ -195,13 +196,14 @@ class MapLayerSpec(NamedTuple):
     default_on: bool = False
     #: 名前。一次属性を描くレイヤーは書かない——属性の名前をそのまま使う（`map_layer_label`）。
     label: str | None = None
-    #: チップの下の短い名前（チップの幅は文字数で決まるので、長い名前はここで縮める）。無ければ名前。
-    chip_label: str | None = None
-    #: ONにすると何が出るかの短い説明（チップのtitle）。地図に載るものは必ず持つ（`MAP_LAYERS`）。
+    #: ONにすると何が出るかの短い説明（一覧の行のtitle）。地図に載るものは必ず持つ（`MAP_LAYERS`）。
     #: 軸スタジオ由来の軸の説明は軸から作る。
     description: LayerText = ()
-    #: 表示の設定パネルで項目の(i)が出す、descriptionより詳しい説明。
+    #: 一覧の行のⓘが出す、descriptionより詳しい説明。
     panel_hint: LayerText = ()
+    #: 値の無い道の行（データなし・該当なし）を、最初は凡例で隠しておくか。値のある道が少なく、無い道の線が
+    #: 地図を覆う道の線の層だけが持つ（利用者は凡例のチェックで出せる）。
+    hide_missing_rows: bool = False
 
 
 def _tile_layer(
@@ -210,13 +212,19 @@ def _tile_layer(
     *,
     description: LayerText,
     panel_hint: LayerText,
-    chip_label: str | None = None,
+    label: str | None = None,
+    hide_missing_rows: bool = False,
 ) -> MapLayerSpec:
     """タイルで配る一次属性のレイヤー。情報源は属性自身が宣言するタイルの系統。"""
     tile_kind = next(attr.tile_kind for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
     assert tile_kind is not None, attr_id
     return MapLayerSpec(
-        tile_kind, category, chip_label=chip_label, description=description, panel_hint=panel_hint
+        tile_kind,
+        category,
+        label=label,
+        description=description,
+        panel_hint=panel_hint,
+        hide_missing_rows=hide_missing_rows,
     )
 
 
@@ -319,7 +327,7 @@ def _disaster_by_frame_rule() -> list[tuple[str, str, str]]:
 _DISASTER_BY_FRAME_RULE = _disaster_by_frame_rule()
 
 
-#: `_MAP_LAYER_IDS`の1つずつの宣言。並びがチップの並び（種別の中の順）になる。**過不足は生成の時点で落ちる**（`MAP_LAYERS`）。
+#: `_MAP_LAYER_IDS`の1つずつの宣言。並びが一覧の行の並び（種別の中の順）になる。**過不足は生成の時点で落ちる**（`MAP_LAYERS`）。
 _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "elevation": MapLayerSpec(
         "gsiRelief",
@@ -354,7 +362,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "highway": _tile_layer(
         "highway",
         "roadCondition",
-        chip_label="道路種別",
         description=(f"道路の種類を色で表示[{ordered_ends_text(_first_axis('highway'))}]",),
         panel_hint=(
             "OSMのhighwayタグを区分にまとめて色分けしています。"
@@ -365,18 +372,19 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "surface": _tile_layer(
         "surface",
         "roadCondition",
-        chip_label="路面",
         description=("路面の材質を色で表示[舗装・砂利・土など]",),
         panel_hint=(
             "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。"
-            f"タグの無い道は「{LEGEND_SHARED_ROWS["noData"].label}」、区分に当てはまらない値の道は「{LEGEND_SHARED_ROWS["other"].label}」で出します"
+            f"区分に当てはまらない値の道は「{LEGEND_SHARED_ROWS["other"].label}」で出します。"
+            f"タグの無い道[{LEGEND_SHARED_ROWS["noData"].label}]は郊外ではほとんどの道に当たり、値のある道を埋もれさせるため、"
+            "最初は隠してあり、凡例のチェックで出せます"
             f"[{LEGEND_SHARED_ROWS["noData"].label}は未舗装という意味ではありません]。",
         ),
+        hide_missing_rows=True,
     ),
     "tracktype": _tile_layer(
         "tracktype",
         "roadCondition",
-        chip_label="等級",
         description=(f"農道・林道の路面の等級を色で表示[{ordered_ends_text(_first_axis('tracktype'))}]",),
         panel_hint=(
             "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、"
@@ -400,6 +408,19 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             "生成されません]、このレイヤーは表示のみで評価には影響しません。",
         ),
     ),
+    # 当てはまらない道（大多数）を描くと地図が灰色の線で覆われるので、最初は隠す。
+    "cycleway": _tile_layer(
+        "cycleway",
+        "roadCondition",
+        label="自転車レーン",
+        description=(f"自転車の走る場所を色で表示[{'・'.join(c.label for c in _first_axis('cycleway').categories)}]",),
+        panel_hint=(
+            "OSMの自転車のためのタグ[cycleway・highway=cycleway・bicycle]から、自転車の走る場所を区分にまとめて色分けしています。"
+            "1本の道が複数に当たれば、車道から分けられた方で出します。当てはまらない道は最初は隠してあり、凡例のチェックで出せます。",
+            LayerTextSlot("axes", "評価軸", "の材料の1つです。"),
+        ),
+        hide_missing_rows=True,
+    ),
     "stop_poi": _tile_layer(
         "stop_poi",
         "trafficSafety",
@@ -413,7 +434,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "supply_poi": _tile_layer(
         "supply_poi",
         "amenity",
-        chip_label="補給休憩",
         description=(f"{_point_kind_list('supply_poi')}の位置を種別ごとに色分け表示",),
         panel_hint=(
             f"{_point_kind_list('supply_poi')}の位置です。自販機は飲み物が買えると分かって"
@@ -426,7 +446,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "stop_place": _tile_layer(
         "stop_place",
         "amenity",
-        chip_label="立ち寄り",
         description=(f"{_point_kind_list('stop_place')}の位置を群ごとに色分け表示",),
         panel_hint=(
             f"{_point_kind_list('stop_place')}の位置です。寺社は国の文化財の建造物を持つものを、ほかはOverture Mapsの地点を出します。"
@@ -436,7 +455,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "accident_point": _tile_layer(
         "accident_point",
         "trafficSafety",
-        chip_label="事故",
         description=(
             "警察庁交通事故統計オープンデータ",
             LayerTextSlot("accidentYears", "[", "]"),
@@ -455,7 +473,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         "weather",
         data_nature="dynamic",
         label="降水ナウキャスト",
-        chip_label="降水",
         description=(
             "気象庁の降水ナウキャスト・降水短時間予報・線状降水帯予測マップ・線状降水帯の雨域と、数値予報モデルが計算した降水量を重ねて表示"
             f"[実況〜{_NOWCAST_REACH}先は5分刻み、{_NOWCAST_REACH}〜{_SHORT_RANGE_REACH}先は気象庁の降水短時間予報、"
@@ -487,7 +504,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         "weather",
         data_nature="dynamic",
         label="風[矢印]",
-        chip_label="風",
         description=("気象庁の数値予報モデルMSMが計算した風向・風速を矢印で表示[1〜3日先まで。予報ではなく誤差を含みうる]",),
         panel_hint=(
             "気象庁MSM[メソ数値予報モデル、5kmメッシュ]が計算した風向・風速を格子点で矢印表示します。"
@@ -505,7 +521,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     # 予兆が出てからONにするのでは手遅れになるため既定ONにする。危険度が出ている間は広い範囲が
     # 塗られ、他の面レイヤー（緑と水・標高図）も基礎地図の色も覆われるが、危険度ゼロの領域は
     # 配信元のタイルが透明なので、影響が出るのは警戒度が上がっている間だけ。そのときは防災の
-    # 情報を優先する（利用者はチップをOFFにすれば戻せる）。回避するしかない危険なので、評価軸には入れず表示だけにする。
+    # 情報を優先する（利用者は一覧でOFFにすれば戻せる）。回避するしかない危険なので、評価軸には入れず表示だけにする。
     # 要素の名前と、時刻に対する振る舞いは要素の宣言から組み立てる。段の数と名前は凡例に並ぶので文に書かない。
     "disaster": MapLayerSpec(
         "ownFetch",
@@ -513,7 +529,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         data_nature="dynamic",
         default_on=True,
         label="災害",
-        chip_label="災害",
         description=(
             f"気象庁の{'・'.join(labels for labels, _, _ in _DISASTER_BY_FRAME_RULE)}をまとめて表示"
             f"[{'、'.join(f'{labels}は{brief}' for labels, brief, _ in _DISASTER_BY_FRAME_RULE)}]",

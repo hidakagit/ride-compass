@@ -9,14 +9,24 @@
 当たる地点だけを入れる（`kept_sql`）。店の中の ATM の地点は、名前を店の名前へ直してから群とチェーンを決める
 （`store_name_sql`）——店の隣にあれば店とまとまり、無ければ店として残る。
 
+チェーンの分からない地点のうち名前に日本語の文字が無いもの（`japanese_name_sql`）は、群（`CONTACT_MERGE_RADIUS_M`の群だけ）が
+同じで同じ連絡先（`contacts_sql`）を持つ、チェーンの分からない日本語の名前の地点があれば落とし、その地点へ寄せる（寄せ先の
+名前・位置・確からしさはそのまま）。使う連絡先は、それを持つ地点が全部互いにその群の距離以内にあるものだけ——遠くの地点とも
+共有する連絡先は、会社・一覧のページや、百貨店・管理事務所の代表の電話で、その場所のものでない。日本語の名前どうし・
+日本語でない名前どうしは寄せない（同じ連絡先を持つ同じ施設群の中の別の場所を残す）。
+
 寺社は文化財の建造物の所有者から出す。所有者の欄の1人ずつのうち寺社の名前（`temple_shrine_owner_sql`）を持つ建物を、
 同じ名前（表記の揺れを除いた形）で`HERITAGE_MERGE_RADIUS_M`以内に連なるものごとに1つの寺社にする。位置はまとまりの
 重心に最も近い建物（重心は境内の外に落ちることがある）、名前は所有者の名前。1つの建物に寺社の所有者が2人いれば、
 両方の寺社に入る。
 
+辺り（`area`）は、入れた地点の位置を住所の辞書で逆引きして入れる（`infrastructure/address_dictionary.py: areas`）。
+逆引きはSQLでできないので、ここだけ位置を取り出してスレッドで引き、一時の表から書き戻す。辞書を開けなければ止まる。
+
 道の網とは何も読み合わないので、どの段の後ろに置いてもよい。
 """
 
+import asyncio
 import logging
 import time
 
@@ -24,11 +34,14 @@ import asyncpg
 
 from app.domain.geo import ground_m_sql
 from app.domain.stop_place import (
+    CONTACT_MERGE_RADIUS_M,
     HERITAGE_MERGE_RADIUS_M,
     MERGE_RADIUS_M,
     StopPlaceGroup,
     chain_sql,
     chain_text_sql,
+    contacts_sql,
+    japanese_name_sql,
     kept_sql,
     normalized_sql,
     overture_group_sql,
@@ -37,6 +50,7 @@ from app.domain.stop_place import (
     store_name_sql,
     temple_shrine_owner_sql,
 )
+from app.infrastructure import address_dictionary
 from app.infrastructure.source_models import BUNKA_HERITAGES_SOURCE_SQL, OVERTURE_PLACES_SOURCE_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_stop_places")
@@ -57,6 +71,46 @@ FROM (
     WHERE g.place_group IS NOT NULL
 ) c
 WHERE {kept_sql("c.place_group", "c.chain")}
+"""
+
+#: 地点の連絡先（1つの連絡先が1行）と、寄せに使える連絡先（2つ以上の地点が持ち、それを持つ地点（群を問わない）の広がりが
+#: どれかの群の距離以内のもの）の広がり。広がりは経度・緯度の外接の矩形の対角の地面の m——最も離れた2点の間より短くならない
+#: ので、広がりが群の距離以内なら持つ地点どうしは互いにその距離以内にある（2点ずつ測ると、コンビニのチェーンのサイトのように
+#: 数千の地点が持つ連絡先で数千万回測り、地点ごとに地面の m の平面へ写すと関東の約50万行で1分半かかる）。一時の表は
+#: 統計を持たないので、寄せで結ぶ表を`ANALYZE`する（無いと結合を入れ子の繰り返しで組み、関東の地点で10分を超える）。
+_CONTACTS = f"""
+CREATE TEMP TABLE _contacts ON COMMIT DROP AS
+SELECT o.overture_id, c.contact, ST_X(o.geom) AS lon, ST_Y(o.geom) AS lat
+FROM {OVERTURE_PLACES_SOURCE_SQL} o CROSS JOIN LATERAL ({contacts_sql("o.websites", "o.phones")}) c;
+CREATE TEMP TABLE _contact_spans ON COMMIT DROP AS
+SELECT contact, span FROM (
+    SELECT contact, count(*) AS holders,
+           ST_Distance(ST_MakePoint(min(lon), min(lat))::geography, ST_MakePoint(max(lon), max(lat))::geography) AS span
+    FROM _contacts GROUP BY contact
+) c
+WHERE holders > 1 AND span <= {max(CONTACT_MERGE_RADIUS_M.values())};
+ANALYZE _contacts;
+ANALYZE _contact_spans;
+ANALYZE _grouped_places
+"""
+
+_CONTACT_RADII = ", ".join(f"('{group}', {radius})" for group, radius in CONTACT_MERGE_RADIUS_M.items())
+
+# 日本語の名前の地点は落とさないので、寄せ先が連なって消えることはない。
+_MERGE_BY_CONTACT = f"""
+DELETE FROM _grouped_places f
+USING (
+    SELECT DISTINCT fc.overture_id
+    FROM _contact_spans s
+    JOIN _contacts fc ON fc.contact = s.contact
+    JOIN _contacts jc ON jc.contact = s.contact
+    JOIN _grouped_places fp ON fp.overture_id = fc.overture_id
+    JOIN _grouped_places j ON j.overture_id = jc.overture_id
+    JOIN (VALUES {_CONTACT_RADII}) AS r(place_group, radius) ON r.place_group = fp.place_group
+    WHERE s.span <= r.radius AND fp.chain IS NULL AND NOT {japanese_name_sql("fp.name")}
+      AND j.place_group = fp.place_group AND j.chain IS NULL AND {japanese_name_sql("j.name")}
+) merged
+WHERE f.overture_id = merged.overture_id
 """
 
 _INSERT = f"""
@@ -104,6 +158,26 @@ ORDER BY normalized_name, merge_key, ST_Distance({ground_m_sql("geom")}, {ground
 """
 
 
+_POSITIONS = "SELECT source, source_key, ST_X(geom) AS longitude, ST_Y(geom) AS latitude FROM stop_places"
+
+_AREAS = "CREATE TEMP TABLE _areas (source text, source_key text, area text) ON COMMIT DROP"
+
+_SET_AREAS = """
+UPDATE stop_places s SET area = a.area FROM _areas a WHERE s.source = a.source AND s.source_key = a.source_key
+"""
+
+
+async def _fill_areas(conn: asyncpg.Connection) -> int:
+    """入れた地点の辺りを入れ、辺りの付いた地点の数を返す。"""
+    places = await conn.fetch(_POSITIONS)
+    names = await asyncio.to_thread(address_dictionary.areas, [(p["longitude"], p["latitude"]) for p in places])
+    await conn.execute(_AREAS)
+    await conn.copy_records_to_table("_areas", records=[
+        (place["source"], place["source_key"], name) for place, name in zip(places, names, strict=True)])
+    await conn.execute(_SET_AREAS)
+    return sum(name is not None for name in names)
+
+
 async def derive(conn: asyncpg.Connection) -> int:
     """立ち寄り先の表を入れ直し、入れた地点の数を返す。"""
     started = time.perf_counter()
@@ -111,11 +185,15 @@ async def derive(conn: asyncpg.Connection) -> int:
         await conn.execute("DELETE FROM stop_places")
         await conn.execute(_GROUPED)
         grouped = await conn.fetchval("SELECT count(*) FROM _grouped_places")
+        await conn.execute(_CONTACTS)
+        merged_by_contact = int((await conn.execute(_MERGE_BY_CONTACT)).split()[-1])
         inserted = int((await conn.execute(_INSERT, MERGE_RADIUS_M)).split()[-1])
         await conn.execute(_TEMPLE_BUILDINGS)
         temple_buildings = await conn.fetchval("SELECT count(*) FROM _temple_buildings")
         temples = int((await conn.execute(_INSERT_TEMPLES, HERITAGE_MERGE_RADIUS_M)).split()[-1])
+        located = await _fill_areas(conn)
     await conn.execute("ANALYZE stop_places")
-    logger.info("立ち寄り先: 群に入った %d件 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件 / %.1f秒",
-                grouped, inserted, temple_buildings, temples, time.perf_counter() - started)
+    logger.info("立ち寄り先: 群に入った %d件 → 連絡先で寄せて %d件減 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件、"
+                "辺りの付いた %d件 / %.1f秒", grouped, merged_by_contact, inserted, temple_buildings, temples, located,
+                time.perf_counter() - started)
     return inserted + temples

@@ -204,7 +204,13 @@ export default function PlaceSearch({ mapCenter, onPlace, waypointsFull, routes 
                         onClick={() => setSelectedIndex(selected ? null : index)}
                         usage="この候補を、目的地・出発地・経由地のどれにするかを選びます。"
                       >
-                        <span className="min-w-0 flex-auto truncate">{candidate.name}</span>
+                        <span className="min-w-0 flex-auto truncate">
+                          {candidate.name}
+                          {/* 施設の辺り。同じ名前のチェーンの店を見分ける。名前より控えめにし、狭い幅では先に切れる。 */}
+                          {candidate.area !== null && (
+                            <span className={cn("ml-1.5", textVariants({ variant: "note" }))}>{candidate.area}</span>
+                          )}
+                        </span>
                         {candidate.kind === "facility" && (
                           <span className="flex-none tabular-nums">{haversineKm(near, candidate).toFixed(1)}km</span>
                         )}

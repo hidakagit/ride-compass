@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import asyncpg  # noqa: E402
 
 from app.batch import (  # noqa: E402
+    derive_addresses,
     derive_counts,
     derive_node_materials,
     derive_raster_materials,
@@ -80,6 +81,8 @@ STAGES: tuple[tuple[str, Stage], ...] = (
     ("counts", lambda conn, tuning: derive_counts.derive(conn)),
     ("raster", lambda conn, tuning: derive_raster_materials.derive(conn)),
     ("ways", lambda conn, tuning: derive_way_materials.derive(conn)),
+    # 住所の区画は、施設の辺り（立ち寄り先の段）を区画から決められるよう、その前に置く。
+    ("addresses", lambda conn, tuning: derive_addresses.derive(conn)),
     ("stop_places", lambda conn, tuning: derive_stop_places.derive(conn)),
 )
 

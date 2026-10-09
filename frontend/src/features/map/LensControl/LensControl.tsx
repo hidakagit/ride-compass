@@ -3,7 +3,6 @@
 import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
-import { mapOverlayEdge } from "@/lib/mapOverlayEdges";
 import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, layerDataStatusNotice, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
@@ -47,6 +46,11 @@ interface LensControlProps {
   onKeepAfterRouteChange: (keep: boolean) => void;
   /** ルート確定済みか（ルート前は「ルート後のみ」バッジを出す）。 */
   hasDetail: boolean;
+  /** ルートの線を地図に出しているか。 */
+  routeShown: boolean;
+  /** 候補を選んでいるか。選ぶまでルートの線は無いので、出し入れを押せない。 */
+  routeSelectable: boolean;
+  onRouteShownChange: (shown: boolean) => void;
   /** 周りの道の色が拠る走る条件の文（`view/lens.ts: lensConditionsLabel`）。条件を使わない色分けではnull。 */
   conditions: string | null;
   /** 今のレンズの取得の状態（専用配信の軸のときだけ）。塗りは失敗でもデータ無しでも同じ無彩色なので、印で見分ける。 */
@@ -59,7 +63,7 @@ const LENS_SCREEN_NAME = "地図の色分け";
 /** ルートを作る前は道に何も塗らない色分けに付ける札。 */
 const ROUTE_ONLY_BADGE = "ルート後のみ";
 
-/** レンズ（地図を何で塗るか）の唯一の入口。地図の上の中央のピルが今のレンズを示し、押すと一覧を開く。 */
+/** レンズ（地図を何で塗るか）の唯一の入口。地図の上のピルが今のレンズを示し、押すと一覧を開く。置き場は呼び出し側が決める。 */
 export default function LensControl({
   lens,
   onLensChange,
@@ -71,6 +75,9 @@ export default function LensControl({
   keepAfterRoute,
   onKeepAfterRouteChange,
   hasDetail,
+  routeShown,
+  routeSelectable,
+  onRouteShownChange,
   conditions,
   dataStatus,
 }: LensControlProps) {
@@ -121,10 +128,7 @@ export default function LensControl({
   }
 
   return (
-    <div
-      className="absolute top-3 left-1/2 z-[var(--z-map-control)] max-w-[min(14rem,calc(100%-7rem))] -translate-x-1/2"
-      {...mapOverlayEdge("top")}
-    >
+    <div className="pointer-events-auto min-w-0 max-w-56">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -173,7 +177,7 @@ export default function LensControl({
         <PopoverContent
           className="max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-sm px-3 py-2.5"
           side="bottom"
-          align="center"
+          align="start"
           collisionPadding={POPOVER_COLLISION_PADDING_PX}
         >
           <p className="mb-1.5 font-semibold">{LENS_SCREEN_NAME}</p>
@@ -212,7 +216,23 @@ export default function LensControl({
             {unused.map(renderAxis)}
           </ToggleGroup>
           <label
-            className="mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2"
+            className={cn(
+              "mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2",
+              routeSelectable ? "cursor-pointer" : "text-[var(--color-neutral)]",
+            )}
+            data-usage="選んだ候補のルートの線を、地図に出し入れします。"
+          >
+            <Checkbox
+              checked={routeShown && routeSelectable}
+              disabled={!routeSelectable}
+              onCheckedChange={() => onRouteShownChange(!routeShown)}
+              aria-label="ルートを地図に出す"
+            />
+            ルートを地図に出す
+            {!routeSelectable && <span className={textVariants({ variant: "note" })}>（候補を選ぶと出せます）</span>}
+          </label>
+          <label
+            className="mt-1 flex items-center gap-1.5"
             data-usage="ルートを作った後も、ルートの外の道路を薄く色分けしたまま残します。"
           >
             <Checkbox
