@@ -66,6 +66,9 @@ export interface CaptureContext {
   /**
    * URL が glob に当たる応答の本文を `transform` の返した JSON に替える。本物の応答を取ってから本文だけを替えるので、CORS 等の
    * ヘッダーは本物のまま残る（ヘッダーの無い応答で返すと、別オリジンの backend への取得としてブラウザが捨てる）。
+   * 本物の応答が失敗（本番の backend にまだ無い経路の 404 等）なら、`transform` に undefined を渡し、返した JSON を成功（200）の
+   * 応答として CORS のヘッダーを付けて返す。新しい経路の応答も、作業ツリーの版を本番の backend へ向けたまま替えられる（例は examples/place-area.ts）。
+   * open より前に呼ぶ（open が開くときに取る応答も替える）。
    * 本物の backend へ向けたときに使う（モックの応答を替えるなら open の routes で page.route を足す。例は examples/axis-catalog.ts）。
    * 本文を JSON として読み替えるだけなので、画像等の JSON でない応答は替えられない。作業ツリーの backend が変える、DB を読まない
    * 経路の応答は、scripts/capture.mjs の --backend で作業ツリーの backend に返させる（例は examples/jma-precipitation.ts）。
@@ -248,7 +251,12 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
     async patch(glob, transform) {
       await page.route(glob, async (route) => {
         const response = await route.fetch();
-        await route.fulfill({ response, json: await transform(await response.json()) });
+        if (response.ok()) {
+          await route.fulfill({ response, json: await transform(await response.json()) });
+          return;
+        }
+        // 本物の backend にまだ無い経路（404 等）。失敗の状態を引き継ぐと替えた本文も失敗として読まれるので、成功で返す。
+        await route.fulfill({ json: await transform(undefined), headers: { "access-control-allow-origin": "*" } });
       });
     },
     async shot(name, target) {

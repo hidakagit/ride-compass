@@ -97,7 +97,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      `--api <本番の backend>`（作業ツリーの版を手元でビルドし、本番の backend へ向ける。宛先は docs/architecture/tech-stack.md「本番の宛先」）で、
      前と同じ脚本で撮る。backend の応答も変わる変更は、変わる経路が DB を読まない（タイルの中継等）なら
      `--backend <パスの頭>`（例: `--backend /api/jma-tile/`）でその経路だけを作業ツリーの backend に返させ、DB を読む経路なら変わる応答を脚本の `patch`
-     （JSON の応答だけ）で差し替えて後を撮る。
+     （JSON の応答だけ。本番の backend にまだ無い経路も）で差し替えて後を撮る。
      本番で開けない画面（認証の要る管理画面等）は、e2e のモックの応答（既定）で、前は `--app origin/master`、後は既定の作業ツリーの版で撮る。
      管理画面は脚本の口 `openAdmin` で開く（撮影用の資格情報は `capture.mjs` が渡すので、環境変数は要らない。管理APIの応答は口の `routes` で差し替える）。
      本番の版（`/api/version` の `commit`）と作業ブランチの合流点
