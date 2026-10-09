@@ -221,9 +221,13 @@ export function useMapView({
         setLayerVisibility(
           (prev) => Object.fromEntries(Object.keys(prev).map((id) => [id, false])) as MapLayerVisibility,
         ),
+      // 数えるのは地図に出ているもの（色分けと、出しているレイヤー）だけ。出していないレイヤーの最初に隠す行
+      // （路面のデータなし等）まで数えると、地図に何も欠けていないのに最初から押せる。
       anyLegendHidden:
         lensHidden.length > 0 ||
-        chips.some((chip) => (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0)),
+        chips.some(
+          (chip) => chip.on && !chip.disabled && (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0),
+        ),
       showAllLegendRows: () => setHidden(NONE_HIDDEN),
       redraw: () => setRefreshToken((token) => token + 1),
     },

@@ -94,6 +94,9 @@ const GROUP_COLORS = {
 /** 画面の名前（「表示」のボタンが開く一覧の見出し）。 */
 const LIST_SCREEN_NAME = "地図に出す情報";
 
+const LIST_USAGE =
+  "チェックを入れた情報を地図に重ね、外すと消します。▶で凡例を開くと、段階ごとに隠せます。漏斗の印は、一部を隠している合図です。";
+
 /** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点、絵記号の点なら絵記号）で置く——明るい台に載せると、暗いパネルの上では台の
  * 白が色より目立ち、明るい色は台に溶ける。線の行は地図の線より太く、大きさで意味を示す行は地図の点と同じ直径で出す。
  * 見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
@@ -382,13 +385,13 @@ export default function MapOverlayControls({
     return [
       <section key={group} aria-label={label} className="flex flex-col">
         <h3
-          className="m-0 mt-1.5 flex items-center gap-1.5 text-[length:var(--font-size-xs)] font-bold"
+          className="mx-0 mt-1.5 mb-0 flex items-center gap-1.5 text-[length:var(--font-size-xs)] font-bold"
           style={GROUP_COLORS[group]}
         >
           <Icon size={14} />
           {label}
         </h3>
-        <ul className="m-0 flex list-none flex-col p-0">
+        <ul className="m-0 flex list-none flex-col p-0" data-usage={LIST_USAGE}>
           {members.map((member) => (
             // 凡例はON/OFFに関わらず開ける（OFFの間に「ONにすると何が出るか」を先に確かめられる）。
             <LayerRow key={member.id} layer={member} panel={panelContentFor(member, handlers)} onToggle={onToggle} />
@@ -418,7 +421,7 @@ export default function MapOverlayControls({
           {shownCount > 0 && (
             <span
               aria-hidden="true"
-              className="absolute -top-1.5 -right-1.5 h-4 min-w-4 rounded-full bg-[var(--color-accent)] px-1 text-[0.625rem] leading-4 text-white"
+              className="absolute top-0.5 right-0.5 h-3.5 min-w-3.5 rounded-full bg-[var(--color-accent)] px-0.5 text-[0.55rem] leading-3.5 text-white"
             >
               {shownCount}
             </span>
@@ -436,7 +439,10 @@ export default function MapOverlayControls({
         <p className="m-0 font-semibold">{LIST_SCREEN_NAME}</p>
         {groups}
         {singles.length > 0 && (
-          <ul className="m-0 mt-1.5 flex list-none flex-col border-t border-[var(--color-border)] p-0 pt-1">
+          <ul
+            className="mx-0 mt-1.5 mb-0 flex list-none flex-col border-t border-[var(--color-border)] px-0 pt-1 pb-0"
+            data-usage={LIST_USAGE}
+          >
             {singles.map((layer) => (
               <LayerRow
                 key={layer.id}

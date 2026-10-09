@@ -152,6 +152,17 @@ describe("useMapView", () => {
     expect(Object.values(result.current.look.hiddenLegendKeys).flat()).toEqual([]);
   });
 
+  it("「絞り込みをすべて解除」が押せるのは地図に出しているものの凡例で隠している間だけで、出していないレイヤーの最初に隠す行は数えない", () => {
+    serve();
+    const { result } = render();
+    expect(chip(result, "surface")).toMatchObject({ on: false, legendDetails: [{ hiddenKeys: [LEGEND_NO_DATA_KEY] }] });
+    expect(result.current.bulk.anyLegendHidden).toBe(false);
+
+    act(() => result.current.overlayControls.onToggle("surface", true));
+
+    expect(result.current.bulk.anyLegendHidden).toBe(true);
+  });
+
   it.each([
     { layer: "surface", row: "データなし（値の無い道が分からない属性）", key: LEGEND_NO_DATA_KEY },
     { layer: "cycleway", row: "該当なし（タグの不在が当てはまらない属性）", key: ROAD_OTHER_KEY },
