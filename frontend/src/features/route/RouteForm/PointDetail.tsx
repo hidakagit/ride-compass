@@ -93,9 +93,9 @@ export default function PointDetail({
     if (listing) formRef.current?.scrollIntoView({ block: "start" });
   }, [listing, candidates]);
 
-  // 代表の位置（探した住所）は行きたい所そのものではないので、そこの辺りは引かない。
+  // 探した住所は名前が辺りを含み、代表の位置なら行きたい所そのものでもないので、辺りは引かない。
   const representative = found !== null && isRepresentative(found);
-  const areaPoint = found?.area == null && !representative ? at : null;
+  const areaPoint = found?.kind !== "address" && found?.area == null ? at : null;
   const placedArea = useQuery(
     {
       queryKey: ["place-area", areaPoint?.latitude, areaPoint?.longitude],

@@ -1,17 +1,21 @@
-"""アドレス・ベース・レジストリ（ABR、デジタル庁）の都道府県・市区町村・町字のアダプタ。
+"""アドレス・ベース・レジストリ（ABR、デジタル庁）の都道府県・市区町村・町字・住居表示の街区のアダプタ。
 
 **外部の形を読んで1件ずつ返すことだけ**を行う。区画の木にする・範囲で選ぶ・検索の鍵を作るのは派生の段
 （`batch/derive_addresses.py`）で、ここは代表点の無い行を落とすだけである。
 
 **配信元は叩かない。** 取りに行くのは`scripts/fetch_abr.py`の仕事で、ここは手元の配布の zip（中に CSV が1つ）を読む。
 
-1回の取込に3種の行を入れる。テキストの行と位置参照拡張（代表点）の行を同じ鍵で1つにし、両方の列を全部`attrs`へ入れる
+1回の取込に4種の行を入れる。テキストの行と位置参照拡張（代表点）の行を同じ鍵で1つにし、両方の列を全部`attrs`へ入れる
 （同じ名前の列はテキストの値）。
 - 都道府県（`mt_pref` と `mt_pref_pos`）・市区町村（`mt_city` と `mt_city_pos`。政令市の区を含む）: 鍵は全国地方公共団体コード
 - 町字（`mt_town_fullset` と `mt_town_pos`）: 鍵は`<全国地方公共団体コード>:<町字ID>`。町字の位置参照拡張は都道府県ごとの
   ファイルで、取込の範囲（`target.bbox`）に掛かる都道府県（`prefectures_in_range`）のものだけを読む。同じ町字が住居表示の
   実施・未実施で2行ずつある（`rsdt_addr_flg`）ものは1行にする——テキストは先の行、代表点は代表点を持つ行のうち
   `rsdt_addr_flg`の小さいほう（2行のテキストと位置の`rsdt_addr_flg`は揃っていないことがある）
+- 住居表示の街区（`mt_rsdtdsp_blk` と `mt_rsdtdsp_blk_pos`。どちらも都道府県ごと）: 鍵は`<全国地方公共団体コード>:<町字ID>:<街区ID>`。
+  町字の位置参照拡張と同じ都道府県のものだけを読む。位置は、配布元の結び方（公式の`abr-geocoder`の
+  `abrdb/internal/schema/config_full.yaml`の`join_columns`）のとおりテキストと同じ`rsdt_addr_flg`の行を採り、無ければ
+  `rsdt_addr_flg`の小さいほう
 
 落とすのは代表点の無い行（小字のほとんど。生データの位置が空にできない）。廃止の日のある行・区画にしない町字区分の行は
 落とさない（派生の段が選ぶ）。
@@ -21,7 +25,9 @@
 
 import csv
 import io
+import re
 import zipfile
+from collections import defaultdict
 from collections.abc import AsyncIterator, Generator, Iterable, Iterator
 from dataclasses import dataclass
 from functools import cache
@@ -60,10 +66,23 @@ def town_position_stem(prefecture: str) -> str:
     return f"mt_town_pos_pref{prefecture}"
 
 
+def block_stems(prefecture: str) -> tuple[str, str]:
+    """住居表示の街区のテキストと位置参照拡張の、都道府県ごとのファイルの名前の頭。"""
+    return f"mt_rsdtdsp_blk_pref{prefecture}", f"mt_rsdtdsp_blk_pos_pref{prefecture}"
+
+
+def prefecture_stems(prefecture: str) -> tuple[str, ...]:
+    """範囲に掛かる都道府県ごとに取るファイルの名前の頭（町字の位置参照拡張と、住居表示の街区のテキストと位置参照拡張）。"""
+    return (town_position_stem(prefecture), *block_stems(prefecture))
+
+
+_PREFECTURE_STEM = re.compile(r"^(?P<kind>.+)_pref\d{2}$")
+
+
 def archive_url(stem: str) -> str:
-    """配布元の URL。全国の1ファイルは`mt_pref/mt_pref_all.csv.zip`の形、都道府県ごとは`mt_town_pos/pref/…`。"""
-    if stem.startswith("mt_town_pos_pref"):
-        return f"{BASE_URL}/mt_town_pos/pref/{archive_name(stem)}"
+    """配布元の URL。全国の1ファイルは`mt_pref/mt_pref_all.csv.zip`の形、都道府県ごとは`mt_town_pos/pref/…`の形。"""
+    if match := _PREFECTURE_STEM.match(stem):
+        return f"{BASE_URL}/{match['kind']}/pref/{archive_name(stem)}"
     return f"{BASE_URL}/{stem.removesuffix('_all')}/{archive_name(stem)}"
 
 
@@ -117,6 +136,23 @@ def _positions(path: Path) -> dict[tuple[str, str], dict[str, str]]:
     return chosen
 
 
+def _blocks(texts: Path, positions: Path) -> Iterator[SourceRecord]:
+    """住居表示の街区のテキストの行に代表点の行を合わせる。代表点の無い街区は落とす。"""
+    points: dict[tuple[str, str, str], dict[str, dict[str, str]]] = defaultdict(dict)
+    for row in read_rows(positions):
+        if _has_point(row):
+            points[(row["lg_code"], row["machiaza_id"], row["blk_id"])][row["rsdt_addr_flg"]] = row
+    seen: set[tuple[str, str, str]] = set()
+    for row in read_rows(texts):
+        key = (row["lg_code"], row["machiaza_id"], row["blk_id"])
+        by_flag = points.get(key)
+        if not by_flag or key in seen:
+            continue
+        seen.add(key)
+        position = by_flag.get(row["rsdt_addr_flg"]) or by_flag[min(by_flag)]
+        yield SourceRecord(natural_key=":".join(key), geom_wkb=_point_wkb(position), attrs={**position, **row})
+
+
 def _require(path: Path) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"アドレス・ベース・レジストリの配布がありません: {path}（scripts/fetch_abr.py が写す）")
@@ -132,25 +168,31 @@ def _with_positions(texts: Iterable[dict[str, str]], positions: Path) -> Iterato
             yield SourceRecord(natural_key=row["lg_code"], geom_wkb=_point_wkb(position), attrs={**position, **row})
 
 
-def _archives(rows: AbrRows, profile: SourceProfile) -> tuple[dict[str, Path], dict[str, Path]]:
-    """読む配布: 全国の1ファイル（名前の頭 → 場所）と、範囲に掛かる都道府県の町字の位置参照拡張（コード → 場所）。"""
+def _archives(rows: AbrRows, profile: SourceProfile
+              ) -> tuple[dict[str, Path], dict[str, Path], list[tuple[Path, Path]]]:
+    """読む配布: 全国の1ファイル（名前の頭 → 場所）と、範囲に掛かる都道府県の町字の位置参照拡張（コード → 場所）と、
+    同じ都道府県の住居表示の街区のテキストと位置参照拡張の組。"""
     paths = {stem: _require(archive_path(rows.snapshot, stem)) for stem in NATIONWIDE_ARCHIVES}
     prefectures = prefectures_in_range(read_rows(paths["mt_city_pos_all"]), profile.target.bbox)
-    return paths, {code: _require(archive_path(rows.snapshot, town_position_stem(code))) for code in prefectures}
+    town_positions = {code: _require(archive_path(rows.snapshot, town_position_stem(code))) for code in prefectures}
+    blocks = [(_require(archive_path(rows.snapshot, texts)), _require(archive_path(rows.snapshot, positions)))
+              for texts, positions in (block_stems(code) for code in prefectures)]
+    return paths, town_positions, blocks
 
 
 def abr_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
-    paths, town_positions = _archives(spec.rows, profile)
-    return AdapterInputs(files=(*paths.values(), *town_positions.values()))
+    paths, town_positions, blocks = _archives(spec.rows, profile)
+    return AdapterInputs(files=(*paths.values(), *town_positions.values(), *(path for pair in blocks for path in pair)))
 
 
 @register_adapter("abr", rows=AbrRows, inputs=abr_inputs)
 async def read_abr(spec: SourceSpec, profile: SourceProfile, origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     rows: AbrRows = spec.rows
-    paths, town_positions = _archives(rows, profile)
+    paths, town_positions, blocks = _archives(rows, profile)
     prefectures = list(town_positions)
     origin.update({"snapshot": rows.snapshot, "prefectures": prefectures,
-                   "files": [file_origin(path) for path in [*paths.values(), *town_positions.values()]]})
+                   "files": [file_origin(path) for path in [*paths.values(), *town_positions.values(),
+                                                            *(path for pair in blocks for path in pair)]]})
 
     for record in _with_positions(read_rows(paths["mt_pref_all"]), paths["mt_pref_pos_all"]):
         yield record
@@ -174,3 +216,7 @@ async def read_abr(spec: SourceSpec, profile: SourceProfile, origin: dict[str, A
         seen.add(key)
         yield SourceRecord(natural_key=f"{row['lg_code']}:{row['machiaza_id']}", geom_wkb=_point_wkb(position),
                            attrs={**position, **row})
+
+    for texts, positions in blocks:
+        for record in _blocks(texts, positions):
+            yield record
