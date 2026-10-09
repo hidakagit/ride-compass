@@ -32,7 +32,7 @@ import pyproj
 import shapely
 from shapely.geometry import Point
 
-from app.batch.ingest import SourceRecord, file_origin, register_adapter
+from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
 from app.batch.source_profile import SourceProfile, SourceSpec
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "abr"
@@ -132,12 +132,23 @@ def _with_positions(texts: Iterable[dict[str, str]], positions: Path) -> Iterato
             yield SourceRecord(natural_key=row["lg_code"], geom_wkb=_point_wkb(position), attrs={**position, **row})
 
 
-@register_adapter("abr", rows=AbrRows)
-async def read_abr(spec: SourceSpec, profile: SourceProfile, origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
-    rows: AbrRows = spec.rows
+def _archives(rows: AbrRows, profile: SourceProfile) -> tuple[dict[str, Path], dict[str, Path]]:
+    """読む配布: 全国の1ファイル（名前の頭 → 場所）と、範囲に掛かる都道府県の町字の位置参照拡張（コード → 場所）。"""
     paths = {stem: _require(archive_path(rows.snapshot, stem)) for stem in NATIONWIDE_ARCHIVES}
     prefectures = prefectures_in_range(read_rows(paths["mt_city_pos_all"]), profile.target.bbox)
-    town_positions = {code: _require(archive_path(rows.snapshot, town_position_stem(code))) for code in prefectures}
+    return paths, {code: _require(archive_path(rows.snapshot, town_position_stem(code))) for code in prefectures}
+
+
+def abr_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    paths, town_positions = _archives(spec.rows, profile)
+    return AdapterInputs(files=(*paths.values(), *town_positions.values()))
+
+
+@register_adapter("abr", rows=AbrRows, inputs=abr_inputs)
+async def read_abr(spec: SourceSpec, profile: SourceProfile, origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
+    rows: AbrRows = spec.rows
+    paths, town_positions = _archives(rows, profile)
+    prefectures = list(town_positions)
     origin.update({"snapshot": rows.snapshot, "prefectures": prefectures,
                    "files": [file_origin(path) for path in [*paths.values(), *town_positions.values()]]})
 

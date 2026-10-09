@@ -24,7 +24,7 @@ from pathlib import Path
 import shapely
 from shapely.geometry import Point
 
-from app.batch.ingest import SourceRecord, file_origin, register_adapter
+from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
 from app.batch.source_profile import SourceProfile, SourceSpec
 
 logger = logging.getLogger("ridecompass.ingest.npa_honhyo")
@@ -98,7 +98,11 @@ class HonhyoRows:
     years: list[int] = field(default_factory=list)
 
 
-@register_adapter("npa_honhyo", rows=HonhyoRows)
+def npa_honhyo_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
+    return AdapterInputs(files=tuple(_existing_honhyo_path(int(year)) for year in spec.rows.years))
+
+
+@register_adapter("npa_honhyo", rows=HonhyoRows, inputs=npa_honhyo_inputs)
 async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
                           origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     target = profile.target
