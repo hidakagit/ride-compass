@@ -5,8 +5,6 @@ import { STATUS_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 export interface FrontendVersion {
   commit: string | null;
   started_at: string;
-  /** 版に入っている直近の変更（新しい順。先頭は版のコミットそのもの）。取れなければ空。 */
-  recent: { subject: string; committed_at: string }[];
 }
 
 // フロント自身が動いている版。メニューのバージョン表示と管理画面のシステム状況が読む。
