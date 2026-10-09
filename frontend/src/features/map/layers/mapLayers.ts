@@ -7,26 +7,21 @@ import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   AccidentIcon,
-  ElevationIcon,
+  BicycleIcon,
   HillshadeIcon,
-  LandcoverIcon,
-  OnewayIcon,
   RaindropIcon,
-  RoadIcon,
   RoadSurfaceIcon,
   RouteIcon,
   ShieldIcon,
   StopPlaceIcon,
   StopPoiIcon,
   SupplyPoiIcon,
-  TrackGradeIcon,
   TunnelIcon,
   WindIcon,
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { TILE_VERSION_GATED_SOURCES } from "@/lib/mapDisplay/tileVersionGated";
-import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { axisMapLayerId, type AxisMapLayerId, type RampAxis } from "@/lib/mapDisplay/axisLayers";
@@ -112,14 +107,10 @@ function disasterLegendBlocks(): ReadOnlyLegendBlock[] {
 /** 源泉が宣言するレイヤーのアイコン。省略できない（描く側の対応表で引く形だと、書き忘れても汎用のアイコンで
  * 見分けの付かないまま出続ける）。 */
 const STATIC_LAYER_ICONS: Record<StaticMapLayerId, MapIconComponent> = {
-  elevation: ElevationIcon,
   hillshade: HillshadeIcon,
-  landcover: LandcoverIcon,
-  highway: RoadIcon,
   surface: RoadSurfaceIcon,
-  tracktype: TrackGradeIcon,
   tunnel: TunnelIcon,
-  oneway: OnewayIcon,
+  cycleway: BicycleIcon,
   stop_poi: StopPoiIcon,
   supply_poi: SupplyPoiIcon,
   stop_place: StopPlaceIcon,
@@ -132,18 +123,6 @@ const STATIC_LAYER_ICONS: Record<StaticMapLayerId, MapIconComponent> = {
 
 /** ▶を開いたときの表示専用の凡例。無いレイヤーは絞り込める凡例か、画面の状態から組む凡例を持つ。 */
 const READ_ONLY_LEGENDS: Partial<Record<StaticMapLayerId, readonly ReadOnlyLegendBlock[]>> = {
-  landcover: [
-    {
-      label: "",
-      legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
-        key: cls.percentField,
-        label: cls.label,
-        description: cls.description,
-        color: cls.color,
-        filter: UNUSED_LEGEND_FILTER,
-      })),
-    },
-  ],
   // 1つのチップのまま、時刻の段ごとに配信元を切り替える（段は源泉が宣言する）。
   precipitationNowcast: [
     {
@@ -220,8 +199,6 @@ export function mapOverlayGroupFor(layer: { category?: MapLayerCategory }): MapO
 export interface ChipLayerDescriptor {
   id: MapLayerId;
   label: string;
-  /** チップの下の短い名前（チップの幅は文字数で決まるので、長い名前はここで縮める）。無ければlabel。 */
-  chipLabel?: string;
   kind: MapLayerKind;
   /** 省略できない（描く側の対応表で引く形だと、書き忘れても汎用のアイコンで見分けの付かないまま出続ける）。 */
   icon: MapIconComponent;
@@ -335,7 +312,6 @@ export function buildMapLayers({
       id: layer.id,
       label: layer.label,
       ...declaredLayer(layer),
-      chipLabel: layer.chipLabel ?? undefined,
       icon: STATIC_LAYER_ICONS[layer.id],
       readOnlyLegend: READ_ONLY_LEGENDS[layer.id],
       description: fillLayerText(layer.description, slots),
@@ -357,9 +333,6 @@ export function buildMapLayers({
     })),
   ];
 }
-
-/** 最上位のグループを同時に開いておける数（理由は`docs/modules/frontend/static-map-layers.md`）。 */
-export const MAP_OVERLAY_MAX_EXPANDED_GROUPS = 1;
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 

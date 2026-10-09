@@ -568,6 +568,21 @@
     "tile_property": "shared_pedestrian_path"
   },
   {
+    "material_id": "cycleway_class",
+    "label": "自転車の走る場所 - cycleway_class",
+    "name": "自転車の走る場所",
+    "description": "自転車道・自転車レーン・共用の道のどれを持つかを1つにまとめた区分（複数に当たる道は、車道から分けられた方）。どれにも当たらない道は値を持ちません。",
+    "dtype": "categorical",
+    "unit": "",
+    "reference_points": [],
+    "value_labels": {
+      "separated": "自転車道",
+      "lane": "自転車レーン",
+      "shared": "共用の道"
+    },
+    "tile_property": "cycleway_class"
+  },
+  {
     "material_id": "smoothness",
     "label": "路面の状態 - smoothness",
     "name": "路面の状態",

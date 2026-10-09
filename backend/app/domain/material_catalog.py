@@ -60,6 +60,9 @@ from app.domain.primary_attributes import (
 
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
+    CYCLEWAY_CLASS_SQL,
+    CYCLEWAY_CLASSES,
+    SHARED_PEDESTRIAN_PATH_SQL,
     LANES_COUNT_CASE_SQL,
     MAXSPEED_KMH_CASE_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
@@ -880,15 +883,30 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="shared_pedestrian_path",
         primary_attribute=ATTR_CYCLEWAY,
-        value_sql=tag_absent_is_false_sql(
-            f"{HIGHWAY_SQL} IN ('footway', 'path') "
-            f"AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')"
-        ),
+        value_sql=tag_absent_is_false_sql(SHARED_PEDESTRIAN_PATH_SQL),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{BICYCLE_NORMALIZED_SQL} IS NULL",
                 source="OSM wayのタグ bicycle（highway=footway/pathとの組み合わせで判定、タグ不在は非該当扱い）",
                 missing_semantics="definite",
             ),
+    ),
+    # 上の群を、地図に1本の線で描くための1つの区分へまとめた値。
+    "cycleway_class": MaterialSpec(
+        material_id="cycleway_class",
+        label="自転車の走る場所",
+        description=(
+            f"{'・'.join(c.label for c in CYCLEWAY_CLASSES)}のどれを持つかを1つにまとめた区分"
+            "（複数に当たる道は、車道から分けられた方）。どれにも当たらない道は値を持ちません。"
+        ),
+        dtype="categorical",
+        tile_property="cycleway_class",
+        primary_attribute=ATTR_CYCLEWAY,
+        value_labels={c.key: c.label for c in CYCLEWAY_CLASSES},
+        value_sql=CYCLEWAY_CLASS_SQL,
+        coverage=CoverageExcluded(
+            reason="値の無い道は自転車のための設けが無い道で、欠損ではない（元のタグの有無は自転車インフラの各材料が数える）",
+            missing_semantics="definite",
+        ),
     ),
     "smoothness": MaterialSpec(
         material_id="smoothness",

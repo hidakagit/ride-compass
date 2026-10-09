@@ -5,6 +5,7 @@
 import type { ReactElement } from "react";
 import {
   ArrowUp,
+  Bike,
   CircleQuestionMark,
   Clock,
   Cloud,
@@ -60,21 +61,7 @@ const svgProps = {
   "aria-hidden": true as const,
 };
 
-/** 標高図: 色別標高図のイメージに合わせた山並みのシルエット */
-export function ElevationIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M1.5 15.5 6 8l3 3.5 2.5-4 5.5 8H1.5Z"
-
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** 起伏（陰影）: 同じ山並みの片斜面だけに陰が乗った形。ElevationIcon（輪郭だけの山並み＝
- * 標高そのもの）と対にして、「塗るのは斜面だけ」を形で示す。 */
+/** 起伏（陰影）: 山並みの片斜面だけに陰が乗った形。「塗るのは斜面だけ」を形で示す。 */
 export function HillshadeIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -90,18 +77,6 @@ export function HillshadeIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 土地被覆: 用途の違う区画が並ぶ様子を表す、大きさの違う4区画 */
-export function LandcoverIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
-      <rect x="11" y="2.5" width="6.5" height="4" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
-      <rect x="2.5" y="11" width="4" height="6.5" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
-      <rect x="8.5" y="8.5" width="9" height="9" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
-    </svg>
-  );
-}
-
 /** 評価軸の汎用のアイコン: 密度の濃淡を表す棒グラフ。各軸は`icon_id`
  * （軸自身のデータ）でaxisIconPalette.tsxの固定パレットから専用アイコンを選べる。
  * この汎用形はicon_id未設定の軸向けのフォールバックとして残す。 */
@@ -113,9 +88,7 @@ export function AxisRampIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 勾配（推定軸）: 地面から立ち上がる傾斜線+矢頭。標高図（ElevationIcon、山並みの
- * シルエット）は生の標高そのものを表すのに対し、こちらは傾き（変化率）という別概念を表す
- * ため意匠を分ける。 */
+/** 勾配（推定軸）: 地面から立ち上がる傾斜線+矢頭。標高そのものではなく、傾き（変化率）を表す。 */
 export function GradientAxisIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -206,16 +179,6 @@ export function RoadSurfaceIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 農道・林道の等級: 轍の2本線と、その間に生えた草。路面の種類（RoadSurfaceIcon）とは別のタグの話なので意匠を分ける */
-export function TrackGradeIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M6.5 2 4 18M13.5 2 16 18" />
-      <path d="M9 15.5l1-2.5 1 2.5M9.4 9l.6-1.6.6 1.6" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export function TunnelIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -225,21 +188,6 @@ export function TunnelIcon({ size = 16 }: IconProps) {
         strokeLinejoin="round"
       />
       <path d="M3 17h14" />
-    </svg>
-  );
-}
-
-/** 一方通行（一次属性、OSM onewayタグ）: 一方向の矢印 */
-export function OnewayIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M3 10h13" />
-      <path
-        d="M12 5.5 17 10l-5 4.5"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
     </svg>
   );
 }
@@ -472,7 +420,7 @@ export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 表示する項目を選ぶ: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
+/** 地図に出す情報を選ぶ（「表示」のボタン）: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
 export function DisplayItemsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -506,6 +454,7 @@ function fromLucide(Icon: LucideIcon, defaultSize = 16): MapIconComponent {
 
 export const WarningTriangleIcon = fromLucide(TriangleAlert);
 export const WindIcon = fromLucide(Wind);
+export const BicycleIcon = fromLucide(Bike);
 /** 呼び出し側が風向・走行方位のぶん回転させて使うため、上向きのまっすぐな矢印にしてある。 */
 export const WindDirectionArrowIcon = fromLucide(ArrowUp);
 export const ThermometerIcon = fromLucide(Thermometer);

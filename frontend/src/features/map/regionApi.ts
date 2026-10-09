@@ -54,14 +54,6 @@ export function pointTileUrl(versions: TileVersions, layer: PointTileLayer): str
   return `${tileBaseUrl()}${path}?v=${tileVersion(versions, layer)}`;
 }
 
-// 土地被覆のラスタタイル。世代はbackendが生成物で配る。オリジンの決め方は他のタイルと揃える。
-const LANDCOVER_TILE_PATH = apiPath("/api/region/landcover-tiles/{z}/{x}/{y}.png");
-const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
-
-export function landcoverTileUrl(): string {
-  return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;
-}
-
 // 路面タイル（点のタイルも同じ）を要求するズーム範囲。正はbackendで、生成物で受け取る。
 export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;

@@ -1,6 +1,6 @@
 """`domain/display_palette.py`——一次属性の行に塗る色と、役割ごとの色。
 
-入口は`resolved_display_axes`（行の色を解決した表示定義。画面へ配る形）と、その色を作る`ordered_colors`・
+入口は`resolved_display_axes`（行の色を解決した表示定義。画面へ配る形）と、その色を作る
 `nominal_colors`、役割ごとの色`SEMANTIC_COLORS`。前半は架空の属性で色の配り方を、後半は本番の一次属性の宣言
 （`domain/primary_attributes.py: PRIMARY_ATTRIBUTES`）に配った色が地図の上で読めること
 （`docs/modules/frontend/static-map-layers.md`の配色の読み方）を確かめる。
@@ -20,7 +20,7 @@ import math
 import pytest
 
 from app.domain import display_palette
-from app.domain.display_palette import SEMANTIC_COLORS, nominal_colors, ordered_colors, resolved_display_axes
+from app.domain.display_palette import SEMANTIC_COLORS, nominal_colors, resolved_display_axes
 from app.domain.map_display import ROAD_UNKNOWN_OPACITY
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
@@ -30,9 +30,8 @@ GROUND = SEMANTIC_COLORS["basemap_ground"]
 CLASS_COLOR_CONTRAST = 3.0
 #: 値が無い道の線が、地色に対して見えるコントラスト比。
 NO_DATA_LINE_CONTRAST = 1.5
-#: 軸の中の色の離れ具合。列挙はどの2行も、順序は隣どうし。
+#: 軸の中のどの2行の色の離れ具合。
 NOMINAL_DELTA_E = 20.0
-ORDERED_DELTA_E = 10.0
 #: 同時に出る点のレイヤーどうしのどの2色の離れ具合。
 POINT_LAYERS_DELTA_E = 10.0
 
@@ -126,27 +125,6 @@ def test_a_glyph_reaches_the_screen_only_on_rows_that_declare_one():
     assert all("glyph" not in c for c in size["categories"])
 
 
-def test_an_ordered_axis_is_colored_by_position():
-    attribute = PrimaryAttributeSpec(
-        attr_id="attr_a", label="属性A", geometry="line", display_axes=(axis("main", 4, palette="ordered"),)
-    )
-
-    [main] = resolved_display_axes(attribute)
-
-    assert [c["color"] for c in main["categories"]] == ordered_colors(4)
-
-
-def test_an_ordered_palette_goes_from_dark_to_light():
-    colors = ordered_colors(5)
-
-    lightness = [contrast(color, "#000000") for color in colors]
-    assert lightness == sorted(lightness)
-
-
-def test_an_ordered_axis_of_one_row_still_has_a_color():
-    assert len(ordered_colors(1)) == 1
-
-
 @pytest.mark.parametrize("slot", [-1, display_palette.NOMINAL_HUE_SLOTS])
 def test_a_hue_slot_outside_the_wheel_is_refused(slot):
     with pytest.raises(ValueError):
@@ -166,12 +144,6 @@ def test_every_nominal_color_stands_out_from_the_ground(tone):
     assert min(contrast(color, GROUND) for color in colors) >= CLASS_COLOR_CONTRAST
 
 
-def test_every_ordered_color_stands_out_from_the_ground():
-    colors = [color for count in range(1, 13) for color in ordered_colors(count)]
-
-    assert min(contrast(color, GROUND) for color in colors) >= CLASS_COLOR_CONTRAST
-
-
 # --- 本番の宣言 -------------------------------------------------------------------
 
 DISPLAYED = [attr for attr in PRIMARY_ATTRIBUTES if attr.display_axes]
@@ -185,12 +157,8 @@ COLORED = [
 
 @pytest.mark.parametrize(("attr", "spec", "colors"), COLORED, ids=[f"{a.attr_id}:{s.key}" for a, s, _ in COLORED])
 def test_colors_in_an_axis_stand_out_from_each_other(attr, spec, colors):
-    if spec.palette == "nominal":
-        pairs, threshold = itertools.combinations(colors, 2), NOMINAL_DELTA_E
-    else:
-        pairs, threshold = zip(colors, colors[1:]), ORDERED_DELTA_E
-    for a, b in pairs:
-        assert delta_e(a, b) >= threshold, (attr.attr_id, a, b)
+    for a, b in itertools.combinations(colors, 2):
+        assert delta_e(a, b) >= NOMINAL_DELTA_E, (attr.attr_id, a, b)
 
 
 def test_colors_of_point_layers_shown_together_are_not_too_close():
