@@ -180,14 +180,19 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
   - `only.txt`: 記録のテスト（その関数を通るテスト）で回す。テストを消したあと、消したテストが見つけていた変異を残る側が
     落とすかを確かめるときに使う。
   - `recheck.txt`: テスト全体を当てる。生き残りのうち読み込みのときに呼ばれる関数の変異を `importtime.py` で拾って当て直すときに使う。
-  - どちらも master へ入れない。
+  - `baseline.txt`: 変異を入れずに、関数ごとに同じテストの組み合わせを同じ並びで2回回す（基準。行は関数の名前か、全部なら `*`）。
+    基準で落ちるテストは、テストどうしの依存や揺れで落ちていて、変異の回で落ちても見つけたとは言えない。
+  - どれも master へ入れない。
+- **Pull Request ごと**: `backend/app` を変えた Pull Request では `.github/workflows/mutation-pr.yml` が自動で走り、変えた関数の変異と
+  その基準だけを回して、生き残りを変えた行への注記と実行の要約に出す（`diff_scope.py`・`pr_plan.py`・`report_pr.py`）。必須の
+  チェックではない。読み方は .claude/skills/task-work/SKILL.md「作る担当」の5。
 - **結果は成果物 `mutation-<番号>`**（14日で消える）。`gh run download <実行の id> -R hidakagit/ride-compass -D <場所>` で取り、
   測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ
   （層ごとの変異スコア・テスト1本ごとの発見と重なり）。残したい数字は issue に書く。
 - **1本のランナーが「The runner has received a shutdown signal」で止まったら**、Actions の画面の「Re-run failed jobs」で、
   その本だけを同じ入力でやり直す。同じ所で止まり続けるなら、ジョブの記録の「始め」の行で走っていた変異を見る。
 - **開発機では回さない**。
-- **測れない形**: 関数の外（モジュールの直下の表・定数・既定値）、`app/domain/routing.py`（`setup.cfg`で外している）、
+- **測れない形**: 関数の外（モジュールの直下の表・定数・既定値）、`app/domain/routing.py`とログ・警告の行（`setup.cfg`で外している）、
   部分どうしのつなぎの食い違い（1つの関数の中の書き換えではないもの）。そこを確かめるテストは、変異を見つけないように
   見えても要らないとは言えない。
 
