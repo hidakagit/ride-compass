@@ -185,7 +185,7 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """
     return EdgeMaterialCoverageSpec(
         present_condition=f"{landcover_value_sql(key)} IS NOT NULL",
-        source=f"edge_materials.lc_{key}（derive_raster_materialsの計算済み値）の有無",
+        source=f"edge_materials.lc_{key}（derive_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     )
 

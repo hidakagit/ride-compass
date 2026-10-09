@@ -4,7 +4,7 @@
 区間は道路網の形の導出（`batch/derive_topology.py`）が切ったものを使う——way丸ごとの値が両端の標高差になるのは、
 区間が道の並びの順に切られ、どの区間の勾配も道と同じ向きを正とするからで、区間の行を手で書くとその前提を
 テストが書き写すことになる。区間の勾配そのもの（`edge_materials.average_grade`）は、北へ登る標高のタイルから標高の
-派生の段（`batch/derive_raster_materials.py`）が出したものを読んで期待値にする（値の出し方は`test_elevation_values.py`）。
+派生の段（`batch/derive_elevation.py`）が出したものを読んで期待値にする（値の出し方は`test_elevation_values.py`）。
 
 ここで見ないもの:
 - 走行方位で符号を決める・直角に近い道を値なしにする → `test_gradient_way_service.py`
@@ -14,7 +14,7 @@
 import pytest
 from sqlalchemy import text
 
-from app.batch import derive_raster_materials, derive_topology
+from app.batch import derive_elevation, derive_topology
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
 from tests.conftest import raw_connection
@@ -48,7 +48,7 @@ async def _ingest_switchback(session) -> dict[int, tuple[float, float]]:
     await ingest_records("dem", dem_tile_records(PRODUCT_PRIORITY[0], 15, AREA, _climbing_north))
     async with raw_connection() as conn:
         await derive_topology.derive(conn)
-        await derive_raster_materials.derive(conn)
+        await derive_elevation.derive(conn)
     rows = await session.execute(
         text("SELECT e.segment_index, e.distance_m, m.average_grade FROM road_edges e JOIN edge_materials m"
              " USING (osm_way_id, segment_index) WHERE e.osm_way_id = :way"), {"way": SWITCHBACK_WAY_ID})

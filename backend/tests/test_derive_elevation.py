@@ -1,4 +1,4 @@
-"""標高の取込（`gsi_dem_tile`）と派生（`derive_raster_materials.derive`の標高の段）。
+"""標高の取込（`gsi_dem_tile`）と派生（`derive_elevation.derive`）。
 
 手元へ写したタイル（置き場は一時ディレクトリ）から取り込み、区間の標高が画素ごとに
 配信元の定める順で採られることを見る。配信元の文書:
@@ -32,7 +32,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from app.batch import dem_tile_store, derive_raster_materials, derive_topology
+from app.batch import dem_tile_store, derive_elevation, derive_topology
 from app.batch.ingest import ingest_source
 from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import tile_bounds_lonlat
@@ -138,7 +138,7 @@ async def elevation_conn(derive_conn, tile_root):
     await ingest_records("osm_way", [_way(way_id, pixels) for way_id, pixels, _ in CASES], conn=conn)
     async with conn.transaction():
         await derive_topology.derive(conn)
-        await derive_raster_materials.derive(conn)
+        await derive_elevation.derive(conn)
     return conn
 
 
@@ -161,7 +161,7 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
         return {r["osm_way_id"]: r["start_elevation_m"] for r in rows}
 
     async def rerun() -> dict[int, float | None]:
-        await derive_raster_materials.derive(conn)
+        await derive_elevation.derive(conn)
         return await elevations()
 
     await _ingest_dem(conn, tile_root, without="dem")
@@ -190,7 +190,7 @@ async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_
         _way(11, VALLEY_PIXELS), _way(12, VALLEY_PIXELS, structure)], conn=conn)
     async with conn.transaction():
         await derive_topology.derive(conn)
-        await derive_raster_materials.derive(conn)
+        await derive_elevation.derive(conn)
 
     rows = await conn.fetch(
         "SELECT osm_way_id, elevation_gain_m, elevation_loss_m FROM edge_materials"
