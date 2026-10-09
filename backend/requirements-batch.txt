@@ -3,8 +3,9 @@
 # コンテナの中で動く（DBを立ち上げ直すのも、外部ソースを取り込むのもそこ）。
 -r requirements.txt
 osmium==4.3.1
+# 住所の代表点・小地域の境界の座標を、日本測地系2000・2011から 4326 へ移す（取込のアダプタ abr・estat_small_area）。
 pyproj==3.7.2
-# 気象庁の区域の境界（シェープファイル）を読む。取得スクリプト（scripts/fetch_jma_area_boundaries.py）だけが使う。
+# シェープファイルを読む。気象庁の区域の境界の取得（scripts/fetch_jma_area_boundaries.py）と、e-Stat の小地域の境界の取得・取込が使う。
 pyshp==3.1.6
 # Overture Maps の地点（GeoParquet）を範囲で絞って読む。取得（scripts/fetch_overture_places.py）と取込のアダプタが使う。
 duckdb==1.5.6

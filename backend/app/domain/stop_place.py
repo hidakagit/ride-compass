@@ -11,6 +11,8 @@
 
 from enum import StrEnum
 
+from app.domain.address_area import HYPHEN_CHARACTERS
+
 
 class StopPlaceGroup(StrEnum):
     """立ち寄り先の群。地図のチップで選ぶ単位で、点のタイルの属性`group`の値。"""
@@ -107,8 +109,9 @@ _DEVOICE = str.maketrans(_VOICED_KANA, _UNVOICED_KANA)
 
 
 def normalized_sql(text_expr: str) -> str:
-    """名前の表記の揺れ（全角・半角・大文字・空白・ハイフン・中点）を除いた形を出す式。"""
-    return f"lower(regexp_replace(normalize({text_expr}, NFKC), '[[:space:]\\-‐‑–—−・･]', '', 'g'))"
+    """名前の表記の揺れ（全角・半角・大文字・空白・ハイフンの類・中点）を除いた形を出す式。ハイフンの類は住所の揃え方と
+    同じ集合（`domain/address_area.py: HYPHEN_CHARACTERS`。末尾が半角のハイフンで、文字類の末尾に置く）。"""
+    return f"lower(regexp_replace(normalize({text_expr}, NFKC), '[[:space:]・･{HYPHEN_CHARACTERS}]', '', 'g'))"
 
 
 def japanese_name_sql(name_expr: str) -> str:

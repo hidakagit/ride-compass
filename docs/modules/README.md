@@ -77,7 +77,7 @@
 | [静的道路属性・タイル配信](backend/static-road-attributes.md) | OSM取込・MVTタイル配信 |
 | [気象・動的レイヤー](backend/weather-dynamic-layers.md) | 気象庁MSM（数値予報モデル）・気象庁観測/防災データ |
 | [標高](backend/elevation.md) | GSI DEMタイル |
-| [地点の検索](backend/place-search.md) | 住所の辞書を手元で引き、出発地・経由地・目的地の候補を返す |
+| [地点の検索](backend/place-search.md) | 住所の辞書を手元で引き、出発地・経由地・目的地の候補を返す。住所の区画の表を作る |
 | [横断基盤](backend/cross-cutting-infrastructure.md) | DB・Redis・ログ・レート制限・ジョブ管理 |
 
 ## frontend

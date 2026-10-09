@@ -33,7 +33,7 @@ from app.domain.road_network import RoadNetwork
 from app.infrastructure import road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.conftest import postgis_database_url
-from tests.source_ingest import ingest_records, point_record, way_record
+from tests.source_ingest import abr_prefecture_record, ingest_records, point_record, way_record
 
 #: DBから組むテストの印（テスト用DBへ繋ぎ、接続とイベントループをファイルで共有する。testing.md パターン2）。
 _ON_TEST_DB = (pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis,
@@ -254,6 +254,7 @@ async def _derive(ways=_WAYS, nodes=_INGESTED_NODES) -> None:
         point_record(n, *_NODES[n], {"highway": "traffic_signals"} if n == _SIGNAL_NODE else None) for n in nodes])
     await ingest_records("osm_way", [
         way_record(way_id, [_NODES[n] for n in node_ids], node_ids, tags) for way_id, node_ids, tags in ways])
+    await ingest_records("abr", [abr_prefecture_record("130001", "東京都", *_NODES[1])])
     assert await derive_cli.run(postgis_database_url(), None) == 0
     shutil.rmtree(road_network_store.ROOT)
 
