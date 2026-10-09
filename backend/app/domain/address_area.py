@@ -1,7 +1,9 @@
-"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方。
+"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方・区画の祖先から
+辺りの名前を組み立てる形。
 
 区画の表（`address_areas`）と鍵の表（`address_search_keys`）は派生の段（`batch/derive_addresses.py`）が作り、
-ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）を持つ。
+ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）・
+施設の辺りの名前（`area_label`）を持つ。
 アドレス・ベース・レジストリ（ABR）の列の読み方は`infrastructure/source_models.py`が持ち、ここへは名前で届く。
 """
 
@@ -60,6 +62,15 @@ def standardize_address(text: str) -> str:
     text = text.replace("大字", "")
     text = _KE.sub("ケ", text)
     return _NO.sub("ノ", text)
+
+
+def area_label(chain: Iterable[tuple[str, str]]) -> str:
+    """施設の辺りの名前（「川口市元郷四丁目」「さいたま市岩槻区本町」）。
+
+    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。市区町村から先の名前をつなぎ、都道府県は持たない
+    （政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない）。
+    """
+    return "".join(name for level, name in chain if level != "prefecture")
 
 
 def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) -> frozenset[str]:

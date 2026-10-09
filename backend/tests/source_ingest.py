@@ -17,7 +17,7 @@ from typing import Any
 
 import asyncpg
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
 from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_source
 from app.batch.source_adapters.gsi_dem_tile import NODATA, SCALE, pack_elevations
@@ -54,6 +54,34 @@ def abr_prefecture_record(code: str, name: str, lon: float, lat: float) -> Sourc
     住所の区画の派生の段は`abr`の取込が無いと止まるので、派生を最初から流すテストは少なくともこれを取り込む。"""
     return point_record(code, lon, lat, {"lg_code": code, "pref": name, "ablt_date": "",
                                          "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
+def abr_city_record(code: str, prefecture: str, city: str, lon: float, lat: float, *, ward: str = "",
+                    county: str = "") -> SourceRecord:
+    """住所の生データ（`abr`）の市区町村1件（政令市の区は`ward`を持つ行）。"""
+    return point_record(code, lon, lat, {"lg_code": code, "pref": prefecture, "county": county, "city": city,
+                                         "ward": ward, "ablt_date": "", "rep_lon": str(lon), "rep_lat": str(lat),
+                                         "rep_srid": "EPSG:6668"})
+
+
+def abr_town_record(code: str, town_id: str, town_type: str, city: tuple[str, str, str], lon: float, lat: float, *,
+                    oaza: str = "", chome: str = "", koaza: str = "") -> SourceRecord:
+    """住所の生データ（`abr`）の町字1件。`code`は属す市区町村（区）のコード、`city`はその (都道府県, 市, 区) の名前。"""
+    prefecture, city_name, ward = city
+    return SourceRecord(
+        natural_key=f"{code}:{town_id}", geom_wkb=shapely.to_wkb(Point(lon, lat)),
+        attrs={"lg_code": code, "machiaza_id": town_id, "machiaza_type": town_type, "pref": prefecture, "county": "",
+               "city": city_name, "ward": ward, "oaza_cho": oaza, "chome": chome, "koaza": koaza, "ablt_date": "",
+               "rsdt_addr_flg": "0", "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
+def estat_small_area_record(key_code: str, name: str, ring: Sequence[tuple[float, float]]) -> SourceRecord:
+    """小地域の境界（`estat_small_area`）の1件。`key_code`は都道府県2桁・市区町村3桁・町丁・字等6桁、`ring`は多角形の
+    外周の (経度, 緯度) の列。"""
+    return SourceRecord(
+        natural_key=key_code, geom_wkb=shapely.to_wkb(Polygon(ring)),
+        attrs={"KEY_CODE": key_code, "PREF": key_code[:2], "CITY": key_code[2:5], "S_AREA": key_code[5:],
+               "S_NAME": name, "HCODE": 8101})
 
 
 def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,

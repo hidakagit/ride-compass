@@ -7,7 +7,7 @@
 - 配布元から手元へ写す取得（`scripts/fetch_overture_places.py`）→ どのテストも通さない（網の向こうの S3 を読むだけで、
   判断を持たない）
 - 表を焼いた点のタイル → `test_point_tiles.py`
-- 地点の辺り（住所の辞書の逆引き） → `test_place_search_route.py`
+- 地点の辺り → `test_stop_place_areas.py`
 """
 
 from pathlib import Path
@@ -26,8 +26,6 @@ pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
     pytest.mark.xdist_group(name="postgis"),
     pytest.mark.postgis,
-    # 派生の段が、入れた地点の辺りを住所の辞書で引く。
-    pytest.mark.usefixtures("placed_address_dictionary"),
 ]
 
 PROFILE = load_source_profile(None)

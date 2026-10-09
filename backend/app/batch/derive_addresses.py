@@ -15,13 +15,15 @@
 - 境界は同じ市区町村（5桁）の中で、名前（字の「字」を除いて揃えた形）で順に結ぶ: ①区画の名前（大字＋丁目・字）と同じ
   ②境界の名前の頭に当たる最も長い区画の名前（2文字以上） ③お尻に当たる最も長い区画の名前（2文字以上）。どれにも当たらない
   境界は、中に代表点がある区画（字・丁目を先に）に結ぶ。それも無い境界は行にしない。同じ鍵に区画が2つ以上当たれば
-  区画のIDの小さいほう。
+  区画のIDの小さいほう。境界の名前の括弧の中は除いて結ぶ——1つの町丁・字を分けた小地域は、名前の途中に括弧の印を挟む
+  （「横山（一）四丁目」「下九沢（番一）」）ので、除かないと頭の大字にしか当たらない。
 
 `abr`の取込が無ければ止まる（区画の無い作り直しは、検索と施設の辺りを黙って空にする）。境界の取込が無ければ結び付きは空。
 道の網とは何も読み合わない。施設の辺り（立ち寄り先の段）を区画から決められるよう、立ち寄り先の段より前に置く。
 """
 
 import logging
+import re
 import time
 from collections import defaultdict
 from collections.abc import Sequence
@@ -51,6 +53,9 @@ logger = logging.getLogger("ridecompass.derive_addresses")
 
 #: 境界の名前の頭・お尻に当てる区画の名前の最短の長さ（揃えた形の文字数）。1文字では無関係な名前に当たる。
 _PARTIAL_NAME_MIN_LENGTH = 2
+
+#: 境界の名前の括弧とその中（全角・半角）。
+_PARENTHESIZED = re.compile(r"[（(][^）)]*[）)]")
 
 _AREAS = """
 CREATE TEMP TABLE _address_areas (
@@ -195,7 +200,7 @@ def _link_by_name(areas: Sequence[_Area], boundaries: Sequence[asyncpg.Record]) 
 
     links = []
     for boundary in boundaries:
-        name = _name_key(boundary["name"])
+        name = _name_key(_PARENTHESIZED.sub("", boundary["name"]))
         if not name:
             continue
         city = boundary["city_code"]
