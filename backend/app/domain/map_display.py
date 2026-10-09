@@ -9,7 +9,7 @@ from typing import Literal, NamedTuple
 from app.domain.display_palette import ORDERED_END_COLOR_NAMES
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
 from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
-from app.domain.place_search import ADDRESS_DICTIONARY_ATTRIBUTION
+from app.domain.place_search import ADDRESS_AREA_ATTRIBUTIONS, ADDRESS_DICTIONARY_ATTRIBUTION
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from app.domain.registry import DisplayAxisSpec
 from app.domain.region import ROAD_TILE_MIN_ZOOM
@@ -135,6 +135,7 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
     "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
     ADDRESS_DICTIONARY_ATTRIBUTION,
+    *ADDRESS_AREA_ATTRIBUTIONS,
     # Overture の地点は出どころごとに表示が要る（公式の文書 https://docs.overturemaps.org/attribution/ ）。
     # Foursquare の行は Apache 2.0 で、ライセンスの写し・変えた旨・NOTICE の全文を渡す（frontend/public/licenses/）。
     '立ち寄り先: <a href="https://overturemaps.org/" target="_blank" rel="noreferrer">Overture Maps Foundation</a>'

@@ -93,7 +93,8 @@ async def create_tables(engine: AsyncEngine) -> None:
 #
 # 手元の道路データは、成功した最新の道路の取込のもの——取込はソースのパーティションを入れ替え、派生も
 # 最新のrunから作る。範囲はそのrunが記録した宣言（`profile.target.bbox`、(min_lat, min_lon, max_lat, max_lon)）。
-_INGESTED_BBOX_SQL = f"""
+# 住所の区画の派生の段（`batch/derive_addresses.py`）も、町字をこの範囲で選ぶ。道路を取り込んでいなければ0行。
+INGESTED_BBOX_SQL = f"""
     SELECT
         (profile->'target'->'bbox'->>0)::double precision AS min_lat,
         (profile->'target'->'bbox'->>1)::double precision AS min_lon,
@@ -106,7 +107,7 @@ _INGESTED_BBOX_SQL = f"""
 #: `point_tile_layers.py`）は`WITH coverage AS (...)`で読む。
 COVERAGE_SQL = f"""
     SELECT EXISTS (
-        SELECT 1 FROM ({_INGESTED_BBOX_SQL}) ingested
+        SELECT 1 FROM ({INGESTED_BBOX_SQL}) ingested
         WHERE ST_Intersects(
             ST_MakeEnvelope(ingested.min_lon, ingested.min_lat, ingested.max_lon, ingested.max_lat, 4326),
             ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
@@ -631,7 +632,7 @@ class RoadGraphRepository:
 
     async def get_ingested_area(self) -> BoundingBox | None:
         """取り込んだ範囲（`is_covered`が判定に使うのと同じ範囲）。道路をまだ取り込んでいなければNone。"""
-        row = (await self._session.execute(text(_INGESTED_BBOX_SQL))).mappings().one_or_none()
+        row = (await self._session.execute(text(INGESTED_BBOX_SQL))).mappings().one_or_none()
         if row is None:
             return None
         return BoundingBox(
