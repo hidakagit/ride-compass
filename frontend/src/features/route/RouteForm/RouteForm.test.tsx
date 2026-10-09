@@ -4,7 +4,7 @@
  *
  * 見るもの: モードの切り替えで上がるモード、候補数のステッパー（今の件数・1件ずつの増減・端で押せない・経由地があると
  * 決まった件数で押せず、理由の(i)を置く）、周回の距離のスライダーで上がる値、モードごとに出す距離と地点の並び、
- * 地点の並び（出発地・経由地の番号の丸・目的地）と押した地点の詳しく（呼び名・出どころ・名前）、出発地の印の色、
+ * 地点の並び（出発地・経由地の番号の丸・目的地）と押した地点の詳しく（呼び名・出どころ・名前・その位置から引いた辺り）、出発地の印の色、
  * 地図で置く操作を押したときに上がる役割・消す/戻す操作、名前を打って選んだ候補をその地点として上げること、
  * タブを切り替えても各タブの中身を外さないこと。
  *
@@ -19,14 +19,14 @@
  * 並びに入りきらないときに両端の札を印だけにすること（テスト環境はレイアウトの実寸を持たない）→ `e2e/all-states.spec.ts`の
  * 省略の検査（名前を途中で切っていないこと）。
  *
- * 差し替えたもの: 検索の口の応答（網の層）。
+ * 差し替えたもの: 検索の口と辺りの口の応答（網の層）。辺りの口は、テストが応答を渡さなければ辺り無しと答える。
  *
  * タブの中身を描くには`Tabs`の中に置く必要があるので、テストが`page.tsx`の代わりに`Tabs`で包む。
  */
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/components/PinMark/PinMark";
 import { Tabs } from "@/components/ui/Tabs/Tabs";
@@ -40,6 +40,9 @@ type Props = ComponentProps<typeof RouteForm>;
 /** 部品へ渡す値。生成の条件の欄（`conditions`）とほかの props を並べて渡し、`renderForm` が分ける。 */
 type Options = Partial<Props["conditions"]> & Partial<Omit<Props, "conditions">>;
 
+/** 出発地の位置（現在地）。 */
+const ORIGIN = { latitude: 35.75, longitude: 139.73 };
+
 /** コールバック以外の既定。見たい値はテストが渡す。 */
 const BASE = {
   distanceInput: "30",
@@ -47,6 +50,7 @@ const BASE = {
   routeMode: "loop",
   waypoints: [],
   destination: null,
+  origin: ORIGIN,
   originManual: false,
   originLocated: true,
   armedPinRole: null,
@@ -83,6 +87,11 @@ const FACILITY: PlaceCandidate = {
   longitude: 139.7967,
 };
 
+// 詳しくは置いた地点の辺りを引く。辺りを見ないテストには、辺り無しと答える（見るテストは後から応答を渡す）。
+beforeEach(() => {
+  onBackend("GET", "/api/place-area", () => Response.json({ area: null }));
+});
+
 function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
   const handlers = {
     setDistanceInput: vi.fn(),
@@ -96,6 +105,7 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
   };
   const element = (nextTab: SettingsTab, changed: Options = {}) => {
     const {
+      origin,
       originManual,
       originLocated,
       onOriginReset,
@@ -116,6 +126,7 @@ function renderForm(options: Options = {}, tab: SettingsTab = "generate") {
       <Tabs value={nextTab}>
         <RouteForm
           conditions={conditions}
+          origin={origin}
           originManual={originManual}
           originLocated={originLocated}
           onOriginReset={onOriginReset}
@@ -324,6 +335,30 @@ describe("RouteForm 地点の並び", () => {
 
     await userEvent.click(button("出発地: 現在地"));
     expect(detail("出発地")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["出発地: 現在地", "出発地", ORIGIN],
+    ["経由地2: 地図で選んだ地点", "経由地2", waypointsOf(2)[1]],
+    ["目的地: 地図で選んだ地点", "目的地", DESTINATION],
+  ])("押した地点（%s）の詳しくに、その位置から引いた辺りを出す", async (chip, title, point) => {
+    onBackend("GET", "/api/place-area", ({ query }) =>
+      Response.json({ area: query.latitude === String(point.latitude) ? "押した地点の辺り" : "ほかの地点の辺り" }),
+    );
+    renderForm({ routeMode: "destination", waypoints: waypointsOf(2), destination: DESTINATION });
+
+    await userEvent.click(button(chip));
+
+    expect(await within(detail(title)).findByText("押した地点の辺り")).toBeInTheDocument();
+  });
+
+  it("現在地を取れていない出発地は、仮の位置の辺りを引かない", async () => {
+    const sent = onBackend("GET", "/api/place-area", () => Response.json({ area: "仮の位置の辺り" }));
+    renderForm({ originLocated: false });
+
+    // 引くなら詳しくを描いた直後に送る。少し待っても送っていない。
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent).toEqual([]);
   });
 
   it("地図で置く状態の地点を押すと、置く状態を解く", async () => {

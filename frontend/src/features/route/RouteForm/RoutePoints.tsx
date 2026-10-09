@@ -29,6 +29,8 @@ type RoutePointsConditions = Pick<
 
 interface RoutePointsProps {
   conditions: RoutePointsConditions;
+  /** 出発地の位置（現在地か、地図で置いた地点）。 */
+  origin: Coordinates;
   /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
   originManual: boolean;
   /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。falseの間は地図のピンと同じく印を灰色にし、
@@ -59,6 +61,7 @@ function sourceOf(found: PlaceCandidate | null): string {
  */
 export default function RoutePoints({
   conditions,
+  origin,
   originManual,
   originLocated,
   onOriginReset,
@@ -146,6 +149,7 @@ export default function RoutePoints({
           source={originManual ? sourceOf(originFound) : "現在地"}
           name={originName}
           found={originFound}
+          at={originLocated ? origin : null}
           placed
           armLabel="地図で選ぶ"
           extra={
@@ -178,6 +182,7 @@ export default function RoutePoints({
           source={set ? sourceOf(destinationFound) : undefined}
           name={destinationName}
           found={destinationFound}
+          at={destination}
           placed={set}
           armLabel={set ? "地図で置き直す" : "地図で選ぶ"}
           extra={
@@ -204,6 +209,7 @@ export default function RoutePoints({
           role="waypoint"
           title="新しい経由地"
           found={null}
+          at={null}
           placed={false}
           armLabel="地図で追加"
           armedHint={waypointCount > 0 ? `地図をタップ[${waypointCount}地点]` : "地図をタップ"}
@@ -232,6 +238,7 @@ export default function RoutePoints({
         source={sourceOf(found)}
         name={found?.name ?? "地図で選んだ地点"}
         found={found}
+        at={waypoints[index]}
         placed
         armLabel="地図で置き直す"
         extra={

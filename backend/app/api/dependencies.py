@@ -30,6 +30,7 @@ from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
 from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.place_area_query import PlaceAreaQuery
 from app.infrastructure.stop_place_search import StopPlaceSearchQuery
 from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
 from app.services.axis_preview_service import AxisPreviewService
@@ -175,7 +176,7 @@ def get_wind_grid_service(weather_service: WeatherService = Depends(get_weather_
 async def _open_place_search_reads() -> AsyncIterator[PlaceSearchReads]:
     async with get_session_factory()() as session:
         yield PlaceSearchReads(RegionService(repository=RoadGraphRepository(session)), AddressSearchQuery(session),
-                               StopPlaceSearchQuery(session))
+                               StopPlaceSearchQuery(session), PlaceAreaQuery(session))
 
 
 def get_place_search_service():

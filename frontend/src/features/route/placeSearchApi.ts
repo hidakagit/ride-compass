@@ -14,3 +14,16 @@ export async function searchPlaces(query: string, near: Coordinates): Promise<Pl
   );
   return data.candidates;
 }
+
+/** 置いた位置の辺り（市区町村から字・丁目まで）。区画に結んだ境界の外ならnull。 */
+export async function areaAt(point: Coordinates): Promise<string | null> {
+  const data = await requestApi(
+    (init) =>
+      backendApi.GET("/api/place-area", {
+        params: { query: { latitude: point.latitude, longitude: point.longitude } },
+        ...init,
+      }),
+    getOptions({ timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:placeArea", errorLabel: "地点の辺り" }),
+  );
+  return data.area;
+}

@@ -205,6 +205,9 @@ export async function installApiMocks(page: Page): Promise<void> {
 
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: defaultAxisCatalogFixture() }));
 
+  // 地点の詳しくが、置いた位置の辺りを引く。辺り無し（区画に結んだ境界の外）で答える。
+  await page.route(`${API_BASE}/api/place-area*`, (route) => route.fulfill({ json: { area: null } }));
+
   // Next.jsのrewritesでbackendへ中継される経路（タイル・時刻一覧等）。モックしないと、E2Eの
   // サーバーの中継が接続拒否をログへ出し続ける。経路は next.config.ts の宣言から取り、中身無しで
   // 返す。応答に中身が要る経路は、この後で個別に上書きする（後から登録したルートが先に当たる）。
