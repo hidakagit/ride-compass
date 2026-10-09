@@ -2,7 +2,8 @@
 
 ## 責務
 
-OSM由来の道路データ（PBF取込）・警察庁事故データ・土地被覆ラスタ・Overture Mapsの地点・国の文化財の建造物をPostGISへ
+OSM由来の道路データ（PBF取込）・警察庁事故データ・土地被覆ラスタ・Overture Mapsの地点・国の文化財の建造物・住所の元データ
+（アドレス・ベース・レジストリ・e-Stat の小地域の境界。区画にするのは[地点の検索](place-search.md)「住所の区画の表」）をPostGISへ
 取り込み、道路の静的属性（路面・種別・事故等）と立ち寄り先をベクタタイル（MVT）として
 配信する。ルート生成とは独立した「地図を眺める」用途を支える。
 
@@ -220,6 +221,7 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 | `derive_counts.py` | 区間と道に付く数の値（事故・停止要因・交差点） |
 | `derive_raster_materials.py` | 面のタイルを線へ落とす（標高・土地被覆） |
 | `derive_way_materials.py` | 道1本の性質（通行方向・上下線分離） |
+| `derive_addresses.py` | 住所の区画`address_areas`・鍵・小地域の境界の結び付き（道の網を読まない。[地点の検索](place-search.md)「住所の区画の表」） |
 | `derive_stop_places.py` | 立ち寄り先`stop_places`（道の網を読まない） |
 
 **道1本の値は区間の値から導く。** 同じ知識を2つの粒度で持つ以上、数え方が違ってはいけない
@@ -227,7 +229,7 @@ reset_columns_sql`。戻す値は、未計算のNULL・「無い」を表す0や
 
 **生データの読み方（`source`の値・キーの型）は`infrastructure/source_models.py`の副問い合わせだけが持つ**
 （例: 道の`ways_source_sql`・`ways_lookup_sql`、ノードの`NODES_SOURCE_SQL`・`nodes_lookup_sql`、事故の
-`ACCIDENTS_SOURCE_SQL`、Overtureの地点の`OVERTURE_PLACES_SOURCE_SQL`、文化財の建造物の`BUNKA_HERITAGES_SOURCE_SQL`、標高・土地被覆のタイル`DEM_TILES_SQL`・`LANDCOVER_TILES_SQL`）。
+`ACCIDENTS_SOURCE_SQL`、Overtureの地点の`OVERTURE_PLACES_SOURCE_SQL`、文化財の建造物の`BUNKA_HERITAGES_SOURCE_SQL`、住所の`ABR_PREFECTURES_SOURCE_SQL`・`ABR_CITIES_SOURCE_SQL`・`ABR_TOWNS_SOURCE_SQL`・`ESTAT_SMALL_AREAS_SOURCE_SQL`、標高・土地被覆のタイル`DEM_TILES_SQL`・`LANDCOVER_TILES_SQL`）。
 派生の段もタイル配信もグラフの読み出しも同じ副問い合わせから読むため、取込の入れ方を変えたときに
 直す場所が1つで済む。読み手は`source_features`をソース名で絞らない。ソース名と取込の状態の綴りも
 同じファイルの`StrEnum`（`Source`・`SourceRunStatus`）だけが持つ。綴りの食い違いはエラーにならず

@@ -66,6 +66,16 @@ ADDRESS_DICTIONARY_ATTRIBUTION = (
     "をもとに、株式会社情報試作室が加工した jageocoder 用住所データベース（街区レベル）を利用"
 )
 
+#: 住所の区画の表（`domain/address_area.py`）の元データの出典。アドレス・ベース・レジストリは CC BY 4.0、e-Stat の境界は
+#: 政府標準利用規約（第2.0版）で、どちらも出典と加工した旨を書く（docs/architecture/data-sources.md）。
+ADDRESS_AREA_ATTRIBUTIONS: tuple[str, ...] = (
+    '住所: 「<a href="https://www.digital.go.jp/policies/base_registry_address/" target="_blank" rel="noreferrer">'
+    "アドレス・ベース・レジストリ</a>」（デジタル庁）の町字マスター・位置参照拡張を加工して作成"
+    ' (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>)',
+    '住所の境界: 出典 <a href="https://www.e-stat.go.jp/" target="_blank" rel="noreferrer">政府統計の総合窓口(e-Stat)</a>。'
+    "「令和2年国勢調査 小地域（町丁・字等別）境界データ」（総務省統計局）を加工して作成",
+)
+
 
 class PlaceCandidate(StrictModel):
     """検索の候補1件。住所なら`name`は都道府県から当たった段までをつないだ表示名で、位置はその段の代表点。

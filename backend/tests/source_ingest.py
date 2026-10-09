@@ -49,6 +49,13 @@ def point_record(key: int | str, lon: float, lat: float,
                         attrs=attrs or {})
 
 
+def abr_prefecture_record(code: str, name: str, lon: float, lat: float) -> SourceRecord:
+    """住所の生データ（`abr`）の都道府県1件。列は取込のアダプタ（`source_adapters/abr.py`）が入れる配布の列の名前。
+    住所の区画の派生の段は`abr`の取込が無いと止まるので、派生を最初から流すテストは少なくともこれを取り込む。"""
+    return point_record(code, lon, lat, {"lg_code": code, "pref": name, "ablt_date": "",
+                                         "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
 def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
                 attrs: dict[str, Any]) -> SourceRecord:
     """面のソース（例: `lulc`）のタイル1枚。"""
