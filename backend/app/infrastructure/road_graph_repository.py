@@ -312,8 +312,11 @@ _TILE_MATERIAL_JOINS = f"""
                     {material_from_clause(material_tile_columns().values(), 'src.osm_way_id',
                                           'src.segment_index', way_when_no_segment=True)}
                     CROSS JOIN LATERAL (
+                        -- `OFFSET 0`は外へ畳ませないためのもの——畳まれると`re.distance_m`を読む
+                        -- 値式ごとに道の長さを測り直す。
                         SELECT CASE WHEN src.segment_index IS NOT NULL THEN src.length_m
                                     ELSE NULLIF(ST_Length(w.geom::geography), 0) END AS distance_m
+                        OFFSET 0
                     ) re
 """
 

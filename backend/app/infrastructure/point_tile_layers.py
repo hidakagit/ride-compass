@@ -24,7 +24,7 @@ from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import COVERAGE_SQL
-from app.infrastructure.source_models import ACCIDENTS_SOURCE_SQL, NODES_SOURCE_SQL
+from app.infrastructure.source_models import NODES_SOURCE_SQL, accidents_within_sql
 
 
 @dataclass(frozen=True)
@@ -131,8 +131,7 @@ _ACCIDENT_TILE_MVT_SQL = text(
                     {BICYCLE_SQL} AS involves_bicycle,
                     {FATAL_SQL} AS fatal,
                     a.occurred_year
-                FROM {ACCIDENTS_SOURCE_SQL} a
-                WHERE ST_Intersects(a.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+                FROM {accidents_within_sql("ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")} a
             ) mvt
             WHERE mvt.geom IS NOT NULL
         ) AS tile
