@@ -58,7 +58,7 @@
 | 実行環境・プラットフォーム固有の制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | バンドラ・ホスティング・OSに由来する回避策 |
 | 外部データソースの利用条件 | [architecture/data-sources.md](../architecture/data-sources.md) | 商用利用の可否・出典と加工した旨の表記要件。提供元の公式ページにしか無い |
 | 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表の母集団にも入らない |
-| タスクの流れのゲート（`tools/flow-gate/`） | [conventions/flow.md](../conventions/flow.md) | ステータスの遷移の表・問いと答えの形・回答フォーム。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
+| タスクの流れのゲート（`tools/flow-gate/`） | [conventions/flow.md](../conventions/flow.md)・[architecture/task-flow.md](../architecture/task-flow.md) | ステータスの遷移の表・問いと答えの形・回答フォーム。アプリの外の運用の道具で、下の対象ファイル表の母集団に入らない |
 | クラウドのセッションの用意（`scripts/remote_dev/`） | [architecture/setup.md](../architecture/setup.md)「クラウドのセッション」 | 依存の導入とDB・Redisの起動 |
 | 壊れ方の確かめ（`scripts/break_tests.py`） | [conventions/testing.md](../conventions/testing.md)「そのテストは要るか（3問を順に）」の消す・まとめる前の段 | 壊れ方の一覧の形・断る条件・前の版のテストの並べ方 |
 | チェックアウトの遅れの確かめ（`scripts/checkout_freshness.py`） | [architecture/setup.md](../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」 | どの道具が遅れで止まるか・早送りを打つ条件 |

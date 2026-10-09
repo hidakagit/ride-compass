@@ -7,7 +7,7 @@
 
 - **手元とCIで同じ答えを2回買わない**: CIはPull Requestで毎回、変更が届く側の静的検査（`.github/workflows/ci.yml`の
   ジョブ（backend・frontend）がテスト（`pytest`・`npm test`）より前に回す段・`api-contract`のOpenAPI生成物のドリフト・
-  `.github/workflows/docs-consistency.yml`の段）とフルスイートを回す（[flow.md](flow.md)「作る担当」の4・5）。
+  `.github/workflows/docs-consistency.yml`の段）とフルスイートを回す（[pull-requests.md](pull-requests.md)「作る」の4・5）。
   文書や運用の道具・タスク管理だけの変更では、`ci.yml: changes`ジョブが重い検査を飛ばす（[tech-stack.md](../architecture/tech-stack.md)「CIの実行枠（リポジトリがpublicである間の前提）」）。
   masterでは`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイを起動しない（下の「検査の置き場」）。手元では、CIの結論より先に
   知らないと作業が無駄になる答えだけを、その答えに要る最小の範囲で取る。
@@ -312,7 +312,7 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
   - **誰がいつ回すか**: 地図の描き方（`features/map/scene/`等）・タイルへ焼く値・軸カタログ・動的値の
     配信・気象の描き方・ルート生成の応答に触る変更の担当が、**Pull Requestを出す前に1回**回し、
     実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）をPull Requestの本文の検証へ書く（masterのコミットは
-    題名と本文から作られる。[flow.md](flow.md)「作る担当」の5）。回せない環境（開発DBも手元のbackendも無い担当のランナー・
+    題名と本文から作られる。[pull-requests.md](pull-requests.md)「作る」の5）。回せない環境（開発DBも手元のbackendも無い担当のランナー・
     クラウドのセッション等）・当たるファイルを変えたが描き方にも応答にも触らない変更では、回さない理由を
     `e2e-live`の語を添えて同じ所へ書く。触らない変更では回さない。門にはしない（CIに載せない）。
 

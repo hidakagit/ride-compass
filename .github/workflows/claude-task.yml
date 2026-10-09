@@ -1,6 +1,6 @@
 # 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。振り出し（claude-dispatch.yml）が起こす。手でも起こせる:
 #   gh workflow run claude-task.yml -R hidakagit/ride-compass -f issue=<置き場の issue の番号> -f kind=<作る|確かめる>
-# 担当は docs/conventions/flow.md の「作る担当」「確かめる担当」の手順を進める。種類「開発機」は担当を動かさず、開発機の対話の
+# 担当は docs/conventions/pull-requests.md の「作る」「確かめる」の手順を進める。種類「開発機」は担当を動かさず、開発機の対話の
 # セッションがそのタスクを触る間、下のグループを持つだけの実行（tools/flow-gate/bin/hold.js が起こし、取り消して手放す）。
 # このリポジトリは公開で、Actions の記録は誰でも読める。担当の出力の全文（show_full_output）と報告（display_report）は出さない。
 name: Claude Task
@@ -110,10 +110,10 @@ jobs:
           # ユーザー設定の autoMode を読む（リポジトリの .claude/settings.json の autoMode は読まない）。
           settings: ${{ github.workspace }}/tools/flow-gate/settings.json
           claude_args: --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
-          # 決まりも環境の説明も写さず、読む節だけを指す（docs/conventions/flow.md「担当」の3）。
+          # 決まりも環境の説明も写さず、読む節だけを指す（docs/architecture/task-flow.md「担当のワークフローの1回」の3）。
           prompt: |
             あなたは RideCompass の${{ inputs.kind }}担当です。作業ツリー ${{ github.workspace }} で、置き場 ridecompass/ride-compass-tasks の issue #${{ inputs.issue }} を扱います。
-            まず CLAUDE.md と docs/conventions/flow.md の「担当」「${{ inputs.kind }}担当」「問い」「issue の形」を読み、その手順のとおりに進めてください。
+            まず CLAUDE.md と docs/conventions/flow.md（全文）と docs/conventions/pull-requests.md の「${{ inputs.kind }}」を読み、その手順のとおりに進めてください。
       # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
       - name: 残った変更
         if: always() && steps.claim.outputs.go == 'true' && inputs.kind == '作る'

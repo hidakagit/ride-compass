@@ -1,4 +1,4 @@
-// 画面を、選んだ版と応答で開き、脚本で進めた状態を撮る（Pull Request の修正前後のキャプチャ。docs/conventions/flow.md「作る担当」の5）。
+// 画面を、選んだ版と応答で開き、脚本で進めた状態を撮る（Pull Request の修正前後のキャプチャ。docs/conventions/pull-requests.md「画面を撮る」）。
 //
 //   node scripts/capture.mjs [--script <脚本のファイル>] [--app production|worktree|<git の版>] [--api mock|<backend のオリジン>]
 //     [--backend <パスの頭>]... [--size <幅>x<高さ>] [--theme light|dark] [--out <出力のディレクトリ>] [--no-build]

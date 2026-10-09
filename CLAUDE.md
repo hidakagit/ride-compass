@@ -45,7 +45,7 @@ docs/conventions/ にある。flow.md の節を指す行に当たったら、先
 | 作業 | 読む節 |
 |---|---|
 | 開発機の対話のセッションでタスクを進める（裏の作業役に任せるときも） | flow.md: 開発機の対話のセッション／.claude/commands/review.md: 回すとき |
-| タスクに着手する | flow.md: 1つのタスクを触るのは1者だけ・作る担当（1〜3）・前後関係と組（探す）・issue の形（1つの Pull Request に収まらない・方針を選ぶタスクは最初に背景・方針を書く） |
+| タスクに着手する | flow.md: ステータス・段階と前提・issue の形／pull-requests.md: 作る（1〜3） |
 | 新しい仕組みを作る・設計を判断する | docs/architecture/design-principles.md（全文）／.claude/commands/review.md: 判断原則 |
 | backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／comments.md: ルール・判定基準（新しくコメントを書く/既存コメントを見直す/コードを撤去するとき）・残すと決めたものの行き先／logging.md: 基本原則・使う仕組み（新規実装はこれらを使うこと） |
 | APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | deployment-sync.md: コミットと同時に揃えるもの |
@@ -56,16 +56,16 @@ docs/conventions/ にある。flow.md の節を指す行に当たったら、先
 | 指摘・不具合を直す | fixing.md（全文） |
 | テストを書く | testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・テストの足場で、本来のNGを覆わない・挙動を変えるなら、テストを先に書く・当たるパターン（パターン1〜）／fixing.md: 書かないテスト |
 | テストや検査を回す | testing-operations.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
-| 画面を撮る | flow.md: 作る担当（5 の画面の変更のキャプチャ） |
+| 画面を撮る | pull-requests.md: 画面を撮る |
 | コミットする | flow.md: コミット／fixing.md: 報告と段取り（実装の増減）／deployment-sync.md: コミットと同時に揃えるもの |
-| PR を出す | flow.md: 作る担当（4〜6）・分布の前後 |
-| PR を確かめてマージする | flow.md: 確かめる担当・Pull Request のあと・競合を解く |
-| 本番へ書く | flow.md: 自動で進めないもの・本番へ書く／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
+| PR を出す | pull-requests.md: 作る（4〜6） |
+| PR を確かめてマージする | pull-requests.md: 確かめる・競合を解く・PR のあと |
+| 本番へ書く | flow.md: 開発機の対話のセッション／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
-| 起票する | flow.md: 改善を起票する・issue の形・ラベルと種類と欄（優先度の見積もり）・前後関係と組 |
-| 問う・保留する | flow.md: 問い・答え・保留と棚卸 |
+| 起票する | flow.md: 起票・issue の形・ラベルと欄・段階と前提 |
+| 問う・保留する | flow.md: 問い・答え・保留 |
 | 文書を書く | 上の「ドキュメント階層」／documentation.md（全文）／comments.md: 残すと決めたものの行き先 |
-| 流れの道具（`tools/flow-gate`・担当のワークフロー）を変える | flow.md: ゲートを変える・公開する・担当の権限・担当が書けないファイル・確かめる担当（1 の書き込みのある道具を流す） |
+| 流れの道具（`tools/flow-gate`・担当のワークフロー）を変える | docs/architecture/task-flow.md（全文） |
 | 作業ツリーを作る・依存を入れる | docs/architecture/setup.md: 作業ツリーどうしで node_modules を共有しない |
 | 周期レビューをする | .claude/commands/review.md（全文） |
 
@@ -73,7 +73,7 @@ docs/conventions/ にある。flow.md の節を指す行に当たったら、先
 
 - **数分以上かかる処理は、始める前に計画と見込みを伝える**: 何を・どの順で・どれくらいかかるか（未計測ならそう言う）を
   伝え、裏で流して区切りごとに知らせる。実行中の重い処理を中断・やり直すかは、独断せずユーザーに問う。これは開発機の
-  対話のセッションの決まりで、Actions の担当は裏の道具を持たず、終わるまで前に出したまま待つ（flow.md「担当」の3）。
+  対話のセッションの決まりで、Actions の担当は裏の道具を持たず、終わるまで前に出したまま待つ（docs/architecture/task-flow.md「担当のワークフローの1回」の3）。
 - **長い待ちで黙って待たない**: 止まったら、その時点で報告する。
 - **一覧（状態・残り）を見せる前に、今の状態を読み直す。**
 - **コードの構造について言う前に、機械的に列挙する**: 「◯◯は2か所にある」「唯一の定義だ」「この形は
@@ -113,6 +113,6 @@ docs/conventions/ にある。flow.md の節を指す行に当たったら、先
   並行セッションの作業中を疑い、対応が要るなら内容を報告してユーザーに確認してから行う（破棄した未ステージの変更は多くの場合復元できない）。
 - **最初から変更を目的としていない作業（調査・分析・レビュー系コマンド等）は、本体ではなく専用の`git worktree`で行う。**
 - **バックグラウンドAgentへ実装タスクを委任するときは、`isolation: "worktree"`を必ず指定する**（同じ作業ツリーで並行して書くと、互いの変更を壊す）。
-  タスクの担当は GitHub Actions のワークフローで起きる（flow.md「担当」）。開発機で裏の作業役に任せるときの渡し方は flow.md「開発機の対話のセッション」。
+  タスクの担当は GitHub Actions のワークフローで起きる（docs/architecture/task-flow.md）。開発機で裏の作業役に任せるときの渡し方は flow.md「開発機の対話のセッション」。
 - **新しいタスクは、今あるタスクのどれにも属さず、今の作業の中では片付かない作業にだけ起こす**——今の流れで片付く直し・派生・
   気づきは元のタスクの issue へ書く。**進め方の指示**（待つ・続ける・順番を変える）は issue にもコミットにもしない。
