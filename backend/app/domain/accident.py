@@ -1,7 +1,7 @@
 """警察庁交通事故統計オープンデータの事故を道路へ帰属させ、数えるときの判断。
 
-本票CSV（honhyo_YYYY.csv）の列名とコードの読み替えは、生データを読む副問い合わせ
-（`infrastructure/source_models.py: ACCIDENTS_SOURCE_SQL`）が持ち、ここへは読み替えた列で届く。
+本票CSV（honhyo_YYYY.csv）の列名とコードの読み替えは、`infrastructure/source_models.py`の事故の生データを読む
+副問い合わせ（全件と範囲で絞ったものが読み替えを共有する）が持ち、ここへは読み替えた列で届く。
 """
 
 from enum import StrEnum
