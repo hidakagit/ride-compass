@@ -1,15 +1,14 @@
-"""`domain/address_area.py`——住所の表記の揃え方（`standardize_address`）と表示名の組み立て方（`address_full_name`）。
+"""`domain/address_area.py`——住所の表記の揃え方（`standardize_address`）。
 
 打った入力と区画の鍵の両方に同じ揃え方をかけるので、書き方の違う同じ住所が同じ文字列になることを見る。
 
 ここで見ないもの:
 - 区画の名前から作る鍵の別形（書き始める段・郡を省いた形・字の有無）→ `test_address_areas.py`（派生の段を通して見る）
-- 郡を持たない区画の表示名 → `test_place_search_route.py`（検索の候補の名前）
 """
 
 import pytest
 
-from app.domain.address_area import AddressAreaName, address_full_name, standardize_address
+from app.domain.address_area import chome_name, standardize_address
 
 
 @pytest.mark.parametrize(("typed", "listed"), [
@@ -47,7 +46,14 @@ def test_揃えた形は丁目を区切りにし番地をそのまま続ける()
     assert standardize_address("東京都 新宿区 西新宿二丁目八番一号") == "東京都新宿区西新宿2-8番1号"
 
 
-def test_表示名は郡の町村に郡の名前を付ける():
-    chain = [AddressAreaName("東京都", None), AddressAreaName("日の出町", "西多摩郡"), AddressAreaName("大字平井", None)]
-
-    assert address_full_name(chain) == "東京都西多摩郡日の出町大字平井"
+@pytest.mark.parametrize(("number", "written", "name"), [
+    ("4", "４丁目", "四丁目"),
+    ("4", "四丁目", "四丁目"),
+    ("10", "１０丁目", "十丁目"),
+    ("42", "４２丁目", "四十二丁目"),
+    ("6", "６丁", "六丁"),
+])
+def test_丁目の名前は番号から漢数字でそろえる(number, written, name):
+    """ABR の丁目の表記（全角の算用数字・漢数字・「丁」）が混ざっても、区画の名前は漢数字の同じ見た目になり、鍵も変わらない。"""
+    assert chome_name(number, written) == name
+    assert standardize_address(name) == standardize_address(written)

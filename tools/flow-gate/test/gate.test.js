@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { answerForm } from "../src/form.js";
-import { Gate, handleEvent } from "../src/gate.js";
+import { handleEvent } from "../src/gate.js";
 import { parseQuestion } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
@@ -53,27 +53,24 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで問いをコメントに置く。段階でないものの優先度は書かず、段階は親の値", async () => {
+test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで問いをコメントに置く", async () => {
   let gh = fakeGitHub({ issue: { number: 1, status: "中" } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", undefined]);
-  gh = fakeGitHub({ issue: { number: 3, author: "c" }, parent: { number: 1, fields: { 重さ: "上" } } });
+  assert.equal(gh.issue.status, "前");
+  gh = fakeGitHub({ issue: { number: 3, author: "c" }, parent: 1 });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "上"]);
-  gh = fakeGitHub({ issue: { number: 2, author: "c", fields: { 重さ: "下" } } });
+  assert.equal(gh.issue.status, "前");
+  gh = fakeGitHub({ issue: { number: 2, author: "c" } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ, said(gh).length, Boolean(parseQuestion(said(gh)[0]))], ["答え待ち", "下", 1, true]);
+  assert.deepEqual([gh.issue.status, said(gh).length, Boolean(parseQuestion(said(gh)[0]))], ["答え待ち", 1, true]);
 });
 
-test("5 本文の先頭には、回答待ちの間だけ回答フォームへのボタンがある。印の間にゲートが書かないものがあれば、消さずに印の外へ出して知らせる", async () => {
-  let gh = fakeGitHub({ issue: { number: 2, author: "c" } });
+test("5 本文の先頭には、回答待ちの間だけ回答フォームへのボタンがある", async () => {
+  const gh = fakeGitHub({ issue: { number: 2, author: "c" } });
   await deliver("projects_v2_item", item({ action: "created" }));
   assert.notEqual(gh.issue.body, "本文");
   await move("答え待ち", "置き");
   assert.equal(gh.issue.body, "本文");
-  gh = fakeGitHub({ issue: { number: 2, status: "置き", body: "<!-- flow-gate -->\n## 問い\n印の間の問い\n<!-- /flow-gate -->\n\n本文" } });
-  await move("答え待ち", "置き");
-  assert.deepEqual([gh.issue.body, said(gh).length], ["## 問い\n印の間の問い\n\n本文", 1]);
 });
 
 const pr = (action, extra) => deliver("pull_request", { repository: { full_name: config.code.repository }, action, pull_request: { number: 3, title: "題名", head: { ref: `${config.code.branchPrefix}8` }, html_url: "u", merged: false, ...extra } });
@@ -86,14 +83,6 @@ test("6 Pull Request: 開くと進行中は検証中へ。閉じたら検証中�
     await pr("closed", extra);
     assert.equal(gh.issue.status, want, `${status} ${JSON.stringify(extra)}`);
   }
-});
-
-test("7 公開の直後の揃え: 開いた issue を今の規則の姿へ揃え、揃っていれば書かない", async () => {
-  const gh = fakeGitHub({ issue: { number: 3, status: "答え待ち", assignees: ["c"] } });
-  const gate = await Gate.open({ GITHUB_TOKEN: "bot-token" }, config);
-  assert.deepEqual(await gate.refreshAll(), [3]);
-  assert.deepEqual([gh.issue.assignees, gh.issue.body === "本文", said(gh).length], [["u"], false, 1]);
-  assert.deepEqual(await gate.refreshAll(), []);
 });
 
 // 回答フォームで答える（問いは Claude のコメント）。次のステータスは、画面に出た選択肢の何番目か、完成なら完成の印の付いたもので選ぶ。

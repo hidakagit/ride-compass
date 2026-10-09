@@ -1,15 +1,15 @@
-"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方・表示名の組み立て方。
+"""住所の区画（都道府県・市区町村・区・大字/町・丁目/字）の語彙と、住所の表記を揃える形・検索の鍵の作り方・区画の祖先から
+表示の名前を組み立てる形。
 
 区画の表（`address_areas`）と鍵の表（`address_search_keys`）は派生の段（`batch/derive_addresses.py`）が作り、
 ここは段の語彙と、入力と鍵の両方にかける揃え方（`standardize_address`）・区画の名前から鍵を作る形（`search_keys`）・
-区画とその祖先の名前から表示名を組み立てる形（`address_full_name`）を持つ。
+区画の表示の名前（施設の辺りと、地点の検索の住所の表示名。`area_label`）を持つ。
 アドレス・ベース・レジストリ（ABR）の列の読み方は`infrastructure/source_models.py`が持ち、ここへは名前で届く。
 """
 
 import re
 import unicodedata
 from collections.abc import Iterable, Sequence
-from typing import NamedTuple
 
 from app.domain.place_search import PlaceMatchLevel
 
@@ -34,7 +34,8 @@ HYPHEN_CHARACTERS = "‐‑‒–—―−-"
 #: 住所の揃え方で`-`へ寄せる文字。ハイフンの類に長音（NFKC のあとの「ー」。半角の「ｰ」もここへ寄る）を足したもの。
 _HYPHENS = re.compile(f"[ー{HYPHEN_CHARACTERS}]")
 _SPACES = re.compile(r"\s+")
-_KANJI_DIGITS = {"〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_KANJI_NUMERALS = "〇一二三四五六七八九"
+_KANJI_DIGITS = {c: n for n, c in enumerate(_KANJI_NUMERALS)}
 _KANJI_NUMBER = re.compile("[〇一二三四五六七八九十]+")
 _CHOME = re.compile(r"(\d+)丁目?")
 _KE = re.compile("[ヶヵケがゖ]")
@@ -68,6 +69,27 @@ def standardize_address(text: str) -> str:
     return _NO.sub("ノ", text)
 
 
+def chome_name(number: str, written: str) -> str:
+    """丁目の区画の名前（「四丁目」「四十二丁目」「六丁」）。
+
+    ABR の丁目の表記は「４丁目」「四丁目」「６丁」が市区町村ごとに混ざるので、番号（`chome_number`）から漢数字で作り、
+    見た目をそろえる。「丁」で終わる表記は「丁」のまま。
+    """
+    tens, ones = divmod(int(number), 10)
+    digits = ("" if tens < 2 else _KANJI_NUMERALS[tens]) + ("十" if tens else "") + (_KANJI_NUMERALS[ones] if ones else "")
+    return digits + ("丁" if written.endswith("丁") else "丁目")
+
+
+def area_label(chain: Iterable[tuple[str, str]], *, full: bool = False) -> str:
+    """区画の表示の名前。既定は施設の辺りの名前（「川口市元郷四丁目」「さいたま市岩槻区本町」）で、`full`なら都道府県から
+    書いた地点の検索の住所の表示名（「東京都新宿区西新宿二丁目」）。
+
+    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。辺りは市区町村から先の名前をつなぎ、都道府県は持たない
+    （政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない）。
+    """
+    return "".join(name for level, name in chain if full or level != "prefecture")
+
+
 def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) -> frozenset[str]:
     """区画を引く鍵（`standardize_address`をかけた形）。
 
@@ -83,16 +105,3 @@ def search_keys(heads: Sequence[tuple[str, str]], tails: Iterable[str] = ("",)) 
     keys = {standardize_address("".join(parts) + tail) for parts in variants for tail in tails}
     return frozenset(key for key in keys if key)
 
-
-class AddressAreaName(NamedTuple):
-    """区画の表（`address_areas`）の1行のうち、表示名に使う列。"""
-
-    name: str
-    #: 郡に属す町村だけが持つ郡の名前。
-    county_name: str | None
-
-
-def address_full_name(chain: Iterable[AddressAreaName]) -> str:
-    """区画の表示名（「東京都新宿区西新宿二丁目」）。`chain`は都道府県から区画自身までの区画（粗い→細かい。`parent_id`を
-    たどった祖先と区画）で、名前をつなぐ。郡に属す町村は郡の名前を前に付ける（「東京都西多摩郡日の出町」）。"""
-    return "".join((area.county_name or "") + area.name for area in chain)

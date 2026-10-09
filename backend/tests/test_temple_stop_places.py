@@ -24,8 +24,6 @@ pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
     pytest.mark.xdist_group(name="postgis"),
     pytest.mark.postgis,
-    # 派生の段が、入れた地点の辺りを住所の辞書で引く。
-    pytest.mark.usefixtures("placed_address_dictionary"),
 ]
 
 PROFILE = load_source_profile(None)

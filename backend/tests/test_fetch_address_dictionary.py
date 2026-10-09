@@ -1,14 +1,13 @@
 """`scripts/fetch_address_dictionary.py`——配布元のzipから住所の辞書を入れ、置き場へ置く。
 
 入口は`main`（デプロイが呼ぶ）。配布元は`respx_mock`で、テストの足場が書いた小さな辞書のzipを返し、置き場は
-`tests/conftest.py: address_dictionary_dir`。入れた辞書は`address_dictionary.areas`で逆引きして確かめる。
+`tests/conftest.py: address_dictionary_dir`。入れた辞書は`address_dictionary.open_dictionary`で開いて引いて確かめる。
 見るのは、取得から置くまで（利用条件のREADMEも一緒に置く）・置き場に今の版があれば取りに行かず他の版を消すこと・
 入れた回は旧い版を残しzipを消すこと・引けない辞書を置かないこと。
 
 ここで見ないもの:
 - 一時ファイル経由の取得と、落としたものを開いて確かめる手順（`app/batch/common.py: fetch_verified`）→ 同じ手順を使う
   取得の道具のテスト（例: `test_fetch_osm_pbf.py`）
-- 逆引きした辺りの名前の作り方 → `test_place_search_route.py`（施設の辺り）
 """
 
 import io
@@ -17,7 +16,7 @@ import zipfile
 from app.domain.place_search import ADDRESS_DICTIONARY_URL
 from app.infrastructure import address_dictionary
 from scripts import fetch_address_dictionary
-from tests.address_dictionary_fixture import README, SHINJUKU_8, dictionary_archive
+from tests.address_dictionary_fixture import README, dictionary_archive
 
 
 def test_fetches_and_places_the_dictionary_with_its_readme(address_dictionary_dir, respx_mock, tmp_path):
@@ -25,7 +24,8 @@ def test_fetches_and_places_the_dictionary_with_its_readme(address_dictionary_di
 
     assert fetch_address_dictionary.main() == 0
 
-    assert address_dictionary.areas([(SHINJUKU_8.longitude, SHINJUKU_8.latitude)]) == ["新宿区西新宿二丁目"]
+    found = address_dictionary.open_dictionary(address_dictionary_dir).searchNode("東京都新宿区西新宿2-8-1")
+    assert ["".join(result.node.get_fullname()) for result in found if result.matched] == ["東京都新宿区西新宿二丁目8番"]
     assert (address_dictionary_dir / "README.md").read_text(encoding="utf-8") == README
 
 

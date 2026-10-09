@@ -39,7 +39,7 @@ ScheduleWakeupのreason等）も含めて、常にすべて日本語で書く。
 ## 作業の種類と読む節（必読）
 
 作業を始める前に、当たる行の節を読む（いくつも当たれば全部）。節は「ファイル: 節の名前」で指し、ファイル名だけのものは
-docs/conventions/ にある。文書の末尾の「付録」（一度きりの準備・災害時の手順・方針の背景）は作業の前には読まず
+docs/conventions/ にある。flow.md の節を指す行に当たったら、先に flow.md: 原則を読む。文書の末尾の「付録」（一度きりの準備・災害時の手順・方針の背景）は作業の前には読まず
 （「全文」も付録を除く）、その場面に当たったときに引く。
 
 | 作業 | 読む節 |
@@ -60,7 +60,7 @@ docs/conventions/ にある。文書の末尾の「付録」（一度きりの�
 | コミットする | flow.md: コミット・ラベルと種類と欄（規模の札）／fixing.md: 報告と段取り（実装の増減）／deployment-sync.md: コミットと同時に揃えるもの |
 | PR を出す | flow.md: 作る担当（4〜6）・分布の前後 |
 | PR を確かめてマージする | flow.md: 確かめる担当・Pull Request のあと・競合を解く |
-| 本番へ書く操作を頼む | flow.md: 自動で進めないもの／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
+| 本番へ書く | flow.md: 自動で進めないもの・本番へ書く／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
 | 起票する | flow.md: 改善を起票する・issue の形・ラベルと種類と欄（規模の札・優先度の見積もり）・前後関係と組 |
 | 問う・保留する | flow.md: 問い・答え・保留と棚卸 |

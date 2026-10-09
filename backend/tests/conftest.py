@@ -44,7 +44,6 @@ from app.config import settings
 from app.services import derived_data_revision_service
 from scripts.schema_gap import collect_gaps
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
-from tests.address_dictionary_fixture import write_dictionary
 
 # hypothesisは1例ごとに壁時計の締め切り（既定200ms）を持ち、超えると落とす。共有のランナーでは同じ例の所要時間が
 # 実行ごとに揺れて別のテストが落ちるため外す。止まったテストはpytest-timeoutが落とす。
@@ -90,13 +89,6 @@ def address_dictionary_dir(monkeypatch, tmp_path) -> Path:
     path = tmp_path / "address_dictionary" / address_dictionary.DICTIONARY_DIR.name
     monkeypatch.setattr(address_dictionary, "DICTIONARY_DIR", path)
     return path
-
-
-@pytest.fixture
-def placed_address_dictionary(address_dictionary_dir) -> None:
-    """置き場に足場の辞書（`tests/address_dictionary_fixture.py: PLACES`）を書いた状態。立ち寄り先の派生の段は、入れた地点の
-    辺りをこの辞書で引く。"""
-    write_dictionary(address_dictionary_dir)
 
 
 @pytest.fixture

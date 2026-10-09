@@ -1,59 +1,23 @@
-// 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
-// 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・29（直すもの無しに取り消された
-// 実行の見分け。src/rerun.js: verdict）・30（画像の貼り方。src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、
-// 24・26・27・28 は GitHub（網）だけを、30 は gh を打つ口と待つ口だけを差し替える。
+// 約束 18（担当の後始末で振り出しを止めるか。src/after.js: settle）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
+// 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
+// src/attach.js: attach）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、26・27・28 は GitHub（網）だけを、30 は gh を
+// 打つ口だけを差し替える。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）・
-// 道具（bin/rerun.js・bin/attach.js）が読む API と打つ gh（`bin/rerun.js --dry-run` で本物の実行を読んで見る）。
+// 道具（bin/attach.js）が打つ gh。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { keepLog, settle } from "../src/after.js";
+import { settle } from "../src/after.js";
 import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
 import { askTask, moveTask } from "../src/move.js";
-import { RERUNS, verdict } from "../src/rerun.js";
-import { attach, TRIES, WAIT } from "../src/attach.js";
+import { attach } from "../src/attach.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
-test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開発機が要るのラベル・着手可能日が先・開いた前提があれば戻し、それ以外は保留。作業ブランチの開いた Pull Request があれば、どの終わり方でも検証中", () => {
+test("18 後始末: 利用の上限・認証で止まったときだけ振り出しを止め、一時の失敗と起きる前の落ちは止めない", () => {
   const said = (error) => [{ type: "assistant", error }];
-  const at = (messages, extra = {}) => settle(config, { messages, startOn: null, labels: [], blockers: [], pullRequest: null, url: "u", jobStatus: "success", now: new Date("2026-10-03T15:30:00Z"), ...extra });
-  assert.deepEqual([at(said("rate_limit")).to, at(said("rate_limit")).pause], [config.todo, true]);
-  for (const m of [said("overloaded"), null]) assert.deepEqual([at(m).to, Boolean(at(m).pause)], [config.todo, false]);
-  assert.equal(at([], { startOn: "2026-10-05" }).to, config.todo);
-  assert.equal(at([], { labels: [config.coordinator.devLabel] }).to, config.todo);
-  assert.equal(at([], { blockers: [7] }).to, config.todo);
-  assert.equal(at([]).to, config.hold);
-  for (const m of [said("rate_limit"), null]) assert.equal(at(m, { jobStatus: "cancelled" }).to, config.hold);
-  const opened = { pullRequest: { number: 3, html_url: "p" } };
-  for (const [m, extra] of [[[], {}], [[], { jobStatus: "cancelled" }], [null, {}], [[], { blockers: [7] }]]) assert.equal(at(m, { ...opened, ...extra }).to, config.review);
-  assert.deepEqual([at(said("rate_limit"), opened).to, at(said("rate_limit"), opened).pause], [config.review, true]);
-});
-
-test("24 手番の記録: 日ごとのリリースに付き、無ければ作り、並んで作られて作れなければ先に作られたものへ付ける", async () => {
-  const at = async (releases, { race = false } = {}) => {
-    const uploads = [];
-    globalThis.fetch = async (url, init) => {
-      const { pathname, searchParams } = new URL(url);
-      const found = releases.find((r) => pathname.endsWith(`/tags/${r.tag_name}`));
-      if (init.method === "GET") return found ? Response.json(found) : new Response("{}", { status: 404 });
-      if (pathname.endsWith("/releases")) {
-        const made = { ...JSON.parse(init.body), upload_url: `https://uploads.example/${releases.length}{?name,label}` };
-        releases.push(made);
-        return race ? new Response("{}", { status: 422 }) : Response.json(made);
-      }
-      uploads.push({ to: pathname, name: searchParams.get("name"), type: init.headers["content-type"] });
-      return Response.json({ browser_download_url: `${url}#dl` });
-    };
-    await keepLog(new GitHub("bot-token"), config.repository, { gz: new Uint8Array([1]), name: "a.json.gz", now: new Date("2026-10-04T23:00:00Z") });
-    return { tags: releases.map((r) => r.tag_name), uploads };
-  };
-  const day = { tag_name: "turns-2026-10-04", upload_url: "https://uploads.example/day{?name,label}" };
-  assert.deepEqual(await at([{ tag_name: "turns-2026-10-03", upload_url: "x" }, day]), { tags: ["turns-2026-10-03", "turns-2026-10-04"], uploads: [{ to: "/day", name: "a.json.gz", type: "application/gzip" }] });
-  for (const race of [false, true]) {
-    const r = await at([], { race });
-    assert.deepEqual([r.tags, r.uploads.map((u) => u.to)], [["turns-2026-10-04"], ["/0"]]);
-  }
+  const at = (messages) => settle({ messages, url: "u", jobStatus: "success" }).pause;
+  assert.deepEqual([at(said("rate_limit")), at(said("overloaded")), at(null)], [true, false, false]);
 });
 
 test("26 GitHub の一時的な失敗（5xx・接続の失敗・GraphQL の「Something went wrong」）は、読むだけの要求なら打ち直して書き終え、書く要求は打ち直さない", async () => {
@@ -146,44 +110,18 @@ test("28 開発機の対話のセッションが持つ: 待ちの開発機の実
   assert.deepEqual([s.runs[1].status, s.runs[2].status, s.sent.filter((c) => /runs\/1[01]\/cancel/.test(c))], ["in_progress", "in_progress", []]);
 });
 
-test("29 流し直すのは、取り消されたジョブがどれも段0で注記にランナーが付かなかったとあるか、注記に持ち時間を超えたとあり、ほかに段を走らせて落ちたのがまとめのジョブだけのときで、流し直しは上限まで", () => {
-  const job = (id, name, conclusion, steps = 0) => ({ id, name, conclusion, steps: Array(steps).fill({}) });
-  const run = (attempt = 1, status = "completed") => ({ status, run_attempt: attempt });
-  const note = { 1: ["警告", "The job was not acquired by Runner of type hosted even after multiple attempts"] };
-  const at = (jobs, notes = note, r = run()) => verdict(r, jobs, notes, config.code.gather).kind;
-  const cancelled = [job(1, "e2e", "cancelled"), job(2, config.code.gather, "failure", 2), job(3, "backend", "success", 5), job(4, "deploy", "skipped")];
-  assert.equal(at(cancelled), "流す");
-  assert.equal(at(cancelled, note, run(RERUNS)), "流す");
-  assert.equal(at(cancelled, note, run(RERUNS + 1)), "使い切った");
-  assert.equal(at(cancelled, { 1: ["警告"] }), "落ちた"); // 注記にランナーの文が無い
-  assert.equal(at([job(1, "e2e", "cancelled", 3), job(2, config.code.gather, "failure", 2)]), "落ちた"); // 段を走らせてから取り消された
-  const timedOut = [job(1, "e2e", "cancelled", 3), job(2, config.code.gather, "failure", 2)];
-  assert.equal(at(timedOut, { 1: ["The job has exceeded the maximum execution time of 40m0s", "The operation was canceled."] }), "流す");
-  assert.equal(at(timedOut, { 1: ["The job has exceeded the maximum execution time of 40m0s"] }, run(RERUNS + 1)), "使い切った");
-  assert.equal(at([...cancelled, job(5, "frontend", "failure", 4)]), "落ちた"); // ほかに落ちたジョブがある
-  assert.equal(at([job(2, config.code.gather, "failure", 2)]), "落ちた"); // 取り消されたジョブが無い
-  assert.equal(at(cancelled, note, run(1, "in_progress")), "終わっていない");
-});
-
-test("30 画像は1枚ずつ貼り、名義の誤りは止め、rate limited は出た時間だけ待ち、ほかの失敗は上限まで打ち直して、使い切ったら置き場の issue へ貼って Pull Request にリンクを書く", async () => {
-  const at = async (replies) => {
+test("30 画像は1枚ずつ貼り、貼れなければそこで止まって、それまでに貼った分を知らせる", () => {
+  const at = (replies) => {
     const calls = [];
-    const waits = [];
-    const run = (a, as) => {
-      calls.push(`${as} ${a[0]} ${a[1]}`);
-      return replies.shift() ?? { status: 0, stdout: `https://github.com/${as}/${calls.length}\n`, stderr: "" };
-    };
-    const said = await attach({ run, sleep: async (s) => waits.push(s), code: config.code.repository, tasks: config.repository, pr: 3, issue: 7, images: ["a.png#前", "b.png#後"] });
-    return { calls, waits, said };
+    const run = (a) => (calls.push(a.at(-1)), replies.shift() ?? { status: 0, stdout: `https://github.com/c/${calls.length}\n`, stderr: "" });
+    try {
+      return { calls, said: attach({ run, code: config.code.repository, pr: 3, images: ["a.png#前", "b.png#後", "c.png#横"] }) };
+    } catch (e) {
+      return { calls, error: e.message };
+    }
   };
-  const fail = (stderr) => ({ status: 1, stdout: "", stderr });
-  const upload = fail("failed to upload a.png: HTTP 502");
-  let r = await at([fail("could not upload a.png: rate limited; retry after 30 seconds"), fail("could not upload a.png: rate limited; wait and try again")]);
-  assert.deepEqual([r.calls, r.waits], [["code pr comment", "code pr comment", "code pr comment", "code pr comment"], [30, WAIT]]);
-  r = await at(Array(TRIES).fill(upload));
-  assert.deepEqual(r.calls, [...Array(TRIES).fill("code pr comment"), "bot issue comment", "code pr comment", "code pr comment"]);
-  assert.match(r.said[0], /^前: https:\/\/github.com\/bot\/\d+（Pull Request に貼れず、置き場の issue へ）$/);
-  r = await at([upload, upload]);
-  assert.deepEqual([r.calls.length, r.said.map((l) => l.split(":")[0])], [TRIES + 1, ["前", "後"]]);
-  await assert.rejects(at([fail("could not upload a.png: attaching files requires write access to the repository")]), /名義の誤り/);
+  assert.deepEqual(at([]), { calls: ["a.png#前", "b.png#後", "c.png#横"], said: ["前: https://github.com/c/1", "後: https://github.com/c/2", "横: https://github.com/c/3"] });
+  const r = at([{ status: 0, stdout: "https://github.com/c/1\n", stderr: "" }, { status: 1, stdout: "", stderr: "HTTP 502" }]);
+  assert.deepEqual(r.calls, ["a.png#前", "b.png#後"]);
+  assert.match(r.error, /b\.png#後 を貼れなかった（HTTP 502）\n貼った: 前: https:\/\/github.com\/c\/1/);
 });

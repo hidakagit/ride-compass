@@ -12,21 +12,13 @@
 （表に入る区画は派生の段が取込の範囲で決める）。
 """
 
-from collections.abc import Sequence
-from itertools import groupby
-
-from sqlalchemy import RowMapping, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.address_area import (
-    ADDRESS_AREA_LEVELS,
-    NUMBERED_REMAINDER_PATTERN,
-    AddressAreaName,
-    address_full_name,
-    standardize_address,
-)
+from app.domain.address_area import ADDRESS_AREA_LEVELS, NUMBERED_REMAINDER_PATTERN, area_label, standardize_address
 from app.domain.geo import LatLon
 from app.domain.place_search import PLACE_PREDICTION_LIMIT, PLACE_PREDICTION_MIN_LENGTH, PlaceCandidate
+from app.infrastructure.address_area_lookup import area_chains_sql
 
 #: 続きの件数を長さごとに数える幅（入力より何文字長い鍵まで数えるか）。この幅で上限に届かなければ、長さで切らずに引く。
 _CONTINUATION_LENGTH_WINDOW = 40
@@ -34,11 +26,12 @@ _CONTINUATION_LENGTH_WINDOW = 40
 # 同じ区画に当たった鍵は1件にまとめる（当たり方は「全部に当たる・続き」を、鍵は短いほうを採る）。並びは「全部に当たる・続き」
 # → 番地付き、その中は段の粗いもの → 鍵の短いもの → 検索の中心に近いもの（測地の距離）——段を鍵の長さより先にするのは、
 # 1文字の入力（「柏」）で同じ名前の大字が上限を埋め、市区町村（「柏市」）が漏れないため。並びの最後の鍵は、同じ位置の
-# 区画の並びを毎回同じにするため。表示名は、上限までの区画から`parent_id`をたどった祖先の名前で組み立てる。
+# 区画の並びを毎回同じにするため。表示名は、上限までの区画から`parent_id`をたどった祖先の名前で組み立てる
+# （`address_area_lookup.py: area_chains_sql`）。
 # 鍵の等号と`LIKE`は、索引で引けるよう引数を直に比べる（`LIKE`の頭の文字列が別の表の列のように問い合わせを組み立てる時に
 # 分からないと、索引の範囲にできず表の全部を読む）。
 _SEARCH_SQL = text(f"""
-    WITH RECURSIVE hits AS (
+    WITH hits AS (
         SELECT area_id, 0 AS numbered, length(key) AS len
         FROM address_search_keys
         WHERE key = :query OR key = :query_with_separator
@@ -71,18 +64,13 @@ _SEARCH_SQL = text(f"""
                                   a.area_id) AS position
         FROM hits h JOIN address_areas a USING (area_id)
         GROUP BY a.area_id, a.level, a.geom
-    ),
-    chain AS (
-        SELECT f.position, 0 AS depth, a.parent_id, a.level, a.name, a.county_name,
-               ST_Y(a.geom) AS latitude, ST_X(a.geom) AS longitude
-        FROM found f JOIN address_areas a USING (area_id)
-        WHERE f.position <= CAST(:limit AS integer)
-        UNION ALL
-        SELECT c.position, c.depth + 1, p.parent_id, p.level, p.name, p.county_name,
-               CAST(NULL AS float8), CAST(NULL AS float8)
-        FROM chain c JOIN address_areas p ON p.area_id = c.parent_id
     )
-    SELECT position, depth, level, name, county_name, latitude, longitude FROM chain ORDER BY position, depth DESC
+    SELECT a.level, c.levels, c.names, ST_Y(a.geom) AS latitude, ST_X(a.geom) AS longitude
+    FROM found f
+    JOIN address_areas a USING (area_id)
+    JOIN ({area_chains_sql("SELECT area_id FROM found WHERE position <= CAST(:limit AS integer)")}) c USING (area_id)
+    WHERE f.position <= CAST(:limit AS integer)
+    ORDER BY f.position
 """)
 
 
@@ -90,15 +78,6 @@ def _like_prefix(query: str) -> str:
     """`query`を頭に持つ文字列に当たる`LIKE`の型。入力の`%`・`_`・`\\`は文字として当てる。"""
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return escaped + "%"
-
-
-def _candidate(chain: Sequence[RowMapping]) -> PlaceCandidate:
-    """祖先から区画自身まで（粗い→細かい）の行から、区画の候補。位置は区画自身の代表点。"""
-    area = chain[-1]
-    return PlaceCandidate(
-        kind="address", level=area["level"],
-        name=address_full_name(AddressAreaName(row["name"], row["county_name"]) for row in chain),
-        area=None, latitude=area["latitude"], longitude=area["longitude"])
 
 
 class AddressSearchQuery:
@@ -122,5 +101,10 @@ class AddressSearchQuery:
             "levels": list(ADDRESS_AREA_LEVELS),
             "near_lat": near.latitude, "near_lon": near.longitude,
             "limit": PLACE_PREDICTION_LIMIT,
-        })).mappings().all()
-        return [_candidate(list(chain)) for _, chain in groupby(rows, key=lambda row: row["position"])]
+        })).mappings()
+        return [
+            PlaceCandidate(kind="address", level=row["level"],
+                           name=area_label(zip(row["levels"], row["names"], strict=True), full=True),
+                           area=None, latitude=row["latitude"], longitude=row["longitude"])
+            for row in rows
+        ]

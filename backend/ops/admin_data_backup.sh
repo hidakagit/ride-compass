@@ -34,7 +34,7 @@ docker --config "$anon_config" run --rm --network=host -v "$work_dir:/backup:ro"
   --name "$name" --file /backup/backup.dump --force > /dev/null
 
 # 置けた時刻を、backendのコンテナが`data/`として見るディレクトリへ書く。止まっても知らせが来ないため、
-# `/health`が経過時間を返し、見回りが読んで気づく（名前は`app/infrastructure/admin_data_backup.py: MARKER_PATH`と揃える）。
+# `/health`が経過時間を返し、それを読んで気づく（名前は`app/infrastructure/admin_data_backup.py: MARKER_PATH`と揃える）。
 marker=/home/ubuntu/ridecompass-cache-data/admin_data_backup_at
 date -u +%Y-%m-%dT%H:%M:%S+00:00 > "$marker.tmp"
 mv "$marker.tmp" "$marker"
