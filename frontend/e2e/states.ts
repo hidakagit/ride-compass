@@ -356,7 +356,7 @@ export async function splice(page: Page, width: WidthName): Promise<void> {
   await scope.getByRole("radio", { name: "目的地" }).click();
   // スマホ幅は、シートを閉じると目的地の指定が外れるので、開いたまま見えている地図を押す。
   await clickVisible(page, SPLICE_PLACES.D);
-  await expect(scope.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
+  await expect(scope.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();
   await runGeneration(scope);
   if (width === "mobile") {
     await page.getByRole("button", { name: "ルート設定", exact: true }).click();
