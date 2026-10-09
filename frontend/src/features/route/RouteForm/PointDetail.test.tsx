@@ -4,7 +4,8 @@
  * 名前を入れて、地図の真ん中を添えて引き、候補（表示名・施設の辺り・種類・当たった段、施設は地図の真ん中からの直線距離）を欄の下に
  * 並べ、選んだ候補を上げる。打ちかけでも、決まった文字数から、打つのが止まると引く（かな漢字の変換中は引かない）。文字数に足りなく
  * なると候補を下げる。引いたあとに地図を
- * 動かしても引き直さない。引けないとき・当たらないときはそう出す。
+ * 動かしても引き直さない。引けないとき・当たらないときはそう出す。打つ欄を押すと保存した地点を出し、打った文字を名前に含むものに
+ * 絞り、選んだ地点を上げる。置いた地点を名前を付けて保存し、保存した地点なら保存をやめられる。
  *
  * ここで見ないもの:
  * - 地点ごとの呼び名・出どころ・名前・地図で置く操作・消す・「現在地に戻す」・上限、候補を選んだあとに打った文字と一覧を消すこと →
@@ -14,11 +15,16 @@
  * - 打ちかけの語の続きの候補・施設の候補とその並びを返すこと、位置の辺りの決め方 → backend の `tests/test_place_search_route.py`
  * - 出発地・経由地・目的地のどの位置を渡すか（現在地を取れていない出発地は渡さない） → `RouteForm/RouteForm.test.tsx`
  *
- * 差し替えたもの: 検索の口と辺りの口の応答（網の層）。
+ * - 保存した地点の一覧の読み方・同じ名前と位置の置き換え → `features/route/savedPlaces.test.ts`
+ *
+ * 差し替えたもの: 検索の口と辺りの口の応答（網の層）。保存した地点は本物の置き場（この端末の保存）を通す。
  */
 import { fireEvent, screen, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { SavedPlace } from "@/features/route/savedPlaces";
+import { useSavedPlaces } from "@/features/route/useSavedPlaces";
 
 import { onBackend } from "@/testing/backendServer";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -56,6 +62,19 @@ const TOKYO_STATION: Coordinates = { latitude: 35.681, longitude: 139.767 };
 /** 浅草寺のすぐ南（浅草寺まで直線で0.2km）。 */
 const NEAR_SENSOJI: Coordinates = { latitude: 35.713, longitude: 139.7967 };
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
+/** 前に保存した地点を、この端末の保存へ置く。 */
+function storeSavedPlaces(places: SavedPlace[]) {
+  window.localStorage.setItem("ridecompass:saved-places", JSON.stringify(places));
+}
+
+function WithSavedPlaces(props: Omit<React.ComponentProps<typeof PointDetail>, "savedPlaces">) {
+  return <PointDetail {...props} savedPlaces={useSavedPlaces()} />;
+}
+
 function renderDetail({
   mapCenter = TOKYO_STATION,
   found = null as PlaceCandidate | null,
@@ -63,7 +82,7 @@ function renderDetail({
 } = {}) {
   const onChoose = vi.fn();
   const detail = (center: Coordinates) => (
-    <PointDetail
+    <WithSavedPlaces
       role="destination"
       title="目的地"
       name={found?.name ?? "未設定"}
@@ -229,5 +248,58 @@ describe("PointDetail 打つ欄", () => {
     );
     await searchFor("丸の内");
     expect(await screen.findByRole("alert")).toHaveTextContent("対象範囲を読めませんでした");
+  });
+});
+
+describe("PointDetail 保存した地点", () => {
+  const CAFE: SavedPlace = { ...FACILITY, name: "いつものカフェ" };
+  const HOME: SavedPlace = { kind: "facility", level: "point", name: "自宅", area: null, ...NEAR_SENSOJI };
+
+  it("打つ欄を押すと保存した地点を出し、打った文字を名前に含むものに絞り、選んだ地点を上げて一覧を閉じる", async () => {
+    storeSavedPlaces([CAFE, HOME]);
+    const { onChoose } = renderDetail();
+
+    await userEvent.click(searchBox());
+    const saved = () => screen.getByRole("list", { name: "保存した地点" });
+    expect(
+      within(saved())
+        .getAllByRole("button")
+        .map((row) => row.textContent),
+    ).toEqual([`${CAFE.name}${CAFE.area}`, HOME.name]);
+
+    await userEvent.type(searchBox(), "自");
+    expect(within(saved()).getAllByRole("button")).toHaveLength(1);
+    await userEvent.click(within(saved()).getByRole("button", { name: /自宅/ }));
+
+    expect(onChoose).toHaveBeenCalledExactlyOnceWith(HOME);
+    expect(screen.queryByRole("list", { name: "保存した地点" })).toBeNull();
+    expect(searchBox()).toHaveValue("");
+  });
+
+  it("置いた地点は、探した候補の名前を入れた窓で名前を付けて保存し、保存した地点なら保存をやめられる", async () => {
+    renderDetail({ found: FACILITY, at: { latitude: FACILITY.latitude, longitude: FACILITY.longitude } });
+
+    await userEvent.click(screen.getByRole("button", { name: "地点を保存" }));
+    const dialog = screen.getByRole("dialog", { name: "地点を保存" });
+    const nameInput = within(dialog).getByRole("textbox", { name: "保存する地点の名前" });
+    expect(nameInput).toHaveValue(FACILITY.name);
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, CAFE.name);
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await userEvent.click(searchBox());
+    expect(within(screen.getByRole("list", { name: "保存した地点" })).getByRole("button")).toHaveTextContent(
+      `${CAFE.name}${CAFE.area}`,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: `「${CAFE.name}」の保存をやめる` }));
+    expect(screen.queryByRole("list", { name: "保存した地点" })).toBeNull();
+    expect(screen.getByRole("button", { name: "地点を保存" })).toBeInTheDocument();
+  });
+
+  it("置いていない地点は保存できない", () => {
+    renderDetail();
+
+    expect(screen.queryByRole("button", { name: "地点を保存" })).toBeNull();
   });
 });

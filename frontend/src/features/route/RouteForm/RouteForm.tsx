@@ -1,11 +1,13 @@
 "use client";
 
-import { TabsContent } from "@/components/ui/Tabs/Tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
+import SavedPlacesPanel from "@/features/route/SavedPlacesPanel/SavedPlacesPanel";
+import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import RoutePoints from "./RoutePoints";
 import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
 import { Button } from "@/components/ui/Button/Button";
@@ -57,12 +59,14 @@ interface RouteFormProps {
   mapCenter: Coordinates;
   /** 探して選んだ候補を、その役割の地点として置く（経由地は`waypointIndex`番目を置き直し、無ければ足す）。 */
   onPlaceFound: (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) => void;
+  /** 保存した地点（地点の詳しくで保存して打つ欄の候補に出し、「保存」タブの「地点」に並べる）。 */
+  savedPlaces: SavedPlacesState;
   /** 「重み」タブの中身。タブの列と「ルート生成」ボタンは見出しの行（page.tsx）、検証は`useRouteFormSubmit`が持つ。 */
   weightsPanel: React.ReactNode;
   /** 「除外」タブの中身。 */
   exclusionsPanel: React.ReactNode;
-  /** 「保存」タブの中身（保存した条件の一覧と保存）。 */
-  savedPanel: React.ReactNode;
+  /** 「保存」タブの「設定」の中身（保存した条件の一覧と保存）。 */
+  savedConditionsPanel: React.ReactNode;
 }
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
@@ -79,9 +83,10 @@ export default function RouteForm({
   originFound,
   mapCenter,
   onPlaceFound,
+  savedPlaces,
   weightsPanel,
   exclusionsPanel,
-  savedPanel,
+  savedConditionsPanel,
 }: RouteFormProps) {
   const { distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput, routeMode, changeRouteMode } = conditions;
   const fixedCount = fixedRouteCount(routeMode, conditions.waypoints.length);
@@ -166,6 +171,7 @@ export default function RouteForm({
             originFound={originFound}
             mapCenter={mapCenter}
             onPlaceFound={onPlaceFound}
+            savedPlaces={savedPlaces}
           />
           {routeMode === "loop" && (
             <div className="flex items-center gap-2">
@@ -201,7 +207,23 @@ export default function RouteForm({
       </TabsContent>
 
       <TabsContent value="saved" forceMount className="data-[state=inactive]:hidden">
-        {savedPanel}
+        {/* 保存するものは地点と設定の2つで、呼び出し方が違う（地点は打つ欄から1地点へ置き、設定は各タブの値を入れ替える）。 */}
+        <Tabs defaultValue="places">
+          <TabsList className="mb-2" aria-label="保存するもの">
+            <TabsTrigger value="places" usage="名前を付けて保存した地点の一覧です。">
+              地点
+            </TabsTrigger>
+            <TabsTrigger value="conditions" usage="いまの設定に名前を付けて保存し、保存した設定を呼び出します。">
+              設定
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="places" forceMount className="data-[state=inactive]:hidden">
+            <SavedPlacesPanel places={savedPlaces.places} onRemove={savedPlaces.remove} />
+          </TabsContent>
+          <TabsContent value="conditions" forceMount className="data-[state=inactive]:hidden">
+            {savedConditionsPanel}
+          </TabsContent>
+        </Tabs>
       </TabsContent>
     </div>
   );
