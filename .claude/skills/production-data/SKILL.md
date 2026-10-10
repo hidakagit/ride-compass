@@ -52,9 +52,9 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
 
   差（項目ごとの「前 → 後」）と指紋をチャットで見せ、書くよう言われてから、同じ指紋で書く。宛先と認証情報は
   `backend/.env.oracle.local`の`BACKEND_ORIGIN`（本番backendの直接のオリジン）・`ADMIN_BASIC_AUTH_USERNAME`・
-  `ADMIN_BASIC_AUTH_PASSWORD`に置く。JSONは`docs/records/`へ置かない（記録はタスクの issue に書く）。
+  `ADMIN_BASIC_AUTH_PASSWORD`に置く。
   本番の写しとして直し続けない（次に変えるときは本番の今の定義から新しいJSONを作る）。
-- 完了の条件: 道具が「反映を確かめました」を出したこと。
+- 書けたかの確かめ: 道具が「反映を確かめました」を出したこと。
   画面で変えたときは、本番の`GET /api/axis-catalog`で変えた軸を確かめる。
 
 ## 付録

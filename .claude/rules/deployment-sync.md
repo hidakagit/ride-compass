@@ -27,7 +27,6 @@ paths:
   （region-tile-config.json）を同一コミットで再生成する（タイル世代は手で上げない。`app/infrastructure/cache_identity.py`参照）。
 - **評価軸（`axis_definitions`テーブル）の追加・削除・調整はコミットではなく、
   `.claude/skills/production-data/SKILL.md`の「本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる」で行う。**
-  **正本は本番DBだけ**で、リポジトリは軸の写しを持たない。
   ビルド時の生成物（`frontend/src/types/generated/`）はコードの宣言から決め、DBを読まない。
 - **新しいコードが読む前提（表・列・行データの形）を本番DBに揃えてから、その`backend/**`の変更をmasterへ入れる（マージする）**。
   masterに入ってCI（`.github/workflows/ci.yml`）が通ると、backendは本番へ自動デプロイされ、止める仕組みは無い
