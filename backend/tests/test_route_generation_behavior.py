@@ -45,7 +45,6 @@ from tests.route_world import (
     LON_STEP,
     NODE_OF,
     NORTH_EAST,
-    NORTH_WEST,
     SOUTH_EAST,
     SOUTH_WEST,
     at,

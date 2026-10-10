@@ -567,7 +567,7 @@ class RoadGraphEngine:
         fixed_m = fixed.length_m
         remaining_km = distance_km - fixed_m / 1000
         closes = destination is None
-        if closes:
+        if destination is None:
             end_node = context.origin_node
             end_point = context.origin
         else:
