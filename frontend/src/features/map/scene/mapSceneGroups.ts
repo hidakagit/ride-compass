@@ -89,7 +89,7 @@ function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
       id: sceneLayerId(entry.source, entry.role),
       type: entry.type,
       source: entry.source,
-      ...(entry.sourceLayer === undefined ? {} : { sourceLayer: entry.sourceLayer }),
+      sourceLayer: entry.sourceLayer,
       paint: entry.paint,
       ...(entry.layout === undefined ? {} : { layout: entry.layout }),
     }),

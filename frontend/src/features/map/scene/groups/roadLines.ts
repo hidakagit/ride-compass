@@ -90,8 +90,10 @@ function missingOf(track: RoadTrack): unknown {
   return ["==", valueOf(track), ""];
 }
 
-function knownValues(track: RoadTrack): readonly unknown[] {
-  return roadTrackAxis(track).categories.flatMap((category) => [...category.values]);
+/** 道の値が分類のどれかに入るか。 */
+function knownMatch(track: RoadTrack): unknown {
+  const values = roadTrackAxis(track).categories.flatMap((category) => [...category.values]);
+  return ["in", valueOf(track), ["literal", values]];
 }
 
 function colorExpression(track: RoadTrack): unknown[] {
@@ -105,7 +107,7 @@ function colorExpression(track: RoadTrack): unknown[] {
 
 /** 分類に入る道は濃く、それ以外（その他・不明）は薄く（消さずに薄くする）。 */
 function opacityExpression(track: RoadTrack): unknown[] {
-  return ["case", ["in", valueOf(track), ["literal", [...knownValues(track)]]], ROAD.knownOpacity, ROAD.unknownOpacity];
+  return ["case", knownMatch(track), ROAD.knownOpacity, ROAD.unknownOpacity];
 }
 
 function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpecification | undefined {
@@ -115,7 +117,7 @@ function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpe
   if (values.length > 0) conditions.push(["!", ["in", valueOf(track), ["literal", values]]]);
   const hasMissing = roadTrackHasMissing(track);
   if (hiddenKeys.includes(ROAD_OTHER_KEY)) {
-    const known: unknown[] = ["in", valueOf(track), ["literal", [...knownValues(track)]]];
+    const known = knownMatch(track);
     conditions.push(hasMissing ? ["any", missingOf(track), known] : known);
   }
   if (hasMissing && hiddenKeys.includes(LEGEND_NO_DATA_KEY)) conditions.push(["!", missingOf(track)]);
@@ -150,25 +152,26 @@ export const roadLineGroup = declareGroup<RoadLineState>((state) => {
   const offsets = offsetsFor(shown.length);
   const offsetOf = new Map(shown.map((track, index) => [track.attr_id, offsets[index] ?? 0]));
 
-  const layers: SceneLayerEntry[] = ROAD_TRACKS.map((track) => ({
-    role: track.attr_id,
-    tier: "observedLine",
-    source: ROAD_LINE_SOURCE_ID,
-    sourceLayer: tiles.sourceLayer,
-    type: "line",
-    paint: {
-      "line-color": colorExpression(track),
-      "line-width": ROAD.lineWidthPx,
-      "line-opacity": opacityExpression(track),
-      ...(roadTrackHasMissing(track) ? { "line-dasharray": noDataDashExpression(missingOf(track)) } : {}),
-      "line-offset": offsetOf.get(track.attr_id) ?? 0,
-    },
-    visible: state.visible[track.attr_id] === true,
-    hitTargets: [ROAD_LINE_HIT_TARGET],
-    ...(trackFilter(track, state.hiddenKeys[track.attr_id] ?? []) === undefined
-      ? {}
-      : { filter: trackFilter(track, state.hiddenKeys[track.attr_id] ?? []) }),
-  }));
+  const layers: SceneLayerEntry[] = ROAD_TRACKS.map((track) => {
+    const filter = trackFilter(track, state.hiddenKeys[track.attr_id] ?? []);
+    return {
+      role: track.attr_id,
+      tier: "observedLine",
+      source: ROAD_LINE_SOURCE_ID,
+      sourceLayer: tiles.sourceLayer,
+      type: "line",
+      paint: {
+        "line-color": colorExpression(track),
+        "line-width": ROAD.lineWidthPx,
+        "line-opacity": opacityExpression(track),
+        ...(roadTrackHasMissing(track) ? { "line-dasharray": noDataDashExpression(missingOf(track)) } : {}),
+        "line-offset": offsetOf.get(track.attr_id) ?? 0,
+      },
+      visible: state.visible[track.attr_id] === true,
+      hitTargets: [ROAD_LINE_HIT_TARGET],
+      ...(filter === undefined ? {} : { filter }),
+    };
+  });
 
   layers.push({
     role: "inspected",

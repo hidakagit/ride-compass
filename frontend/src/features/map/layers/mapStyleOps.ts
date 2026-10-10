@@ -166,6 +166,11 @@ export function reloadStyle(map: MapLibreMap, url: string, onLoaded: () => void)
   map.setStyle(url);
 }
 
+/** スタイルが一度でも読み込まれたか（`runWhenStyleReady`が記録する印）。 */
+export function isStyleReady(map: MapLibreMap): boolean {
+  return (map as unknown as StyleReadyTag).__rcStyleReady === true;
+}
+
 // map.isStyleLoaded()はタイル読み込み中も一時的にfalseを返すため、
 // それをガードに使うと「loadイベントは一度しか発火しない」性質と組み合わさって
 // 二度目以降の描画が永久にスキップされることがある。スタイル自体が一度でも

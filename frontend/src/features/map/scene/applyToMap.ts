@@ -56,7 +56,7 @@ import type { SceneInputs } from "./buildScene";
 import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
 import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
 import { drawPointIcon } from "@/features/map/layers/pointIcon";
-import { POINT_ICONS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
+import { POINT_ICONS, POINT_TILE_LAYERS } from "@/features/map/scene/groups/points";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
 import { EMPTY_MAP_SCENE, hiddenBasemapPois, type MapScene } from "./mapScene";
 
@@ -233,7 +233,7 @@ function weatherPayloadFrom(payload: DynamicWeatherRenderPayload): WeatherPayloa
 /** 点のタイルごとのURL。 */
 function pointTileUrls(versions: TileVersions): Record<PointTileLayer, readonly string[]> {
   const urls = {} as Record<PointTileLayer, readonly string[]>;
-  for (const name of Object.keys(POINT_TILE_SOURCES) as PointTileLayer[]) urls[name] = [pointTileUrl(versions, name)];
+  for (const name of POINT_TILE_LAYERS) urls[name] = [pointTileUrl(versions, name)];
   return urls;
 }
 

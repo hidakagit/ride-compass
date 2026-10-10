@@ -137,6 +137,20 @@ export default function RoadInspectorPopup({
   );
 }
 
+/** 「項目: 値」の行の並び。項目の名前は並びの中で重ならない。 */
+function FactList({ rows }: { rows: readonly { label: string; value: string }[] }) {
+  return (
+    <dl className="m-0 grid gap-0.5">
+      {rows.map((row) => (
+        <div key={row.label} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
+          <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{row.label}</dt>
+          <dd className="m-0 [overflow-wrap:anywhere]">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** 道路の周囲100mリングの土地被覆。走行中に読むものではないため畳んでおき、閉じている
  * 間は最も多いクラスだけを見せる。クラスの割合は合計100%になるため、開いたときは割合の
  * 大きい順に並べ、0%のクラスは出さない。 */
@@ -156,14 +170,7 @@ function RoadLandcoverRows({ result }: { result: AxisInspectorResult }) {
       <summary
         className={textVariants({ variant: "hint" })}
       >{`周囲の土地被覆: ${top.label} ${Math.round(top.value)}%`}</summary>
-      <dl className="m-0 grid gap-0.5">
-        {rows.map((row) => (
-          <div key={row.label} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
-            <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{row.label}</dt>
-            <dd className="m-0 [overflow-wrap:anywhere]">{`${Math.round(row.value)}%`}</dd>
-          </div>
-        ))}
-      </dl>
+      <FactList rows={rows.map((row) => ({ label: row.label, value: `${Math.round(row.value)}%` }))} />
     </details>
   );
 }
@@ -180,7 +187,7 @@ function RoadAttributeRows({
   result: AxisInspectorResult | null;
 }) {
   const rows = [...roadFactRows(properties)];
-  const others: [string, string][] = [];
+  const others: { label: string; value: string }[] = [];
   const add = (label: string, value: string) => {
     if (!rows.some((row) => row.label === label)) rows.push({ label, value });
   };
@@ -188,32 +195,18 @@ function RoadAttributeRows({
     add(PRIMARY_ATTRIBUTE_LABELS.highway, result.highway);
     for (const [key, value] of Object.entries(result.tags)) {
       const label = PRIMARY_ATTRIBUTE_LABELS[key];
-      if (label === undefined) others.push([key, value]);
+      if (label === undefined) others.push({ label: key, value });
       else add(label, value);
     }
   }
   return (
     <details className="[&>summary]:cursor-pointer">
       <summary className={textVariants({ variant: "hint" })}>この道の属性</summary>
-      <dl className="m-0 grid gap-0.5">
-        {rows.map((row) => (
-          <div key={row.label} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
-            <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{row.label}</dt>
-            <dd className="m-0 [overflow-wrap:anywhere]">{row.value}</dd>
-          </div>
-        ))}
-      </dl>
+      <FactList rows={rows} />
       {others.length > 0 && (
         <details className="[&>summary]:cursor-pointer">
           <summary className={textVariants({ variant: "hint" })}>その他のタグ</summary>
-          <dl className="m-0 grid gap-0.5">
-            {others.map(([key, value]) => (
-              <div key={key} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
-                <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{key}</dt>
-                <dd className="m-0 [overflow-wrap:anywhere]">{value}</dd>
-              </div>
-            ))}
-          </dl>
+          <FactList rows={others} />
         </details>
       )}
     </details>
