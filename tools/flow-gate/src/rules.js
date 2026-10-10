@@ -7,7 +7,7 @@ export const SCAN = 30; // 今の問いを探すために読むコメントの�
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
 
-// 今日（日本時間）の日付。
+// 今日（日本時間）の日付（YYYY-MM-DD）。
 const today = (now) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
 
 // 作る担当へ振り出さずに待つ理由（無ければ null）: 開いた前提・ラベル coordinator.devLabel・今日より先の着手可能日。見回り
@@ -21,12 +21,12 @@ const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
 export const bodyRest = (body) => normalize(body).replace(BLOCK, "");
 export const withButton = (rest, url, image) => `<!-- flow-gate -->\n[![回答する](${image})](${url})\n<!-- /flow-gate -->\n\n${rest}`;
 
+// 問いか答えのコメントか（最新のものが、答えていない問いか、もう答えた問いかを決める）。
+export const isExchange = (body) => /^## (問い|回答)\n/.test(normalize(body));
+
 // 完了の条件のうちチェックの無いもの（本文のチェックは完了の条件にだけ使う）と、それを全部チェックした本文。
 export const remaining = (body) => [...bodyRest(body).matchAll(/^\s*- \[ \] (.+)$/gm)].map((m) => m[1]);
 export const checkAll = (body) => normalize(body).replace(/^(\s*- )\[ \] /gm, "$1[x] ");
-
-// 本文の並び（古い順）のうち、最新の問いか答え（無ければ undefined）。
-export const lastAsked = (bodies) => bodies.findLast((b) => /^## (問い|回答)\n/.test(normalize(b)));
 
 // 作業の状態（進行中・検証中）か。
 export const isWorking = (config, status) => [config.working, config.review].includes(status);
@@ -38,7 +38,7 @@ export function judge(config, from, to, { close, body, comments = [] } = {}) {
   if (!(config.transitions[from] ?? []).includes(to)) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to}」へは動かせません（遷移の表に無い）。` };
   const left = to === config.done && close === "COMPLETED" ? remaining(body) : [];
   if (left.length) return { ok: false, reason: `完成にするには次が残っています。\n\n${left.map((l) => `- ${l}`).join("\n")}\n\n` };
-  const asked = to === config.waiting ? checkQuestion(config.questionTemplate, lastAsked(comments)) : [];
+  const asked = to === config.waiting ? checkQuestion(config.questionTemplate, comments.findLast(isExchange)) : [];
   return asked.length ? { ok: false, reason: `回答待ちには、答えていない問いが形（tools/flow-gate/question_template.md）のとおりに要ります: ${asked.join("・")}。` } : { ok: true };
 }
 
@@ -63,9 +63,10 @@ export function checkBody(template, body) {
   const got = split(body, names);
   const problems = [];
   if (got[0]?.name === null) problems.push(`最初の節「${names[0]}:」より前に行がある: ${got[0].text.split("\n")[0]}`);
-  const order = got.filter((s) => s.name).map((s) => s.name);
+  const named = got.filter((s) => s.name);
+  const order = named.map((s) => s.name);
   if (order.join("・") !== names.join("・")) problems.push(`節は「${names.join("・")}」をこの順に1つずつ置く（本文の節: 「${order.join("・")}」）`);
-  for (const s of got.filter((s) => s.name)) {
+  for (const s of named) {
     if (!s.text) problems.push(`節「${s.name}:」が空`);
     else if (s.text === want.find((w) => w.name === s.name).text) problems.push(`節「${s.name}:」がテンプレートのまま`);
   }
@@ -74,8 +75,8 @@ export function checkBody(template, body) {
 
 // 問いの誤り（無ければ空）: 行の並びは parseQuestion、判断材料は形（tools/flow-gate/question_template.md。設定の questionTemplate）の節。
 export function checkQuestion(template, text) {
-  const asked = parseQuestion(text);
-  return asked ? checkBody(parseQuestion(template).material, asked.material) : ["「## 問い」・問いの文（1行）・「### 案」と1行1案・<details> の判断材料のほかに行がある（か、問いでない）"];
+  const question = parseQuestion(text);
+  return question ? checkBody(parseQuestion(template).material, question.material) : ["「## 問い」・問いの文（1行）・「### 案」と1行1案・<details> の判断材料のほかに行がある（か、問いでない）"];
 }
 
 // 問い（.claude/skills/ask/SKILL.md「問い」）: 「## 問い」の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の

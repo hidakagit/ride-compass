@@ -5,13 +5,13 @@ import { again } from "./github.js";
 
 const DEV = "開発機";
 
-// 実行がその番号の種類「開発機」のものか。
+// 実行（GitHub の実行の形のまま）が、その番号の種類「開発機」のものか。
 const isHold = (run, number) => {
   const [n, kind] = runOf(run.display_title);
   return Number(n) === Number(number) && kind === DEV;
 };
 
-// その番号の種類「開発機」の終わっていない実行（GitHub の実行の形のまま）。
+// その番号の種類「開発機」の終わっていない実行。
 const holds = async (gh, config, number) => (await readActive((path) => gh.rest("GET", path), config)).filter((r) => isHold(r, number));
 
 // 動いている種類「開発機」の実行があれば、それを held で返す（誰の実行かは道具には分からないので、どうするかは打った者が決める）。

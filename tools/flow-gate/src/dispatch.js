@@ -27,10 +27,8 @@ const RECORDS = (numbers) => `query Records($o: String!, $n: String!) { reposito
 export async function readTasks(gh, config, query) {
   const { owner, number, statusField, priorityField, sizeField, startField, urgentLabel } = config.project;
   const tasks = [];
-  let ranks = [];
   for (let c = null; ; ) {
     const p = (await gh.gql(ITEMS, { o: owner, n: number, q: query, st: statusField, p: priorityField, sz: sizeField, s: startField, c })).organization.projectV2;
-    ranks = p.field?.options.map((o) => o.name) ?? [];
     for (const { content: t, status, priority, size, start } of p.items.nodes.filter((i) => i.content?.number)) {
       const labels = labelNames(t);
       tasks.push({
@@ -38,7 +36,7 @@ export async function readTasks(gh, config, query) {
         startOn: start?.date ?? null, blocked: blockedOpen(t),
       });
     }
-    if (!p.items.pageInfo.hasNextPage) return { tasks, ranks };
+    if (!p.items.pageInfo.hasNextPage) return { tasks, ranks: p.field?.options.map((o) => o.name) ?? [] };
     c = p.items.pageInfo.endCursor;
   }
 }
@@ -157,7 +155,7 @@ export function pick(config, candidates, running) {
   return candidates.filter((t) => free[t.kind]-- > 0);
 }
 
-// 状況の更新の書き出し。見回りが書いたものを、これで見分ける（putStatus）。
+// 状況の更新の書き出し。putStatus はこれで始まる更新を見回りのものとみる。
 const STATUS_HEAD = "振り出しの見回り";
 
 // 状況の更新の中身。気づくべきもの（想定を超えたタスク・進行中なのに動いている担当が無いタスク・振り出せる仕事があるのに空いた枠・
