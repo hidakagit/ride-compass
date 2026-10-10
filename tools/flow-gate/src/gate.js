@@ -1,5 +1,5 @@
 // ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
-import { GitHub, readTask, setField } from "./github.js";
+import { addComment, GitHub, labelNames, readTask, setField } from "./github.js";
 import { bodyRest, judge, normalize, notes, ownerOf, SCAN, withButton } from "./rules.js";
 
 export class Gate {
@@ -33,12 +33,12 @@ export class Gate {
     const ops = [];
     if (next.status !== issue.status) ops.push(setField(this.project, issue.item, this.config.project.statusField, next.status));
     for (const [name, value] of Object.entries(want.fields ?? {})) ops.push(setField(this.project, issue.item, name, value));
-    for (const body of want.comments ?? []) ops.push(["addComment", { subjectId: issue.id, body }]);
+    for (const body of want.comments ?? []) ops.push(addComment(issue.id, body));
     if (want.reopen) ops.push(["reopenIssue", { issueId: issue.id }]);
     const update = {};
     const owner = ownerOf(this.config, next);
     if (owner && (issue.assignees.nodes.length !== 1 || issue.assignees.nodes[0].login !== owner)) update.assigneeIds = [this.config.people[owner].node];
-    const have = issue.labels.nodes.map((l) => l.name);
+    const have = labelNames(issue);
     const labels = [...new Set([...have.filter((n) => !want.unlabels?.includes(n)), ...(want.labels ?? [])])].filter((n) => this.labelIds[n]);
     if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
     const body = this.bodyFor(next);
