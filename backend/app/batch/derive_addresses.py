@@ -32,6 +32,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from app.batch.common import affected_rows
 from app.domain.address_area import (
     ADDRESS_AREA_LEVELS,
     CONTINUABLE_LEVELS,
@@ -289,10 +290,10 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_INSERT_AREAS)
         await conn.copy_records_to_table("address_search_keys", records=keys,
                                          columns=["key", "area_id", "continuable"])
-        residential = int((await conn.execute(_INSERT_RESIDENTIAL_BLOCKS)).split()[-1])
+        residential = affected_rows(await conn.execute(_INSERT_RESIDENTIAL_BLOCKS))
         await conn.execute(_PARCEL_LINKS)
         await conn.copy_records_to_table("_parcel_links", records=parcel_links)
-        parcels = int((await conn.execute(_INSERT_PARCELS)).split()[-1])
+        parcels = affected_rows(await conn.execute(_INSERT_PARCELS))
     await conn.execute("ANALYZE address_areas, address_search_keys, address_blocks")
     logger.info("住所: 区画 %d件・鍵 %d件、街区 %d件・地番 %d件（地番の名前 %d通りを区画に結んだ） / %.1f秒",
                 len(areas), len(keys), residential, parcels, len(parcel_links), time.perf_counter() - started)

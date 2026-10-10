@@ -80,8 +80,6 @@ def _products(spec: SourceSpec) -> dict[str, int]:
     return {str(product): int(zoom) for product, zoom in spec.grid.products.items()}
 
 
-
-
 def gsi_dem_tile_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
     """置き場にある、範囲を覆うタイル。区域外の印とまだ写していないタイルは、どちらも行にならない。"""
     root = dem_tile_store.TILE_ROOT

@@ -35,6 +35,7 @@ from app.infrastructure.region_tile_cache import prune_other_generations
 from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE
 from app.services import derived_data_revision_service
 
+
 async def _fresh_revisions(repository) -> DataRevisions | None:
     """TTLが切れていれば読み直してから、いまの世代を返す。"""
     await derived_data_revision_service.refresh_current_revisions(repository)
