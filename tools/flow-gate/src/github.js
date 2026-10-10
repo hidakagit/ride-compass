@@ -86,7 +86,7 @@ export class GitHub {
   }
 }
 
-const TASK = `fragment Task on Issue { id number title body url state author { ... on User { databaseId } } parent { number } issueType { name }
+const TASK = `fragment Task on Issue { id number title body url state author { ... on User { databaseId } } parent { number } issueType { id name }
   assignees(first: 5) { nodes { id login } } labels(first: 20) { nodes { name } }
   blockedBy(first: 50) { nodes { number state } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
@@ -94,7 +94,7 @@ const TASK = `fragment Task on Issue { id number title body url state author { .
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
     ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
     ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } } } } } }
-  repository { nameWithOwner } }`;
+  repository { id nameWithOwner } }`;
 const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(first: 50) { nodes {
   ... on ProjectV2SingleSelectField { id name options { id name } } ... on ProjectV2Field { id name dataType } } } } }
   repository(owner: $o, name: $n) { labels(first: 100) { nodes { id name } }`;
@@ -123,6 +123,13 @@ export async function readTask(gh, config, ref, { comments = 1 } = {}) {
   const fields = Object.fromEntries(set.map((x) => [x.field.name, x.name ?? x.date]));
   return { project, labels, issue: { ...issue, item: item?.id ?? null, status: fields[config.project.statusField] ?? null, fields } };
 }
+
+// issue（TASK の形か、見回りの一覧の形）のラベルの名前と、開いた前提があるか。
+export const labelNames = (issue) => issue.labels.nodes.map((l) => l.name);
+export const blockedOpen = (issue) => issue.blockedBy.nodes.some((b) => b.state !== "CLOSED");
+
+// コメントを書く1件。
+export const addComment = (subjectId, body) => ["addComment", { subjectId, body }];
 
 // Project の欄を名前で書く1件。単一選択は選択肢の名前、日付は YYYY-MM-DD（消すなら null）。
 export function setField(project, item, name, value) {

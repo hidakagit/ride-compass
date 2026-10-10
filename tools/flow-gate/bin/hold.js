@@ -4,6 +4,7 @@
 // 取り消しを頼み、受け付けられたら止まるのを待たずに 0、受け付けられなければその応答を出して 1 で終える（src/hold.js: release）。
 // 開発機でログイン済みの gh（hidakagit）のトークンで打つ。
 import { execFileSync } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
 import { args, config, isNumber } from "./cli.js";
@@ -12,7 +13,7 @@ const { rest: [number, off, id] } = args("node tools/flow-gate/bin/hold.js <issu
   (a) => isNumber(a[0]) && (a.length === 1 || (a.length === 3 && a[1] === "--release" && isNumber(a[2]))));
 const gh = new GitHub(execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim());
 
-const wait = () => new Promise((r) => setTimeout(r, 10e3));
+const wait = () => sleep(10e3);
 const releaseCommand = (r) => `node tools/flow-gate/bin/hold.js ${number} --release ${r.id}`;
 
 if (off) {
