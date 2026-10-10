@@ -123,6 +123,29 @@ describe("RoadInspectorPopup", () => {
     expect(screen.queryByLabelText("勾配の詳細を表示")).not.toBeInTheDocument();
   });
 
+  it("どの軸の寄与も0の道では、帯の代わりに値を出せる軸が無いと案内する（空の欄にしない）", async () => {
+    const user = userEvent.setup();
+    serveInspector({
+      ...inspectorResult(),
+      axes: [
+        { axis_id: "axis_sample", difficulty: 0, contribution: 0 },
+        { axis_id: "night", difficulty: 0, contribution: 0 },
+      ],
+    });
+    render(
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+        {...RIDE}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+
+    expect(await screen.findByText("この道で値を出せる評価軸がありません。")).toBeInTheDocument();
+  });
+
   it("合成は注記として出す（実際の探索コストとは一致しないため主役にしない）", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());

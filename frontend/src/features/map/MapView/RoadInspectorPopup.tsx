@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
 import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import { isDebugEnabled } from "@/lib/debugLog";
@@ -104,7 +104,7 @@ export default function RoadInspectorPopup({
       {inspector.isError && <p className={textVariants({ variant: "hint" })}>評価を取得できませんでした。</p>}
       {result !== null && (
         <div className="grid gap-1">
-          {Object.keys(contributions).length > 0 ? (
+          {axes.some((axis) => hasContribution(contributions, axis.axisId)) ? (
             <AxisContributionBar
               axes={axes}
               contributions={contributions}
