@@ -84,11 +84,12 @@ python scripts/review_checks.py docs
 ```bash
 since=$(git for-each-ref --sort=-taggerdate --count=1 --format='%(taggerdate:unix)' 'refs/tags/periodic-review/*')
 for n in $(gh issue list -R ridecompass/ride-compass-tasks --state all --limit 1000 --search "updated:>=$(date -d @$since +%F)" --json number --jq '.[].number'); do
-  gh issue view "$n" -R ridecompass/ride-compass-tasks --json comments --jq ".comments[] | select((.createdAt | fromdateiso8601) >= $since) | .body | split(\"\n\")[] | select(startswith(\"流れの摩擦:\")) | \"#$n \(.)\""
+  gh issue view "$n" -R ridecompass/ride-compass-tasks --json comments --jq ".comments[] | select((.createdAt | fromdateiso8601) >= $since) | .body | split(\"\n\")[] | select(test(\"^(> )?(- )?流れの摩擦:\")) | \"#$n \(.)\""
 done
 ```
 
-（一覧の `--json comments` は100件を超えると読めずに落ちるので、番号だけを取って1件ずつ読む。）
+（一覧の `--json comments` は100件を超えると読めずに落ちるので、番号だけを取って1件ずつ読む。担当の終え方の要約は、後始末が
+終わりのコメントへ `> ` で引用して写すので、引用と箇条書きの頭も拾う。）
 
 ### 3. 4つの観点で見る
 

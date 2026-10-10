@@ -54,11 +54,11 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: 起こしたことが判断なので未着手で、Claude が起こした親の無い要望だけは保留で入り、どれにも問いを置かない。段階は優先度の欄が空なら親の値を継ぎ、ほかの欄は書かない", async () => {
-  for (const issue of [{}, { author: "c", type: "保" }, { author: "c", type: "要" }, { type: "要" }]) {
+test("4 入口: ユーザーの起票と Claude の改善は未着手、それ以外（種類なしを含む）の Claude の起票は保留で入り、どれにも問いを置かない。段階は優先度の欄が空なら親の値を継ぎ、ほかの欄は書かない", async () => {
+  for (const [issue, want] of [[{ type: "要" }, "前"], [{ author: "c", type: "保" }, "前"], [{ author: "c", type: "要" }, "置き"], [{ author: "c" }, "置き"]]) {
     const gh = fakeGitHub({ issue: { number: 2, status: "中", ...issue } });
     await deliver("projects_v2_item", item({ action: "created" }));
-    assert.deepEqual([gh.issue.status, said(gh).length, gh.issue.fields.重さ], [issue.author === "c" && issue.type === "要" ? "置き" : "前", 0, undefined], JSON.stringify(issue));
+    assert.deepEqual([gh.issue.status, said(gh).length, gh.issue.fields.重さ], [want, 0, undefined], JSON.stringify(issue));
   }
   let gh = fakeGitHub({ issue: { number: 3, author: "c", type: "要" }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));

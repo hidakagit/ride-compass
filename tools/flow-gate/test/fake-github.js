@@ -13,7 +13,7 @@ export const config = {
   statuses: ["答え待ち", "置き", "前", "中", "検", "済"],
   owner: { 答え待ち: "u", 置き: "u", 前: "c", 中: "c", 検: "c" },
   done: "済", waiting: "答え待ち", hold: "置き", todo: "前", working: "中", review: "検",
-  holdType: "要",
+  todoTypes: ["保"],
   questionTemplate: "## 問い\n<問い>\n\n### 案\n- <案>\n\n<details><summary>判断材料</summary>\n\n**約束**: <約束>\n**案ごと**: <案ごと>\n**推奨**: <推奨>\n</details>",
   transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "答え待ち", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
   code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },

@@ -57,16 +57,16 @@ export class Gate {
     return verdict;
   }
 
-  // Project に入った: 未着手。Claude が起こした親の無い種類 holdType だけは保留（起こした者が ask.js で問う）。段階は優先度の欄が
-  // 空なら親の優先度を継ぐ。ほかの欄は書かない（誰も決めていない欄は空のまま見せ、起票の直後に入れた値を、読んでから書くまでの間に
-  // 消さない）。入った時点のステータス（ボードで選んだ列）は見ない。
+  // Project に入った: 未着手。Claude が起こした親の無いもので種類が todoTypes（改善）に無いものは保留（起こした者が ask.js で問う）。
+  // 段階は優先度の欄が空なら親の優先度を継ぐ。ほかの欄は書かない（誰も決めていない欄は空のまま見せ、起票の直後に入れた値を、読んで
+  // から書くまでの間に消さない）。入った時点のステータス（ボードで選んだ列）は見ない。
   async enter(nodeId, projectNodeId) {
     const issue = await this.read({ nodeId });
     if (this.project.id !== projectNodeId || !issue?.item || issue.state !== "OPEN") return;
     const byUser = issue.author?.databaseId === this.config.people[this.config.user].id;
     const priority = this.config.project.priorityField;
     const inherited = issue.parent && !issue.fields[priority] ? (await readTask(this.gh, this.config, { number: issue.parent.number })).issue?.fields[priority] : null;
-    await this.write(issue, { status: !byUser && !issue.parent && issue.issueType?.name === this.config.holdType ? this.config.hold : this.config.todo, fields: inherited ? { [priority]: inherited } : {} });
+    await this.write(issue, { status: !byUser && !issue.parent && !this.config.todoTypes.includes(issue.issueType?.name) ?this.config.hold : this.config.todo, fields: inherited ? { [priority]: inherited } : {} });
   }
 
   // ステータスか開き閉じが変わった（ボードの移動・Claude の道具・閉じる・開き直す）。同じ照らしで、通れば開き閉じとステータスを
