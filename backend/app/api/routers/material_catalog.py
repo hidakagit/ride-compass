@@ -36,11 +36,6 @@ from app.domain.strict_model import StrictModel
 router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
 
 
-def _require_known_material(material_id: str) -> None:
-    if not is_known_material(material_id):
-        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
-
-
 class MaterialValueEntry(StrictModel):
     value: str
     # 「論理名 - 物理名」形式（例: "自転車専用道 - cycleway"）。ラベル対訳表に無い値は
@@ -63,6 +58,11 @@ class MaterialDistributionResponse(ValueSpread):
     """材料の値の分位点とゼロの割合（延長で重み付け）。`available=false`は数値材料でなく、どちらも空。"""
 
     available: bool
+
+
+def _require_known_material(material_id: str) -> None:
+    if not is_known_material(material_id):
+        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
 
 
 @router.get("/api/admin/material-catalog/{material_id}/distribution")

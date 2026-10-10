@@ -8,7 +8,7 @@
  *
  * ここで見ないもの:
  * - 管理画面のクライアントが叩く先・待ち時間 → `app/admin/adminApi.test.ts`
- * - 資格情報の「片方だけ設定」の扱い → `lib/adminBasicAuth.ts`
+ * - 資格情報の「片方だけ設定」の扱い → `lib/adminBasicAuth.test.ts`
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

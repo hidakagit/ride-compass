@@ -1,6 +1,6 @@
 // Claude の道具がステータスを動かす。ほかの経路と同じ照らし（rules.js: judge）で見て、通れば書く。
 // 同じタスクを触るのが1者だけなのは、担当のワークフローのグループ（.github/workflows/claude-task.yml の concurrency）が守る。
-import { readTask, setField } from "./github.js";
+import { addComment, readTask, setField } from "./github.js";
 import { checkQuestion, isExchange, judge, normalize, SCAN } from "./rules.js";
 
 const read = (gh, config, number) => readTask(gh, config, { number }, { comments: SCAN });
@@ -10,12 +10,12 @@ export async function moveTask(gh, config, number, to, options) {
   return moveRead(gh, config, number, to, await read(gh, config, number), options);
 }
 
-async function moveRead(gh, config, number, to, { project, issue }, { comment, dryRun = false } = {}) {
+async function moveRead(gh, config, number, to, { project, issue }, { comment, dryRun } = {}) {
   if (!issue?.item || issue.state !== "OPEN") throw new Error(`#${number} は ${config.repository} の Project の開いた件ではありません。`);
   const verdict = judge(config, issue.status, to, { close: to === config.done ? "COMPLETED" : undefined, body: issue.body, comments: [...issue.comments.nodes.map((c) => c.body), comment] });
   if (!verdict.ok) throw new Error(verdict.reason);
   if (dryRun) return `（試し）#${number}: ${issue.status} → ${to}`;
-  await gh.write([...(comment ? [["addComment", { subjectId: issue.id, body: comment }]] : []), setField(project, issue.item, config.project.statusField, to)]);
+  await gh.write([...(comment ? [addComment(issue.id, comment)] : []), setField(project, issue.item, config.project.statusField, to)]);
   return `#${number}: ${issue.status} → ${to}`;
 }
 
@@ -30,6 +30,6 @@ export async function askTask(gh, config, number, question) {
   const last = issue?.comments.nodes.findLast((c) => isExchange(c.body));
   const comment = last && normalize(last.body).trim() === question ? undefined : question;
   if (issue?.state !== "OPEN" || issue.status !== config.waiting) return moveRead(gh, config, number, config.waiting, task, { comment });
-  if (comment) await gh.write([["addComment", { subjectId: issue.id, body: comment }]]);
+  if (comment) await gh.write([addComment(issue.id, comment)]);
   return `#${number}: 回答待ちのまま${comment ? "問い直した" : "（同じ問いがあるので書かなかった）"}`;
 }

@@ -6,7 +6,7 @@ import { notes } from "../src/rules.js";
 import { args, bot, config, isNumber } from "./cli.js";
 
 const { rest: [number, kind, url] } = args("node tools/flow-gate/bin/claim.js <issue の番号> <作る|確かめる> <実行の URL>",
-  (a) => a.length === 3 && isNumber(a[0]) && ["作る", "確かめる"].includes(a[1]));
+  (a) => a.length === 3 && isNumber(a[0]) && Object.keys(config.coordinator.slots).includes(a[1]));
 const gh = bot();
 const start = notes.start(kind, url);
 try {

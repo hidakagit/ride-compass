@@ -15,11 +15,10 @@ import { AxisScoringSection } from "./AxisScoringSection";
 import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, type Draft } from "./axisDraft";
 import { Button } from "@/components/ui/Button/Button";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
-import { Input, Textarea } from "@/components/ui/Input/Input";
+import { fieldClass, Input, Textarea } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
-import { fieldClass } from "@/components/ui/Input/Input";
 
 interface AxisComposerProps {
   /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。公開済み軸も
@@ -47,10 +46,6 @@ interface AxisComposerProps {
   onCancelEdit: () => void;
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
-
-// 節の識別子。画面は1枚のため順番を持たず、「どの節の検証か」を指すだけに使う。
-const SECTIONS = ["basic", "shape_params", "display_publish"] as const;
-type Section = (typeof SECTIONS)[number];
 
 export default function AxisComposer({
   editing,
@@ -107,34 +102,17 @@ export default function AxisComposer({
     }));
 
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
-  // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
-  // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
-
-  // 保存前の検証。軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と昇順等）はbackendが検証し、保存の
-  // 誤りとして日本語の文を返す（`axis_definitions.py: axis_error`）。ここで写さない——写すと、backendの条件を
-  // 変えたとき画面だけが古い条件で止める。ここに残すのは、入力の読み取りの誤りだけ。
-  function validateSection(target: Section): string | null {
-    if (target === "display_publish" && draft.displayThresholdsOverride !== null && thresholdError) {
-      return thresholdError;
-    }
-    return null;
-  }
+  // keyを変えてコンポーネント自体を再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    // 画面は1枚なので、検証は保存の直前にまとめて行う。制限モード（公開済み軸）は
-    // 表示専用フィールドしか描画しないため、それ以外の節を検証すると「入力欄が無いのに
-    // そこへ誘導される」行き止まりになる（公開済み軸は削除もできず、複製して作り直す
-    // 以外に手が無くなる）。編集できない値はそもそも書き換えようがないので、編集できる
-    // 節だけを検証する（不正な既存軸はbackend側の検証が最終的に弾く）。
-    const sectionsToValidate: readonly Section[] = restrictedDisplayOnly ? ["display_publish"] : SECTIONS;
-    for (const target of sectionsToValidate) {
-      const err = validateSection(target);
-      if (err) {
-        setError(err);
-        return;
-      }
+    // 保存前の検証。軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と昇順等）はbackendが検証し、保存の
+    // 誤りとして日本語の文を返す（`axis_definitions.py: axis_error`）。ここで写さない——写すと、backendの条件を
+    // 変えたとき画面だけが古い条件で止める。ここに残すのは、入力の読み取りの誤りだけ（しきい値は制限モードでも編集できる）。
+    if (draft.displayThresholdsOverride !== null && thresholdError) {
+      setError(thresholdError);
+      return;
     }
     const payload: AxisDefinitionPayload = {
       // 編集欄を持たないフィールドは既存値をそのまま送り返す（`PASSTHROUGH_PAYLOAD_KEYS`）。
@@ -237,7 +215,7 @@ export default function AxisComposer({
   }
 
   return (
-    // noValidate: 検証はvalidateSectionが行い、原因を文章で出す。ブラウザ側の制約検証
+    // noValidate: 検証はhandleSubmitが行い、原因を文章で出す。ブラウザ側の制約検証
     // （step・min/max）へ任せると、小数の刻みが浮動小数の誤差で不一致と判定されたとき、
     // 何の表示も無いまま送信だけが止まる——1画面になって全ての欄が同時に検証対象へ入った
     // ぶん、この止まり方は起きやすい。
@@ -275,7 +253,8 @@ export default function AxisComposer({
         mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
         mapBands={mapBands}
-        onThresholdErrorChange={setThresholdError}
+        thresholdError={thresholdError}
+        setThresholdError={setThresholdError}
       />
 
       {error && <p className={textVariants({ variant: "error" })}>{error}</p>}

@@ -13,8 +13,8 @@ export const config = { ...base, questionTemplate: readFileSync(new URL("../ques
 // この作業ツリーの tools/flow-gate が origin/master と違えば、master の版を一時の場所へ取り出し、同じ引数でそちらを打って、
 // その終わりの値で終える。取り出した側は、元のリポジトリを FLOW_GATE_REPO で受け取る。試し（--dry-run）は書かないので、
 // 作業ツリーの版で打つ（道具を変える作業ブランチで、変えた道具を試す）。
-const ref = `origin/${config.code.base}`;
-export const repo = process.env.FLOW_GATE_REPO
+export const ref = `origin/${config.code.base}`;
+const repo = process.env.FLOW_GATE_REPO
   ?? execFileSync("git", ["-C", fileURLToPath(new URL(".", import.meta.url)), "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 export const git = (...a) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8" });
 if (!process.env.FLOW_GATE_REPO && !process.argv.includes("--dry-run")) {

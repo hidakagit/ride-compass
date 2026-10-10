@@ -4,13 +4,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { endReport, keepLog, settle } from "../src/after.js";
-import { readTask } from "../src/github.js";
+import { blockedOpen, labelNames, readTask } from "../src/github.js";
 import { moveTask } from "../src/move.js";
 import { notes, waitsFor } from "../src/rules.js";
 import { args, bot, code, config, isNumber } from "./cli.js";
 
 const { dry, rest: [number, kind, file, url, jobStatus] } = args("node tools/flow-gate/bin/after.js [--dry-run] <issue の番号> <作る|確かめる> <実行のファイル（無ければ空）> <実行の URL> <ジョブの結果>",
-  (a) => a.length === 5 && isNumber(a[0]) && ["作る", "確かめる"].includes(a[1]));
+  (a) => a.length === 5 && isNumber(a[0]) && Object.keys(config.coordinator.slots).includes(a[1]));
 const raw = file && existsSync(file) ? readFileSync(file) : null;
 const messages = raw ? JSON.parse(raw.toString("utf8")) : null;
 const gh = bot();
@@ -22,7 +22,7 @@ const moves = kind === "作る" && task?.status === config.working;
 const { repository, branchPrefix } = config.code;
 const [pullRequest = null] = moves ? await repo.rest("GET", `/repos/${repository}/pulls?state=open&head=${encodeURIComponent(`${repository.split("/")[0]}:${branchPrefix}${number}`)}`)
   .catch((e) => (note(`開いた Pull Request を読めなかった（${e.message}）`), [])) : [];
-const waits = task && waitsFor(config, { blocked: task.blockedBy.nodes.some((b) => b.state !== "CLOSED"), labels: task.labels.nodes.map((l) => l.name), startOn: task.fields[config.project.startField] });
+const waits = task && waitsFor(config, { blocked: blockedOpen(task), labels: labelNames(task), startOn: task.fields[config.project.startField] });
 const step = settle(config, { messages, waits, pullRequest, url, jobStatus });
 
 if (step.pause) {

@@ -41,6 +41,7 @@ function Harness({
   mapBands = { droppedOnMap: [], bandsOnMap: null, failed: false },
 }: HarnessProps) {
   const [draft, setDraft] = useState(initial);
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
   return (
     <>
       <output data-testid="draft">{JSON.stringify(draft)}</output>
@@ -53,7 +54,11 @@ function Harness({
         mapBandColors={mapBandColors}
         mapValueUnit=""
         mapBands={mapBands}
-        onThresholdErrorChange={onThresholdErrorChange}
+        thresholdError={thresholdError}
+        setThresholdError={(error) => {
+          setThresholdError(error);
+          onThresholdErrorChange(error);
+        }}
       />
     </>
   );
