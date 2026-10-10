@@ -313,7 +313,7 @@ JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測�
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
 `jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
-自前の骨格を持ってよい場合は.claude/rules/caching-retention.md「Redisへ持つときは`redis_json_cache`を使う」の「自前で骨格を書いてよい例外」が決める。
+骨格に無い操作が要るときは骨格へ口を足す（.claude/rules/caching-retention.md「Redisへ持つときは`redis_json_cache`を使う」）。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
