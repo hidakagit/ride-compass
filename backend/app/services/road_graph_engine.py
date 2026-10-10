@@ -137,10 +137,9 @@ from app.services.graph_service import GraphService
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.services.weather_service import WeatherService
 
-# Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
+# Road Graphを取得するbboxは、起点と置いた点の外接矩形に、自由に選ぶ部分の半径とこのマージンを足したもの。
 # 実際の道なりは直線距離の外接矩形からはみ出ることが多い（川・線路等を迂回する等）ため、
-# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。経由地・目的地を置いたときは
-# 最低値だけを使う（置いた点は起点からの半径に収まるとは限らないため半径比例は使えない）。
+# 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ、最低値を設ける。
 _BBOX_MARGIN_RATIO = 0.3
 _BBOX_MARGIN_MIN_KM = 2.0
 
@@ -444,19 +443,16 @@ class RoadGraphEngine:
     async def prepare(
         self,
         origin: Coordinates,
+        points: list[Coordinates],
         radius_km: float,
         now: datetime,
-        waypoints: list[Coordinates] | None,
     ) -> _RoadGraphContext | None:
+        """`points`は置いた点（経由地・目的地）、`radius_km`は自由に選ぶ部分が届く見込みの半径（置いた点だけを
+        つなぐなら0）。出発地と置いた点を覆う矩形をこの半径とマージンだけ広げるので、中継点がどの方位に選ばれても
+        この1回の取得で足りる。"""
         # nowは出発時刻。区間ごとの通過時刻（風・昼夜）はここからの経過で決まる。
-        if waypoints:
-            # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
-            # ため、周回探索の円を覆う矩形ではなく、複数点の外接矩形+固定マージンを使う。
-            bbox = bbox_covering_points([origin, *waypoints], _BBOX_MARGIN_MIN_KM)
-        else:
-            # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
-            margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
-            bbox = bbox_covering_points([origin], radius_km + margin_km)
+        margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
+        bbox = bbox_covering_points([origin, *points], radius_km + margin_km)
 
         search = await self._build_search_graph(bbox, origin, now)
         if search is None:
