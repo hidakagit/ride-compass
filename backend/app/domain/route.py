@@ -131,26 +131,15 @@ class RouteSegmentDetail(StrictModel):
 RouteKind = Literal["loop", "destination", "spliced"]
 
 
-class RouteCandidate(StrictModel):
-    """1本のルート候補。
-
-    生成の応答は`overall_difficulty`の平均の昇順で候補を並べる。全区間のdifficultyが欠けていればNone。
+class RouteDraft(StrictModel):
+    """組み立て途中の1本の経路。エンジンが作り、並べ終えたあと`RouteCandidate`になる。
 
     辞書フィールドは`RouteSegmentDetail`の同名フィールドを候補の全区間へ距離加重平均で
     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
     """
 
-    # 応答の中で一意のid・種類・名前・最速の印・乗り換えの可否は、`services/route_generator.py: _label`だけが付ける。エンジンが
-    # 組み立てる時点では並びも種類も決まっておらず、idと種類は既定のまま、名前は周回の方位だけを持つ。
-    id: str = ""
-    kind: RouteKind = "loop"
-    # この候補を元に区間を乗り換えられるか（目的地を持つ生成の候補だけ。合成の要求は目的地を要る:
-    # `api/routers/routes.py: RouteGenerateRequest._resolve_target`）。画面は生成の入力から決め直さずにこれを読む。
-    spliceable: bool = False
+    # エンジンは周回の方位だけを付け、方位を持たない経路は空のまま。`RouteCandidate`になるときに付け直せる。
     direction_label: str
-    # 所要時間だけで探した1本（基準線）。経由地の無い目的地の生成で、比べる相手があるときだけ1本に付く。
-    # 画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。
-    is_fastest: bool = False
     distance_km: float
     geometry: LineStringGeometry
     elevation_gain_m: float | None = None
@@ -192,6 +181,24 @@ class RouteCandidate(StrictModel):
     # 「同じ地点」の判定が結果を左右するため、グラフが持つ同一性をそのまま渡す。
     # `edge_ids`が空の候補では空のまま。
     node_ids: list[str] = Field(default_factory=list)
+
+
+class RouteCandidate(RouteDraft):
+    """応答の1本のルート候補。
+
+    生成の応答は`overall_difficulty`の平均の昇順で候補を並べる。全区間のdifficultyが欠けていればNone。
+    """
+
+    # 応答の中で一意のid・種類・最速の印・乗り換えの可否は、並べ終えた最後に`services/route_generator.py: _label`だけが付ける。
+    # エンジンが組み立てる時点（`RouteDraft`）では並びも種類も決まっていない。
+    id: str
+    kind: RouteKind
+    # 所要時間だけで探した1本（基準線）。経由地の無い目的地の生成で、比べる相手があるときだけ1本に付く。
+    # 画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。
+    is_fastest: bool
+    # この候補を元に区間を乗り換えられるか（目的地を持つ生成の候補だけ。合成の要求は目的地を要る:
+    # `api/routers/routes.py: RouteGenerateRequest._resolve_target`）。画面は生成の入力から決め直さずにこれを読む。
+    spliceable: bool
 
 
 # エンジンが返すsegmentsはEdge単位（交差点間）でAPIペイロード・フロント描画コストが

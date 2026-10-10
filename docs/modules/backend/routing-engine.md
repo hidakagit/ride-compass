@@ -239,7 +239,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
   仕上げの並べ方: overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾
-        │  _labelがid（loop-00..）と種類を付ける（本数は上の逐次処理がmax_routes件で止めている）
+        │  _labelがid（loop-00..）と種類を付けてRouteDraftからRouteCandidateにする（本数は上の逐次処理がmax_routes件で止めている）
         ▼
   RouteCandidate一覧
 ```
@@ -424,8 +424,9 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 方位からは作らない）。種類は終点で決まる——出発地へ戻れば`loop`、目的地で終われば`destination`（経由地の有無・距離の有無を問わない）。
 距離ありの周回の名前は方位、距離なしで出発地へ戻る候補は「経由地ルート」、目的地で終わる候補は「目的地ルート」。
 エンジン（`_build_candidate`）は並びも種類も知らないので、方位を持つ候補の`direction_label`
-（`domain/geo.py: compass_label`）だけを付け、idと種類は`RouteCandidate`の既定のまま返す。画面は一覧の群・名前・
-最速と乗り換えの入口を種類と印だけで決め、idの文字列や要求の形から決め直さない。
+（`domain/geo.py: compass_label`）だけを付けた`RouteDraft`を返す。id・種類・最速の印・乗り換えの可否は`RouteCandidate`だけが
+必須の欄として持ち、`_label`を通らずに応答の候補は作れない。画面は一覧の群・名前・最速と乗り換えの入口を種類と印だけで決め、
+idの文字列や要求の形から決め直さない。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
@@ -859,7 +860,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 - `Coordinates`・`RouteSegmentDetail`（**material_valuesに入る
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
-  ルート線の色分けがこの符号を読む）・`RouteCandidate`。
+  ルート線の色分けがこの符号を読む）・`RouteDraft`（エンジンが組み立てる途中の経路）・`RouteCandidate`（`RouteDraft`に
+  応答のid・種類・最速の印・乗り換えの可否を足したもの）。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_difficulty`・`merge_overall_difficulty`・`merge_material_values`・
   `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。密度の軸は、得点ではなく
@@ -889,7 +891,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   受け取って評価し直す**——ステートレスのため、経路の指定はこの形でしか受けられない。
 - **categorical材料の延長割合はビニングより前に畳む**。ビンの代表値を1つ選ぶ形だと割合が
   500m単位へ量子化されるため、`road_graph_engine`が`aggregate_segments_into_bins`の前に
-  `merge_material_category_shares`を呼び、結果を`RouteCandidate`へ載せる。
+  `merge_material_category_shares`を呼び、結果を`RouteDraft`へ載せる。
   `route_generator`の後段はこの値に触らない（触ると、区間側が空になっている以上
   必ず`{}`で上書きされる）。
 - **生値・材料値に無限大は来ない**。材料の値式は区間の長さが0なら割らずに欠損にし

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
+    RouteDraft,
     RouteKind,
     merge_axis_contributions,
     merge_axis_difficulties,
@@ -80,34 +81,35 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     "axis_contributions": merge_axis_contributions,
     # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
     # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
-    # 前に計算して`RouteCandidate`へ載せている。`road_graph_engine.py: _build_candidate`）。
+    # 前に計算して`RouteDraft`へ載せている。`road_graph_engine.py: _build_candidate`）。
     # 軸の生値（`axis_raw_values`）も区間が持たないため、同じくエンジンが載せる。
     "material_values": merge_material_values,
 }
 
 
 def _label(
-    candidates: list[RouteCandidate],
+    drafts: list[RouteDraft],
     kind: RouteKind,
     name: str | None = None,
-    fastest: RouteCandidate | None = None,
+    fastest: RouteDraft | None = None,
     *,
     spliceable: bool,
 ) -> list[RouteCandidate]:
-    """候補へ応答のid・種類・名前・最速の印・乗り換えの可否をまとめて付ける。候補を返す経路はすべて最後にここを通る。
+    """並べ終えた経路へ応答のid・種類・名前・最速の印・乗り換えの可否を付けて候補にする。候補を返す経路はすべて最後にここを通る。
 
     idは種類と並びの位置から作り、応答の中で一意になる。`name`を渡さなければエンジンが方位から付けた名前のまま。
     最速の印は`fastest`と同じオブジェクトの1本にだけ付く。
     """
     return [
-        candidate.model_copy(update={
+        RouteCandidate(**{
+            **dict(draft),
             "id": f"{kind}-{rank:02d}",
             "kind": kind,
-            "is_fastest": candidate is fastest,
+            "is_fastest": draft is fastest,
             "spliceable": spliceable,
             **({"direction_label": name} if name is not None else {}),
         })
-        for rank, candidate in enumerate(candidates)
+        for rank, draft in enumerate(drafts)
     ]
 
 
@@ -124,14 +126,14 @@ class _Selection:
     # 選んだ経路。空なら候補0件で、`no_candidates_reason`が利用者へ見せる理由を持つ。
     traced: list[TracedLoop]
     # 評価・集約した候補（`traced`と同じ件数・同じ順）を、応答の並びとラベルへ整える。
-    arrange: Callable[[list[RouteCandidate]], list[RouteCandidate]]
+    arrange: Callable[[list[RouteDraft]], list[RouteCandidate]]
     # 常時のサマリログへ載せる、戦略ごとの中間結果の減り方と所要時間。
     summary: str
     no_candidates_reason: str | None = None
 
     @staticmethod
     def empty(reason: str, summary: str) -> "_Selection":
-        return _Selection(traced=[], arrange=lambda candidates: candidates, summary=summary, no_candidates_reason=reason)
+        return _Selection(traced=[], arrange=lambda drafts: [], summary=summary, no_candidates_reason=reason)
 
 
 class _Finish(Protocol):
@@ -235,10 +237,10 @@ class _DistanceFinish:
             return _Selection.empty(self._describe_no_traced_reason(failed, filtered_out), summary)
         return _Selection(by_closeness_to_target(traced, self.distance_km), self._arrange, summary)
 
-    def _arrange(self, candidates: list[RouteCandidate]) -> list[RouteCandidate]:
+    def _arrange(self, drafts: list[RouteDraft]) -> list[RouteCandidate]:
         # 同点は評価前に付けた「目標距離に近い順」を安定ソートで引き継ぐ。周回の名前はエンジンが方位から付けたもの
         # （同じ方位に複数並びうるので、idは並びの位置から作る）。
-        ordered = sorted(candidates, key=difficulty_order)
+        ordered = sorted(drafts, key=difficulty_order)
         if self.points.destination is None:
             return _label(ordered, "loop", spliceable=False)
         return _label(ordered, "destination", "目的地ルート", spliceable=True)
@@ -303,8 +305,8 @@ class _NoDistanceFinish:
                 reason = "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
             return _Selection.empty(reason, f"no via-node candidates side={side or 'unknown'} select_ms={select_ms}")
         if destination is None:
-            def arrange_loops(candidates: list[RouteCandidate]) -> list[RouteCandidate]:
-                kept, _ = keep_routes_with_baseline(candidates, None, self.max_routes)
+            def arrange_loops(drafts: list[RouteDraft]) -> list[RouteCandidate]:
+                kept, _ = keep_routes_with_baseline(drafts, None, self.max_routes)
                 return _label(kept, "loop", "経由地ルート", spliceable=False)
 
             return _Selection(traced, arrange_loops, f"select_ms={select_ms}")
@@ -321,10 +323,10 @@ class _NoDistanceFinish:
             else:
                 fastest_index = same
 
-        def arrange(candidates: list[RouteCandidate]) -> list[RouteCandidate]:
+        def arrange(drafts: list[RouteDraft]) -> list[RouteCandidate]:
             # 件数を切るときに残し、印を付けるために、基準線をオブジェクトの同一性で覚えておく。
-            baseline = candidates[fastest_index] if fastest_index is not None else None
-            kept, baseline = keep_routes_with_baseline(candidates, baseline, self.max_routes)
+            baseline = drafts[fastest_index] if fastest_index is not None else None
+            kept, baseline = keep_routes_with_baseline(drafts, baseline, self.max_routes)
             return _label(kept, "destination", "目的地ルート", fastest=baseline, spliceable=True)
 
         return _Selection(traced, arrange, f"select_ms={select_ms}")
@@ -344,8 +346,8 @@ class RouteGenerator:
 
     async def _evaluate_and_aggregate(
         self, context: "_RoadGraphContext", traced: list[TracedLoop], start_time: datetime
-    ) -> list[RouteCandidate]:
-        """エンジンの評価を通し、区間から候補単位へ集約した完成形の`RouteCandidate`を返す。
+    ) -> list[RouteDraft]:
+        """エンジンの評価を通し、区間から候補単位へ集約した`RouteDraft`を返す。
 
         候補を返す経路はすべてここを通る。**集約を1段増やすときは`SEGMENT_AGGREGATES`へ
         1行足せば全経路へ同時に効く**（design-principles.md 構造仕様8）。
@@ -548,8 +550,8 @@ class RouteGenerator:
             return []
 
         evaluate_started = time.monotonic()
-        candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
-        candidates = _label(candidates, "spliced", "組み合わせたルート", spliceable=True)
+        drafts = await self._evaluate_and_aggregate(context, [traced], start_time)
+        candidates = _label(drafts, "spliced", "組み合わせたルート", spliceable=True)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         logger.info(
             "generate(spliced) origin=%s edges=%d -> distance_km=%.1f "
