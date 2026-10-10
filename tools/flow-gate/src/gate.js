@@ -11,7 +11,7 @@ export class Gate {
     return gate;
   }
 
-  // 答えていない問いを見分けるため、コメントは回答フォームが今の問いを探すのと同じ件数を読む。
+  // 答えていない問いを見分けるため、コメントを SCAN 件読む。
   async read(ref) {
     const r = await readTask(this.gh, this.config, ref, { comments: SCAN });
     this.project = r.project;
