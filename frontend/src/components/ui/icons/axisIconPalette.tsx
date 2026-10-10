@@ -19,12 +19,10 @@ import {
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
 
-type AxisIconComponent = MapIconComponent;
-
 interface AxisIconPaletteEntry {
   /** パレットから形を選ぶ画面（`features/admin/AxisStudio/AxisMapDisplaySection.tsx`）に出す短い名前。 */
   label: string;
-  Icon: AxisIconComponent;
+  Icon: MapIconComponent;
 }
 
 // キー（icon_id）は形の名前にし、軸idに紐付けない（同じ形を複数の軸が選べる）。
@@ -44,7 +42,7 @@ export const AXIS_ICON_PALETTE: Record<string, AxisIconPaletteEntry> = {
 };
 
 /** icon_idからアイコンコンポーネントを引く。未知/未設定はAxisRampIcon（汎用フォールバック）。 */
-export function axisIconFor(iconId: string | null | undefined): AxisIconComponent {
+export function axisIconFor(iconId: string | null | undefined): MapIconComponent {
   if (iconId == null) return AxisRampIcon;
   return AXIS_ICON_PALETTE[iconId]?.Icon ?? AxisRampIcon;
 }

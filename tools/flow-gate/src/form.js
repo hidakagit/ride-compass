@@ -1,11 +1,12 @@
 // 回答フォーム。回答待ちのときだけ開く。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、遷移はゲートが書く。
 import { Gate } from "./gate.js";
-import { GitHub } from "./github.js";
-import { answerBody, bodyRest, checkAll, judge, nextChoices, normalize, parseQuestion, remaining, SCAN } from "./rules.js";
+import { addComment, GitHub, labelNames } from "./github.js";
+import { answerBody, bodyRest, checkAll, judge, nextChoices, normalize, parseQuestion, remaining } from "./rules.js";
 
 const RECENT = 5; // 材料に載せる最近のコメントの件数（上に出した問いのコメントは数えない）
 // 案のどれでもないときの答え（補足に進め方を書く）。案のある問いでだけ、案の最後に並べる。
 const NONE = "どれでもない（補足に書く）";
+const plansOf = (question) => [...question.plans, NONE];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // 「確認へ」で入力を固め（完成なのに条件が残っていれば止める）、「送信」で送る。送ったあとは結果と「GitHub に戻る」だけ。
@@ -54,7 +55,7 @@ const page = (body, status = 200) =>
 
 // 回答待ちのタスクと、最新の「## 問い」のコメントを読む。答えられなければ理由を返す。
 async function load(gate, number) {
-  const issue = await gate.read({ number }, { comments: SCAN });
+  const issue = await gate.read({ number });
   if (!issue?.item) return { error: "この issue は対象外です。" };
   if (issue.state !== "OPEN" || issue.status !== gate.config.waiting) return { error: `いまは回答待ちではありません（${issue.state === "OPEN" ? issue.status : "閉じています"}）。` };
   const asked = issue.comments.nodes.findLast((c) => normalize(c.body).startsWith("## 問い\n"));
@@ -68,14 +69,14 @@ function render({ issue, asked, question, labels, choices, left, html }) {
   const box = (type, name, value, text, extra = "", cls = "opt") => `<label class="${cls}"><input type="${type}" name="${name}" value="${esc(value)}"${extra}><span>${esc(text)}</span></label>`;
   const when = (t) => new Date(Date.parse(t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
   const recent = issue.comments.nodes.filter((c) => c !== asked).slice(-RECENT).reverse().map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`);
-  const have = new Set(issue.labels.nodes.map((l) => l.name));
+  const have = new Set(labelNames(issue));
   return page(
     `<p class="num">#${issue.number}</p><p class="title">${esc(issue.title)}</p><p>${esc(question.text)}</p>` +
       (html.material ? fold("判断材料", html.material, true) : "") +
       (html.body ? fold("本文", html.body) : "") +
       fold("最近のコメント", recent.join("")) +
       `<form><input type="hidden" name="issue" value="${issue.number}"><input type="hidden" name="q" value="${esc(asked.url)}"><div class="inp">` +
-      (question.plans.length ? `<p class="sec">回答</p>${[...question.plans, NONE].map((p) => box("radio", "plan", p, p)).join("")}` : "") +
+      (question.plans.length ? `<p class="sec">回答</p>${plansOf(question).map((p) => box("radio", "plan", p, p)).join("")}` : "") +
       `<textarea name="note" rows="2" placeholder="補足（任意）"></textarea>` +
       `<p class="sec">次のステータス</p><div class="seg">${choices.map((c, i) => box("radio", "next", i, c.text, ` data-text="${esc(c.text)}"${c.close === "COMPLETED" ? ' data-complete="1"' : ""}${i ? "" : " checked"}`, "")).join("")}</div>` +
       (left.length ? `<div id="left" class="cond" hidden><p class="sec">残っている完了の条件（確かめたものにチェック）</p>${left.map((l) => box("checkbox", "done", l, l)).join("")}</div>` : "") +
@@ -91,16 +92,16 @@ async function submit(gate, env, data) {
   if (data.get("q") !== asked.url) return { error: "問いが新しくなっています。開き直してください。" };
   const choice = choices[Number(data.get("next"))];
   if (!choice) return { error: "次のステータスを1つ選んでください。" };
-  const had = issue.labels.nodes.map((l) => l.name).filter((n) => labels.includes(n));
+  const had = labelNames(issue).filter((n) => labels.includes(n));
   const chosen = data.getAll("label").filter((n) => labels.includes(n));
   const checked = choice.close === "COMPLETED" ? data.getAll("done").filter((d) => left.includes(d)) : [];
   const body = checked.length && checked.length === left.length ? checkAll(issue.body) : undefined;
   // 断る答えは記録も書かないので、先に照らす（書くのは gate.apply で、同じ照らし）。
   const verdict = judge(gate.config, issue.status, choice.to, { close: choice.close, body: body ?? issue.body });
   if (!verdict.ok) return { error: verdict.reason };
-  const answer = { question, plan: [...question.plans, NONE].find((p) => p === data.get("plan")), choice, checked,
+  const answer = { question, plan: plansOf(question).find((p) => p === data.get("plan")), choice, checked,
     added: chosen.filter((n) => !had.includes(n)), removed: had.filter((n) => !chosen.includes(n)), note: String(data.get("note") ?? "").trim() };
-  await new GitHub(env.FORM_TOKEN).write([["addComment", { subjectId: issue.id, body: answerBody(answer) }]]);
+  await new GitHub(env.FORM_TOKEN).write([addComment(issue.id, answerBody(answer))]);
   await gate.apply(issue, choice.to, { close: choice.close, body, labels: answer.added, unlabels: answer.removed });
   return { url: issue.url, label: choice.text };
 }

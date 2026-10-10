@@ -56,13 +56,14 @@ SURFACE_NORMALIZED_SQL = "lower(btrim(w.surface))"
 TRACKTYPE_NORMALIZED_SQL = normalized_tag_sql("tracktype")
 
 
-def _sql_literals(values: Iterable[str]) -> str:
+def sql_literals(values: Iterable[str]) -> str:
+    """文字列の並びを、`IN (...)`・`ARRAY[...]`へ並べるSQLの文字列リテラルの列にする（引用符はエスケープする）。"""
     return ", ".join("'" + value.replace("'", "''") + "'" for value in values)
 
 
 def _surface_class_branches(classes: Sequence[SurfaceClass]) -> str:
     return " ".join(
-        f"WHEN {SURFACE_NORMALIZED_SQL} IN ({_sql_literals(c.tags)}) THEN '{c.key}'" for c in classes if c.tags
+        f"WHEN {SURFACE_NORMALIZED_SQL} IN ({sql_literals(c.tags)}) THEN '{c.key}'" for c in classes if c.tags
     )
 
 
@@ -123,12 +124,12 @@ def tag_is_value_sql(tag: str, expected: str) -> str:
 # 構造物に入れると、地図に誤った橋・トンネルが出る。
 _BRIDGE_STRUCTURE_VALUES = ("yes", "viaduct", "cantilever", "covered", "suspension_bridge", "boardwalk")
 _TUNNEL_STRUCTURE_VALUES = ("yes", "avalanche_protector")
-IS_BRIDGE_SQL = tag_absent_is_false_sql(f"{BRIDGE_NORMALIZED_SQL} IN ({_sql_literals(_BRIDGE_STRUCTURE_VALUES)})")
-IS_TUNNEL_SQL = tag_absent_is_false_sql(f"{TUNNEL_NORMALIZED_SQL} IN ({_sql_literals(_TUNNEL_STRUCTURE_VALUES)})")
+IS_BRIDGE_SQL = tag_absent_is_false_sql(f"{BRIDGE_NORMALIZED_SQL} IN ({sql_literals(_BRIDGE_STRUCTURE_VALUES)})")
+IS_TUNNEL_SQL = tag_absent_is_false_sql(f"{TUNNEL_NORMALIZED_SQL} IN ({sql_literals(_TUNNEL_STRUCTURE_VALUES)})")
 
 
 def _cycleway_tags_include_sql(*values: str) -> str:
-    return f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{_sql_literals(values)}]"
+    return f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{sql_literals(values)}]"
 
 
 def cycleway_has_value_sql(*values: str) -> str:

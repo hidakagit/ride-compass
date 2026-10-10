@@ -190,7 +190,7 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
 
 _CYCLEWAY_TAGS_COVERAGE = WayMaterialCoverageSpec(
     missing_condition=" AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES),
-    source="OSM wayのタグ cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）",
+    source=f"OSM wayのタグ {' / '.join(CYCLEWAY_TAG_NAMES)}（いずれも無い場合に欠損）",
     missing_semantics="definite",
 )
 #: 生データの道は親の表のCHECK（`infrastructure/source_models.py: source_features_way_has_kind`）でhighwayを必ず持つ。

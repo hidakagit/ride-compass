@@ -22,11 +22,10 @@ const NO_DISTRIBUTION: AxisValueDistributionResult = { distribution: null, loadi
 
 /**
  * `termsKey`は「分布の形を決める部分」（材料id・重み・required・preprocess）を文字列化した
- * もの。折れ点を含めないことで、折れ点のドラッグ中に通信が走らない。取り直している間は前の分布を
+ * もの。折れ点を含めないことで、折れ点のドラッグ中に通信が走らない。空文字なら取得しない。取り直している間は前の分布を
  * 出したまま`loading`を立てる。
  */
 export function useAxisValueDistribution(
-  enabled: boolean,
   termsKey: string,
   shapeForRequest: () => AxisShape,
 ): AxisValueDistributionResult {
@@ -39,7 +38,7 @@ export function useAxisValueDistribution(
     shapeRef.current = shapeForRequest;
   });
 
-  const active = enabled && debouncedKey !== "";
+  const active = termsKey !== "" && debouncedKey !== "";
   const { data, error, isFetching } = useQuery(
     {
       queryKey: ["axis-value-distribution", debouncedKey],
@@ -51,12 +50,5 @@ export function useAxisValueDistribution(
   );
 
   if (!active) return NO_DISTRIBUTION;
-  if (error) {
-    return {
-      distribution: null,
-      loading: isFetching,
-      error: error instanceof Error ? error.message : "分布の取得に失敗しました",
-    };
-  }
-  return { distribution: data ?? null, loading: isFetching, error: null };
+  return { distribution: error ? null : (data ?? null), loading: isFetching, error: error?.message ?? null };
 }

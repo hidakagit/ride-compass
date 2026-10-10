@@ -143,7 +143,7 @@ class WindLattice:
         """各地点に最も近い格子点の番号。格子の外の地点は端の格子点へ寄せる。"""
         i = np.clip(np.rint((np.asarray(latitudes, dtype=float) - self.south) / self.lat_step), 0, self.rows - 1)
         j = np.clip(np.rint((np.asarray(longitudes, dtype=float) - self.west) / self.lon_step), 0, self.cols - 1)
-        return (i.astype(np.int64) * self.cols + j.astype(np.int64)).astype(np.int64)
+        return i.astype(np.int64) * self.cols + j.astype(np.int64)
 
 
 @dataclass(frozen=True)

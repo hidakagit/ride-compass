@@ -21,7 +21,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 
 JAPANESE = re.compile(r"[぀-ヿ㐀-鿿ｦ-ﾟ]")
 WORD = re.compile(r"(?<![\w/.#@-])[A-Za-z]{2,}(?![\w/.#@-])")
@@ -59,9 +58,12 @@ def tail_lines(path: str, count: int) -> list[str]:
 
 def last_text_before_tool(transcript_path: str) -> str:
     """記録の末尾から、前の道具の結果（またはユーザーの発言）より後にアシスタントが書いた文を集める。"""
-    entries = [json.loads(line) for line in tail_lines(transcript_path, TAIL_LINES) if line.strip()]
     texts: list[str] = []
-    for entry in reversed(entries):
+    # 1行に道具の結果がまるごと入るので、末尾から要る所までだけを解く。
+    for line in reversed(tail_lines(transcript_path, TAIL_LINES)):
+        if not line.strip():
+            continue
+        entry = json.loads(line)
         content = (entry.get("message") or {}).get("content")
         if entry.get("type") == "user":
             break
@@ -72,7 +74,11 @@ def last_text_before_tool(transcript_path: str) -> str:
 
 def state_dir(hook: dict) -> str:
     """セッション（裏の作業役なら作業役）ごとの覚え書きの置き場。"""
-    base = hook.get("scratchpad_dir") or os.path.join(tempfile.gettempdir(), "claude-japanese-only")
+    base = hook.get("scratchpad_dir")
+    if not base:
+        # 道具を打つたびに走るフックなので、置き場が渡されないときにだけ読み込む。
+        import tempfile
+        base = os.path.join(tempfile.gettempdir(), "claude-japanese-only")
     name = f"japanese-only-{hook.get('session_id', '')}" + (f"-{hook['agent_id']}" if hook.get("agent_id") else "")
     path = os.path.join(base, name)
     os.makedirs(path, exist_ok=True)
@@ -86,8 +92,8 @@ def read_lines(path: str) -> list[str]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def append_lines(path: str, lines: list[str]) -> None:
-    with open(path, "a", encoding="utf-8") as f:
+def write_lines(path: str, lines: list[str], mode: str = "a") -> None:
+    with open(path, mode, encoding="utf-8") as f:
         f.writelines(json.dumps(line, ensure_ascii=False) + "\n" for line in lines)
 
 
@@ -104,7 +110,7 @@ def remember_display(hook: dict) -> None:
         text = f.read()
     os.remove(message)
     denied = set(read_lines(os.path.join(directory, "denied.jsonl")))
-    append_lines(os.path.join(directory, "pending.jsonl"), [line for line in english_lines(text) if line not in denied])
+    write_lines(os.path.join(directory, "pending.jsonl"), [line for line in english_lines(text) if line not in denied])
 
 
 def take_pending(hook: dict, found: list[str]) -> list[str]:
@@ -117,8 +123,7 @@ def take_pending(hook: dict, found: list[str]) -> list[str]:
         os.remove(pending_path)
     if lines:
         denied = list(dict.fromkeys(read_lines(denied_path) + lines))[-DENIED_KEEP:]
-        with open(denied_path, "w", encoding="utf-8") as f:
-            f.writelines(json.dumps(line, ensure_ascii=False) + "\n" for line in denied)
+        write_lines(denied_path, denied, mode="w")
     return lines
 
 
