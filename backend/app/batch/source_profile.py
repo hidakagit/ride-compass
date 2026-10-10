@@ -44,6 +44,11 @@ class Target:
     #: (min_lat, min_lon, max_lat, max_lon)。
     bbox: tuple[float, float, float, float]
 
+    def contains(self, lat: float, lon: float) -> bool:
+        """点が範囲に入るか（境界を含む）。"""
+        min_lat, min_lon, max_lat, max_lon = self.bbox
+        return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+
 
 @dataclass(frozen=True)
 class SourceSpec:

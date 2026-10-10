@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
+from app.domain.geo import haversine_distance_km
 from app.domain.loop_routing import TracedLoop
 from app.domain.route_request import FixedPoints
 from app.domain.route_search import (
@@ -50,8 +51,8 @@ from app.domain.route import (
 
 logger = logging.getLogger("ridecompass.generate")
 
-# Road Graph取得bboxの半径ヒューリスティック（目標距離に対する比率）。折返し点は往路の
-# 実距離が目標の半分付近にあり、直線距離は迂回率のぶんそれより短いため、0.5より小さく取る
+# Road Graph取得bboxの半径ヒューリスティック（自由に選ぶ部分の長さに対する比率）。折返し点は往路の
+# 実距離が自由に選ぶ部分の半分付近にあり、直線距離は迂回率のぶんそれより短いため、0.5より小さく取る
 # （比を上げるとbbox面積が二乗で効き、切り出す区間の数に比例するprepareの所要とメモリに響く）。
 # 半径が足りない場合は一対全探索がbboxで自然に切れ、折返し候補が欠けるだけで壊れないため、
 # この値は経験的に調整してよい。
@@ -142,6 +143,10 @@ class _Finish(Protocol):
     @property
     def log_label(self) -> str: ...
 
+    def search_radius_km(self, origin: Coordinates) -> float:
+        """置いた点を覆う探索の範囲に、さらに足す半径（km）。"""
+        ...
+
     @property
     def log_detail(self) -> str: ...
 
@@ -163,6 +168,13 @@ class _DistanceFinish:
     @property
     def log_label(self) -> str:
         return "generate(loops)"
+
+    def search_radius_km(self, origin: Coordinates) -> float:
+        # 自由に選ぶ部分（最後の固定点 → 中継点 → 終点）の長さは、目標から前段の長さを引いた残り。前段の長さを直線で
+        # 見積もるので、残りは実際より長く、範囲は広い側に倒れる。経由地が無ければ目標そのもの。
+        stops = [origin, *self.points.waypoints]
+        fixed_km = sum(haversine_distance_km(a, b) for a, b in zip(stops, stops[1:]))
+        return max(0.0, self.distance_km - fixed_km) * TURNAROUND_RADIUS_RATIO
 
     @property
     def log_detail(self) -> str:
@@ -277,6 +289,10 @@ class _NoDistanceFinish:
     def log_label(self) -> str:
         return "generate(destination)" if self.points.destination is not None else "generate(via_waypoints)"
 
+    def search_radius_km(self, origin: Coordinates) -> float:
+        # 代わりの道は置いた点を覆う範囲（と固定の余裕）の中で探す。
+        return 0.0
+
     @property
     def log_detail(self) -> str:
         return (
@@ -372,9 +388,9 @@ class RouteGenerator:
     async def _prepare(
         self,
         origin: Coordinates,
+        points: list[Coordinates],
         radius_km: float,
         start_time: datetime,
-        waypoints: list[Coordinates] | None,
         *,
         origin_label: str,
         log_label: str,
@@ -388,7 +404,7 @@ class RouteGenerator:
         """
         started = time.monotonic()
         try:
-            context = await self._engine.prepare(origin, radius_km, waypoints=waypoints, now=start_time)
+            context = await self._engine.prepare(origin, points, radius_km, now=start_time)
         except SearchAreaTooLargeError as exc:
             logger.warning(
                 "%s origin=%s %s -> search area too large edges=%d limit=%d prepare_ms=%d",
@@ -421,32 +437,25 @@ class RouteGenerator:
         （無ければ起点）へ向かう（`_DistanceFinish`）。"""
         points = points or FixedPoints(waypoints=[], destination=None)
         return await self._generate(
-            origin, points, distance_km, start_time,
-            _DistanceFinish(distance_km, distance_tolerance_km, max_routes, points),
+            origin, points, start_time, _DistanceFinish(distance_km, distance_tolerance_km, max_routes, points),
         )
 
     async def generate_via_waypoints(
         self,
         origin: Coordinates,
         waypoints: list[Coordinates],
-        distance_km: float,
         destination: Coordinates | None,
         max_routes: int,
         start_time: datetime,
     ) -> list[RouteCandidate]:
-        """距離なしの生成。置いた経由地を順に通り、目的地（省略時は起点）へ向かう（`_NoDistanceFinish`）。
-
-        `distance_km`は探索の範囲の見積もりにだけ使う参考値で、実際の距離は経由地の配置で決まる（距離フィルタは
-        行わない）。
-        """
+        """距離なしの生成。置いた経由地を順に通り、目的地（省略時は起点）へ向かう（`_NoDistanceFinish`）。"""
         points = FixedPoints(waypoints=waypoints, destination=destination)
-        return await self._generate(origin, points, distance_km, start_time, _NoDistanceFinish(points, max_routes))
+        return await self._generate(origin, points, start_time, _NoDistanceFinish(points, max_routes))
 
     async def _generate(
         self,
         origin: Coordinates,
         points: FixedPoints,
-        distance_km: float,
         start_time: datetime,
         finish: _Finish,
     ) -> list[RouteCandidate]:
@@ -454,15 +463,14 @@ class RouteGenerator:
 
         1回の生成を、段ごとの所要時間と戦略の中間結果の減り方を持つ1行で残す。候補が0件ならWARNINGにする。
         """
-        radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         # 常時出るサマリログ用に座標を2桁(≈1km)へ丸める(debug_log.pyの方針と同じ)。
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
-        # 置いた点（目的地を含む）があれば、探索の範囲がそれらを覆うよう`prepare`へ渡す。
+        # 探索の範囲は置いた点（目的地を含む）を覆い、仕上げの戦略が自由に選ぶ部分の届く半径を足す。
         bbox_points = [*points.waypoints, *([points.destination] if points.destination is not None else [])]
 
         context = await self._prepare(
-            origin, radius_km, start_time, bbox_points or None, origin_label=origin_label,
+            origin, bbox_points, finish.search_radius_km(origin), start_time, origin_label=origin_label,
             log_label=finish.log_label, log_detail=finish.log_detail,
             failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
         prepare_ms = round((time.monotonic() - started) * 1000)
@@ -508,7 +516,6 @@ class RouteGenerator:
         self,
         origin: Coordinates,
         destination: Coordinates,
-        distance_km: float,
         edge_ids: tuple[str, *tuple[str, ...]],
         start_time: datetime,
     ) -> list[RouteCandidate]:
@@ -519,12 +526,11 @@ class RouteGenerator:
         Edgeコストは一度だけ計算し、探索と表示が同じ値を共有する）。前半・後半の値を
         混ぜる近似にすると、その共有が壊れる。
         """
-        radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
 
         context = await self._prepare(
-            origin, radius_km, start_time, [destination], origin_label=origin_label,
+            origin, [destination], 0.0, start_time, origin_label=origin_label,
             log_label="generate(spliced)", log_detail=f"edges={len(edge_ids)}",
             failure_phrase="ルートを組み立てられませんでした。")
         prepare_ms = round((time.monotonic() - started) * 1000)

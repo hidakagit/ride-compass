@@ -52,7 +52,7 @@ FROM road_ways r JOIN ({direction_sql(_SOURCE_WAYS)}) d ON d.id = r.osm_way_id
 """
 
 
-async def _derive_divided(conn: asyncpg.Connection) -> int:
+async def _derive_divided(conn: asyncpg.Connection) -> None:
     started = time.perf_counter()
     await conn.execute(_WAY_FACTS)
     await conn.execute("CREATE INDEX ON _way_facts USING GIST (geom)")
@@ -60,7 +60,6 @@ async def _derive_divided(conn: asyncpg.Connection) -> int:
     await conn.execute(_DIVIDED)
     divided = await conn.fetchval("SELECT count(*) FROM way_directions WHERE divided")
     logger.info("上下線分離: 該当 %d本 / %.1f秒", divided, time.perf_counter() - started)
-    return divided
 
 
 async def derive(conn: asyncpg.Connection) -> None:

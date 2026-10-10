@@ -1,3 +1,5 @@
+from functools import cache
+
 import mapbox_vector_tile
 
 # レイヤー名とextentはPostGIS側のST_AsMVT呼び出し（`road_graph_repository.py`の路面のMVT生成SQL）と
@@ -19,6 +21,7 @@ ROAD_FEATURE_PROPERTIES: dict[str, str] = {
 }
 
 
+@cache
 def encode_empty_tile(layer_name: str) -> bytes:
     """フィーチャを持たない空のMVT（カバレッジ外・DB障害時）。レイヤーそのものは名乗る。"""
     return mapbox_vector_tile.encode(

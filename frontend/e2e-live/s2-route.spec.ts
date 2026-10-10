@@ -26,6 +26,7 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
   const catalog = await fetchCatalog();
   expect(catalog.axes.length, "公開軸が1件も無い").toBeGreaterThan(0);
   const statsBefore = await externalErrors();
+  // デバッグログは`[map:error]`を読むため。
   const watch = await openLive(page, { storedState: { "ridecompass:debug-enabled": "1" } });
 
   const settings = await openMobileSheet(page, "ルート設定");
@@ -91,7 +92,7 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
 
   // E: 公開軸のレンズを1つずつ選ぶ → ルートの区間のうち、その軸の値で塗られた（「データなし」でない）ものが1つ以上。
   // 区間ごとの値の有無は実データで変わるので、全区間が欠けたときだけ落とす。
-  const originalLens = await currentLensLabel(page);
+  const originalLens = await currentLensLabel(page, catalog);
   for (const axis of catalog.axes) {
     await branch(
       page,

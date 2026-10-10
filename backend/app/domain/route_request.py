@@ -4,7 +4,6 @@
 止める上限（生成物`route-generate-config.json`）の両方がここから読む。
 """
 
-import math
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -55,15 +54,15 @@ def check_spliced_edge_count(count: int) -> None:
         raise request_error("組み合わせたルートが長すぎるため評価できません。")
 
 
-def search_distance_km(farthest_km: float) -> int:
-    """経由地・目的地を置いたときの探索の範囲（km）。`farthest_km`は出発地から最も遠い点までの距離。
-
-    範囲は最も遠い点より長くする（ただし上限`MAX_ROUTE_DISTANCE_KM`を超えないので、最も遠い点が上限ちょうどなら
-    等しい）。上限より遠い点は要求の誤り。
-    """
+def check_points_within_reach(farthest_km: float) -> None:
+    """`farthest_km`は出発地から最も遠い経由地・目的地までの距離。"""
     if farthest_km > MAX_ROUTE_DISTANCE_KM:
         raise request_error(f"経由地・目的地は出発地から{MAX_ROUTE_DISTANCE_KM}km以内に置いてください。")
-    return min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+
+
+def nothing_to_generate_error() -> PydanticCustomError:
+    """出発地だけで、距離も経由地・目的地も無い要求の誤り。"""
+    return request_error("距離か、経由地・目的地を指定してください。")
 
 
 @dataclass(frozen=True)
@@ -84,9 +83,8 @@ class DistanceTarget:
 
 @dataclass(frozen=True)
 class NoDistanceTarget:
-    """置いた点を順に通り、終点へ良い道で向かう候補を探す（距離なし）。`distance_km`は置いた点から決めた探索の範囲。"""
+    """置いた点を順に通り、終点へ良い道で向かう候補を探す（距離なし）。"""
 
-    distance_km: float
     points: FixedPoints
 
 
@@ -94,10 +92,10 @@ class NoDistanceTarget:
 class SplicedTarget:
     """区間を差し替えて組み立てた経路を、探索せずに評価する。目的地ルートだけが対象。"""
 
-    distance_km: float
     destination: Coordinates
     edge_ids: tuple[str, *tuple[str, ...]]
 
 
 # 検証を通った要求が何を生成するか。距離の有無（仕上げの戦略）は要求の検証がここで1回だけ選び、生成は型だけを見る。
+# 距離はどの型でも全長の目標で、置いた点の有無で意味を変えない。
 RouteTarget = DistanceTarget | NoDistanceTarget | SplicedTarget

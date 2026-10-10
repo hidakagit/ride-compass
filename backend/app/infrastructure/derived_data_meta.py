@@ -125,14 +125,6 @@ async def replace_source_runs(conn: asyncpg.Connection, runs: dict[str, int]) ->
         f"INSERT INTO {DerivedSourceRunRow.__tablename__} (source, run_id) VALUES ($1, $2)", runs.items())
 
 
-async def read_columns(conn: asyncpg.Connection) -> dict[str, frozenset[str]]:
-    """今の派生の表を作ったときの列（表の名前 → 列の名前）。"""
-    columns: dict[str, set[str]] = {}
-    for row in await conn.fetch(f"SELECT table_name, column_name FROM {DerivedColumnRow.__tablename__}"):
-        columns.setdefault(row["table_name"], set()).add(row["column_name"])
-    return {table: frozenset(names) for table, names in columns.items()}
-
-
 async def replace_columns(conn: asyncpg.Connection, columns: Mapping[str, frozenset[str]]) -> None:
     """派生の表を作ったときの列を`columns`へ置き換える。"""
     await conn.execute(f"DELETE FROM {DerivedColumnRow.__tablename__}")

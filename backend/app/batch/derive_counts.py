@@ -68,15 +68,18 @@ JOIN road_edges e ON e.osm_way_id = w.osm_way_id AND ST_Intersects(e.geom, s.geo
 #: 材料とタイルの列は増えるのにこの段が数えず、新しい列が0のまま残る。
 _STOP_COLUMNS = {kind: poi_count_column(kind) for kind in POI_COUNT_KINDS}
 
+#: 区間の両端のノード（区間1本につき2行）。
+_EDGE_ENDS = """ends AS (
+    SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
+    UNION ALL
+    SELECT osm_way_id, segment_index, to_node_id FROM road_edges
+)"""
+
 #: まとまりが占める場所の内側のノードは、点が乗るノードと、点を途中に持つ区間が2本以上集まる
 #: ノード。区間の値は内側の端の数で決まる（`place_count_sql`）。内側の端を持たない区間は、点を
 #: 途中に持つときだけ数える。
 _EDGE_STOP_COUNTS = f"""
-WITH ends AS (
-    SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
-    UNION ALL
-    SELECT osm_way_id, segment_index, to_node_id FROM road_edges
-),
+WITH {_EDGE_ENDS},
 through AS (
     SELECT DISTINCT count_kind, cluster_id, osm_way_id, segment_index, from_node_id, to_node_id
     FROM _stop_touches WHERE NOT at_end
@@ -119,11 +122,7 @@ SELECT osm_way_id, segment_index, 0, 0, {", ".join("0" for _ in _STOP_COLUMNS)} 
 
 #: 交差点のノードも、停止要因の場所と同じく端を持つ区間が分け持つ（経路上で1回になる）。
 _EDGE_INTERSECTIONS = f"""
-WITH ends AS (
-    SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
-    UNION ALL
-    SELECT osm_way_id, segment_index, to_node_id FROM road_edges
-)
+WITH {_EDGE_ENDS}
 UPDATE edge_counts m SET intersection_count = c.n
 FROM (
     SELECT e.osm_way_id, e.segment_index,

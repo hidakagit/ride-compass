@@ -1161,7 +1161,7 @@ export interface components {
             /** Longitude */
             longitude: number;
             /** Distance Km */
-            distance_km: number;
+            distance_km: number | null;
             /** Distance Tolerance Km */
             distance_tolerance_km: number;
             route_preference: components["schemas"]["RoutePreferenceWeights"];

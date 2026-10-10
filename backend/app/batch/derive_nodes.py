@@ -60,16 +60,18 @@ JOIN {NODES_SOURCE_SQL} near
  AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
 """
 
+_HIGHWAY_RANKS = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
+
 #: 頂点ごとに、信号の有無と、そこに集まる道の最大階級。階級の表に無い道しか集まらない頂点は0。
-_INSERT_TURNS_TEMPLATE = f"""
+_INSERT_TURNS = f"""
 WITH ranked AS (
     SELECT e.from_node_id AS node_id, r.rank FROM road_edges e
     JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
-    JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
+    JOIN (VALUES {_HIGHWAY_RANKS}) AS r(highway, rank) ON r.highway = w.highway
     UNION ALL
     SELECT e.to_node_id, r.rank FROM road_edges e
     JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
-    JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
+    JOIN (VALUES {_HIGHWAY_RANKS}) AS r(highway, rank) ON r.highway = w.highway
 ),
 best AS (SELECT node_id, max(rank) AS max_rank FROM ranked GROUP BY node_id)
 INSERT INTO node_turns (osm_node_id, has_traffic_signals, max_highway_rank)
@@ -79,11 +81,10 @@ FROM road_nodes n LEFT JOIN best ON best.node_id = n.osm_node_id
 """
 
 
-async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
+async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> None:
     """`signal_radius_m`は較正値`signal.match_radius_m`（交差点から何m以内の信号をその交差点のものとみなすか）。"""
     started = time.perf_counter()
 
-    values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
     async with conn.transaction():
         await conn.execute("TRUNCATE node_kinds, node_turns")
         await conn.execute(_SIGNAL_NODES)
@@ -92,10 +93,9 @@ async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
         await conn.execute(_NEAR_SIGNAL, signal_radius_m, degrees_covering_m(signal_radius_m))
         await conn.execute("ANALYZE _near_signal")
         classified = int((await conn.execute(_INSERT_KINDS)).split()[-1])
-        await conn.execute(_INSERT_TURNS_TEMPLATE.format(values=values))
+        await conn.execute(_INSERT_TURNS)
         # 後ろの段（数）が読む。統計が無いまま読まれると実行計画が桁で外れる。
         await conn.execute("ANALYZE node_kinds, node_turns")
 
     logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点（半径 %.1fm） / %.1f秒",
                 classified, signals, signal_radius_m, time.perf_counter() - started)
-    return classified

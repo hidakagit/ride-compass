@@ -12,6 +12,7 @@ TILE_SHAPES`）・生成物（`region-tile-config.json`の`point_layers`）は�
 """
 
 from dataclasses import dataclass
+from functools import cached_property
 
 from sqlalchemy import Float, Text, TextClause, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -35,7 +36,7 @@ class PointTileLayer:
     source_layer: str
     sql: TextClause
 
-    @property
+    @cached_property
     def shape(self) -> str:
         """タイルの世代に入る形の署名。source-layer名を変えても鍵が変わる（古い名前のタイルを配らない）。"""
         return shape_digest(self.sql, self.source_layer)

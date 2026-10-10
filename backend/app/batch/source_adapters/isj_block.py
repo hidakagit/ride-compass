@@ -25,11 +25,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pyproj
 import shapely
 from shapely.geometry import Point
 
 from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
+from app.batch.source_adapters.abr import wgs84_transformer
 from app.batch.source_adapters.estat_small_area import range_inputs, range_prefectures
 from app.batch.source_profile import SourceProfile, SourceSpec
 
@@ -66,11 +66,6 @@ def read_rows(path: Path) -> Generator[dict[str, str]]:
             yield from csv.DictReader(io.TextIOWrapper(raw, encoding=_ENCODING, newline=""))
 
 
-def _in_range(lon: float, lat: float, bbox: tuple[float, float, float, float]) -> bool:
-    min_lat, min_lon, max_lat, max_lon = bbox
-    return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
-
-
 def _paths(rows: IsjBlockRows, prefectures: list[str]) -> list[Path]:
     paths = [archive_path(rows.version, code) for code in prefectures]
     missing = [str(path) for path in paths if not path.exists()]
@@ -80,9 +75,7 @@ def _paths(rows: IsjBlockRows, prefectures: list[str]) -> list[Path]:
 
 
 def isj_block_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
-    in_range = range_inputs(profile)
-    return AdapterInputs(files=(*in_range.files, *_paths(spec.rows, range_prefectures(profile))),
-                         sources=in_range.sources)
+    return range_inputs(profile, _paths(spec.rows, range_prefectures(profile)))
 
 
 @register_adapter("isj_block", rows=IsjBlockRows, inputs=isj_block_inputs)
@@ -92,7 +85,7 @@ async def read_isj_blocks(spec: SourceSpec, profile: SourceProfile,
     prefectures = range_prefectures(profile)
     paths = _paths(rows, prefectures)
     origin.update({"version": rows.version, "prefectures": prefectures, "files": [file_origin(path) for path in paths]})
-    transformer = pyproj.Transformer.from_crs(_SOURCE_SRID, "EPSG:4326", always_xy=True)
+    transformer = wgs84_transformer(_SOURCE_SRID)
     seen: set[str] = set()
     for path in paths:
         for row in read_rows(path):
@@ -100,7 +93,7 @@ async def read_isj_blocks(spec: SourceSpec, profile: SourceProfile,
                 continue
             lon, lat = transformer.transform(float(row["経度"]), float(row["緯度"]))
             key = "|".join(row[column] for column in _KEY_COLUMNS)
-            if not _in_range(lon, lat, profile.target.bbox) or key in seen:
+            if not profile.target.contains(lat, lon) or key in seen:
                 continue
             seen.add(key)
             yield SourceRecord(natural_key=key, geom_wkb=shapely.to_wkb(Point(lon, lat)), attrs=row)

@@ -141,7 +141,7 @@ describe("送る要求", () => {
     });
   });
 
-  it("目的地は距離を送らず（探索の範囲はbackendが点から決める）、目的地を送る", async () => {
+  it("目的地は距離を送らず（全長の目標を置かない）、目的地を送る", async () => {
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.changeRouteMode("destination"));
     act(() => rendered.result.current.conditions.placePin("destination", A));

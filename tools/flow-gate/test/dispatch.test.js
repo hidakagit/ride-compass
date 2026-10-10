@@ -9,7 +9,7 @@ import { GitHub } from "../src/github.js";
 import { notes } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
-const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, startOn: null, ...extra });
+const task = (number, status, extra = {}) => ({ number, status, blocked: false, labels: [], urgent: false, priority: null, size: null, start: null, ...extra });
 const board = (...tasks) => ({ tasks, ranks: ["上", "並", "下"] });
 const now = new Date("2026-10-03T15:30:00Z");
 
@@ -21,12 +21,14 @@ test("19 枠は種類ごと: 上限から動いている数を引いた分だけ
   assert.deepEqual([kinds.filter((k) => k === "作る").length, kinds.filter((k) => k === "確かめる").length], [make, check - 1]);
 });
 
-test("20 持つ印・開発機のラベルがあれば作るも確かめるも振り出さず、作るは前提が閉じ・着手可能日が今日以前の未着手だけ。並びは急ぎ・優先度（空は既定の位置）・番号", () => {
+test("20 持つ印・開発機のラベルがあれば作るも確かめるも振り出さず、作るは前提が閉じ・着手可能日時が今（日本時間の分）以前の未着手だけ。並びは急ぎ・優先度（空は既定の位置）・番号", () => {
+  // now は日本時間の 2026-10-04 00:30。着手可能日時は時刻を省けば 00:00 で、形の合わない値は待つ。
   const dev = config.coordinator.devLabel;
-  const tasks = [task(1, config.todo, { blocked: true }), task(2, config.todo, { labels: [dev] }), task(3, config.todo, { startOn: "2026-10-05" }), task(4, config.todo, { startOn: "2026-10-04" }),
-    task(5, config.todo, { priority: "下" }), task(6, config.todo, { priority: "上" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, startOn: "2026-10-05" }), task(9, config.working), task(10, config.todo),
-    task(11, config.review, { labels: [dev] }), task(12, config.todo, { held: "開発機 a" }), task(13, config.review, { held: "開発機 a" })];
-  assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 4, 8, 5]);
+  const tasks = [task(1, config.todo, { blocked: true }), task(2, config.todo, { labels: [dev] }), task(3, config.todo, { start: "2026-10-04 00:31" }), task(4, config.todo, { start: "2026-10-04 00:30" }),
+    task(5, config.todo, { priority: "下" }), task(6, config.todo, { priority: "上" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, start: "2026-10-05" }), task(9, config.working), task(10, config.todo),
+    task(11, config.review, { labels: [dev] }), task(12, config.todo, { held: "開発機 a" }), task(13, config.review, { held: "開発機 a" }),
+    task(14, config.todo, { start: "2026-10-05" }), task(15, config.todo, { start: "2026-10-04" }), task(16, config.todo, { start: "2026-10-04 0:30" })];
+  assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 4, 8, 15, 5]);
 });
 
 test("35 担当の印は、その実行がもう動いていなければ残ったものとし、動いていれば・開発機の印なら残ったものにしない", () => {
