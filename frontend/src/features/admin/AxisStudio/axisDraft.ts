@@ -93,8 +93,8 @@ type _PayloadKeyCoverage = [
   AssertNever<Exclude<EditedPayloadKey, keyof AxisDefinitionPayload>>,
 ];
 
-/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を
- * 素通しする——この画面が編集欄を持たない以上、既定値で上書きしてよい理由が無い（「観測」の公開済み
+/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。
+ * 値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を素通しする——この画面が編集欄を持たない以上、既定値で上書きしてよい理由が無い（「観測」の公開済み
  * 軸は、表示専用の編集でもcategoryが書き換わるぶん見た目だけの更新と見なされずbackendに拒否される）。 */
 const DEFAULT_PASSTHROUGH_FIELDS = Object.fromEntries(
   PASSTHROUGH_PAYLOAD_KEYS.map((key) => [key, axisPayloadConfig.defaults[key]]),
