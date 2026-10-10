@@ -377,3 +377,5 @@ dockerdが行うので通る）。
 
 本番はこの構成をそのまま使わない——backendはOracle Cloud VM上のDockerコンテナ、
 frontendはRender、PostgreSQLとRedisはVMへネイティブに置く。
+
+# 試し（tasks#809）
