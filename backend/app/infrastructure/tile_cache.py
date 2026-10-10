@@ -5,14 +5,13 @@
 """
 
 from collections.abc import Callable
-from pathlib import Path
 
 import diskcache
 
 from app.config import settings
+from app.infrastructure.data_paths import DATA_DIR
 from app.infrastructure.debug_log import log_throttled_warning
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 CACHE_DIR = DATA_DIR / "tile_cache"
 
 _CATEGORY = "cache:tile-disk"

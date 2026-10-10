@@ -5,6 +5,7 @@ from cachetools import LRUCache
 
 from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import log_external_call, mark_failed
+from app.infrastructure.media_types import PNG_CONTENT_TYPE
 
 UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 
@@ -72,7 +73,7 @@ class GsiTileClient:
 
             fields["result"] = "ok"
             fields["status"] = response.status_code
-            content_type = response.headers.get("content-type", "image/png")
+            content_type = response.headers.get("content-type", PNG_CONTENT_TYPE)
             content = response.content
             await asyncio.to_thread(tile_cache.set, path, content, content_type)
             return content, content_type

@@ -5,6 +5,7 @@
 """
 
 import re
+from functools import cache
 
 from app.domain import jma_tile_specs
 from app.domain.jma_tile_specs import TEMPLATE_PLACEHOLDER, JmaFrame, JmaTile, jma_url_template
@@ -15,6 +16,7 @@ _NUMBER = r"\d+"
 _SEGMENT = r"[^/?]+"
 
 
+@cache
 def _template_pattern(template: str) -> re.Pattern[str]:
     parts = TEMPLATE_PLACEHOLDER.split(template)
     pattern = "".join(

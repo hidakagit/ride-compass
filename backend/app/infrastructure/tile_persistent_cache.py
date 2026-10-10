@@ -14,8 +14,8 @@ from typing import Any
 import diskcache
 
 from app.config import settings
+from app.infrastructure.data_paths import DATA_DIR
 from app.infrastructure.debug_log import log_throttled_warning
-from app.infrastructure.tile_cache import DATA_DIR
 
 logger = logging.getLogger("ridecompass.tile_persistent_cache")
 
