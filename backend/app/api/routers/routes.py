@@ -72,6 +72,9 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
         check_axis_weights(self.root)
         return self
 
+    def to_preference(self) -> RoutePreference:
+        return RoutePreference(weights=dict(self.root))
+
 
 class HardFilterOverride(RootModel[dict[str, bool]]):
     """0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。
@@ -357,9 +360,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
     try:
         # 重みの上書き（省略時はエンジンを組む側で既定値を読む）。
         # 適用された値はconditionsへエコーする。
-        preference_override = (
-            RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
-        )
+        preference_override = request.route_preference.to_preference() if request.route_preference else None
 
         job_registry.set_running(job_id)
         target = request.target

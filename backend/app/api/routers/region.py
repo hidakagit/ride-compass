@@ -15,7 +15,6 @@ from app.config import settings
 from app.domain.dynamic_way_values import MissingConditions, WayValueQuery
 from app.domain.axis_inspector import AxisInspectorResult
 from app.domain.geo import BearingDeg
-from app.domain.route_preference import RoutePreference
 from app.domain.route_request import AssumedSpeedKmh
 from app.domain.landcover import LandcoverTileZoom
 from app.domain.region import RoadTileZoom, TileIndex, check_tile_index
@@ -210,7 +209,7 @@ async def region_axis_inspector(
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    preference = None if body.route_preference is None else RoutePreference(weights=dict(body.route_preference.root))
+    preference = None if body.route_preference is None else body.route_preference.to_preference()
     return await axis_inspector.inspect(
         body.osm_way_id, body.feature_key, body.z, body.x, body.y,
         body.at, body.bearing_deg, body.speed_kmh, preference)

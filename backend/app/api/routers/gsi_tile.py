@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app.api.cache_policy import GSI_TILE_NOT_FOUND
 from app.api.dependencies import get_gsi_tile_client
 from app.api.rate_limit import enforce_rate_limit
-from app.api.routers._tile_http import validate_tile_coords
+from app.api.routers._tile_http import tile_not_found, validate_tile_coords
 from app.config import settings
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
 from app.domain.gsi_tiles import RELIEF_UPSTREAM_PATH, TerrainTileZoom
@@ -32,11 +32,7 @@ def _found(result: T | GsiTileNotFound | None) -> T:
     if isinstance(result, GsiTileNotFound):
         # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
         # ではなく404を返す。
-        raise HTTPException(
-            status_code=404,
-            detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": GSI_TILE_NOT_FOUND.header()},
-        )
+        raise tile_not_found(GSI_TILE_NOT_FOUND)
     if result is None:
         raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")
     return result

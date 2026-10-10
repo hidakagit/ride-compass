@@ -196,7 +196,7 @@ composeのfrontendの公開先に従う値で、既定値（手元で`next dev`�
 | ファクトリ | command_timeout | 用途 |
 |---|---|---|
 | `get_session_factory()` | 20秒 | タイル配信（路面/POI/事故）・軸スタジオCRUD等、通常のリクエスト |
-| `get_route_generation_session_factory()` | 180秒 | ルート生成（`api/dependencies.py: _open_graph_service`）と、全表走査を伴う管理APIの集計（DBの状態・材料の欠損率等） |
+| `get_route_generation_session_factory()` | 180秒 | ルート生成（`api/dependencies.py: _open_route_generation_setup`）と、全表走査を伴う管理APIの集計（DBの状態・材料の欠損率等） |
 
 ルート生成は取込範囲の判定（`is_covered`）で接続を取り、確定した経路の形の取り直し
 （`get_edges_with_geometry`）を終えるまで、1件の生成の間（本番で数秒〜数十秒）その接続を持ち続ける。

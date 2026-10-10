@@ -33,7 +33,7 @@ from app.services.axis_preview_service import AxisPreviewService
 from app.services.material_coverage_service import MaterialCoverageReport, MaterialCoverageService
 from app.domain.strict_model import StrictModel
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
 
 
 class MaterialValueEntry(StrictModel):
@@ -65,10 +65,7 @@ def _require_known_material(material_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
 
 
-@router.get(
-    "/api/admin/material-catalog/{material_id}/distribution",
-    dependencies=[Depends(require_admin_basic_auth)],
-)
+@router.get("/api/admin/material-catalog/{material_id}/distribution")
 async def get_material_distribution(
     material_id: str,
     preview: AxisPreviewService = Depends(get_axis_preview_service),
@@ -86,11 +83,7 @@ async def get_material_distribution(
     return MaterialDistributionResponse(available=True, **distribution.model_dump())
 
 
-@router.get(
-    "/api/admin/material-catalog/{material_id}/values",
-    response_model=MaterialValuesResponse,
-    dependencies=[Depends(require_admin_basic_auth)],
-)
+@router.get("/api/admin/material-catalog/{material_id}/values", response_model=MaterialValuesResponse)
 async def get_material_values(
     material_id: str,
     preview: AxisPreviewService = Depends(get_axis_preview_service),
@@ -115,11 +108,7 @@ async def get_material_values(
     return MaterialValuesResponse(values=[MaterialValueEntry(value=v, label=spec.value_label(v)) for v in values])
 
 
-@router.get(
-    "/api/admin/material-catalog/coverage",
-    response_model=MaterialCoverageReport,
-    dependencies=[Depends(require_admin_basic_auth)],
-)
+@router.get("/api/admin/material-catalog/coverage", response_model=MaterialCoverageReport)
 async def get_material_coverage(
     service: MaterialCoverageService = Depends(get_material_coverage_service),
 ) -> MaterialCoverageReport:
