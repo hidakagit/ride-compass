@@ -100,14 +100,14 @@ async def test_today_values_are_rounded_to_the_digits_the_panel_shows(monkeypatc
     _patch_read_series(
         monkeypatch,
         times=["2026-09-07T13:00", "2026-09-07T14:00"],
-        temperature=[23.46, 25.04],
+        temperature=[23.46, 25.06],
         precipitation=[1.234, 0.0],
         u=[3.96, 0.0],
     )
 
     conditions = await WeatherService().get_conditions(POINT)
 
-    assert conditions.temperature_range == TemperatureRange(min_c=23.5, max_c=25.0)
+    assert conditions.temperature_range == TemperatureRange(min_c=23.5, max_c=25.1)
     assert conditions.precipitation_max_mm == 1.2
     assert conditions.wind_speed_max_ms == 4.0
     assert (conditions.today_periods[0].temperature_c, conditions.today_periods[0].precipitation_mm) == (23.5, 1.23)
