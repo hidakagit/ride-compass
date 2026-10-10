@@ -211,33 +211,30 @@ def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(client
     assert client.get("/api/axis-catalog").json()["client_tuning"][param_id] == 9.5
 
 
-# 地図が専用配信の要求へ載せるクエリパラメータは、軸が参照する材料の配信サービスが受け取る条件から決まる。
-# 風は時刻を省略できても載せる（利用者が選んだ時刻の風を塗る）。専用配信を持たない軸には何も載せない。
-@pytest.mark.parametrize(("dedicated", "conditions"), [(True, {"at", "bearing_deg", "speed_kmh"}), (False, set())])
-def test_get_axis_catalog_names_the_query_params_the_map_sends_for_a_dedicated_axis(client, dedicated, conditions):
-    axis = axis_definition(
-        "axis_any_name", material="wind_drag_ratio", is_published=True, dedicated_way_value_layer=dedicated
-    )
-    with replaced_axis_definitions({axis.axis_id: axis}):
+def _axis_reading(material: str):
+    """`material`を読む内部軸と、それを読む公開軸。条件は内部軸を辿った葉の材料から決まる。"""
+    internal = axis_definition("axis_internal", material=material)
+    return {internal.axis_id: internal,
+            "axis_any_name": axis_definition("axis_any_name", material=internal.axis_id, is_published=True)}
+
+
+# 地図が配信の要求へ載せるクエリパラメータは、軸の葉の材料を配るサービスが受け取る条件から決まる。
+# 風は時刻を省略できても載せる（利用者が選んだ時刻の風を塗る）。配るサービスの材料を読まない軸には何も載せない。
+@pytest.mark.parametrize(
+    ("material", "conditions", "undetermined"),
+    [
+        ("wind_drag_ratio", {"at", "bearing_deg", "speed_kmh"}, False),
+        ("gradient_percent", {"bearing_deg"}, True),
+        ("maxspeed_kmh", set(), False),
+    ],
+)
+def test_get_axis_catalog_names_what_the_map_sends_and_shows_for_an_axis(client, material, conditions, undetermined):
+    """「向きで決まらない」の凡例の行は、配信がその道を返しうる軸だけが持つ（返さない軸に出すと、どの道も入らない行になる）。"""
+    with replaced_axis_definitions(_axis_reading(material)):
         response = client.get("/api/axis-catalog")
 
     (entry,) = response.json()["axes"]
     assert set(entry["dynamic_way_value_conditions"]) == conditions
-
-
-# 「向きで決まらない」の凡例の行は、配信がその道を返しうる軸だけが持つ（返さない軸に出すと、どの道も入らない行になる）。
-@pytest.mark.parametrize(
-    ("material", "dedicated", "undetermined"),
-    [("gradient_percent", True, True), ("wind_drag_ratio", True, False), ("gradient_percent", False, False)],
-)
-def test_get_axis_catalog_tells_which_dedicated_axis_can_leave_a_road_undetermined_by_the_bearing(
-    client, material, dedicated, undetermined
-):
-    axis = axis_definition("axis_any_name", material=material, is_published=True, dedicated_way_value_layer=dedicated)
-    with replaced_axis_definitions({axis.axis_id: axis}):
-        response = client.get("/api/axis-catalog")
-
-    (entry,) = response.json()["axes"]
     assert entry["dynamic_way_value_undetermined_by_bearing"] is undetermined
 
 

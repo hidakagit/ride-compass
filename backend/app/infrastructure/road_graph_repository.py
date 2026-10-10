@@ -24,7 +24,8 @@ import shapely
 from sqlalchemy import Row, TextClause, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
+from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays, MaterialColumn
+from app.domain.dynamic_way_values import FeatureMaterials
 from app.domain.graph import LeanEdge, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
@@ -35,6 +36,7 @@ from app.infrastructure.material_joins import material_from_clause
 from app.infrastructure.orm_base import declared_metadata
 from app.infrastructure.road_tile_sql import (
     FEATURE_GRADIENT_INPUTS_IN_TILE_SQL,
+    FEATURE_MATERIALS_IN_TILE_SQL,
     FEATURE_MIDPOINTS_IN_TILE_SQL,
     ROAD_SURFACE_TILE_MVT_SQL,
 )
@@ -585,6 +587,24 @@ class RoadGraphRepository:
         """勾配配信層向けに、フィーチャーごとの`(gradient_percent, road_bearing_deg)`を返す。
         勾配の無い区間は平均から除き、向き（両端を結ぶ方位）が定まらないフィーチャーは返さない。"""
         return await self._feature_pairs_in_tile(FEATURE_GRADIENT_INPUTS_IN_TILE_SQL, z, x, y, bbox)
+
+    async def get_feature_materials_in_tile(
+        self, z: int, x: int, y: int, bbox: BoundingBox, accident_years_covered: int
+    ) -> FeatureMaterials | None:
+        """指定タイルのフィーチャーごとの全材料（探索と同じ値式、`road_tile_sql.py: FEATURE_MATERIALS_IN_TILE_SQL`）。
+        鍵はタイルが焼いた`feature_key`と同じもの。取込範囲外はNone、範囲内0件は0行。"""
+        row = (await self._session.execute(FEATURE_MATERIALS_IN_TILE_SQL, {
+            **_tile_params(z, x, y, bbox), "accident_years": accident_years_covered,
+        })).one()
+        if not row.covered:
+            return None
+        numeric_ids, categorical_ids = material_array_columns()
+        columns: dict[str, MaterialColumn] = {
+            **{material_id: _float_array(getattr(row, f"c_{material_id}") or []) for material_id in numeric_ids},
+            **{material_id: CategoricalColumn.encode(getattr(row, f"c_{material_id}") or [])
+               for material_id in categorical_ids},
+        }
+        return FeatureMaterials(feature_keys=tuple(row.feature_keys or ()), columns=columns)
 
     async def _feature_pairs_in_tile(
         self, sql: TextClause, z: int, x: int, y: int, bbox: BoundingBox

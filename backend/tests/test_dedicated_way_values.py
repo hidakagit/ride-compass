@@ -4,7 +4,7 @@
 要求から組み立てられること、1つの材料を2つのサービスが担当していないことを見る。
 
 ここで見ないもの:
-- 軸から配信を選ぶこと・区間インスペクタが足す材料（`DirectionalMaterialService`） → `test_region_routes.py`
+- 軸の葉の材料から配るサービスを選ぶこと・区間インスペクタが足す材料（`DirectionalMaterialService`） → `test_region_routes.py`
 - 地図が載せる条件の名前（`dedicated_way_value_layers`） → `test_axis_catalog_routes.py`
 - 各サービスが返す値 → `test_gradient_way_service.py`・`test_rain_way_service.py`・`test_wind_way_service.py`
 """
@@ -21,8 +21,8 @@ from app.services.weather_service import WeatherService
 
 
 def test_every_service_material_id_is_a_known_material():
-    """`material_id`は材料カタログの既知材料であること（軸idを誤って渡すと
-    `transform_dedicated_way_values`が軸を評価できず無音で全道路が色なしになる）。"""
+    """`material_id`は材料カタログの既知材料であること（軸idを誤って渡すと、軸の葉の材料と結ばれず、
+    その材料を読む軸が無音で全道路「データなし」になる）。"""
     weather_service = WeatherService()
     for service_type in DEDICATED_WAY_VALUE_SERVICES:
         for material_id in service_type.material_ids:

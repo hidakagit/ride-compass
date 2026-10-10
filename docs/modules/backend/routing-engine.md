@@ -948,7 +948,8 @@ ST_AsMVT丸ごと生成。列は材料の値式から組む。[評価・スコ�
 中ほど＝両端の平均の緯度経度を返す。区間の中ほどは探索の`mid_lat`/`mid_lon`と同じ点）・`road_tile_sql.py: FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
 区間の勾配の値式を長さで重み付けて平均する（`domain/material_sql.py: length_weighted_mean_sql`）——区間単位のズームでは区間1本の値そのもの、way単位の
 ズームではwayの全区間をならした値になる。区間は道の並びの順に切られ、どの区間の勾配も道と同じ向きを正とするため、
-向きを揃え直さずに平均する）は、いずれも
+向きを揃え直さずに平均する）・`road_tile_sql.py: FEATURE_MATERIALS_IN_TILE_SQL`（全材料。値は探索と同じ値式で求め、タイルへ焼くときの
+丸め・係数を通さない。[dynamic-way-values.md](dynamic-way-values.md)「タイルの材料」）は、いずれも
 `COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
 まとめる設計を共有する（点のタイルのSQLも同じ判定を読む。[静的道路属性](static-road-attributes.md)「点のタイル」）。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
 （`RegionService`）が空タイルと区別する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から

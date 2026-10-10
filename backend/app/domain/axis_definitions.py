@@ -202,10 +202,9 @@ class PriorityCondition(StrictModel):
 def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[PriorityCondition]") -> list[str]:
     """`shape`と`priority_overrides`が参照する材料id・軸idの一覧（重複を除き順序は安定）。
 
-    `AxisDefinition.materials`がこれを返し、値の検査`check_axis_definition`と専用配信の検証
-    （`api/routers/axis_admin.py`）の**両方がそれを読む**。片方が`shape.terms`だけを見て他方が
-    `priority_overrides`も見る、という状態になると、検証を素通りした軸が
-    実行時に落ちる（`priority_overrides`経由の静的材料が動的軸へ紛れ込み、
+    `AxisDefinition.materials`がこれを返し、値の検査`check_axis_definition`と評価の材料の選び（地図の配信が読む
+    葉の材料等）の**両方がそれを読む**。片方が`shape.terms`だけを見て他方が`priority_overrides`も見る、という状態に
+    なると、検証を素通りした軸が実行時に落ちる（`priority_overrides`経由の静的材料が動的軸へ紛れ込み、
     `evaluate_axis_array`が`materials[override.material]`でKeyErrorになる）。
     """
     if isinstance(shape, BreakpointLinearShape):
@@ -328,17 +327,13 @@ class AxisDefinition(StrictModel):
     軸ごとの好み）で、dedicated_way_value_layer軸だけでなく、通常のramp軸の凡例にも
     同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
-    """この軸が専用のフィーチャー→値配信レイヤー（`services/dedicated_way_values.py`）を
-    持つかの宣言。`axis_id`の文字列比較による
-    ハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせてある。
+    """**ルート未確定時**の地図が、この軸を配信（`/api/region/dynamic-way-values`、`services/dedicated_way_values.py`）の
+    値で塗るかの宣言。配信はどの公開軸の値も返すので、この印は塗り方を選ぶだけで、配信できるかを表さない。
+    `axis_id`の文字列比較によるハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせ、軸スタジオの
+    編集画面（管理API）からも設定できるようにする。
 
-    **ルート確定後**の地図色分け（ルート結果の`axis_difficulties[axis_id]`でルート線を
-    段に塗る。公開軸なら自動的に対象になりこのフィールドとは無関係）とは別の概念であることに注意。こちらは
-    **ルート未確定時**でも地図上の視界内の全道路を線色分け表示できるか、という
-    工学的事実——「専用の配信レイヤーがbackendに実際に実装されているか」は
-    軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと
-    同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
-    既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する。"""
+    **ルート確定後**の地図色分け（ルート結果の`axis_difficulties[axis_id]`でルート線を段に塗る。公開軸なら自動的に
+    対象になりこのフィールドとは無関係）とは別の概念であることに注意。"""
 
     @field_validator("display_thresholds_override")
     @classmethod

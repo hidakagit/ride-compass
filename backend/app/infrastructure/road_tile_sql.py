@@ -4,6 +4,8 @@
 流すのは`road_graph_repository.py: RoadGraphRepository`。
 """
 
+from collections.abc import Iterable
+
 from sqlalchemy import text
 
 from app.domain.attributes import AVERAGE_GRADE_DECIMALS
@@ -68,13 +70,15 @@ _MATERIAL_TILE_COLUMNS_SQL = ",\n".join(
     for tile_property, expression in material_tile_columns().items()
 )
 
-#: タイルが材料を引くためのJOIN。値式が読む別名（`w`・`wm`・`em`・`re`）をフィーチャーの単位で与え、
-#: 区間でもway丸ごとでも同じ値式を使う。`em`は区間単位のフィーチャーなら区間の値、way丸ごとなら道1本の値で、
-#: 件数と長さ（`re`）は必ず同じ側から取る——片方だけ区間にすると、区間の件数をway全体の長さで割った
-#: 無意味な値になる。`re`は長さだけを持ち、way丸ごとのフィーチャーはwayの長さ（0はNULL）にする。
-_TILE_MATERIAL_JOINS = f"""
+def _tile_material_joins(expressions: Iterable[str]) -> str:
+    """フィーチャー（別名`src`）が`expressions`の値式を読むためのJOIN。値式が読む別名（`w`・`wm`・`em`・`re`）を
+    フィーチャーの単位で与え、区間でもway丸ごとでも同じ値式を使う。`em`は区間単位のフィーチャーなら区間の値、
+    way丸ごとなら道1本の値で、件数と長さ（`re`）は必ず同じ側から取る——片方だけ区間にすると、区間の件数を
+    way全体の長さで割った無意味な値になる。`re`は長さだけを持ち、way丸ごとのフィーチャーはwayの長さ（0はNULL）にする。
+    """
+    return f"""
                     JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
-                    {material_from_clause(material_tile_columns().values(), 'src.osm_way_id',
+                    {material_from_clause(expressions, 'src.osm_way_id',
                                           'src.segment_index', way_when_no_segment=True)}
                     CROSS JOIN LATERAL (
                         -- `OFFSET 0`は外へ畳ませないためのもの——畳まれると`re.distance_m`を読む
@@ -119,7 +123,7 @@ ROAD_SURFACE_TILE_MVT_SQL = text(
                     NULLIF(btrim(w.tags->>'ref'), '') AS {ROAD_FEATURE_PROPERTIES['ref']},
 {_MATERIAL_TILE_COLUMNS_SQL}
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
-                {_TILE_MATERIAL_JOINS}
+                {_tile_material_joins(material_tile_columns().values())}
             ) mvt
             WHERE mvt.geom IS NOT NULL
         ) END AS tile
@@ -208,6 +212,34 @@ FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
 )
 
 
+#: フィーチャーごとの材料。値は探索と同じ値式（`material_value_sql`）で求め、タイルへ焼くときの丸め・係数を通さない
+#: ——地図に配る得点を、探索が同じ道に付ける得点と揃える。並びは配列の位置（`ord`）で揃え、列ごとに別々に並べない。
+#: 材料の列は`c_<材料id>`、鍵は`feature_keys`。取込範囲の外は`covered`が偽で、範囲内で0件なら配列はNULL。
+_FEATURE_MATERIAL_EXPRESSIONS = dict(sorted(material_value_sql().items()))
+FEATURE_MATERIALS_IN_TILE_SQL = text(
+    f"""
+    WITH coverage AS ({COVERAGE_SQL})
+    SELECT
+        coverage.covered,
+        array_agg(f.feature_key ORDER BY f.ord) FILTER (WHERE f.ord IS NOT NULL) AS feature_keys,
+        {", ".join(f"array_agg(f.m_{material_id} ORDER BY f.ord) FILTER (WHERE f.ord IS NOT NULL) AS c_{material_id}"
+                   for material_id in _FEATURE_MATERIAL_EXPRESSIONS)}
+    FROM coverage
+    LEFT JOIN LATERAL (
+        SELECT
+            src.feature_key,
+            row_number() OVER () AS ord,
+            {", ".join(f"({expression}) AS m_{material_id}"
+                       for material_id, expression in _FEATURE_MATERIAL_EXPRESSIONS.items())}
+        FROM ({_TILE_FEATURE_SOURCE_SQL}) src
+        {_tile_material_joins(_FEATURE_MATERIAL_EXPRESSIONS.values())}
+        WHERE coverage.covered
+    ) f ON true
+    GROUP BY coverage.covered
+    """
+)
+
+
 #: タイルのディスク／Redisキャッシュの鍵に入る**形の署名**。焼き込むSQLから導出するため、
 #: 列や分類タグを変えれば自動的に別の鍵になる。DBの中身が作り直されたことは署名では表せず、
 #: そちらは`services/tile_version_service.py`が世代の変化として扱う。
@@ -215,3 +247,6 @@ ROAD_SURFACE_TILE_SHAPE = shape_digest(ROAD_SURFACE_TILE_MVT_SQL)
 #: 勾配の入力を取り出すSQLの形の署名。勾配のタイル値のキャッシュの鍵に入る
 #: （`services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`）。
 FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(FEATURE_GRADIENT_INPUTS_IN_TILE_SQL)
+#: フィーチャーごとの材料を読むSQLの形の署名。材料のタイル値のキャッシュの鍵に入る
+#: （`services/feature_materials.py: FEATURE_MATERIALS_VALUE_SHAPE`）。
+FEATURE_MATERIALS_SHAPE = shape_digest(FEATURE_MATERIALS_IN_TILE_SQL)

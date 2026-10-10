@@ -126,35 +126,32 @@ async def region_dedicated_way_values(
     speed_kmh: AssumedSpeedKmh | None = None,
     lens: AxisWayValueLens | None = Depends(get_dedicated_way_value_service),
 ) -> dict[str, float | None]:
-    """「評価軸」グループとしての動的材料（風・勾配・雨等）。指定タイル内のフィーチャーごとの
-    値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
-    [backend/app/domain/gradient.py]、雨=最寄りの雨量計の観測[backend/app/domain/rain.py]）を
-    まとめて返す軽量なJSONエンドポイント。値がnullの道は、その走行方位では値が決まらない道（勾配の
-    直角付近）で、値の無い道（鍵ごと無い）とは別に塗る。この
-    エンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は
-    ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
-    （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
+    """ルート未確定時の地図が塗る、公開軸の値。指定タイル内のフィーチャーごとに、地図が塗る値（`domain/map_paint.py:
+    map_paint`の塗る値が難易度なら得点、符号付き材料ならその材料の値）をまとめて返す軽量なJSONエンドポイント。
 
-    パスパラメータは**軸id**（`axis_definitions.axis_id`）で、配信サービスが返す生値の材料id
-    （`wind_drag_ratio`等）とは別の名前空間である。サービスはその軸が参照する材料から引き、
-    地図が塗る値（難易度か符号付き材料か）へ軸定義から変える（`services/dedicated_way_values.py: AxisWayValueLens`）。専用配信を持たない・未知のaxis_idと、配信を実装した材料を
-    参照していない軸は404。クエリパラメータ（`bearing_deg`・`at`・`speed_kmh`）のうち何が要るかは
-    材料のサービスが受け取る条件の型が決め（`domain/dynamic_way_values.py: assemble_conditions`）、
-    要るものを省略すると422。要らないものは渡しても無視される（例: 勾配は時刻と速度に依らない。
-    風は時刻を省略すると現在時刻[Asia/Tokyo]を使う）。
+    値はタイルの材料と、軸の葉の材料のうちタイルへ焼けない材料（風・向きで符号の変わる勾配・最寄りの雨量計の雨）から、
+    探索と同じ評価で求める（`services/dedicated_way_values.py: AxisWayValueLens`）。値がnullの道は、その走行方位では
+    値が決まらない道（勾配の直角付近）で、値の無い道（鍵ごと無い）とは別に塗る。このエンドポイントはルート未確定時
+    （視界内の全道路への一律適用）専用——ルート確定後はルート自身の実進行方向・実到達時刻/実値から計算済みの
+    `axis_difficulties`（`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
 
-    静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
-    とは別経路——受け取る側は同じz/x/yについて両方を取り、way_idで突き合わせて重ねる。
-    勾配はタイル単位の値を地図表示専用のディスクキャッシュ（`dynamic_way_value_cache.py`）に
-    持つため、パン・ズームで同じタイルが再び視界に入っても、同じ向きバケットの範囲内では
-    DBへの再問い合わせは発生しない（風は計算が軽いためキャッシュしない）。
+    パスパラメータは**軸id**（`axis_definitions.axis_id`）で、材料id（`wind_drag_ratio`等）とは別の名前空間である。
+    公開軸でないaxis_idは404。クエリパラメータ（`bearing_deg`・`at`・`speed_kmh`）のうち何が要るかは、軸の葉の
+    材料を配るサービスが受け取る条件の型が決め（`domain/dynamic_way_values.py: assemble_conditions`）、要るものを
+    省略すると422。要らないものは渡しても無視される（例: 勾配は時刻と速度に依らない。風は時刻を省略すると
+    現在時刻[Asia/Tokyo]を使う）。
+
+    静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——受け取る側は同じz/x/yについて両方を取り、
+    フィーチャーの鍵で突き合わせて重ねる。タイルの材料と勾配はタイル単位でディスクへ持つため、パン・ズームで同じ
+    タイルが再び視界に入ってもDBへの再問い合わせは発生しない（勾配は同じ向きバケットの範囲内で。風は計算が軽いため
+    持たない）。
 
     路面・点のタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
     （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """
     if lens is None:
-        raise HTTPException(status_code=404, detail="未知のaxis_idです。")
+        raise HTTPException(status_code=404, detail="公開している軸ではありません。")
     _check_tile_rate_limit(request, f"{axis_id}-way-values")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
