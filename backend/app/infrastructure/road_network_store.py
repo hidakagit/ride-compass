@@ -5,7 +5,7 @@ DBから作ると数分かかる。そのため作るのは派生の作り直し
 backendは置かれたものを読むだけにする。
 
 置き場は`data/road_network/<形の署名>-r<派生データの世代>/`。中に配列ごとの`.npy`と、
-配列でない値（語彙・列の並び・世代）を書いた`manifest.json`を置く。書き終えるまでは読み手が
+配列でない値（語彙・列の並び・世代）と配列を作った入力の指紋を書いた`manifest.json`を置く。書き終えるまでは読み手が
 拾わない名前（先頭が`.`）のディレクトリに書き、最後に名前を付け替える——途中で落ちても、読む側が
 書きかけを掴まない。
 
@@ -41,6 +41,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "road_network"
 NETWORK_SHAPE = shape_digest(RoadNetwork, *NETWORK_SQL_SOURCES)
 
 _MANIFEST = "manifest.json"
+#: manifestの中の、配列を作った入力の指紋の名前（`RoadNetwork`の列ではないので、`load`は読まない）。
+_INPUTS = "inputs"
 _DIRECTORY_PATTERN = re.compile(r"^(?P<shape>[0-9a-f]+)-r(?P<revision>\d+|x)$")
 # 行を流す単位と、材料を1回で引く区間の数。材料は区間ごとに列の値を作るため、1回ぶんの
 # 一時的なメモリがこの数に比例する。
@@ -76,21 +78,52 @@ def save(network: RoadNetwork) -> Path:
     return publish(write_pending(network))
 
 
-def write_pending(network: RoadNetwork) -> Path:
-    """読み手（`_latest_directory`）が拾わない名前で書き、そのディレクトリを返す。`publish`で世代の名前にする。"""
-    ROOT.mkdir(parents=True, exist_ok=True)
-    temporary = ROOT / f".{directory_name(network.revision)}.tmp-{os.getpid()}"
-    shutil.rmtree(temporary, ignore_errors=True)
-    temporary.mkdir()
-    values: dict[str, object] = {}
+def write_pending(network: RoadNetwork, inputs: str | None = None) -> Path:
+    """読み手（`_latest_directory`）が拾わない名前で書き、そのディレクトリを返す。`publish`で世代の名前にする。
+
+    `inputs`は配列を作った入力の指紋（作り手が決める）。次の作り直しが`reuse_pending`で同じ入力の置き場を探す。
+    """
+    temporary = _new_pending(network.revision)
+    values: dict[str, object] = {_INPUTS: inputs}
     for f in fields(network):
         value = getattr(network, f.name)
         if isinstance(value, np.ndarray):
             np.save(temporary / f"{f.name}.npy", value, allow_pickle=False)
         else:
             values[f.name] = value
-    (temporary / _MANIFEST).write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
+    _write_manifest(temporary, values)
     return temporary
+
+
+def reuse_pending(inputs: str, revision: int) -> Path | None:
+    """今の形で世代が最も新しい置き場が`inputs`から作ったものなら、その配列を`revision`の世代として読み手が拾わない名前に
+    出し直し、そのディレクトリを返す（`publish`で世代の名前にする）。無ければNone。
+
+    配列はハードリンクで置く——書き直さず、前の世代の置き場が`publish`で消えても中身は残る。
+    """
+    latest = _latest_directory()
+    if latest is None:
+        return None
+    values = json.loads((latest / _MANIFEST).read_text(encoding="utf-8"))
+    if values.get(_INPUTS) != inputs:
+        return None
+    temporary = _new_pending(revision)
+    for path in latest.glob("*.npy"):
+        os.link(path, temporary / path.name)
+    _write_manifest(temporary, {**values, "revision": revision})
+    return temporary
+
+
+def _new_pending(revision: int | None) -> Path:
+    ROOT.mkdir(parents=True, exist_ok=True)
+    temporary = ROOT / f".{directory_name(revision)}.tmp-{os.getpid()}"
+    shutil.rmtree(temporary, ignore_errors=True)
+    temporary.mkdir()
+    return temporary
+
+
+def _write_manifest(directory: Path, values: dict[str, object]) -> None:
+    (directory / _MANIFEST).write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
 
 
 def publish(pending: Path) -> Path:

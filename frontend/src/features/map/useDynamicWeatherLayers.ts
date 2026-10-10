@@ -12,6 +12,7 @@ import {
   fetchJmaGeojson,
   fetchJmaTargetTimesFile,
   isJmaTileKind,
+  jmaFrameKey,
   jmaFramesOf,
   jmaTilePayload,
   type JmaDelivery,
@@ -21,6 +22,7 @@ import {
   WEATHER_SOURCES,
   gridStageFrames,
   jmaStageFrames,
+  readsGrid,
   selectFrame,
   sourceTimeline,
   type GridValue,
@@ -122,7 +124,7 @@ function deliveriesOf(sources: readonly WeatherSource[]): { delivery: JmaDeliver
 
 /** 配信元の段の、選んだコマの地物を取る鍵（要素配下のURLと同じく、配信要素と時刻で決まる）。 */
 function geojsonKey(delivery: JmaDelivery, frame: JmaFrame): string {
-  return `${delivery.id}/${frame.basetime}/${frame.member}/${frame.validtime}`;
+  return `${delivery.id}/${jmaFrameKey(frame)}`;
 }
 
 interface UseDynamicWeatherLayersOptions {
@@ -206,24 +208,30 @@ export function useDynamicWeatherLayers({
   }, [files, fileStates, deliveries]);
 
   // 自前の格子（風と降水の延長予報が共有する1回の取得、`useWeatherGrid.ts`）。
-  const usesGrid = shownSources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
+  const usesGrid = shownSources.some(readsGrid);
   const grid = useWeatherGrid(usesGrid, mapViewport);
 
-  // ソースごとの時系列と、選んだ時刻に描くコマ。
-  const selected = useMemo(() => {
-    const bySource = new Map<WeatherSource, StageFrameRef | undefined>();
-    for (const source of WEATHER_SOURCES) {
-      const timeline = sourceTimeline(
-        source.stages.map((stage, index) =>
-          stage.origin === "grid"
-            ? gridStageFrames(index, grid.grid, now)
-            : jmaStageFrames(index, deliveryResults.get(stage.delivery.id)?.frames ?? []),
+  // ソースごとの時系列と、選んだ時刻に描くコマ。時系列は時刻を動かしても変わらないので、選ぶのと分けて持つ。
+  const timelines = useMemo(
+    () =>
+      WEATHER_SOURCES.map((source) =>
+        sourceTimeline(
+          source.stages.map((stage, index) =>
+            stage.origin === "grid"
+              ? gridStageFrames(index, grid.grid, now)
+              : jmaStageFrames(index, deliveryResults.get(stage.delivery.id)?.frames ?? []),
+          ),
         ),
-      );
-      bySource.set(source, selectFrame(source.frameRule, timeline, at, now)?.ref);
-    }
-    return bySource;
-  }, [deliveryResults, grid.grid, at, now]);
+      ),
+    [deliveryResults, grid.grid, now],
+  );
+  const selected = useMemo(
+    () =>
+      new Map<WeatherSource, StageFrameRef | undefined>(
+        WEATHER_SOURCES.map((source, index) => [source, selectFrame(source.frameRule, timelines[index], at, now)?.ref]),
+      ),
+    [timelines, at, now],
+  );
 
   // 配信元のタイルで描かない段（落雷の地点・線状降水帯の雨域）は、配信元が地物をGeoJSONで配る。タイルで描く段は
   // 時刻一覧だけでURLが決まるが、この段は選んだコマが変わるたびに中身を取る。取れた中身を鍵（配信要素と
@@ -314,16 +322,16 @@ export function useDynamicWeatherLayers({
       const sources = shownSources.filter((source) => source.group === group);
       const results = deliveriesOf(sources).map(({ delivery }) => deliveryResults.get(delivery.id));
       const groupGeojsons = geojsonStates.filter((_, index) => geojsonRequests[index]?.group === group);
-      const readsGrid = sources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
+      const onGrid = sources.some(readsGrid);
       const loading =
         results.some((result) => result === undefined) ||
         groupGeojsons.some((geojson) => geojson.pending) ||
-        (readsGrid && grid.loading);
+        (onGrid && grid.loading);
       const error =
         results.find((result) => result?.error)?.error ??
         groupGeojsons.find((geojson) => geojson.error)?.error ??
-        (readsGrid ? grid.error : null);
-      const hasFetched = results.some((result) => result !== undefined) || (readsGrid && grid.hasFetched);
+        (onGrid ? grid.error : null);
+      const hasFetched = results.some((result) => result !== undefined) || (onGrid && grid.hasFetched);
       const hasPayload = sources.some((source) => dynamicWeather[source.group]?.[source.source]?.payload !== undefined);
       status[group] = deriveFetchLayerStatus(loading, error, hasPayload, hasFetched);
     }
