@@ -11,6 +11,7 @@
 
 - 手元にあるタイルは叩かない
 - その製品に無いタイル（区域外）は製品ごとに印を置き、次からは叩かない
+- 置くタイルの更新時刻は配信元の最終更新（`Last-Modified`）にする。返さなかったタイルは置かず、失敗に数える
 - 一時的な失敗は`--attempts`回で打ち切り、件数を報告して終える。無限に粘らない
 
 実行方法（backendディレクトリから）:
@@ -23,6 +24,8 @@ import asyncio
 import logging
 import sys
 import time
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
@@ -56,15 +59,22 @@ _DEFAULT_ATTEMPTS = 3
 _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
 
 
+class _NoLastModified(Exception):
+    """配信元が最終更新を返さなかった。置くと、取込がいつ時点の標高かを記録できない。"""
+
+
 async def _fetch_one(client: httpx.AsyncClient, product: str, zoom: int,
-                     x: int, y: int) -> bytes | None:
-    """本文。その製品に無ければ（404）None。"""
+                     x: int, y: int) -> tuple[bytes, datetime] | None:
+    """本文と配信元での最終更新。その製品に無ければ（404）None。"""
     response = await client.get(
         TILE_URL.format(product=product, z=zoom, x=x, y=y), timeout=_REQUEST_TIMEOUT)
     if response.status_code == 404:
         return None
     response.raise_for_status()
-    return response.content
+    header = response.headers.get("Last-Modified")
+    if header is None:
+        raise _NoLastModified("Last-Modified がありません")
+    return response.content, parsedate_to_datetime(header)
 
 
 async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zoom: int,
@@ -87,19 +97,19 @@ async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zo
             try:
                 async with semaphore:
                     counts["往復"] += 1
-                    content = await _fetch_one(client, product, zoom, x, y)
-            except (httpx.HTTPError, httpx.StreamError) as exc:
+                    fetched = await _fetch_one(client, product, zoom, x, y)
+            except (httpx.HTTPError, httpx.StreamError, _NoLastModified) as exc:
                 if attempt == attempts:
                     logger.warning("諦めた %s z%d/%d/%d: %s", product, zoom, x, y, exc)
                     counts["諦めた"] += 1
                     return
                 await asyncio.sleep(2 ** attempt)
                 continue
-            if content is None:
+            if fetched is None:
                 mark_absent(root, product, zoom, x, y)
                 counts["区域外"] += 1
             else:
-                write_tile(root, product, zoom, x, y, content)
+                write_tile(root, product, zoom, x, y, *fetched)
                 counts["取得"] += 1
             return
 

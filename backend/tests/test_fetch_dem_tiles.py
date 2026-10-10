@@ -2,8 +2,9 @@
 
 入口は`fetch`。配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
 本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをz15のタイル2×2枚ぶんへ絞る。
-見るのは、宣言した製品をそれぞれのズームでPNG形式のURLから取り、返ったものをタイルごとに置いて404は区域外の印にすることと、
-次の実行がどちらも叩かないこと。同じ製品の中で列・行の違うタイル（同じ列に縦に並ぶ2枚——列のディレクトリが既にあっても
+見るのは、宣言した製品をそれぞれのズームでPNG形式のURLから取り、返ったものを配信元の最終更新（`Last-Modified`）とともに
+タイルごとに置いて404は区域外の印にすることと、次の実行がどちらも叩かないこと。最終更新を返さなかったタイルは置かない——置くと、
+取込がいつ時点の標高かを記録できない。同じ製品の中で列・行の違うタイル（同じ列に縦に並ぶ2枚——列のディレクトリが既にあっても
 書ける——を含む）と、置いたタイルと区域外の印が隣り合う形を含め、置き場で別のタイルが重なると、別の場所の標高を読むか、
 取るべきタイルを取らない。
 
@@ -14,6 +15,8 @@
 
 import re
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 import pytest
@@ -39,6 +42,12 @@ PNG_PATH = re.compile(r"/xyz/(?P<product>\w+)_png/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d
 def _body(product: str, x: int, y: int) -> bytes:
     """代役が返す本文。置き場は中身を読まないので、PNGである必要は無く、タイルごとに違えばよい。"""
     return f"{product}/{x}/{y}".encode()
+
+
+def _modified(product: str, x: int, y: int) -> datetime:
+    """代役が返す最終更新。タイルごとに違う。"""
+    days = sorted(SERVED).index(product) * 10 + (x % 2) * 2 + y % 2
+    return datetime(2026, 3, 30, tzinfo=timezone.utc) + timedelta(days=days)
 
 
 def _served(product: str, zoom: int, x: int, y: int) -> bool:
@@ -67,8 +76,9 @@ def _declared_requests(profile) -> set[tuple[str, int, int, int]]:
 class Origin:
     """配信元の代役。受けた要求を (製品, ズーム, x, y) で覚える。PNG形式のURLでなければ400を返す。"""
 
-    def __init__(self):
+    def __init__(self, stamps: bool = True):
         self.requests: list[tuple[str, int, int, int]] = []
+        self.stamps = stamps
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         match = PNG_PATH.fullmatch(request.url.path)
@@ -77,7 +87,8 @@ class Origin:
         product, z, x, y = match["product"], int(match["z"]), int(match["x"]), int(match["y"])
         self.requests.append((product, z, x, y))
         if _served(product, z, x, y):
-            return httpx.Response(200, content=_body(product, x, y))
+            headers = {"Last-Modified": format_datetime(_modified(product, x, y), usegmt=True)} if self.stamps else {}
+            return httpx.Response(200, content=_body(product, x, y), headers=headers)
         return httpx.Response(404)
 
     def client(self) -> httpx.AsyncClient:
@@ -104,6 +115,17 @@ async def test_served_tiles_are_stored_and_the_rest_marked_absent_per_product(tm
         assert (stored, absent) == (served, not served), (product, zoom, x, y)
         if served:
             assert dem_tile_store.read_tile(tmp_path, product, zoom, x, y) == _body(product, x, y)
+            assert dem_tile_store.tile_modified(tmp_path, product, zoom, x, y) == _modified(product, x, y)
+
+
+async def test_a_tile_without_last_modified_is_not_stored(tmp_path, profile):
+    """置かないので、次の実行がまた取りに行く。"""
+    origin = Origin(stamps=False)
+    async with origin.client() as client:
+        await fetch_dem_tiles.fetch(client, tmp_path, profile, attempts=1)
+
+    for product, zoom, x, y in _declared_requests(profile):
+        assert not dem_tile_store.is_stored(tmp_path, product, zoom, x, y), (product, zoom, x, y)
 
 
 async def test_a_second_run_does_not_ask_the_origin_again(tmp_path, profile):
