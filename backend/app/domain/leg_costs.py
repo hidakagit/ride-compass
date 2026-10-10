@@ -12,6 +12,7 @@ import math
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import cached_property
 from datetime import datetime
 
 import numpy as np
@@ -259,7 +260,6 @@ class LegCostComposer:
         self._cache: dict[tuple, LegCostArrays] = {}
         self._fixed_axis_sums_cache: tuple[np.ndarray, np.ndarray] | None = None
         self._travel_inputs_cache: tuple[SegmentSpeedModel, np.ndarray] | None = None
-        self._time_invariant_composition_cache: AxisComposition | None = None
 
     def _travel_inputs(self, rows: np.ndarray | None) -> tuple[SegmentSpeedModel, np.ndarray]:
         """所要時間のうち風に依らない入力: 走行モデル（勾配・路面・巡航速度）と、区間にある停止要因の
@@ -329,14 +329,12 @@ class LegCostComposer:
         `passage_hours`（切り出した区間の順）として渡す。
         """
         bin_count = self._bin_count(duration_hours)
-        edge_count = len(self._score_matrix.distance_m)
         # `direction=-1`の`offset_hours`はレグの終了時刻のため、開始時刻へ直す。
         leg_start = offset_hours if direction > 0 else offset_hours - (duration_hours or 0.0)
         if not self.time_varying:
             key: tuple = ("snapshot",)
         elif passage_hours is not None:
             key = ("passage", round(offset_hours, 3), direction, float(np.nansum(passage_hours)))
-            bin_count = 1
         else:
             key = _timed_leg_key(leg_start, bin_count, duration_hours)
         cached = self._cache.get(key)
@@ -364,7 +362,7 @@ class LegCostComposer:
                     reused_bins += 1
                     bins.append(single)
                 else:
-                    bins.append(self._compose_at(np.full(edge_count, bin_start)))
+                    bins.append(self._compose_at(np.full(len(self._score_matrix.distance_m), bin_start)))
 
         # 代表はレグの中間地点が入るビン（ビンはレグの見込み時間より長く張られることがあり、
         # 単純な中央の添字だと終盤のビンへ寄る）。
@@ -418,17 +416,15 @@ class LegCostComposer:
             )
         return self._fixed_axis_sums_cache
 
-    @property
+    @cached_property
     def _time_invariant_composition(self) -> AxisComposition:
         """時刻で変わる軸に重みが無いときの、全区間ぶんの合成。所要時間に依らないので、ビンごとのコストは
         ビンの所要時間を渡すだけになる。"""
-        if self._time_invariant_composition_cache is None:
-            self._time_invariant_composition_cache = compose_costs_from_axis_matrix(
-                self._score_matrix.distance_m,
-                {axis_id: self._static_axis_scores[axis_id] for axis_id in self._fixed_axis_ids},
-                self._weights, self._penalty_strength, density=self._density_costs,
-            )
-        return self._time_invariant_composition_cache
+        return compose_costs_from_axis_matrix(
+            self._score_matrix.distance_m,
+            {axis_id: self._static_axis_scores[axis_id] for axis_id in self._fixed_axis_ids},
+            self._weights, self._penalty_strength, density=self._density_costs,
+        )
 
     def _density_costs_at(self, rows: np.ndarray | None) -> dict[str, DensityCost]:
         if rows is None:

@@ -246,58 +246,46 @@ async def ensure_current(session_factory: async_sessionmaker[AsyncSession]) -> P
 async def build(repository: RoadGraphRepository, revision: int | None) -> RoadNetwork:
     """DBから道路網全体を読み、`revision`の世代の`RoadNetwork`を組む。"""
     started = time.monotonic()
-    node_columns = await _read_nodes(repository)
-    node_osm_id = node_columns["osm_node_id"]
-    edges = await _read_directed_edges(repository, node_osm_id)
+    nodes = await _read_nodes(repository)
+    edges, dropped_without_endpoint = await _read_directed_edges(repository, nodes["node_osm_id"])
     topology_s = time.monotonic() - started
     logger.info(
         "道路網のつながりを読みました ノード=%d 有向の区間=%d 端点のノードが無く落とした有向の区間=%d %.0f秒",
-        len(node_osm_id), len(edges["way"]), edges["dropped_without_endpoint"], topology_s,
+        len(nodes["node_osm_id"]), len(edges["edge_way_id"]), dropped_without_endpoint, topology_s,
     )
 
-    materials = await _read_materials(repository, edges["way"], edges["segment"], edges["forward"])
-    logger.info("道路網の材料を読みました 有向の区間=%d %.0f秒", len(edges["way"]), time.monotonic() - started - topology_s)
-    return RoadNetwork(
-        revision=revision,
-        node_osm_id=node_osm_id,
-        node_lat=node_columns["latitude"],
-        node_lon=node_columns["longitude"],
-        node_has_signals=node_columns["has_traffic_signals"],
-        node_max_rank=node_columns["max_highway_rank"],
-        edge_way_id=edges["way"],
-        edge_segment=edges["segment"],
-        edge_forward=edges["forward"],
-        edge_from=edges["from"],
-        edge_to=edges["to"],
-        edge_highway=edges["highway"],
-        highway_vocab=edges["highway_vocab"],
-        edge_min_lon=edges["min_lon"],
-        edge_min_lat=edges["min_lat"],
-        edge_max_lon=edges["max_lon"],
-        edge_max_lat=edges["max_lat"],
-        **materials,
-    )
+    materials = await _read_materials(repository, edges["edge_way_id"], edges["edge_segment"], edges["edge_forward"])
+    logger.info(
+        "道路網の材料を読みました 有向の区間=%d %.0f秒", len(edges["edge_way_id"]), time.monotonic() - started - topology_s)
+    return RoadNetwork(revision=revision, **nodes, **edges, **materials)
 
 
-_NODE_DTYPES = {"osm_node_id": np.int64, "latitude": np.float64, "longitude": np.float64,
-                "has_traffic_signals": np.bool_, "max_highway_rank": np.int64}
-_EDGE_DTYPES = {"way": np.int64, "segment": np.int32, "forward": np.bool_, "from": np.int32, "to": np.int32,
-                "highway": np.int16, "min_lon": np.float64, "min_lat": np.float64, "max_lon": np.float64,
-                "max_lat": np.float64}
+#: `RoadNetwork`の欄 → (ノードの行の列, 型)。
+_NODE_COLUMNS = {
+    "node_osm_id": ("osm_node_id", np.int64), "node_lat": ("latitude", np.float64),
+    "node_lon": ("longitude", np.float64), "node_has_signals": ("has_traffic_signals", np.bool_),
+    "node_max_rank": ("max_highway_rank", np.int64),
+}
+#: `RoadNetwork`の区間の欄 → 型。
+_EDGE_DTYPES = {"edge_way_id": np.int64, "edge_segment": np.int32, "edge_forward": np.bool_, "edge_from": np.int32,
+                "edge_to": np.int32, "edge_highway": np.int16, "edge_min_lon": np.float64, "edge_min_lat": np.float64,
+                "edge_max_lon": np.float64, "edge_max_lat": np.float64}
 _BBOX_COLUMNS = ("min_lon", "min_lat", "max_lon", "max_lat")
 
 
-async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
-    chunks: dict[str, list[np.ndarray]] = {name: [] for name in _NODE_DTYPES}
+async def _read_nodes(repository: RoadGraphRepository) -> dict[str, Any]:
+    chunks: dict[str, list[np.ndarray]] = {name: [] for name in _NODE_COLUMNS}
     async for rows in repository.stream_network_nodes(_STREAM_CHUNK):
-        for name, dtype in _NODE_DTYPES.items():
-            chunks[name].append(np.fromiter((getattr(r, name) for r in rows), dtype=dtype, count=len(rows)))
-    return {name: _concatenate(parts, _NODE_DTYPES[name]) for name, parts in chunks.items()}
+        for name, (column, dtype) in _NODE_COLUMNS.items():
+            chunks[name].append(np.fromiter((getattr(r, column) for r in rows), dtype=dtype, count=len(rows)))
+    return {name: _concatenate(parts, _NODE_COLUMNS[name][1]) for name, parts in chunks.items()}
 
 
-async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.ndarray) -> dict[str, Any]:
-    """区間を有向の行へ広げる。一方通行は走れる向きだけ、端点のノードが無い区間は落とし、落とした
-    有向の行の数を`dropped_without_endpoint`で返す（道の値の行は、区間が持つ外部キーが保証する）。"""
+async def _read_directed_edges(
+    repository: RoadGraphRepository, node_osm_id: np.ndarray
+) -> tuple[dict[str, Any], int]:
+    """区間を有向の行へ広げ、`RoadNetwork`の区間の欄と、端点のノードが無く落とした有向の行の数を返す。
+    一方通行は走れる向きだけを持つ（道の値の行は、区間が持つ外部キーが保証する）。"""
     highway_vocab: dict[str, int] = {}
     dropped_without_endpoint = 0
     parts: dict[str, list[np.ndarray]] = {name: [] for name in _EDGE_DTYPES}
@@ -324,19 +312,18 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
         dropped_without_endpoint += int((~found).sum())
         source, is_forward = source[found], is_forward[found]
 
-        parts["way"].append(way[source])
-        parts["segment"].append(segment[source])
-        parts["forward"].append(is_forward)
-        parts["from"].append(tail_row[found].astype(np.int32))
-        parts["to"].append(head_row[found].astype(np.int32))
-        parts["highway"].append(highway[source])
+        parts["edge_way_id"].append(way[source])
+        parts["edge_segment"].append(segment[source])
+        parts["edge_forward"].append(is_forward)
+        parts["edge_from"].append(tail_row[found].astype(np.int32))
+        parts["edge_to"].append(head_row[found].astype(np.int32))
+        parts["edge_highway"].append(highway[source])
         for name, values in bbox.items():
-            parts[name].append(values[source])
+            parts[f"edge_{name}"].append(values[source])
 
     result: dict[str, Any] = {name: _concatenate(values, _EDGE_DTYPES[name]) for name, values in parts.items()}
     result["highway_vocab"] = tuple(sorted(highway_vocab, key=highway_vocab.__getitem__))
-    result["dropped_without_endpoint"] = dropped_without_endpoint
-    return result
+    return result, dropped_without_endpoint
 
 
 def _rows_of(sorted_ids: np.ndarray, ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

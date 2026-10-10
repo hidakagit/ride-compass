@@ -125,7 +125,7 @@ class SegmentSpeedModel:
         if rolling_crr.shape != grade.shape:
             raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} crr={rolling_crr.shape}")
         self._shape = grade.shape
-        self._power = climb_power_w(wheel_power_w(profile), grade).astype(np.float32)
+        self._power = climb_power_w(wheel_power_w(profile), grade).astype(np.float32, copy=False)
         weight_n = np.float32(profile.mass_kg * GRAVITY_M_S2)
         self._constant_force = rolling_crr * weight_n + weight_n * grade
         self._drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)

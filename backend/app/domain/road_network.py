@@ -93,10 +93,6 @@ class RoadNetwork:
             )
 
     @property
-    def node_count(self) -> int:
-        return len(self.node_osm_id)
-
-    @property
     def edge_count(self) -> int:
         return len(self.edge_way_id)
 
@@ -136,23 +132,26 @@ def slice_network(
     network: RoadNetwork, min_lon: float, min_lat: float, max_lon: float, max_lat: float
 ) -> RoadSlice:
     """区間の形の外接矩形が範囲に重なる区間を取り出す。範囲の外へはみ出す区間も、端点ごと含む。"""
-    overlaps = (
-        (np.asarray(network.edge_max_lon) >= min_lon) & (np.asarray(network.edge_min_lon) <= max_lon)
-        & (np.asarray(network.edge_max_lat) >= min_lat) & (np.asarray(network.edge_min_lat) <= max_lat)
-    )
+    overlaps = np.asarray(network.edge_max_lon) >= min_lon
+    overlaps &= np.asarray(network.edge_min_lon) <= max_lon
+    overlaps &= np.asarray(network.edge_max_lat) >= min_lat
+    overlaps &= np.asarray(network.edge_min_lat) <= max_lat
     rows = np.flatnonzero(overlaps)
     tail = np.asarray(network.edge_from[rows], dtype=np.int64)
     head = np.asarray(network.edge_to[rows], dtype=np.int64)
     nodes, inverse = np.unique(np.concatenate([tail, head]), return_inverse=True)
     return RoadSlice(
         network=network, rows=rows, nodes=nodes,
-        edge_from=inverse[: len(rows)].astype(np.int64), edge_to=inverse[len(rows):].astype(np.int64),
+        edge_from=inverse[: len(rows)].astype(np.int64, copy=False),
+        edge_to=inverse[len(rows):].astype(np.int64, copy=False),
     )
 
 
 def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
     """切り出した区間の材料（行は`road.rows`の順）。分類の材料は語彙への番号のまま渡す。"""
     network, rows = road.network, road.rows
+    # 分類の材料は(区間, 列)の行列なので、行を1回だけ引いてから列へ分ける。
+    codes = np.asarray(network.categorical_codes[rows])
 
     def take(values: np.ndarray) -> np.ndarray:
         return np.asarray(values[rows])
@@ -161,7 +160,7 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
         numeric_ids=network.numeric_ids, numeric_values=take(network.numeric_values),
         categorical_ids=network.categorical_ids,
         categorical_columns=tuple(
-            CategoricalColumn(np.asarray(network.categorical_codes[rows, column]), vocab)
+            CategoricalColumn(np.ascontiguousarray(codes[:, column]), vocab)
             for column, vocab in enumerate(network.categorical_vocab)
         ),
         hard_filter_ids=network.hard_filter_ids, hard_filter_flags=take(network.hard_filter_flags),
@@ -182,12 +181,8 @@ def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> Elevati
         edge_id=edge_id,
         elevation_gain_m=float(network.elevation_gain_m[row]),
         elevation_loss_m=float(network.elevation_loss_m[row]),
-        average_grade=_none_if_nan(network.numeric_values[row, grade_column]),
+        average_grade=None if np.isnan(grade := network.numeric_values[row, grade_column]) else float(grade),
     )
-
-
-def _none_if_nan(value) -> float | None:
-    return None if value is None or np.isnan(value) else float(value)
 
 
 def edge_row_of(network: RoadNetwork, osm_way_id: int, segment_index: int, forward: bool) -> int | None:

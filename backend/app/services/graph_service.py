@@ -9,6 +9,7 @@ from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.road_network import RoadSlice, slice_network
 from app.domain.route_search import DETOUR_RATIO_SHARING_ZOOM
 from app.infrastructure import container_memory, road_network_store
+from app.infrastructure.detour_ratio_cache import TileSet
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
@@ -31,6 +32,12 @@ def _max_search_edges() -> int | None:
     return max(0, (limit - _RESERVED_BYTES) // settings.generate_max_concurrent // _BYTES_PER_EDGE)
 
 
+def _slice_current(bbox: BoundingBox) -> RoadSlice:
+    return slice_network(
+        road_network_store.current(), bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude
+    )
+
+
 class GraphService:
     """探索範囲の道路網を、取込範囲全体の配列（`infrastructure/road_network_store.py`）から
     切り出す。**読むだけで、作らない。**
@@ -42,7 +49,7 @@ class GraphService:
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
-    async def get_search_slice(self, bbox: BoundingBox) -> tuple[RoadSlice, frozenset[tuple[int, int, int]]] | None:
+    async def get_search_slice(self, bbox: BoundingBox) -> tuple[RoadSlice, TileSet] | None:
         """探索範囲の区間を返す。
 
         切り出すのはbboxそのもの。あわせて返すbboxを覆うz12タイルの集合は、近い範囲をまとめて
@@ -56,8 +63,8 @@ class GraphService:
 
         started = time.monotonic()
         tiles = tiles_covering_bbox(bbox, DETOUR_RATIO_SHARING_ZOOM)
-        network = await asyncio.to_thread(road_network_store.current)
-        road = slice_network(network, bbox.min_longitude, bbox.min_latitude, bbox.max_longitude, bbox.max_latitude)
+        # 全区間を走査するので、読み込みと一緒にイベントループの外で切り出す。
+        road = await asyncio.to_thread(_slice_current, bbox)
         limit = _max_search_edges()
         if limit is not None and road.edge_count > limit:
             logger.warning(
