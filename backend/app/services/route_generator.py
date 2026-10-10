@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
-    RouteDraft,
     RouteKind,
     merge_axis_contributions,
     merge_axis_difficulties,
@@ -65,36 +64,35 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     "axis_contributions": merge_axis_contributions,
     # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
     # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
-    # 前に計算して`RouteDraft`へ載せている。`road_graph_engine.py: _build_candidate`）。
+    # 前に計算して`RouteCandidate`へ載せている。`road_graph_engine.py: _build_candidate`）。
     # 軸の生値（`axis_raw_values`）も区間が持たないため、同じくエンジンが載せる。
     "material_values": merge_material_values,
 }
 
 
 def _label(
-    drafts: list[RouteDraft],
+    candidates: list[RouteCandidate],
     kind: RouteKind,
     name: str | None = None,
-    fastest: RouteDraft | None = None,
+    fastest: RouteCandidate | None = None,
 ) -> list[RouteCandidate]:
-    """並べ終えた経路へ応答のid・種類・名前・最速の印を付けて候補にする。候補を返す経路はすべて最後にここを通る。
+    """候補へ応答のid・種類・名前・最速の印をまとめて付ける。候補を返す経路はすべて最後にここを通る。
 
     idは種類と並びの位置から作り、応答の中で一意になる。`name`を渡さなければエンジンが方位から付けた名前のまま。
     最速の印は`fastest`と同じオブジェクトの1本にだけ付く。
     """
     return [
-        RouteCandidate.model_validate({
-            **dict(draft),
+        candidate.model_copy(update={
             "id": f"{kind}-{rank:02d}",
             "kind": kind,
-            "is_fastest": draft is fastest,
+            "is_fastest": candidate is fastest,
             **({"direction_label": name} if name is not None else {}),
         })
-        for rank, draft in enumerate(drafts)
+        for rank, candidate in enumerate(candidates)
     ]
 
 
-def _difficulty_order(candidate: RouteDraft) -> float:
+def _difficulty_order(candidate: RouteCandidate) -> float:
     """候補を返す並びの鍵。周回・目的地とも総合難易度の昇順で、先頭が最も易しい候補という
     契約で配る。平均は難易度の桁へ丸めてあるので、その桁で同点になる。算出不能の候補は末尾へ回す。"""
     if candidate.overall_difficulty is None:
@@ -116,8 +114,8 @@ class RouteGenerator:
 
     async def _evaluate_and_aggregate(
         self, context: "_RoadGraphContext", traced: list[TracedLoop], start_time: datetime
-    ) -> list[RouteDraft]:
-        """エンジンの評価を通し、区間から候補単位へ集約した`RouteDraft`を返す。
+    ) -> list[RouteCandidate]:
+        """エンジンの評価を通し、区間から候補単位へ集約した完成形の`RouteCandidate`を返す。
 
         候補を返す経路はすべてここを通る。**集約を1段増やすときは`SEGMENT_AGGREGATES`へ
         1行足せば全経路へ同時に効く**（design-principles.md 構造仕様8）。
@@ -278,12 +276,12 @@ class RouteGenerator:
             return []
 
         evaluate_started = time.monotonic()
-        drafts = await self._evaluate_and_aggregate(context, traced, start_time)
+        candidates = await self._evaluate_and_aggregate(context, traced, start_time)
 
         # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
-        drafts.sort(key=_difficulty_order)
+        candidates.sort(key=_difficulty_order)
         # 名前はエンジンが方位から付けたもの（同じ方位に複数並びうるので、idは並びの位置から作る）。
-        candidates = _label(drafts, "loop")
+        candidates = _label(candidates, "loop")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -353,9 +351,9 @@ class RouteGenerator:
         trace_ms = round((time.monotonic() - trace_started) * 1000)
 
         evaluate_started = time.monotonic()
-        drafts = await self._evaluate_and_aggregate(context, [traced], start_time)
+        candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
         # 常に1本で順位を持たないので、画面は番号でなくこの名前を出す。
-        candidates = _label(drafts, "waypoints", "目的地ルート" if destination is not None else "経由地ルート")
+        candidates = _label(candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -413,8 +411,8 @@ class RouteGenerator:
             return []
 
         evaluate_started = time.monotonic()
-        drafts = await self._evaluate_and_aggregate(context, [traced], start_time)
-        candidates = _label(drafts, "spliced", "組み合わせたルート")
+        candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
+        candidates = _label(candidates, "spliced", "組み合わせたルート")
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         logger.info(
             "generate(spliced) origin=%s edges=%d -> distance_km=%.1f "
@@ -486,23 +484,23 @@ class RouteGenerator:
                 fastest_index = same
 
         evaluate_started = time.monotonic()
-        drafts = await self._evaluate_and_aggregate(context, traced, start_time)
+        candidates = await self._evaluate_and_aggregate(context, traced, start_time)
         # 件数を切るときに残し、印を付けるために、基準線をオブジェクトの同一性で覚えておく。
-        baseline = drafts[fastest_index] if fastest_index is not None else None
-        drafts.sort(key=_difficulty_order)
+        baseline = candidates[fastest_index] if fastest_index is not None else None
+        candidates.sort(key=_difficulty_order)
         # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
         # ただし`max_routes`が1のときは残さない。基準線は**比べる相手があって初めて基準**
         # であり、1本だけ返すなら比べる相手が無い。残すと返る唯一の候補が常に時間最短に
         # なり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
-        excess = len(drafts) - max_routes
+        excess = len(candidates) - max_routes
         if excess > 0:
             keep_fastest = max_routes >= 2
-            droppable = [i for i, c in enumerate(drafts) if not (keep_fastest and c is baseline)]
+            droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c is baseline)]
             dropped = set(droppable[-excess:])
-            drafts = [c for i, c in enumerate(drafts) if i not in dropped]
+            candidates = [c for i, c in enumerate(candidates) if i not in dropped]
         # 印も同じ理由で、比べる相手が残ったときだけ付ける（1本だけなら何とも比べない）。
         candidates = _label(
-            drafts, "destination", "目的地ルート", fastest=baseline if len(drafts) >= 2 else None,
+            candidates, "destination", "目的地ルート", fastest=baseline if len(candidates) >= 2 else None,
         )
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)

@@ -3,8 +3,8 @@ import { openMobileSheet } from "../e2e/fixtures";
 import { branch, expectNoOwnFailures, externalErrors, openLive, reportExternal, settleMap } from "./live";
 
 // S2 ルート生成（生成後）。実グラフでしか出ない探索の欠陥（並行する道・取込範囲の端で生成が落ちる）と、
-// 実データの区間を押したときの例外を見る。
-// 幹: S1と同じ地点で開き、距離を指定して生成を1回。枝: 下のC・D。
+// 実データの区間を押したときの例外、実際の軸名での比較表の横はみ出しを見る。
+// 幹: S1と同じ地点で開き、距離を指定して生成を1回。枝: 下のC〜E→F。
 
 interface Segment {
   geometry: { coordinates: [number, number][] } | null;
@@ -12,16 +12,20 @@ interface Segment {
 
 test("S2 ルート生成（生成後）", async ({ page }) => {
   const statsBefore = await externalErrors();
-  const watch = await openLive(page, { storedState: { "ridecompass:debug-enabled": "1" } });
+  // 比較タブは研究モードで、生成を2回したときに出る。
+  const watch = await openLive(page, {
+    storedState: { "ridecompass:debug-enabled": "1", "ridecompass:research-enabled": "1" },
+  });
 
   const settings = await openMobileSheet(page, "ルート設定");
-  const distanceKm = 15;
-  await settings.getByLabel("距離").fill(String(distanceKm));
-  const started = Date.now();
-  await settings.getByRole("button", { name: "ルート生成" }).click();
-  // 生成は探索範囲の区間の数に比例して数秒〜数十秒かかる。
-  await expect(settings.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 240_000 });
-  console.log(`[e2e-live] 生成（${distanceKm}km） ${((Date.now() - started) / 1000).toFixed(1)}秒`);
+  for (const distanceKm of [15, 16]) {
+    await settings.getByLabel("距離").fill(String(distanceKm));
+    const started = Date.now();
+    await settings.getByRole("button", { name: "ルート生成" }).click();
+    // 生成は探索範囲の区間の数に比例して数秒〜数十秒かかる。
+    await expect(settings.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 240_000 });
+    console.log(`[e2e-live] 生成（${distanceKm}km） ${((Date.now() - started) / 1000).toFixed(1)}秒`);
+  }
   await page.getByRole("button", { name: "ルート設定", exact: true }).click();
   await expect(settings).toBeHidden();
   await settleMap(page);
@@ -74,6 +78,45 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
       },
     );
   }
+
+  // E→F: 比較タブを開く → 実際の軸名の行見出しでページもシートも横にはみ出さない。
+  await branch(
+    page,
+    "比較タブ",
+    async () => {
+      const sheet = await openMobileSheet(page, "ルート結果");
+      await sheet.getByRole("tab", { name: "比較" }).click();
+      await expect(sheet.getByRole("tab", { name: "比較" })).toHaveAttribute("aria-selected", "true");
+      await page.evaluate(() => window.__e2e.settle());
+      const widths = await page.evaluate(() => {
+        const dialog = [...document.querySelectorAll('[role="dialog"]')].find(
+          (el) => el.getAttribute("aria-label") === "ルート結果" || el.textContent?.includes("比較"),
+        );
+        // シートの中で横にスクロールする容器（表の外枠等）も数える。表が外枠の中で横に動くと、値の列が画面の外へ出る。
+        const scrollers = dialog
+          ? [dialog, ...dialog.querySelectorAll("*")].filter(
+              (el) => el === dialog || ["auto", "scroll"].includes(getComputedStyle(el).overflowX),
+            )
+          : [];
+        return {
+          page: document.scrollingElement!.scrollWidth,
+          viewport: window.innerWidth,
+          sheet: Math.max(0, ...scrollers.map((el) => el.scrollWidth - el.clientWidth)),
+        };
+      });
+      expect.soft(widths.page, "比較タブでページが横にスクロールする").toBeLessThanOrEqual(widths.viewport + 1);
+      expect
+        .soft(widths.sheet, "比較タブでシートの中身（横にスクロールする容器を含む）が横にはみ出す")
+        .toBeLessThanOrEqual(1);
+    },
+    async () => {
+      const sheet = page.getByRole("dialog", { name: "ルート結果" });
+      const tabs = sheet.getByRole("tab");
+      if ((await tabs.count()) > 0) await tabs.first().click();
+      await page.getByRole("button", { name: "ルート結果", exact: true }).click();
+      await expect(sheet).toBeHidden();
+    },
+  );
 
   expectNoOwnFailures(watch);
   reportExternal(watch, statsBefore, await externalErrors());

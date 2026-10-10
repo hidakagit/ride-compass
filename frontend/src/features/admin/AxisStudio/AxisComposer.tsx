@@ -97,11 +97,12 @@ export default function AxisComposer({
   // dtype="numeric"として扱う。
   const axisTermOptions: readonly AxisMaterialOption[] = otherAxes
     .filter((a) => a.axis_id !== draft.axisId)
-    .map((a): AxisMaterialOption => ({
+    .map((a) => ({
       id: a.axis_id,
       label: a.label,
+      name: a.label,
       description: a.description,
-      dtype: "numeric",
+      dtype: "numeric" as const,
       unit: "",
     }));
 

@@ -65,7 +65,7 @@ from app.domain.rain import StationRainMaterials, rain_material_columns
 from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute, material_arrays_of
 from app.domain.route import (
     Coordinates,
-    RouteDraft,
+    RouteCandidate,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_material_category_shares,
@@ -1158,7 +1158,7 @@ class RoadGraphEngine:
 
     async def evaluate_loops(
         self, context: _RoadGraphContext, traced: list[TracedLoop], start_time: datetime
-    ) -> list[RouteDraft]:
+    ) -> list[RouteCandidate]:
         # 実ジオメトリは距離フィルタを通った候補ぶんだけを、全候補まとめて1回で取り直す
         # （棄却済み候補ぶんは問い合わせない）。引けない区間があれば落とす——探索が通った
         # 区間の実体がDBに無いということで、線の欠けた経路を配るより落ちる方がよい。
@@ -1181,7 +1181,7 @@ class RoadGraphEngine:
 
     async def _build_best_candidate(
         self, context: _RoadGraphContext, traced: TracedLoop, edges_in_path: list[LeanEdge], start_time: datetime
-    ) -> RouteDraft:
+    ) -> RouteCandidate:
         """1候補ぶんの周回を組み立てる。
 
         同じ周回の逆回りは追加のI/Oなしで合成できるため、合成して**難易度の小さい方だけ**を
@@ -1235,7 +1235,7 @@ class RoadGraphEngine:
         elevation_by_edge: dict[str, ElevationAttribute],
         start_time: datetime,
         leg_of_edge: list[int],
-    ) -> RouteDraft:
+    ) -> RouteCandidate:
         # 区間と標高属性を引数で受けるのは、逆回り候補も同じ組み立てを通すため。
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
         geometry, edge_point_offsets = concat_edge_geometries(edges_in_path)
@@ -1254,7 +1254,7 @@ class RoadGraphEngine:
         # 返すsegmentsは集約する。Edge単位のままだとペイロードとフロントの描画費用が嵩む。
         segments = aggregate_segments_into_bins(segments)
 
-        return RouteDraft(
+        return RouteCandidate(
             # 方位を持たない経路の名前は、種類と一緒に`route_generator.py: _label`が付ける。
             direction_label=compass_label(traced.bearing) if traced.bearing is not None else "",
             distance_km=traced.distance_km,
@@ -1719,7 +1719,7 @@ def reverse_elevation_by_edge(
     return result
 
 
-def _route_composite_difficulty(candidate: RouteDraft) -> float | None:
+def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     """候補のsegmentsから距離加重平均の合成difficultyを求める。順方向と逆回りの比較に使う。
 
     戦略層が最終候補へ付ける`overall_difficulty`と同じ計算だが、あちらは採否が確定した後の
@@ -1739,7 +1739,7 @@ def reverse_leg_assignment(leg_of_edge: list[int]) -> list[int]:
     return [max_leg - leg for leg in reversed(leg_of_edge)]
 
 
-def pick_better_candidate(forward: RouteDraft, reverse: RouteDraft) -> RouteDraft:
+def pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
     """順方向・逆回り候補のうち、`_route_composite_difficulty`が小さい（走りやすい）方を
     採用する。逆回り側が算出不能（segments欠損等）なら順方向を採用する
     （比較不能を「逆回りの方が良い」とは解釈しない、安全側）。

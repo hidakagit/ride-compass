@@ -20,7 +20,7 @@
   （`domain/cycling_speed.py`）・風（`domain/wind.py`）・0次フィルタ（`domain/hard_filters.py`）
   → それぞれの持ち主のテストが持つ。
 
-このファイルが組み立てて渡し、読むデータ型（探索構造・`RouteDraft`等）は本物で作る——代役にしても
+このファイルが組み立てて渡し、読むデータ型（探索構造・`RouteCandidate`等）は本物で作る——代役にしても
 何も切り離せず、本物が変わったときに黙ってずれるだけになる。
 """
 
@@ -30,7 +30,7 @@ import pytest
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import LeanEdge
-from app.domain.route import RouteDraft, RouteSegmentDetail
+from app.domain.route import RouteCandidate, RouteSegmentDetail
 from app.domain.routing import NodeJunction, TurnExpandedTree
 from app.services.road_graph_engine import (
     add_terminal_candidate,
@@ -84,9 +84,9 @@ def segment_detail(difficulty, distance_km):
     )
 
 
-def route_draft(name, segments=()):
-    """`name`は経路を見分けるためだけの名前。"""
-    return RouteDraft(direction_label=name, distance_km=1.0, geometry={}, segments=list(segments))
+def route_candidate(name, segments=()):
+    """`name`は候補を見分けるためだけのid。"""
+    return RouteCandidate(id=name, direction_label=name, distance_km=1.0, geometry={}, segments=list(segments))
 
 
 # --------------------------------------------------------------------------------------
@@ -174,12 +174,12 @@ def test_reverse_leg_assignment_renumbers_as_well_as_reverses():
 def test_pick_better_candidate_takes_the_lower_difficulty(forward_difficulty, reverse_difficulty, picked):
     """難易度は区間から求める。区間が無い候補は比較できない。"""
     def candidate(name, difficulty):
-        return route_draft(name, segments=[] if difficulty is None else [segment_detail(difficulty, 1.0)])
+        return route_candidate(name, segments=[] if difficulty is None else [segment_detail(difficulty, 1.0)])
 
     forward = candidate("forward", forward_difficulty)
     reverse = candidate("reverse", reverse_difficulty)
 
-    assert pick_better_candidate(forward, reverse).direction_label == picked
+    assert pick_better_candidate(forward, reverse).id == picked
 
 
 # --------------------------------------------------------------------------------------

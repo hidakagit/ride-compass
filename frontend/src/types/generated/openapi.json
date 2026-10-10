@@ -4235,9 +4235,30 @@
       },
       "RouteCandidate": {
         "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "default": ""
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "loop",
+              "waypoints",
+              "destination",
+              "spliced"
+            ],
+            "title": "Kind",
+            "default": "loop"
+          },
           "direction_label": {
             "type": "string",
             "title": "Direction Label"
+          },
+          "is_fastest": {
+            "type": "boolean",
+            "title": "Is Fastest",
+            "default": false
           },
           "distance_km": {
             "type": "number",
@@ -4379,30 +4400,15 @@
             },
             "type": "array",
             "title": "Node Ids"
-          },
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "loop",
-              "waypoints",
-              "destination",
-              "spliced"
-            ],
-            "title": "Kind"
-          },
-          "is_fastest": {
-            "type": "boolean",
-            "title": "Is Fastest"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "id",
+          "kind",
           "direction_label",
+          "is_fastest",
           "distance_km",
           "geometry",
           "elevation_gain_m",
@@ -4418,10 +4424,7 @@
           "material_category_shares",
           "edge_ids",
           "edge_point_offsets",
-          "node_ids",
-          "id",
-          "kind",
-          "is_fastest"
+          "node_ids"
         ],
         "title": "RouteCandidate"
       },

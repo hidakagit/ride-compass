@@ -23,7 +23,7 @@ class LoopTurnaround:
 @dataclass
 class TracedLoop:
     """`trace_loop`/`trace_loop_from_turnaround`の結果。距離フィルタに必要な情報と、
-    `evaluate_loops`が`RouteDraft`を組み立てるための経路（探索用グラフの区間の番号列。
+    `evaluate_loops`が完全な`RouteCandidate`を組み立てるための経路（探索用グラフの区間の番号列。
     戦略層は中身を読まない）を運ぶ。
 
     bearing=Noneは経由地(waypoints)指定ルートを表す。周回候補と異なり「向き」という
