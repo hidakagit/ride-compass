@@ -7,15 +7,15 @@
 > 写真測量（DEM5B, DEM5C）→1/2.5万地形図等高線（DEM10B）の順で存在する最も計測精度の良い
 > 標高タイルの値が参照され（https://maps.gsi.go.jp/development/hyokochi.html ）
 
-z15のタイルTを4つの区画に分け、製品ごとに値のある区画を変えて置く:
+z15のタイルTを4つの区画に分け、製品ごとに値のある区画を変えて置く（―は欠測）:
 
 | 区画（Tの画素） | dem5a | dem5b | dem（z14） | 採られる値 |
 |---|---|---|---|---|
 | 上・左 | 10 | 20 | 99 | 10（全部にある） |
-| 上・右 | e | 20 | 99 | 20（上位が欠けた画素だけ下位で埋まる） |
-| 下・左 | 10 | e | e | 10 |
-| 下・右の左寄り | e | e | 30 | 30（ズームの違う製品の画素を引ける） |
-| 下・右の右寄り | e | e | e | 無し（どの製品にも無い） |
+| 上・右 | ― | 20 | 99 | 20（上位が欠けた画素だけ下位で埋まる） |
+| 下・左 | 10 | ― | ― | 10 |
+| 下・右の左寄り | ― | ― | 30 | 30（ズームの違う製品の画素を引ける） |
+| 下・右の右寄り | ― | ― | ― | 無し（どの製品にも無い） |
 
 製品ごとのタイルがそれぞれ1行に入ることは、別々の製品から採る区画の値が見る。
 
@@ -37,7 +37,7 @@ from app.batch.ingest import ingest_source
 from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import tile_bounds_lonlat
 from tests.conftest import empty_ingested_tables
-from tests.source_ingest import ingest_records, way_record
+from tests.source_ingest import gsi_dem_png, ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
@@ -62,11 +62,9 @@ CASES = (
 )
 
 
-def _tile_text(value) -> str:
-    """`value(行, 列)`が返す値（Noneは欠測）で埋めた、配信元と同じ形の本文。"""
-    return "\n".join(
-        ",".join("e" if (v := value(r, c)) is None else f"{v:.2f}" for c in range(SIZE))
-        for r in range(SIZE)) + "\n"
+def _tile_png(value) -> bytes:
+    """`value(行, 列)`が返す値（Noneは欠測）で埋めた、配信元と同じ形の1枚。"""
+    return gsi_dem_png([[value(r, c) for c in range(SIZE)] for r in range(SIZE)])
 
 
 def _dem5a(r, c):
@@ -122,9 +120,9 @@ def _way(way_id: int, pixels, tags: dict[str, str] | None = None):
 def tile_root(tmp_path_factory):
     """手元へ写したタイルの置き場。"""
     root = tmp_path_factory.mktemp("dem")
-    dem_tile_store.write_tile(root, "dem5a", ZOOM, X, Y, _tile_text(_dem5a))
-    dem_tile_store.write_tile(root, "dem5b", ZOOM, X, Y, _tile_text(_dem5b))
-    dem_tile_store.write_tile(root, "dem", *PARENT, _tile_text(_dem10b))
+    dem_tile_store.write_tile(root, "dem5a", ZOOM, X, Y, _tile_png(_dem5a))
+    dem_tile_store.write_tile(root, "dem5b", ZOOM, X, Y, _tile_png(_dem5b))
+    dem_tile_store.write_tile(root, "dem", *PARENT, _tile_png(_dem10b))
     dem_tile_store.mark_absent(root, "dem5c", ZOOM, X, Y)
     return root
 

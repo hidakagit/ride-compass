@@ -1,16 +1,18 @@
 """標高タイルの取得（scripts/fetch_dem_tiles.py）。
 
 入口は`fetch`。配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
-本物のプロファイルの宣言（製品とズーム）から導き、範囲だけを同じ列に縦に並ぶタイル2枚ぶんへ絞る（置き場の同じ
-ディレクトリへ2枚目を置ける——列のディレクトリが既にあっても書ける——ことも、取れたタイルが全部置かれることで見る）。
-見るのは、宣言した製品をそれぞれのズームで取り、返ったものを置いて404は区域外の印にすることと、
-次の実行がどちらも叩かないこと。
+本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをz15のタイル2×2枚ぶんへ絞る。
+見るのは、宣言した製品をそれぞれのズームでPNG形式のURLから取り、返ったものをタイルごとに置いて404は区域外の印にすることと、
+次の実行がどちらも叩かないこと。同じ製品の中で列・行の違うタイル（同じ列に縦に並ぶ2枚——列のディレクトリが既にあっても
+書ける——を含む）と、置いたタイルと区域外の印が隣り合う形を含め、置き場で別のタイルが重なると、別の場所の標高を読むか、
+取るべきタイルを取らない。
 
 ここで見ないもの:
 - 置き場のパスと印の形（`app/batch/dem_tile_store.py`）→ 置いたものを同じモジュールで読み戻すだけで、形は見ない
 - 一時的な失敗の試し直しと、諦めたタイルがあれば失敗で終えること → どのテストも通さない
 """
 
+import re
 from dataclasses import replace
 
 import httpx
@@ -21,18 +23,34 @@ from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from scripts import fetch_dem_tiles
 
-#: 範囲に使うz15のタイル（東京）。この1枚と、同じ列の南隣の1枚を範囲にする。
+#: 範囲の左上に使うz15のタイル（東京）。範囲はここから右と下へ1枚ずつ広げる。
 ZOOM, X, Y = 15, 29100, 12902
 
 #: 代役が200を返す製品。残りは404（その製品の区域外）を返す。
 SERVED = {"dem5a", "dem"}
+#: SERVEDの製品でも、代役が404を返すタイル（範囲の右下）。
+UNSERVED_TILE = (X + 1, Y + 1)
+
+#: 配信元のPNG形式のURLの道（https://maps.gsi.go.jp/development/ichiran.html）。製品名に`_png`が付く。
+PNG_PATH = re.compile(r"/xyz/(?P<product>\w+)_png/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png")
+
+
+
+def _body(product: str, x: int, y: int) -> bytes:
+    """代役が返す本文。置き場は中身を読まないので、PNGである必要は無く、タイルごとに違えばよい。"""
+    return f"{product}/{x}/{y}".encode()
+
+
+def _served(product: str, zoom: int, x: int, y: int) -> bool:
+    return product in SERVED and (zoom, x, y) != (ZOOM, *UNSERVED_TILE)
 
 
 def _profile():
-    north, south = tile_bounds_lonlat(ZOOM, X, Y), tile_bounds_lonlat(ZOOM, X, Y + 1)
+    top_left = tile_bounds_lonlat(ZOOM, X, Y)
+    bottom_right = tile_bounds_lonlat(ZOOM, X + 1, Y + 1)
     inset = 1e-6
-    bbox = (south.min_latitude + inset, north.min_longitude + inset,
-            north.max_latitude - inset, north.max_longitude - inset)
+    bbox = (bottom_right.min_latitude + inset, top_left.min_longitude + inset,
+            top_left.max_latitude - inset, bottom_right.max_longitude - inset)
     return replace(load_source_profile(None), target=Target(bbox=bbox))
 
 
@@ -47,16 +65,19 @@ def _declared_requests(profile) -> set[tuple[str, int, int, int]]:
 
 
 class Origin:
-    """配信元の代役。受けた要求を (製品, ズーム, x, y) で覚える。"""
+    """配信元の代役。受けた要求を (製品, ズーム, x, y) で覚える。PNG形式のURLでなければ400を返す。"""
 
     def __init__(self):
         self.requests: list[tuple[str, int, int, int]] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
-        product, z, x, y = request.url.path.removesuffix(".txt").split("/")[-4:]
-        self.requests.append((product, int(z), int(x), int(y)))
-        if product in SERVED:
-            return httpx.Response(200, text="1.00,e\n")
+        match = PNG_PATH.fullmatch(request.url.path)
+        if match is None:
+            return httpx.Response(400)
+        product, z, x, y = match["product"], int(match["z"]), int(match["x"]), int(match["y"])
+        self.requests.append((product, z, x, y))
+        if _served(product, z, x, y):
+            return httpx.Response(200, content=_body(product, x, y))
         return httpx.Response(404)
 
     def client(self) -> httpx.AsyncClient:
@@ -74,12 +95,15 @@ async def test_served_tiles_are_stored_and_the_rest_marked_absent_per_product(tm
     async with origin.client() as client:
         await fetch_dem_tiles.fetch(client, tmp_path, profile, attempts=1)
 
-    for product, zoom, x, y in _declared_requests(profile):
+    declared = _declared_requests(profile)
+    assert ("dem5a", ZOOM, *UNSERVED_TILE) in declared  # 範囲が2×2枚に掛かっている
+    for product, zoom, x, y in declared:
         stored = dem_tile_store.is_stored(tmp_path, product, zoom, x, y)
         absent = dem_tile_store.is_absent(tmp_path, product, zoom, x, y)
-        assert (stored, absent) == ((True, False) if product in SERVED else (False, True))
-    served = next(r for r in _declared_requests(profile) if r[0] in SERVED)
-    assert dem_tile_store.read_tile(tmp_path, *served) == "1.00,e\n"
+        served = _served(product, zoom, x, y)
+        assert (stored, absent) == (served, not served), (product, zoom, x, y)
+        if served:
+            assert dem_tile_store.read_tile(tmp_path, product, zoom, x, y) == _body(product, x, y)
 
 
 async def test_a_second_run_does_not_ask_the_origin_again(tmp_path, profile):
