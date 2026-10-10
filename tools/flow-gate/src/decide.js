@@ -1,7 +1,7 @@
 // タスクのあるべき姿を、事実だけから1つの決め方で決める（CLAUDE.md「原則」の3）。GitHub に触れない。facts は src/facts.js: readFacts が組む。
 // 返すのは、ゲートが保つ値の全部（ステータス・開き閉じ・種類・担当者・本文・ボード・優先度・PR をレビュー可能にするか・出す問い・
 // 取り消す実行）。ゲートは今の値と違う所だけを書くので、同じ事実からは何度決めても同じになる。
-import { bodyRest, CONFIRM, withButton } from "./questions.js";
+import { bodyRest, CONFIRM, splitBody, withButton } from "./questions.js";
 
 export const HELD = { 作る: "進行中", 確かめる: "検証中" }; // 担当が持っている間のステータス
 export const DISPATCH = { 未着手: "作る", 検証待ち: "確かめる" }; // 振り出す担当の種類
@@ -18,18 +18,24 @@ export function decide(f, config) {
   const missing = (s.fix ?? []).filter((l) => !body.includes(`] ${l}`));
   if (missing.length) body = `${body.trimEnd()}\n${missing.map((l) => `- [ ] ${l}`).join("\n")}\n`;
   return { board, type, status: s.status, open: s.status !== "完了", closeAs: s.closeAs ?? f.closedAs ?? "COMPLETED", ask: s.ask ?? null, cancel: s.cancel ?? [],
-    // 形に合わない問いは問いとして読まないので、書いた者が気づけるよう合わない所を返す（最新のコメントがその問いのときだけ。返せば最新でなくなる）。
-    notice: f.badQuestion?.length ? `この問いは形に合わないので、問いとして読みません: ${f.badQuestion.join("・")}` : null,
+    notice: notice(f),
     ready: s.status === "検証待ち" && Boolean(f.pr?.draft), assigned: WAIT.includes(s.status), priority: f.priority ?? (f.parent ? f.parentPriority : null),
     body: s.status === "回答待ち" ? withButton(body, config, f.number) : body };
 }
 
+// 受け入れなかった書き込みは、黙らずに1つのコメントで知らせる（形に合わない問い・印の間の見知らぬ行・形の合わない着手可能日時）。
+// 直るまで同じ知らせを重ねないよう、最新のコメントが同じ知らせなら書かない。
+function notice(f) {
+  const text = [f.badQuestion?.length && `この問いは形に合わないので、問いとして読みません: ${f.badQuestion.join("・")}`,
+    splitBody(f.body).foreign.length && "本文の先頭の印の間に、ゲートの書かない行があったので、消さずに印の外へ出しました。",
+    f.badStart && "着手可能日時の形が合わないので受け付けず、その間は振り出しません（`YYYY-MM-DD HH:MM` か `YYYY-MM-DD`。日本時間）。"].filter(Boolean).join("\n\n");
+  return text && text !== f.lastComment ? text : null;
+}
+
 function status(f, config) {
-  // 保留と完了だけは、ユーザーが直接決められる（docs/conventions/flow.md「ステータスと割り当て」）。閉じたものは完了のまま。ただし Claude が
-  // 完了の条件を残したまま完成で閉じたら、開き直して決め直す（完成は、条件が満たされた事実かユーザーが認めたことで決まる）。
-  if (!f.open && !(f.closedAs === "COMPLETED" && f.remaining.length && f.closedBy === config.claude)) return { status: "完了" };
-  // 開いたまま完了の列にあるのは、ユーザーが動かしたもの（ゲートは開いたまま完了を書かず、担当はステータスを書かない）。完成として閉じる。
-  if (f.status === "完了") return { status: "完了", closeAs: "COMPLETED", cancel: f.runs.map((r) => r.id) };
+  // 完了は、完成（完了の条件が全部済んだ）か見送りでだけ受ける。条件が残ったまま完成で閉じたら、誰が閉じても開き直して決め直す。
+  // ボードで完了へ動かしても、開いているなら下で事実から決め直す（tasks#788「完了の条件が残ったまま完成にさせない」）。
+  if (!f.open && !(f.closedAs === "COMPLETED" && f.remaining.length)) return { status: "完了" };
   // 持たれている間は決め直さない。ユーザーが保留へ置いたら、持っている実行を取り消す（要件 R7）。
   if (f.runs.length) return f.status === "保留" ? { status: "保留", cancel: f.runs.map((r) => r.id) } : { status: HELD[f.runs.some((r) => r.kind === "作る") ? "作る" : "確かめる"] };
   if (f.status === "保留") return { status: "保留" }; // ユーザーが置いた保留は、ユーザーが出すまで保つ（要件 R6）

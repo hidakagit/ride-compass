@@ -2,11 +2,18 @@
 const KINDS = ["採否", "判断", "確かめ", "イレギュラー"];
 export const norm = (t) => (t ?? "").replace(/\r\n/g, "\n");
 const sections = (text) => [...text.matchAll(/^\*\*([^*]+)\*\*:/gm)].map((m) => m[1]); // 判断材料の節の名前
-const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
+const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)<!-- \/flow-gate -->\n*/;
+const BUTTON = /^\[!\[回答する\]\([^)]*\/button\.svg\)\]\([^)]*\/answer\?issue=\d+\)$/;
 
 // 本文の頭の回答のボタン（GitHub の画面にボタンは足せないので、リンク付きの画像。画像とフォームの道は src/index.js が開ける）。
 export const answerUrl = (config, number) => `${config.urls.form}/answer?issue=${number}`;
-export const bodyRest = (body) => norm(body).replace(BLOCK, "");
+// 印の間にゲートの書かない行があれば、黙って消さずに印の外の先頭へ出す（tasks#307）。foreign はその行。
+export function splitBody(body) {
+  const foreign = (BLOCK.exec(norm(body))?.[1] ?? "").split("\n").filter((l) => l.trim() && !BUTTON.test(l.trim()));
+  const rest = norm(body).replace(BLOCK, "");
+  return { foreign, rest: foreign.length ? `${foreign.join("\n")}\n\n${rest}` : rest };
+}
+export const bodyRest = (body) => splitBody(body).rest;
 export const withButton = (body, config, number) =>
   `<!-- flow-gate -->\n[![回答する](${config.urls.gate}/button.svg)](${answerUrl(config, number)})\n<!-- /flow-gate -->\n\n${bodyRest(body)}`;
 export const CONFIRM = /^ユーザーが確かめる/;

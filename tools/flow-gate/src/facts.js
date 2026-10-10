@@ -5,13 +5,17 @@ import { checkQuestion, latestQuestion, norm, remaining } from "./questions.js";
 // ボードの欄（ステータス・優先度・着手可能日時）の読み方。欄の名前は設定が持つ。
 export const fieldsOf = ({ fields: f }) => `status:fieldValueByName(name:"${f.status}"){...on ProjectV2ItemFieldSingleSelectValue{name}}
  priority:fieldValueByName(name:"${f.priority}"){...on ProjectV2ItemFieldSingleSelectValue{name}} start:fieldValueByName(name:"${f.start}"){...on ProjectV2ItemFieldTextValue{text}}`;
-// 着手可能日時は「YYYY-MM-DD」か「YYYY-MM-DD HH:MM」で、日本時間として読む。読めない値は、待つと決めた意図を守ってまだ先と読む。
-const jst = (text) => (text ? new Date(`${text.trim().replace(" ", "T")}${text.includes(":") ? "" : "T00:00"}:00+09:00`) : null);
+// 着手可能日時は「YYYY-MM-DD」か「YYYY-MM-DD HH:MM」（日本時間）だけを受ける。形の合わない値は受け入れず（badStart。ゲートが知らせる）、
+// 待つと決めた意図を守ってまだ先と読む。
+export const START_FORM = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/;
+const jst = (text) => (START_FORM.test(text) ? new Date(`${text.replace(" ", "T")}${text.includes(":") ? "" : "T00:00"}:00+09:00`) : null);
 // ボードの項目から、ボードの世界・欄・前提と日時の待ちを組む（1件を決め直すときも、振り出しの一覧も同じ）。
 export function taskOf(config, issue, items, now = new Date()) {
   const [world, item] = Object.entries(config.boards).map(([w, n]) => [w, items.find((i) => i.project.number === n)]).find(([, i]) => i) ?? [null, null];
+  const text = item?.start?.text?.trim();
+  const start = text ? jst(text) : null;
   return { board: world, item: item?.id ?? null, status: item?.status?.name ?? null, priority: item?.priority?.name ?? null, type: issue.issueType?.name ?? null,
-    open: issue.state === "OPEN", blocked: (issue.blockedBy?.nodes ?? []).some((b) => b.state === "OPEN"), future: Boolean(item?.start?.text) && !(jst(item.start.text) <= now) };
+    open: issue.state === "OPEN", blocked: (issue.blockedBy?.nodes ?? []).some((b) => b.state === "OPEN"), future: Boolean(text) && (!start || start > now), badStart: Boolean(text) && !start };
 }
 // 担当の実行の名前「#<番号> <種類>」（claude-task.yml の run-name）。
 export function runOf(title) {
@@ -19,18 +23,24 @@ export function runOf(title) {
   return number ? { number: Number(number), kind } : null;
 }
 
-// 動いている担当の実行（始まる前の順番待ちを含む）。
+// 動いている担当の実行（始まる前の順番待ちを含む）。終わっていない状態ごとに、ページが尽きるまで読む（新しい順の先頭で切ると、
+// 順番待ちが積もったときに持たれているタスクを落とす）。
+const ACTIVE = ["queued", "in_progress", "waiting", "requested", "pending"];
 export async function readRuns(gh, config) {
-  const { workflow_runs: runs } = await gh.rest("GET", `/repos/${config.code}/actions/workflows/${config.workflow}/runs?per_page=50`);
-  return runs.filter((r) => r.status !== "completed" && runOf(r.display_title)).map((r) => ({ id: r.id, ...runOf(r.display_title) }));
+  const path = `/repos/${config.code}/actions/workflows/${config.workflow}/runs`;
+  const read = async (status, page = 1) => {
+    const { workflow_runs: runs } = await gh.rest("GET", `${path}?status=${status}&per_page=100&page=${page}`);
+    return runs.length < 100 ? runs : [...runs, ...(await read(status, page + 1))];
+  };
+  const runs = (await Promise.all(ACTIVE.map((s) => read(s)))).flat();
+  return runs.filter((r) => runOf(r.display_title)).map((r) => ({ id: r.id, ...runOf(r.display_title) }));
 }
 
 const query = (config) => `query($to:String!,$tn:String!,$n:Int!,$co:String!,$cn:String!,$head:String!){
  t:repository(owner:$to,name:$tn){issue(number:$n){id state stateReason body author{login} issueType{name} assignees(first:10){nodes{login}}
   blockedBy(first:20){nodes{state}} comments(last:40){nodes{body}} projectItems(first:5){nodes{id project{number} ${fieldsOf(config)}}}
   parent{projectItems(first:5){nodes{project{number} ${fieldsOf(config)}}}}
-  timelineItems(first:50,itemTypes:[ISSUE_TYPE_CHANGED_EVENT]){nodes{...on IssueTypeChangedEvent{prevIssueType{name} issueType{name}}}}
-  closed:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{...on ClosedEvent{actor{login}}}}}}
+  timelineItems(first:50,itemTypes:[ISSUE_TYPE_CHANGED_EVENT]){nodes{...on IssueTypeChangedEvent{prevIssueType{name} issueType{name}}}}}}
  c:repository(owner:$co,name:$cn){pullRequests(headRefName:$head,first:5,orderBy:{field:CREATED_AT,direction:DESC}){nodes{
   id state isDraft merged mergeCommit{statusCheckRollup{state}} commits(last:2){nodes{commit{oid committedDate statusCheckRollup{state}}}}
   timelineItems(last:1,itemTypes:[CONVERT_TO_DRAFT_EVENT]){nodes{...on ConvertToDraftEvent{createdAt}}}}}}}`;
@@ -56,19 +66,19 @@ export async function readFacts(gh, config, number, runs) {
   const open = c.pullRequests.nodes.find((p) => p.state === "OPEN");
   const [prev, head] = open?.commits.nodes.length === 2 ? open.commits.nodes : [null, open?.commits.nodes.at(-1)];
   const checks = ROLLUP[head?.commit.statusCheckRollup?.state] ?? null;
-  // 生き残りは、持たれていない下書きの PR の CI が通ったときだけ要る（決め3）。前のコミットに無かったものが新しい生き残り。
-  const [before, now] = !held.length && open?.isDraft && checks === "SUCCESS"
+  // 生き残りは、持たれていない PR の CI が通ったときだけ要る（決め3）。前のコミットに無かったものが新しい生き残り。
+  const [before, now] = !held.length && open && checks === "SUCCESS"
     ? await Promise.all([prev ? survivors(gh, config, prev.commit.oid) : [], survivors(gh, config, head.commit.oid)]) : [[], []];
   const drafted = open?.timelineItems.nodes[0]?.createdAt;
   const changes = i.timelineItems.nodes;
   const merged = c.pullRequests.nodes.find((p) => p.merged); // 新しいものから並ぶ
   const last = i.comments.nodes.at(-1)?.body;
-  return { ...taskOf(config, i, i.projectItems.nodes), number, id: i.id, closedAs: i.stateReason, closedBy: i.closed.nodes[0]?.actor?.login ?? null, author: i.author?.login, body: i.body ?? "",
+  return { ...taskOf(config, i, i.projectItems.nodes), number, id: i.id, closedAs: i.stateReason, author: i.author?.login, body: i.body ?? "",
     remaining: remaining(i.body), assigned: i.assignees.nodes.some((a) => a.login === config.user), question: latestQuestion(i.comments.nodes.map((n) => n.body), config.questionTemplate),
     runs: held, parent: Boolean(i.parent), parentPriority: i.parent ? taskOf(config, {}, i.parent.projectItems.nodes).priority : null,
     // 種類の移り変わり（最初の種類から順に）。変わっていなければ今の種類だけ。
     types: changes.length ? [changes[0].prevIssueType?.name ?? null, ...changes.map((e) => e.issueType?.name ?? null)] : [i.issueType?.name ?? null],
     merged: Boolean(merged), mergeChecks: ROLLUP[merged?.mergeCommit?.statusCheckRollup?.state] ?? null,
-    badQuestion: last && /^## 問い/.test(norm(last)) ? checkQuestion(config.questionTemplate, last) : [],
+    badQuestion: last && /^## 問い/.test(norm(last)) ? checkQuestion(config.questionTemplate, last) : [], lastComment: norm(last),
     pr: open && { id: open.id, draft: open.isDraft, checks, newSurvivors: now.some((s) => !before.includes(s)), backToDraft: Boolean(drafted && head && drafted > head.commit.committedDate) } };
 }

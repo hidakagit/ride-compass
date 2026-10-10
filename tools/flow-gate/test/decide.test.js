@@ -10,7 +10,7 @@ import { withButton } from "../src/questions.js";
 // 担当が手放した直後の、どの行にも当たらないタスク。各行はここから違う事実だけを変える。
 const base = { number: 1, open: true, closedAs: null, board: "actions", status: "進行中", type: "不具合", types: ["不具合"], author: config.user, parent: false,
   priority: "中", parentPriority: null, body: "- [ ] テストが通る\n", remaining: ["テストが通る"], assigned: false, blocked: false, future: false, question: null,
-  runs: [], pr: null, merged: false, mergeChecks: null, badQuestion: [], closedBy: null };
+  runs: [], pr: null, merged: false, mergeChecks: null, badQuestion: [] };
 const f = (more) => ({ ...base, ...more });
 const asked = (kind, answer = null) => ({ kind, text: "問い", plans: [], material: "", answer });
 const confirmBody = "- [ ] ユーザーが確かめる: A\n";
@@ -55,15 +55,14 @@ test("決め方: 事実の組ごとの行き先と、保つ値", () => {
       question: asked("確かめ", { decision: "続ける", items: [{ text: "A", ok: false, note: "周回にならない" }] }) }), "未着手", { body: "- [ ] ユーザーが確かめる: A\n- [ ] 直す: 周回にならない\n" }],
     ["R6 ユーザーが置いた保留は、ほかの事実で動かさない", f({ status: "保留", remaining: [] }), "保留", { assigned: true }],
     ["D5 ユーザーが保留から出した → 表で決め直す", f({ status: "未着手", blocked: true }), "未着手", {}],
-    ["ユーザーが完了へ動かした（条件が残っていても）→ 完成として閉じ、持っている実行を取り消す", f({ status: "完了", runs: [{ id: 3, kind: "作る" }] }), "完了",
-      { open: false, closeAs: "COMPLETED", cancel: [3] }],
+    ["R6 ボードで完了へ動かした・条件が残る → 事実から決め直す（完成は条件が全部済んだときだけ）", f({ status: "完了" }), "未着手", {}],
+    ["R6 ボードで完了へ動かした・条件が全部済んだ → 完成で閉じる", f({ status: "完了", remaining: [] }), "完了", { open: false, closeAs: "COMPLETED" }],
     ["R9・D4 ユーザーの起票は未着手", f({ status: null, board: null, type: "要望" }), "未着手", {}],
     ["R9・D4 Claude が起こした改善は未着手", f({ status: null, board: null, author: config.claude, type: "保守" }), "未着手", {}],
     ["R9・D4 Claude が起こした段階は未着手", f({ status: null, board: null, author: config.claude, type: "要望", parent: true }), "未着手", {}],
     ["R9・D4 Claude が起こした要望は採否を問う", f({ status: null, board: null, author: config.claude, type: "要望" }), "回答待ち", { ask: "採否", assigned: true, button: true }],
     ["K5 段階は親の優先度を継ぐ", f({ status: null, board: null, parent: true, priority: null, parentPriority: "高" }), "未着手", { priority: "高" }],
-    ["ユーザーが条件を残したまま完成で閉じた → 受ける", f({ open: false, closedAs: "COMPLETED", closedBy: config.user }), "完了", { open: false }],
-    ["K2 Claude が条件を残したまま完成で閉じた → 開き直す", f({ open: false, closedAs: "COMPLETED", closedBy: config.claude }), "回答待ち", { open: true, ask: "イレギュラー", assigned: true, button: true }],
+    ["K2 条件が残ったまま完成で閉じた（誰が閉じても）→ 開き直す", f({ open: false, closedAs: "COMPLETED" }), "回答待ち", { open: true, ask: "イレギュラー", assigned: true, button: true }],
     ["R6 見送りで閉じた（条件が残っていても）", f({ open: false, closedAs: "NOT_PLANNED" }), "完了", { open: false, closeAs: "NOT_PLANNED" }],
     ["R16 対話作業の種類は、対話作業のボードへ", f({ status: null, board: null, type: config.dialogType, types: [config.dialogType] }), "未着手", { board: "dialog", type: config.dialogType }],
     ["R16 Actions のボードの issue を対話作業へ変えた → 前の種類へ戻す", f({ type: config.dialogType, types: ["保守", config.dialogType] }), "回答待ち",
@@ -93,7 +92,21 @@ test("着手可能日時: 読めない値はまだ先と読む（待つと決め
   assert.equal(taskOf(config, {}, item("2026-10-12"), now).future, true);
   assert.equal(taskOf(config, {}, item("2026-10-10 09:00"), now).future, false);
   assert.equal(taskOf(config, {}, item("10月12日"), now).future, true);
+  assert.equal(taskOf(config, {}, item("10月12日"), now).badStart, true);
+  assert.equal(taskOf(config, {}, item("2026-10-12"), now).badStart, false);
+  const told = decide(f({ badStart: true }), config).notice;
+  assert.match(told, /着手可能日時の形が合わない/);
+  assert.equal(decide(f({ badStart: true, lastComment: told }), config).notice, null, "直るまで同じ知らせを重ねない");
   assert.equal(taskOf(config, {}, item(null), now).future, false);
+});
+
+test("印の間のゲートの書かない行は、消さずに印の外の先頭へ出して知らせる（tasks#307）", () => {
+  const button = withButton("", config, 1).split("\n")[1];
+  const body = `<!-- flow-gate -->\n${button}\nメモ: あとで見る\n<!-- /flow-gate -->\n\n- [ ] テストが通る\n`;
+  const d = decide(f({ body, status: "未着手" }), config);
+  assert.equal(d.body, "メモ: あとで見る\n\n- [ ] テストが通る\n");
+  assert.match(d.notice, /印の外へ出しました/);
+  assert.equal(decide(f({ body: withButton("- [ ] テストが通る\n", config, 1) }), config).notice, null);
 });
 
 test("振り出す担当の種類（R14・R17: CI待ちは枠を使わず振り出さない）", () => {

@@ -19,12 +19,14 @@ function fake({ issue = {}, items = [], runs = [], workflow = "active", last = [
     if (q.includes("items(first:100")) return { organization: { projectV2: { items: { pageInfo: { hasNextPage: false }, nodes: items } } } };
     if (q.includes("addProjectV2ItemById")) return { addProjectV2ItemById: { item: { id: "ITEM" } } };
     if (q.includes("t:repository")) return { t: { issue: { id: "I", state: "OPEN", body: "", author: { login: config.user }, issueType: null, assignees: { nodes: [] }, blockedBy: { nodes: [] },
-      comments: { nodes: [] }, projectItems: { nodes: [] }, parent: null, timelineItems: { nodes: [] }, closed: { nodes: [] }, ...issue } }, c: { pullRequests: { nodes: [] } } };
+      comments: { nodes: [] }, projectItems: { nodes: [] }, parent: null, timelineItems: { nodes: [] }, ...issue } }, c: { pullRequests: { nodes: [] } } };
     return {};
   };
   const rest = async (method, path, body) => {
     calls.push([method, path, body]);
-    if (path.endsWith("/runs?per_page=50")) return { workflow_runs: runs };
+    // 動いている実行は状態ごとにページで読む。runs は in_progress の状態に、100件ずつのページで返す。
+    const page = /status=(\w+)&per_page=100&page=(\d+)/.exec(path);
+    if (page) return { workflow_runs: page[1] === "in_progress" ? runs.slice((page[2] - 1) * 100, page[2] * 100) : [] };
     if (path.endsWith(`/workflows/${config.workflow}`)) return { state: workflow };
     if (path.includes("/runs?status=completed")) return { workflow_runs: last };
     if (path.endsWith("/jobs")) return { jobs: [{ steps }] };
@@ -71,6 +73,12 @@ test("書く順: 本文のボタンは問いより先、ボードへ入れてか
 test("突き合わせ: 実行の有無と作業のステータスが食い違うタスクと CI待ちだけを決め直す", async () => {
   const { gh } = fake({ items: [item(1, "進行中"), item(2, "検証中"), item(3, "未着手"), item(4, "CI待ち"), item(5, "未着手"), item(6, "検証待ち")], runs: [run(1, "作る"), run(3, "作る")] });
   assert.deepEqual(await mismatched(gh, config), [2, 3, 4]);
+});
+
+test("突き合わせ: 動いている実行が100件を超えても、後ろのページの実行を落とさない（約束25）", async () => {
+  const many = Array.from({ length: 150 }, (_, i) => run(1000 + i, "作る"));
+  const { gh } = fake({ items: [item(1149, "進行中")], runs: many });
+  assert.deepEqual(await mismatched(gh, config), []);
 });
 
 test("振り出し: 最後の担当が利用の上限で止まったら、その終わりから決まった間は振り出さない", async () => {
