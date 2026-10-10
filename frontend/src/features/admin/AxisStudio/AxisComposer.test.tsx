@@ -185,6 +185,23 @@ describe("保存前の検証", () => {
   });
 });
 
+describe("この画面が知らない材料を使う軸", () => {
+  // 材料を足したbackendが画面より先に出た間に開いた軸。値ごとの点数を読めないまま保存すると、軸の中身が変わって書き戻る。
+  it.each([
+    ["下書きの軸", false],
+    ["公開済みの軸（表示だけ編集）", true],
+  ])("%sは、その材料を名指して保存させない", (_case, isPublished) => {
+    renderComposer({
+      editing: axis({
+        is_published: isPublished,
+        shape: { kind: "categorical", material: "new_m", mapping: { a: 10 } },
+      }),
+    });
+    expect(screen.getByText(/まだ知らない材料（new_m）/)).toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+  });
+});
+
 describe("公開済みの軸（表示だけ編集）", () => {
   it("表示の項目しか変えられないと言い、基本の項目と点数の節を出さず、表示の節では公開を切り替えさせない", () => {
     renderComposer({ editing: axis({ is_published: true }) });
