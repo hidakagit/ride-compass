@@ -20,14 +20,14 @@ description: "開発機の対話のセッションでタスクを進める決ま
 | 答え | 回答フォーム（.claude/skills/ask/SKILL.md「問い」） | ユーザーがチャットで決めたことを、Claude が issue に記録する（.claude/skills/ask/SKILL.md「答え」） |
 | 言葉 | CLAUDE.md「出力言語」 | 同じ（裏の作業役の文も） |
 
-- **決まりの出どころ**: 担当と開発機の対話のセッションは、同じ1つの出どころを読む。環境の違いは上の表と、権限の
-  `autoMode` の環境の説明にだけ書く。
+- **決まりの出どころ**: 担当と開発機の対話のセッションは、同じ1つの出どころを読む。権限だけは使う人が決めるもので、
+  担当と開発機で別に持つ（`docs/conventions/flow.md`「担当の権限」）。
 
   | 決まり | 出どころ | 担当の読み方 | 開発機の対話のセッションの読み方 |
   |---|---|---|---|
   | 常時の決まり・規約・手順 | CLAUDE.md と、そこから指す docs/・`.claude/rules/`・`.claude/skills/` | 連携がリポジトリの設定を読む（連携の既定の `settingSources` が `user`・`project`・`local`）。指示は読む節を指すだけ（`docs/conventions/flow.md`「担当」の3） | Claude Code がリポジトリの CLAUDE.md を読む |
   | フック（日本語の検査・セッションの始まり）・言葉 | `.claude/settings.json` | 1行目と同じ | 1行目と同じ |
-  | 権限（自動モード・拒否の一覧・判定役への説明） | `tools/flow-gate/settings.json`（master の版） | 連携の `settings` | セッションの始まりのフックの `settings.js`（`docs/conventions/flow.md`「担当の権限」） |
+  | 権限（自動モード・拒否の一覧・判定役への説明） | 担当は `tools/flow-gate/settings.json`（master の版）、開発機はユーザー自身の `~/.claude/settings.json` | 連携の `settings` | Claude Code がユーザー設定を読む。リポジトリからは書かない（`docs/conventions/flow.md`「担当の権限」） |
   | 周期レビューの手順 | `.claude/commands/review.md` | 1行目と同じ | 1行目と同じ |
 
   開発機にしか無い置き場（ユーザーの CLAUDE.md・`.claude/settings.local.json`・自動の記憶）には決まりを置かない

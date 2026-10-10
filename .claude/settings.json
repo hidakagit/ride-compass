@@ -11,16 +11,6 @@
             "timeout": 600
           }
         ]
-      },
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/tools/flow-gate/bin/settings.js\"",
-            "timeout": 60
-          }
-        ]
       }
     ],
     "Setup": [
