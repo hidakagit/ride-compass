@@ -178,7 +178,7 @@ def displayed_material_ids(weights: Mapping[str, float]) -> set[str]:
     return material_ids
 
 
-def _empty_material_arrays(n: int, present: Container[str]) -> dict[str, MaterialColumn]:
+def empty_material_arrays(n: int, present: Container[str]) -> dict[str, MaterialColumn]:
     """`MATERIAL_CATALOG`のうち`present`に無い材料の配列を、材料ごとの既定値（NaN/値なし）で確保する。
 
     **SQL式（`value_sql`）を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
@@ -457,7 +457,7 @@ def build_static_edge_score_matrix(
 
     材料はDBが導出済み（`MaterialSpec.value_sql`）で、事故の収録年数による正規化もその
     導出の中で既に効いている。軸が読む材料の列は`MATERIAL_CATALOG`全材料ぶん確保する
-    （DBにも観測にも無い材料は`_empty_material_arrays`で埋める）。
+    （DBにも観測にも無い材料は`empty_material_arrays`で埋める）。
 
     `observed_materials`は、DBではなく生成の時点の外部の観測から区間ごとに引いた材料（雨。材料id→
     切り出した区間の順の配列）。走行の向きにも通過の時刻にも依らないため、DBの材料と同じ列として
@@ -474,7 +474,7 @@ def build_static_edge_score_matrix(
     definitions = copy_axis_definitions()
     n = len(materials)
     material_arrays: dict[str, MaterialColumn] = {**materials.columns(), **observed_materials}
-    material_arrays.update(_empty_material_arrays(n, material_arrays))
+    material_arrays.update(empty_material_arrays(n, material_arrays))
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
     axis_scores_by_id = evaluate_axes_array(material_arrays, definitions)
     # 合成の対象（axis_arrays）は公開軸だけ。内部軸は公開軸の材料として読まれるだけで、

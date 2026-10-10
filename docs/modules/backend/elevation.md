@@ -15,7 +15,7 @@
 ## 3段に分かれている
 
 ```
-国土地理院 DEMタイル（テキスト、256×256。製品ごと）
+国土地理院 DEMタイル（PNG、256×256。製品ごと）
    │ source_adapters/gsi_dem_tile.py: 製品ごとにint32へ詰めて、製品×タイル1枚=1行
    ▼
 source_features(source='dem')          ← 生データ。取り直さない限り変わらない
@@ -73,7 +73,7 @@ DEMが返すのは地表面の標高で、桁や坑道の高さではない—�
 区間は向きを持たない1行で、標高も順方向の値だけを持つ。逆向きは読み出し時に導く
 （始点↔終点、上り↔下り、平均勾配は符号反転）。地形の
 物理量は進行方向に依存しないため、この変換は厳密に正しい。変換はSQLが行う
-（`road_graph_repository.py: material_from_clause`）ので、材料の式も評価も向きを
+（`material_joins.py: material_from_clause`）ので、材料の式も評価も向きを
 知らない。
 
 ## 経路の集計（`domain/route.py: route_elevation_gain`）
@@ -85,11 +85,13 @@ DEMが返すのは地表面の標高で、桁や坑道の高さではない—�
 
 ## タイルの読み方（`batch/source_adapters/gsi_dem_tile.py`）
 
-欠測の記法を持つ。配信元のURLと製品の順は`dem_tile_store.py`が持ち、取込・取得・派生だけが
+画素の詰め方を持つ。配信元のURLと製品の順は`dem_tile_store.py`が持ち、取込・取得・派生だけが
 使う（web側は読まない）。どの製品をどのズームで取るかは`source_profile.yaml`が持つ。
 
-タイル本文はテキスト（256行×256列のカンマ区切り、単位m、欠測は`"e"`）で、取込は
-int32（0.01m単位）へ詰めてPostGISの`raster`（`rast`列）へ入れる。位置・画素の大きさ・型・
+タイルはPNG形式（256×256。画素の色に0.01m単位の標高を符号化し、欠測は決め打ちの色）で、取込は
+画素を標高へ戻し、int32（0.01m単位）へ詰めてPostGISの`raster`（`rast`列）へ入れる。画素の読み方は
+`infrastructure/gsi_dem_png.py: read_gsi_dem_png`が持ち、地図の陰影のタイルの変換と共有する。配信元のテキスト形式は更新が
+止まっているので取らない（https://maps.gsi.go.jp/development/ichiran.html の備考）。位置・画素の大きさ・型・
 欠測値は`raster`の値自身が持ち、`raster`が持てない尺度と、画素の番地を出すのに要る幅だけを
 `attrs`へ書く（`raster`から幅を読むと、そのたびに画素が実体化される）。
 

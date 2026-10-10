@@ -1,8 +1,7 @@
 """`infrastructure/gsi_dem_png.py`——地理院の標高タイル（dem_png）をTerrain-RGBのPNGへ移す。
 
 入口は`gsi_dem_png_to_terrain_rgb`。期待値は実装の定数から作らず、2つの公開の仕様から作る:
-- 地理院の標高タイル: x = 2^16·R + 2^8·G + B、x < 2^23 なら x·0.01m、x = 2^23 は標高なし、
-  x > 2^23 なら (x − 2^24)·0.01m
+- 地理院の標高タイル: `tests/source_ingest.py: gsi_dem_png`が仕様から作る（欠測の画素だけは、ここで仕様の色を直に置く）
 - Terrain-RGB（MapLibreの`raster-dem`の`mapbox`の書式）: −10000 + (R·256·256 + G·256 + B)·0.1m
 
 ここで見ないもの:
@@ -20,15 +19,9 @@ from hypothesis.extra.numpy import arrays
 from PIL import Image
 
 from app.infrastructure.gsi_dem_png import gsi_dem_png_to_terrain_rgb
+from tests.source_ingest import gsi_dem_png
 
 GSI_NO_DATA = (128, 0, 0)
-
-
-def gsi_png(centimeters: np.ndarray) -> bytes:
-    """センチメートルの標高を、地理院の書式（24ビットの2の補数）のPNGにする。"""
-    x = centimeters.astype(np.int64) % (1 << 24)
-    rgb = np.stack([(x >> 16) & 0xFF, (x >> 8) & 0xFF, x & 0xFF], axis=-1).astype(np.uint8)
-    return png_of(rgb)
 
 
 def png_of(rgb: np.ndarray) -> bytes:
@@ -47,7 +40,7 @@ def terrain_rgb_meters(png: bytes) -> np.ndarray:
 # 日本の湖底（−400m程度）から富士山頂（3776m）までを余裕を持って覆う。
 @given(arrays(np.int64, (3, 4), elements=st.integers(min_value=-100_000, max_value=500_000)))
 def test_every_elevation_reads_back_to_the_nearest_tenth_of_a_metre(centimeters):
-    meters = terrain_rgb_meters(gsi_dem_png_to_terrain_rgb(gsi_png(centimeters)))
+    meters = terrain_rgb_meters(gsi_dem_png_to_terrain_rgb(gsi_dem_png((centimeters / 100).tolist())))
 
     np.testing.assert_allclose(meters, centimeters / 100, atol=0.05 + 1e-6)
 

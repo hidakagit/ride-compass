@@ -11,12 +11,15 @@ runの記録・パーティション・入れ替えは本物を通す。外部�
 変えた後の全行を渡して入れ直す。失敗したrunは、途中で例外を投げる`records`を渡して作る。
 """
 
+import io
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from dataclasses import replace
 from typing import Any
 
 import asyncpg
+import numpy as np
 import shapely
+from PIL import Image
 from shapely.geometry import LineString, Point, Polygon
 
 from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_source
@@ -124,6 +127,18 @@ def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
     return SourceRecord(natural_key=key, geom_wkb=tile_bbox_wkb(zoom, x, y), attrs=attrs, rast=rast)
 
 
+def gsi_dem_png(meters: Sequence[Sequence[float | None]]) -> bytes:
+    """標高（m。Noneは欠測）の格子を、配信元のPNG形式の1枚にする。配信元の仕様
+    （https://maps.gsi.go.jp/development/demtile.html）: x = 2^16·R + 2^8·G + B、x < 2^23 なら x·0.01m、
+    x = 2^23 は欠測（(R, G, B) = (128, 0, 0)）、x > 2^23 なら (x − 2^24)·0.01m。"""
+    x = np.array([[1 << 23 if v is None else round(v * 100) % (1 << 24) for v in row] for row in meters],
+                 dtype=np.int64)
+    rgb = np.stack([(x >> 16) & 0xFF, (x >> 8) & 0xFF, x & 0xFF], axis=-1).astype(np.uint8)
+    buffer = io.BytesIO()
+    Image.fromarray(rgb, mode="RGB").save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 #: 標高のタイル1枚の1辺の画素数。読み手はタイルの`attrs`の幅で画素の番地を出すので、配信元の幅に揃えなくてよい。
 _DEM_TILE_PIXELS = 256
 
@@ -139,10 +154,8 @@ def dem_tile_records(product: str, zoom: int, bbox: BoundingBox,
         centers = [tile_bounds_lonlat(zoom + 8, x * pixel + i, y * pixel + i) for i in range(pixel)]
         lons = [(b.min_longitude + b.max_longitude) / 2 for b in centers]
         lats = [(b.min_latitude + b.max_latitude) / 2 for b in centers]
-        text = "\n".join(
-            ",".join("e" if (v := elevation(lon, lat)) is None else f"{v:.2f}" for lon in lons)
-            for lat in lats) + "\n"
-        pixels, missing = pack_elevations(text)
+        pixels, missing = pack_elevations(gsi_dem_png(
+            [[elevation(lon, lat) for lon in lons] for lat in lats]))
         records.append(SourceRecord(
             natural_key=f"{product}/{zoom}/{x}/{y}", geom_wkb=tile_bbox_wkb(zoom, x, y),
             attrs={"product": product, "z": zoom, "x": x, "y": y, "width": pixel, "scale": SCALE, "missing": missing},

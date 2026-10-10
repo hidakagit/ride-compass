@@ -626,7 +626,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 レジストリから組み立て、画面はレイヤー名でURLを組みsource-layer名を生成物から読む。地図へ点として出す一次属性の
 `tile_kind`は、レジストリの名前を指す。
 
-- **どのSQLも`(covered, tile)`の1行を返す**。取込範囲を判定するレイヤー（POI）は`road_graph_repository.py: COVERAGE_SQL`を
+- **どのSQLも`(covered, tile)`の1行を返す**。取込範囲を判定するレイヤー（POI）は`source_models.py: COVERAGE_SQL`を
   読み、判定しないレイヤー（事故・立ち寄り先。取込が対象範囲を一括で入れるため「取込範囲の一部だけ取得済み」という状態が無い）は
   `covered`を常に真にする。読み出しは`RoadGraphRepository.get_tile_mvt`の1つで、路面タイルも同じ口を通る。
 - **世代はレイヤーごとに独立する**。形の署名はそのレイヤーのSQLとsource-layer名だけから作る（`PointTileLayer.shape`）ので、

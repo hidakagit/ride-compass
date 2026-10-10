@@ -113,9 +113,8 @@ class AxisCatalogEntry(StrictModel):
     # この軸の材料の元データを描く気象のチップ（`domain/axis_definitions.py: weather_layer_groups_for`）。
     # 一次属性を持たない動的な材料（風等）は`primary_attribute_ids`に現れないため、こちらが運ぶ。
     weather_layer_groups: list[str]
-    # 「専用のフィーチャー→値配信レイヤー（ルート未確定時から
-    # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
-    # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
+    # ルート未確定時の地図がこの軸を配信の値で塗るかの宣言（domain/axis_definitions.py:
+    # AxisDefinition.dedicated_way_value_layerのdocstring参照）。
     # 受け取る側が、axis_idの文字列比較ではなくこのフィールドで地図レイヤー・取得の対象を決めるための宣言。
     dedicated_way_value_layer: bool
     # 地図がこの軸について塗るもの——塗る値・単位・段の境界・凡例の目盛り・タイルの塗り・段の体感ラベル
@@ -130,12 +129,12 @@ class AxisCatalogEntry(StrictModel):
     # 絶対の事実を出す。
     # 並びは正規化重みの降順で、フロントは先頭から順に出す（並べ替えを持たない）。
     material_breakdown: list[AxisMaterialBreakdownEntry]
-    # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）へ地図がこの軸について
+    # 配信（`GET /api/region/dynamic-way-values/{axis_id}`）へ地図がこの軸について
     # 載せるクエリパラメータの名前（`services/dedicated_way_values.py: DedicatedWayValueLayer`。
-    # 配信サービスが受け取る条件の型から導く）。専用配信を持たない軸は空。受け取る側が
+    # 軸の葉の材料を配るサービスが受け取る条件の型から導く）。条件の要らない軸は空。受け取る側が
     # 「どの軸の取得に時刻・向き・想定速度を添えるか」を、axis_idで分岐せずここから決めるために配る。
     dynamic_way_value_conditions: list[WayValueConditionName]
-    # 専用way値配信が、走行方位しだいで値の決まらない道（値がnull）を返しうるか
+    # 配信が、走行方位しだいで値の決まらない道（値がnull）を返しうるか
     # （`services/dedicated_way_values.py: DedicatedWayValueLayer`）。trueの軸だけ、
     # 地図の凡例が「向きで決まらない」の行を持つ（返さない軸に出すと、どの道も入らない行になる）。
     dynamic_way_value_undetermined_by_bearing: bool

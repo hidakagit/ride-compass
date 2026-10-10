@@ -17,7 +17,6 @@ from app.domain.value_distribution import ValueDistribution
 from app.services.axis_preview_service import AxisPreviewService
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
-    axis_error,
     AxisDefinition,
     AxisShape,
     BreakpointLinearShape,
@@ -25,13 +24,11 @@ from app.domain.axis_definitions import (
     ScorePoint,
     check_axis_definition,
     first_term_points,
-    named_references,
     weight_share_when_published,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
-from app.services.dedicated_way_values import served_dedicated_way_value_material
 from app.domain.strict_model import StrictModel
 
 router = APIRouter(
@@ -58,36 +55,12 @@ class AxisDefinitionPayload(AxisDefinition):
     フィールドと、軸そのものの不変条件（重みの非負・折れ点のx昇順・段の境界の昇順・
     段ラベルの件数など）は`AxisDefinition`が持ち、DBの行から組み立てる経路にも同じように
     効く。軸の外（材料カタログ・既存の軸）に照らす値の不変条件は`check_axis_definition`が持ち、
-    起動時・復元時の読み込みも同じものを通す。ここが自分で持つのは、このプロセスの組み立て
-    （配信の実装）に照らす検証だけである。
+    起動時・復元時の読み込みも同じものを通す。
     """
 
     @model_validator(mode="after")
     def _check_against_the_catalog_and_the_other_axes(self) -> "AxisDefinitionPayload":
         check_axis_definition(self, AXIS_DEFINITIONS)
-        return self
-
-    @model_validator(mode="after")
-    def _check_dedicated_layer_is_implemented(self) -> "AxisDefinitionPayload":
-        """`dedicated_way_value_layer`は、配信の実装がある材料をちょうど1つ参照する軸にだけ立てられる。
-
-        フィーチャー→値の配信はPythonのサービス本体（`services/dedicated_way_values.py`の
-        `DEDICATED_WAY_VALUE_SERVICES`、材料ごとに1つ）が必要で、軸スタジオでの宣言だけでは
-        配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
-        呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が
-        残り続けて「宣言したのに出ない」原因が分からなくなる）。
-
-        値の不変条件ではないので`check_axis_definition`へ置かない: 照らす相手はこのプロセスが組み立てた
-        配信の実装で、実装の無い軸の配信は未知の軸と同じ404で済む（読み込みを止める理由にならない）。
-        """
-        if not self.dedicated_way_value_layer:
-            return self
-        materials = self.materials
-        if served_dedicated_way_value_material(materials) is None:
-            raise axis_error(
-                "専用配信の軸は、配信の実装がある材料をちょうど1つだけ指す必要があります"
-                f"（この軸が指す材料: {named_references(materials, AXIS_DEFINITIONS)}）。"
-            )
         return self
 
     def to_definition(self) -> AxisDefinition:

@@ -1,24 +1,24 @@
-"""専用way値レイヤー（`dedicated_way_value_layer=True`の軸）の、要求の条件の組み立てと、配った生値から地図が塗る値への写し。
-状態機械（ルート未確定=ユーザー指定パラメータを全道路へ一律適用／ルート確定後=ルート自身の実値を
-ルート線のみへ適用）は軸非依存で、要求の条件（時刻・向き・速度）のうち何が要るかは値を返す
-サービスが受け取る条件の型で決まる（`assemble_conditions`）。
+"""ルートを出す前の地図が塗る軸の値の、要求の条件の組み立てと、フィーチャーの材料から地図が塗る値への写し。
 
-**この層で扱うidは軸id（`axis_definitions.axis_id`）であり、材料id
-（`material_catalog.py`のキー、例: `wind_drag_ratio`）ではない。**両者は名前空間が
-異なる別概念で、配信サービスが返す生値の材料idは`WindWayService.material_id`等が
-別に持つ（`transform_dedicated_way_values`が軸定義の評価へ渡す先）。
+状態機械（ルート未確定=利用者が決めた条件を全道路へ一律適用／ルート確定後=ルート自身の実値をルート線のみへ
+適用）は軸非依存で、要求の条件（時刻・向き・速度）のうち何が要るかは、軸の葉の材料の値を配るサービスが受け取る
+条件の型で決まる（`assemble_conditions`）。
 
-軸→サービス実装本体の対応は、軸が参照する材料とサービスの`material_id`の突き合わせで
-決まる（`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES`）。材料ごとの計算ロジック
-自体は宣言的に導出できないPythonコードのまま残る。
+**この層で扱うidは軸id（`axis_definitions.axis_id`）であり、材料id（`material_catalog.py`のキー、例:
+`wind_drag_ratio`）ではない。**両者は名前空間が異なる別概念で、軸は葉まで辿った材料で配信のサービスと結ばれる
+（`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES`）。
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, dataclass, fields
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeVar
 
-from app.domain.axis_definitions import AxisDefinition, evaluate_axis_values
+import numpy as np
+
+from app.domain.attributes import MaterialColumn
+from app.domain.axis_definitions import AxisDefinition, axis_dependencies, evaluate_axes_array
+from app.domain.evaluation import empty_material_arrays
 from app.domain.geo import bearing_sector
 from app.domain.map_paint import SignedMaterialMapValue, map_paint
 
@@ -35,13 +35,13 @@ def bearing_bucket(bearing_deg: float) -> int:
     return bearing_sector(bearing_deg, 360 // BEARING_BUCKET_DEG)
 
 
-#: 専用配信の要求が運ぶ条件の名前。`WayValueQuery`の欄の名前で、配信のクエリパラメータの名前でもある。
+#: 地図の配信の要求が運ぶ条件の名前。`WayValueQuery`の欄の名前で、配信のクエリパラメータの名前でもある。
 WayValueConditionName = Literal["at", "bearing_deg", "speed_kmh"]
 
 
 @dataclass(frozen=True)
 class WayValueQuery:
-    """専用配信の要求が運ぶ条件。どれも省略されうる——どれが要るかは、値を返すサービスが
+    """地図の配信の要求が運ぶ条件。どれも省略されうる——どれが要るかは、値を返すサービスが
     受け取る条件の型（`assemble_conditions`の`kind`）が決める。欄の名前は`WayValueConditionName`。"""
 
     at: datetime | None
@@ -78,29 +78,78 @@ def assemble_conditions(kind: type[_C], query: WayValueQuery) -> _C | MissingCon
     return kind(**values)
 
 
-def transform_dedicated_way_values(
-    definition: AxisDefinition, material_id: str, values: Mapping[str, float | None]
-) -> dict[str, float | None]:
-    """専用way値配信サービスが返した材料生値（`material_id`の値）を、地図が塗るべき値へ
-    変換する。塗る値（`map_paint`）が難易度なら軸スタジオの定義（breakpoints・
-    priority_overrides）で評価した難易度、符号付き材料なら生値のまま。評価できない
-    値（軸が他の材料も必須にしている等）はその道路を結果から除く（地図上は「データなし」）。
-    走行方位で決まらない値（None）は、Noneのまま返す（地図上は「向きで決まらない」）。
-    タイル内の全道路を1回の配列評価で求める。
-    """
-    if isinstance(map_paint(definition).value, SignedMaterialMapValue):
-        return dict(values)
-    if any(override.material != material_id for override in definition.priority_overrides):
-        # 配信が値を持つのは`material_id`だけで、ほかの材料に置いた0次条件は当たるかどうかを決められない。
-        return {}
-    known = {key: value for key, value in values.items() if value is not None}
-    feature_keys = list(known)
-    difficulties = evaluate_axis_values(
-        definition, {material_id: [known[key] for key in feature_keys]}, len(feature_keys)
-    )
-    transformed: dict[str, float | None] = {key: None for key, value in values.items() if value is None}
-    transformed.update(
-        (key, difficulty) for key, difficulty in zip(feature_keys, difficulties) if difficulty is not None
-    )
-    return transformed
+@dataclass(frozen=True)
+class FeatureMaterials:
+    """タイル1枚のフィーチャーごとの材料。`columns`の各列は`feature_keys`と同じ並びで、評価（`evaluate_axes_array`）へ
+    そのまま渡せる形（数値・真偽はfloatの配列で欠損はNaN、分類は`CategoricalColumn`）。"""
 
+    feature_keys: tuple[str, ...]
+    columns: dict[str, MaterialColumn]
+
+    def __len__(self) -> int:
+        return len(self.feature_keys)
+
+
+def axis_with_dependencies(axis_id: str, definitions: Mapping[str, AxisDefinition]) -> dict[str, AxisDefinition]:
+    """`axis_id`の軸と、それが材料として読む軸を内部軸まで辿ったもの。並びは`definitions`の並び。"""
+    known = set(definitions)
+    found: set[str] = set()
+    pending = [axis_id]
+    while pending:
+        current = pending.pop()
+        if current not in found:
+            found.add(current)
+            pending.extend(axis_dependencies(definitions[current], known))
+    return {key: definition for key, definition in definitions.items() if key in found}
+
+
+def leaf_materials(definitions: Mapping[str, AxisDefinition]) -> set[str]:
+    """`definitions`の軸が読む材料のうち、`definitions`の軸でないもの（葉の材料）。"""
+    return {material for definition in definitions.values() for material in definition.materials
+            if material not in definitions}
+
+
+def paint_feature_values(
+    axis_id: str,
+    definitions: Mapping[str, AxisDefinition],
+    feature_keys: Sequence[str],
+    materials: Mapping[str, MaterialColumn],
+    served: Mapping[str, Mapping[str, float | None]],
+) -> dict[str, float | None]:
+    """フィーチャーごとに、地図が軸`axis_id`について塗る値（`map_paint`の塗る値が難易度なら得点、符号付き材料なら
+    その材料の値）。
+
+    `materials`は`feature_keys`と同じ並びの材料の列、`served`は配信のサービスが返した材料ごとの`{フィーチャーの鍵: 値}`で、
+    同じ材料の列を置き換える（鍵の無いフィーチャーは欠損）。得点は探索の静的スコア行列と同じ評価
+    （`evaluate_axes_array`）を、軸とそれが読む軸だけへ通して求める。どちらにも無い材料は値の無い列になる。
+
+    評価できないフィーチャーは結果から除く（地図上は「データなし」）。配信が値をNoneで返したフィーチャー（走行方位で
+    決まらない）は、Noneのまま返す（地図上は「向きで決まらない」）。
+    """
+    n = len(feature_keys)
+    columns: dict[str, MaterialColumn] = dict(materials)
+    undetermined = np.zeros(n, dtype=bool)
+    for material_id, values in served.items():
+        column = np.full(n, np.nan)
+        for row, key in enumerate(feature_keys):
+            if key not in values:
+                continue
+            value = values[key]
+            if value is None:
+                undetermined[row] = True
+            else:
+                column[row] = value
+        columns[material_id] = column
+    columns.update(empty_material_arrays(n, columns))
+    paint = map_paint(definitions[axis_id]).value
+    if isinstance(paint, SignedMaterialMapValue):
+        painted = np.asarray(columns[paint.material], dtype=float)
+    else:
+        painted = evaluate_axes_array(columns, axis_with_dependencies(axis_id, definitions))[axis_id]
+    out: dict[str, float | None] = {}
+    for row, key in enumerate(feature_keys):
+        if undetermined[row]:
+            out[key] = None
+        elif not np.isnan(painted[row]):
+            out[key] = float(painted[row])
+    return out

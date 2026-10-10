@@ -3,18 +3,20 @@
 確かめるのは、経路ごとの受け渡し（要求のどの値がサービスへ渡り、サービスの結果が応答のどこへ出るか）と、この口が
 使う判断: 量ごとの値の範囲（タイル座標・走行方位・想定速度。範囲そのものは domain の型と`domain/region.py:
 check_tile_index`が持ち、ここでは入口ごとにそれを使っていることを見る。土地被覆は自分のズーム範囲）、一時的に取れなかった
-タイルをキャッシュさせないこと（`_tile_http.py: tile_response`）、宣言に無い点のレイヤー・配信できない軸の404、
-条件の欠けの422（`domain/dynamic_way_values.py: assemble_conditions`）、土地被覆のラスタが無いときの503、
+タイルをキャッシュさせないこと（`_tile_http.py: tile_response`）、宣言に無い点のレイヤー・公開していない軸の404、
+地図のレンズが印の無い軸もタイルの材料から塗ること、軸の葉の材料を配るサービスの条件の欠けの422
+（`domain/dynamic_way_values.py: assemble_conditions`）、土地被覆のラスタが無いときの503、
 区間インスペクタが条件の揃った材料だけを足すこと（`services/dedicated_way_values.py: DirectionalMaterialService`）、
 種類ごとに別に数えるレート制限。
 
-差し替えるのは、注入されるサービス（`RegionService`・配信サービス。地図のレンズは配信サービスの代役で組んだ本物の
-`AxisWayValueLens`を、区間インスペクタは代役の`RegionService`と材料で組んだ本物の`AxisInspectorService`を注入する）・
-土地被覆のタイルの取得・道路網の読み出し・レート制限の記録だけ。
+差し替えるのは、注入されるサービス（`RegionService`・配信サービス・タイルの材料の読み出し。地図のレンズは
+それらの代役で組んだ本物の`AxisWayValueLens`を、区間インスペクタは代役の`RegionService`と材料で組んだ本物の
+`AxisInspectorService`を注入する）・土地被覆のタイルの取得・道路網の読み出し・レート制限の記録だけ。
 
 ここで見ないもの:
 - タイルの中身とキャッシュ → `test_region_service.py`・`test_landcover_tile.py`
 - 地図が塗る値への写し方 → `test_dynamic_way_values.py`
+- タイルの材料の読み出しとキャッシュ → `test_feature_materials.py`
 - 重みの検証（公開軸をすべて明示する等） → `test_routes_generate.py`（同じ`RoutePreferenceWeights`）
 - キャッシュの方針の表・圧縮する種類 → `test_cache_policy.py`・`test_response_compression.py`
 - レート制限の数え方そのもの → `test_rate_limiter.py`
@@ -34,7 +36,15 @@ from app.api.dependencies import (
     get_dedicated_way_value_service,
     get_region_service,
 )
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.attributes import CategoricalColumn
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisDefinition,
+    BreakpointLinearShape,
+    CategoricalShape,
+    MaterialTerm,
+    copy_axis_definitions,
+)
 from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
@@ -43,7 +53,7 @@ from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.region_tile_cache import TileResponse
-from app.domain.dynamic_way_values import transform_dedicated_way_values
+from app.domain.dynamic_way_values import FeatureMaterials, paint_feature_values
 from app.services.dedicated_way_values import AxisWayValueLens, DirectionalMaterialService
 from app.services.region_service import AxisInspectorService
 from app.services.gradient_way_service import GradientConditions
@@ -148,7 +158,7 @@ def test_region_tiles_hand_the_services_mvt_over(path, cacheable, requested, cac
 )
 def test_region_requests_outside_each_quantitys_range_are_refused(path, inspected):
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED, FakeDynamicWayValueService())
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED)
     app.dependency_overrides[get_axis_inspector_service] = lambda: AxisInspectorService(
         FakeRegionService(), NoDirectionalMaterials()
     )
@@ -183,7 +193,7 @@ def test_each_kind_of_region_request_is_counted_on_its_own():
     road = "/api/region/road-surface-tiles/14/14551/6447.pbf"
     point = "/api/region/point-tiles/{}/14/14551/6447.pbf"
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED, FakeDynamicWayValueService())
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(SIGNED)
     app.dependency_overrides[get_axis_inspector_service] = lambda: AxisInspectorService(
         FakeRegionService(), NoDirectionalMaterials()
     )
@@ -314,13 +324,25 @@ class FakeDynamicWayValueService:
         return self._values
 
 
-def _lens(axis_id: str, service: FakeDynamicWayValueService) -> AxisWayValueLens:
-    return AxisWayValueLens(axis_id, service)
+class FakeFeatureMaterials:
+    """タイルの材料を読む口（`services/feature_materials.py: FeatureMaterialService`）の代役。"""
+
+    def __init__(self, materials: FeatureMaterials | None = None):
+        self._materials = materials
+
+    async def materials(self, z, x, y):
+        return self._materials
+
+
+def _lens(axis_id: str, services=None, materials: FeatureMaterials | None = None) -> AxisWayValueLens:
+    """軸の集合は今の`AXIS_DEFINITIONS`。`services`は材料id→配信サービスの代役。"""
+    services = services if services is not None else {"gradient_percent": FakeDynamicWayValueService()}
+    return AxisWayValueLens(axis_id, copy_axis_definitions(), FakeFeatureMaterials(materials), services.__getitem__)
 
 
 SIGNED = "axis_way_value_signed"
 
-#: 専用way値配信を持つ軸。時刻・方位・速度を要るもの（得点を塗る）と、方位だけを要るもの
+#: 地図が配信の値で塗る印を持つ軸。時刻・方位・速度を要るもの（得点を塗る）と、方位だけを要るもの
 #: （符号付きの生値を塗る）の2本。
 DEDICATED_AXES = {
     "axis_way_value_scored": AxisDefinition(
@@ -353,10 +375,10 @@ def dedicated_axes():
         yield
 
 
-# 応答はサービスの生値ではなく**地図が塗る値**（domain/dynamic_way_values.py:
-# transform_dedicated_way_values）。写像そのものの検証はtest_dynamic_way_values.pyが持つため、ここでは
-# 軸の折れ点を写経せず同じ関数へ通した結果と突き合わせる——見たいのは「エンドポイントがこの写像を通すか」。
-# 要るクエリはサービスが受け取る条件の型が決め、型に無いもの（勾配の時刻・速度）は省いても配る。
+# 応答はサービスの生値ではなく**地図が塗る値**（domain/dynamic_way_values.py: paint_feature_values）。写し方の
+# 検証はtest_dynamic_way_values.pyが持つため、ここでは軸の折れ点を写経せず同じ関数へ通した結果と突き合わせる
+# ——見たいのは「エンドポイントがこの写しを通すか」。要るクエリは軸の葉の材料を配るサービスが受け取る条件の型が決め、
+# 型に無いもの（勾配の時刻・速度）は省いても配る。
 @pytest.mark.usefixtures("dedicated_axes")
 @pytest.mark.parametrize(
     ("axis_id", "material_id", "params", "conditions"),
@@ -372,9 +394,9 @@ def dedicated_axes():
 )
 def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, params, conditions):
     raw = {"1": 2.0, "2": -1.5}
-    expected = transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], material_id, raw)
+    expected = paint_feature_values(axis_id, AXIS_DEFINITIONS, list(raw), {}, {material_id: raw})
     fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id, conditions_type=type(conditions))
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(axis_id, fake)
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(axis_id, {material_id: fake})
 
     try:
         response = client.get(f"/api/region/dynamic-way-values/{axis_id}/14/14551/6447", params=params)
@@ -386,10 +408,50 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     assert fake.last_request == (14, 14551, 6447, conditions)
 
 
+#: 地図を配信で塗る印の無い軸。タグから引く分類の材料を読む軸と、それを内部軸として読む軸。
+TAG_AXES = {
+    "axis_tag_internal": AxisDefinition(
+        axis_id="axis_tag_internal",
+        shape=CategoricalShape(material="surface_class", mapping={"paved": 10.0, "unpaved": 90.0}),
+        default_weight=0.0,
+        label="軸シ",
+    ),
+    "axis_tag_reference": AxisDefinition(
+        axis_id="axis_tag_reference",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="axis_tag_internal")], breakpoints=[(0.0, 0.0), (100.0, 100.0)]
+        ),
+        default_weight=0.2,
+        label="軸サ",
+        is_published=True,
+    ),
+}
+
+
+# 配信は印の無い軸にも、タイルの材料から探索と同じ評価で値を返す。返さないと、画面がその軸を配信で塗る形へ
+# 切り替えたとき、タイルから式を組んで塗っていた道がすべて「データなし」になる。
+def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_tile():
+    materials = FeatureMaterials(
+        feature_keys=("1", "2", "3"),
+        columns={"surface_class": CategoricalColumn.encode(["paved", "unpaved", None])},
+    )
+    with replaced_axis_definitions(TAG_AXES):
+        app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens("axis_tag_reference", {}, materials)
+        try:
+            response = client.get("/api/region/dynamic-way-values/axis_tag_reference/14/14551/6447")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"1": 10.0, "2": 90.0}
+
+
 @pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_names_the_missing_condition():
     fake = FakeDynamicWayValueService(material_id="wind_drag_ratio", conditions_type=WindConditions)
-    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens("axis_way_value_scored", fake)
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(
+        "axis_way_value_scored", {"wind_drag_ratio": fake}
+    )
 
     try:
         response = client.get(
@@ -408,18 +470,27 @@ class UncoveredRepository:
     async def get_data_revisions(self):
         return DataRevisions(derived=1, imported=1)
 
+    async def get_accident_years_covered(self):
+        return 1
+
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
         return None
 
+    async def get_feature_materials_in_tile(self, *args, **kwargs):
+        inspect.signature(RoadGraphRepository.get_feature_materials_in_tile).bind(self, *args, **kwargs)
+        return None
 
-# 配信のサービスは軸の名前ではなく、軸が参照する材料で引く。実際の
-# get_dedicated_way_value_serviceを通し、初めて見る名前の軸が材料だけで配信されること・
-# 配信の実装が無い材料だけを参照する軸と、無い軸は404になることを見る（Noneは軸を置かない）。
-@pytest.mark.parametrize(("material", "status"), [("gradient_percent", 200), ("maxspeed_kmh", 404), (None, 404)])
-def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(monkeypatch, material, status):
+
+# 実際のget_dedicated_way_value_serviceを通し、初めて見る名前の公開軸が、配信のサービスの材料（勾配）でも
+# タイルの材料（制限速度）でも配信されること・公開していない軸と無い軸は404になることを見る（Noneは軸を置かない）。
+@pytest.mark.parametrize(
+    ("material", "published", "status"),
+    [("gradient_percent", True, 200), ("maxspeed_kmh", True, 200), ("maxspeed_kmh", False, 404), (None, True, 404)],
+)
+def test_region_dedicated_way_values_serves_every_published_axis(monkeypatch, material, published, status):
     if material is not None:
-        axis = axis_definition("axis_new_name", material=material, dedicated_way_value_layer=True)
+        axis = axis_definition("axis_new_name", material=material, is_published=published)
         monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
     monkeypatch.setattr(dependencies, "RoadGraphRepository", lambda session: UncoveredRepository())
 

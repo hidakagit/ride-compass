@@ -14,7 +14,7 @@
 派生の世代がNoneになる。
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 import asyncpg
@@ -114,33 +114,35 @@ async def bump_revision(conn: asyncpg.Connection) -> int:
 
 async def read_source_runs(conn: asyncpg.Connection) -> dict[str, int]:
     """今の派生の表を作った取込（ソース → `run_id`）。"""
-    return {row["source"]: row["run_id"] for row in await conn.fetch(
-        f"SELECT source, run_id FROM {DerivedSourceRunRow.__tablename__}")}
+    return await _read_pairs(conn, DerivedSourceRunRow.__tablename__, "source", "run_id")
 
 
 async def replace_source_runs(conn: asyncpg.Connection, runs: dict[str, int]) -> None:
     """派生の表を作った取込を`runs`へ置き換える。"""
-    await conn.execute(f"DELETE FROM {DerivedSourceRunRow.__tablename__}")
-    await conn.executemany(
-        f"INSERT INTO {DerivedSourceRunRow.__tablename__} (source, run_id) VALUES ($1, $2)", runs.items())
+    await _replace_rows(conn, DerivedSourceRunRow.__tablename__, ("source", "run_id"), runs.items())
 
 
 async def replace_columns(conn: asyncpg.Connection, columns: Mapping[str, frozenset[str]]) -> None:
     """派生の表を作ったときの列を`columns`へ置き換える。"""
-    await conn.execute(f"DELETE FROM {DerivedColumnRow.__tablename__}")
-    await conn.executemany(
-        f"INSERT INTO {DerivedColumnRow.__tablename__} (table_name, column_name) VALUES ($1, $2)",
+    await _replace_rows(
+        conn, DerivedColumnRow.__tablename__, ("table_name", "column_name"),
         [(table, name) for table, names in columns.items() for name in sorted(names)])
 
 
 async def read_stage_fingerprints(conn: asyncpg.Connection) -> dict[str, str]:
     """今の派生の表を作ったときの段ごとの指紋（段の名前 → 指紋）。"""
-    return {row["stage"]: row["fingerprint"] for row in await conn.fetch(
-        f"SELECT stage, fingerprint FROM {DerivedStageRow.__tablename__}")}
+    return await _read_pairs(conn, DerivedStageRow.__tablename__, "stage", "fingerprint")
 
 
 async def replace_stage_fingerprints(conn: asyncpg.Connection, fingerprints: Mapping[str, str]) -> None:
     """段ごとの指紋を`fingerprints`へ置き換える。"""
-    await conn.execute(f"DELETE FROM {DerivedStageRow.__tablename__}")
-    await conn.executemany(
-        f"INSERT INTO {DerivedStageRow.__tablename__} (stage, fingerprint) VALUES ($1, $2)", fingerprints.items())
+    await _replace_rows(conn, DerivedStageRow.__tablename__, ("stage", "fingerprint"), fingerprints.items())
+
+
+async def _read_pairs(conn: asyncpg.Connection, table: str, key: str, value: str) -> dict:
+    return {row[key]: row[value] for row in await conn.fetch(f"SELECT {key}, {value} FROM {table}")}
+
+
+async def _replace_rows(conn: asyncpg.Connection, table: str, columns: tuple[str, str], rows: Iterable) -> None:
+    await conn.execute(f"DELETE FROM {table}")
+    await conn.executemany(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ($1, $2)", rows)

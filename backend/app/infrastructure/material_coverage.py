@@ -9,11 +9,11 @@ Pythonループは回さない）。ここは測り方の実装だけを持つ�
 
 - `"way"`: 道の生データ全行（`WAYS_SOURCE_SQL`、OSMタグ由来の材料）。全材料が同じ行の
   タグを見るため、材料ごとの`count(*) FILTER`を並べた1回の走査にまとめる。欠損判定式は
-  `domain/material_sql.py`の共有SQL断片を`road_graph_repository.py: ROAD_SURFACE_TILE_MVT_SQL`
+  `domain/material_sql.py`の共有SQL断片を`road_tile_sql.py: ROAD_SURFACE_TILE_MVT_SQL`
   （地図タイル配信）と共通で使う——両者ともRoad Graphを構築せずDBを直接引く経路のため、
   独立に書くと片方だけ変更されるドリフトを招く。
 - `"edge"`: `road_edges`全行（Edge単位の材料）。区間の値（別名`em`）の表を区間へ結ばずに走査して値のある区間を
-  数え、総数は`road_edges`の件数とする。判定式が読む表は宣言から引き（`road_graph_repository.py: edge_material_table`）、
+  数え、総数は`road_edges`の件数とする。判定式が読む表は宣言から引き（`material_joins.py: edge_material_table`）、
   way側と同じく材料ごとの`count(*) FILTER`を並べて表ごとに1回の走査にまとめる。
 
 「欠損」はあくまで元データ（タグ・行）の不在を指す。評価パイプラインがその不在をどう扱うか
@@ -33,7 +33,7 @@ from app.domain.material_catalog import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.road_graph_repository import edge_material_table
+from app.infrastructure.material_joins import edge_material_table
 from app.infrastructure.source_models import WAYS_SOURCE_SQL
 
 # 材料ごとの宣言は`MaterialSpec.coverage`が持つ（材料を1つ増やすとき触るのは1か所）。

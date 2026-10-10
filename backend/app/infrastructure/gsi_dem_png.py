@@ -1,4 +1,6 @@
-"""国土地理院の標高タイル（dem_png）を、MapLibreの`raster-dem`が読むTerrain-RGBへ移す。
+"""国土地理院の標高タイル（PNG形式）の画素を標高として読み、MapLibreの`raster-dem`が読むTerrain-RGBへ移す。
+
+読み方は配信元の仕様（https://maps.gsi.go.jp/development/demtile.html の「PNG形式の場合」）に従う。
 
 両者はどちらも標高を1画素のRGBへ詰めるが、詰め方が違う。地理院はセンチメートル単位の
 符号付き整数を2の補数で置き、標高が無い画素へ`_GSI_NO_DATA`という決め打ちの値を入れる。
@@ -25,14 +27,21 @@ _GSI_UNIT_M = 0.01
 _TERRAIN_RGB_MAX = _GSI_WRAP - 1
 
 
-def gsi_dem_png_to_terrain_rgb(png: bytes) -> bytes:
-    """地理院の標高タイル1枚をTerrain-RGBのPNGへ変換する。"""
+def read_gsi_dem_png(png: bytes) -> tuple[np.ndarray, np.ndarray]:
+    """地理院の標高タイル1枚を、画素の (標高（0.01m単位の整数）, 標高が無いか) の2つの格子にする。
+
+    標高の無い画素の値は決まっていないので、読み手は2つ目で覆ってから使う。"""
     with Image.open(io.BytesIO(png)) as image:
         rgb = np.asarray(image.convert("RGB"), dtype=np.int64)
 
     packed = (rgb[:, :, 0] << 16) | (rgb[:, :, 1] << 8) | rgb[:, :, 2]
-    signed = np.where(packed > _GSI_NO_DATA, packed - _GSI_WRAP, packed)
-    meters = np.where(packed == _GSI_NO_DATA, 0.0, signed * _GSI_UNIT_M)
+    return np.where(packed > _GSI_NO_DATA, packed - _GSI_WRAP, packed), packed == _GSI_NO_DATA
+
+
+def gsi_dem_png_to_terrain_rgb(png: bytes) -> bytes:
+    """地理院の標高タイル1枚をTerrain-RGBのPNGへ変換する。"""
+    signed, missing = read_gsi_dem_png(png)
+    meters = np.where(missing, 0.0, signed * _GSI_UNIT_M)
 
     encoded = np.rint((meters - TERRAIN_RGB_BASE_M) / TERRAIN_RGB_UNIT_M).astype(np.int64)
     encoded = np.clip(encoded, 0, _TERRAIN_RGB_MAX)

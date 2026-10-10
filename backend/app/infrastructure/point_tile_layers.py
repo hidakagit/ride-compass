@@ -5,7 +5,7 @@ RegionService.get_point_tile`）で配り、レイヤーごとに違うのは焼
 **点のレイヤーを足すのは、ここへ1エントリ足すことだけ**——配信・世代の表（`services/tile_version_service.py:
 TILE_SHAPES`）・生成物（`region-tile-config.json`の`point_layers`）はここから組み立てる。
 
-どのSQLも`(covered, tile)`の1行を返す。取込範囲を判定するレイヤーは`road_graph_repository.py: COVERAGE_SQL`を
+どのSQLも`(covered, tile)`の1行を返す。取込範囲を判定するレイヤーは`source_models.py: COVERAGE_SQL`を
 読み、判定しないレイヤー（事故・立ち寄り先は対象範囲を一括で取り込むため「範囲の一部だけ取得済み」が無い）は`covered`を
 常に真にする。`:layer_name`・`:extent`・タイル座標（`:z`・`:x`・`:y`・`:xmin`等）は読み出しの側
 （`road_graph_repository.py: RoadGraphRepository.get_tile_mvt`）が渡す。
@@ -24,7 +24,7 @@ from app.domain.registry import TileKind
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import POI_CLUSTER_EPS_M, STOP_POI_KINDS, stop_kind_sql
 from app.infrastructure.cache_identity import shape_digest
-from app.infrastructure.road_graph_repository import COVERAGE_SQL
+from app.infrastructure.source_models import COVERAGE_SQL
 from app.infrastructure.source_models import NODES_SOURCE_SQL, accidents_within_sql
 
 
