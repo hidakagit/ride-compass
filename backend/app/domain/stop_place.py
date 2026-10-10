@@ -12,6 +12,7 @@
 from enum import StrEnum
 
 from app.domain.address_area import HYPHEN_CHARACTERS
+from app.domain.material_sql import sql_literals
 
 
 class StopPlaceGroup(StrEnum):
@@ -149,21 +150,21 @@ def chain_sql(name: str, brand: str) -> str:
     """地点のチェーンを出す式。`name`・`brand`は`chain_text_sql`の形の式（ブランドはNULLがある）。
     `CHAIN_WORDS`に当たらなければブランド、ブランドも無ければNULL。"""
     whens = " ".join(
-        f"WHEN {' OR '.join(f'strpos({text}, {word.translate(_DEVOICE)!r}) > 0' for text in (name, brand) for word in words)} THEN {chain!r}"
+        f"WHEN {' OR '.join(f'strpos({text}, {sql_literals([word.translate(_DEVOICE)])}) > 0' for text in (name, brand) for word in words)} THEN {sql_literals([chain])}"
         for chain, words in CHAIN_WORDS)
     return f"CASE {whens} ELSE nullif({brand}, '') END"
 
 
 def kept_sql(group: str, chain: str) -> str:
     """群に入った地点を表へ入れるかの式。群「コンビニ」は`CHAIN_WORDS`のチェーンだけ、ほかの群は全部。"""
-    chains = ", ".join(repr(chain_key) for chain_key, _ in CHAIN_WORDS)
+    chains = sql_literals(chain_key for chain_key, _ in CHAIN_WORDS)
     return f"({group} <> '{StopPlaceGroup.CONVENIENCE}' OR {chain} IN ({chains}))"
 
 
 def overture_group_sql(hierarchy: str) -> str:
     """分類の道筋（jsonbの文字列の配列を出す式）から群を出す式。どの群にも当たらなければNULL。"""
     whens = " ".join(
-        f"WHEN {hierarchy} ?| ARRAY[{', '.join(repr(word) for word in sorted(words))}] THEN '{group}'"
+        f"WHEN {hierarchy} ?| ARRAY[{sql_literals(sorted(words))}] THEN '{group}'"
         for group, words in OVERTURE_GROUP_WORDS)
     return f"CASE {whens} END"
 
