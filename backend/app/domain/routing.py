@@ -709,7 +709,7 @@ def build_turn_expanded_structure(
     turn_seconds = _turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
 
     # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
-    # （`node_materials.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
+    # （`node_turns.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
     # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
     # 下回るので、バッチ未実行でも結果は変わらない。
     node_rank = np.zeros(csr.node_count, dtype=np.int64)

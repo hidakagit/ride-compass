@@ -144,8 +144,8 @@ async def elevation_conn(derive_conn, tile_root):
 
 async def test_each_pixel_takes_the_most_accurate_product_that_has_a_value(elevation_conn):
     rows = await elevation_conn.fetch(
-        "SELECT osm_way_id, start_elevation_m, end_elevation_m FROM edge_materials"
-        " ORDER BY osm_way_id")
+        "SELECT osm_way_id, start_elevation_m, end_elevation_m"
+        " FROM road_edges LEFT JOIN edge_elevation USING (osm_way_id, segment_index) ORDER BY osm_way_id")
     got = {r["osm_way_id"]: (r["start_elevation_m"], r["end_elevation_m"]) for r in rows}
     assert got == {way_id: (expected, expected) for way_id, _pixels, expected in CASES}
 
@@ -156,7 +156,8 @@ async def test_rerun_without_a_product_keeps_no_value_only_that_product_gave(ele
     conn = elevation_conn
 
     async def elevations() -> dict[int, float | None]:
-        rows = await conn.fetch("SELECT osm_way_id, start_elevation_m, average_grade FROM edge_materials")
+        rows = await conn.fetch("SELECT osm_way_id, start_elevation_m, average_grade"
+                                " FROM road_edges LEFT JOIN edge_elevation USING (osm_way_id, segment_index)")
         assert all(r["average_grade"] is None for r in rows if r["start_elevation_m"] is None)
         return {r["osm_way_id"]: r["start_elevation_m"] for r in rows}
 
@@ -183,7 +184,8 @@ VALLEY_PIXELS = ((40, 40), (40, 200), (40, 44))
     ({"tunnel": "yes"}, (0.0, 0.0)),
 ])
 async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_conn, structure, climb):
-    """浮いた橋・地中のトンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道は数える。"""
+    """浮いた橋・地中のトンネルの区間は、下の地表の起伏を上り下りに数えない。同じ形のタグの無い道は数える。
+    どちらの区間も、橋かトンネルだったかを値と一緒に持つ（前回の値を使い回してよいかを、形と並べて見分けるため）。"""
     conn = elevation_conn
     await ingest_records("osm_way", [
         *(_way(way_id, pixels) for way_id, pixels, _ in CASES),
@@ -193,7 +195,7 @@ async def test_a_bridge_or_tunnel_does_not_climb_the_terrain_under_it(elevation_
         await derive_elevation.derive(conn)
 
     rows = await conn.fetch(
-        "SELECT osm_way_id, elevation_gain_m, elevation_loss_m FROM edge_materials"
+        "SELECT osm_way_id, elevation_gain_m, elevation_loss_m, on_structure FROM edge_elevation"
         " WHERE osm_way_id IN (11, 12)")
-    assert {r["osm_way_id"]: (r["elevation_gain_m"], r["elevation_loss_m"]) for r in rows} == {
-        11: (10.0, 10.0), 12: climb}
+    assert {r["osm_way_id"]: (r["elevation_gain_m"], r["elevation_loss_m"], r["on_structure"]) for r in rows} == {
+        11: (10.0, 10.0, False), 12: (*climb, True)}

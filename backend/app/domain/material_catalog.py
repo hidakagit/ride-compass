@@ -178,13 +178,13 @@ MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | Coverage
 def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
-    **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
+    **値を読む列そのものを数える**（`landcover_value_sql`が読む`em.lc_*`）。
     別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなら値が無い
     （NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。
     """
     return EdgeMaterialCoverageSpec(
         present_condition=f"{landcover_value_sql(key)} IS NOT NULL",
-        source=f"edge_materials.lc_{key}（derive_landcoverの計算済み値）の有無",
+        source=f"edge_landcover.lc_{key}（derive_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     )
 
@@ -193,7 +193,7 @@ _CYCLEWAY_SOURCE = "OSM wayのタグ cycleway / cycleway:left / cycleway:right /
 #: 生データの道は親の表のCHECK（`infrastructure/source_models.py: source_features_way_has_kind`）でhighwayを必ず持つ。
 _HIGHWAY_ALWAYS_PRESENT = "生データの道はDBの制約でhighwayタグを必ず持ち、欠損が無い"
 _EDGE_COUNTS_PRESENT_CONDITION = "em.intersection_count IS NOT NULL"
-_EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
+_EDGE_COUNTS_SOURCE = "区間の数の表（edge_counts）に行があるか"
 
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
@@ -524,7 +524,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         value_sql="em.average_grade",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition="em.average_grade IS NOT NULL",
-                source="edge_materials.average_grade の有無",
+                source="edge_elevation.average_grade の有無",
                 missing_semantics="unknown",
             ),
     ),
@@ -711,7 +711,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=ATTR_ONEWAY,
         value_sql=oneway_material_sql("wm.direction", "wm.divided"),
         coverage=CoverageExcluded(
-            reason="way_materials.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
+            reason="way_directions.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
             missing_semantics="definite",
         ),
     ),

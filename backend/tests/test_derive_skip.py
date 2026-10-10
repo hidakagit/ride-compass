@@ -230,7 +230,7 @@ class Change:
     runs: tuple[str, ...]
 
 
-ROAD_STAGES = ("topology", "nodes", "counts", "elevation", "landcover", "ways")
+ROAD_STAGES = ("topology", "nodes", "counts", "elevation", "landcover", "directions")
 CHANGES = [
     Change("事故を取り直した", _reingest(_ingest_accidents), ("counts",)),
     Change("ノードを取り直した", _reingest(_ingest_nodes), ("nodes", "counts")),
@@ -241,7 +241,10 @@ CHANGES = [
     Change("住所を取り直した", _reingest(_ingest_addresses), ("addresses",)),
     Change("地点を取り直した", _reingest(_ingest_places), ("stop_places",)),
     Change("信号とみなす半径を変えた", _set_signal_radius, ("nodes", "counts")),
-    Change("道1本の表に列を足した", _add_column("way_materials"), ROAD_STAGES),
+    # 表を書く段は1つなので、列を足した表を書く段とその後ろの段だけが流れる。区間を切る段の後ろには道路の段が全部並ぶ。
+    Change("区間の表に列を足した", _add_column("road_edges"), ROAD_STAGES),
+    Change("ノードの種別の表に列を足した", _add_column("node_kinds"), ("nodes", "counts")),
+    Change("道の土地被覆の表に列を足した", _add_column("way_landcover"), ("landcover",)),
     Change("立ち寄り先の表に列を足した", _add_column("stop_places"), ("stop_places",)),
     # 標高のタイルの置き場は標高の段だけが読み込む。
     Change("標高の段が読み込むモジュールを変えた", _edit_code("batch/dem_tile_store.py", lambda text: text + "\n_EDITED = 1\n"),

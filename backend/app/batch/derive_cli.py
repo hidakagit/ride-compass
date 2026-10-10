@@ -1,8 +1,8 @@
 """派生を作り直す入口。**順番と、段ごとの入力の宣言はここだけが持つ**。
 
 生データを差し替えたら、下流を作り直す。段は次の依存で決まっており、並べ替えられない:
-形（`road_edges`）が無いと材料の行が作れず、ノードの枝数が無いと交差点を数えられず、
-区間の値が無いと道の値を導けない。
+形（`road_edges`）が無いと値の行が作れず、ノードの枝数と種別が無いと交差点と停止要因を数えられない。
+派生の表はどれも書く段が1つで（`infrastructure/derived_models.py`）、段は自分の表を空にしてから埋める。
 
     .venv\\Scripts\\python.exe -m app.batch.derive_cli
 
@@ -17,8 +17,8 @@
 入れ替えまで前回の表が残っている）を渡し、形の同じ区間は前回の値を写させて、残りの区間だけを計算させる。
 
 段が何を読むかは`STAGES`の宣言が持ち、宣言の漏れは段が読んだ表の数で見張る（`tests/test_derive_skip.py: test_each_stage_declares_what_it_reads_and_writes`）。
-前の段（`after`）には、読む表を書く段と、自分が書く表の行を入れる・消す段を挙げる。同じ表の別の列だけを書く段は
-挙げない——その段が流れても、自分の列は前回の値のまま正しい（例: `landcover`は`counts`を挙げない）。
+前の段（`after`）には、読む表を書く段と、自分が書く表の行を入れる・消す段を挙げる（区間を切る段は、区間・道・頂点を
+外部キーで指す値の表を空にする）。
 作り直しは取込と同時に走らない（`common.py: SOURCE_DATA_LOCK`）。
 
 **作り直しは作業用のスキーマで行い、道路網の配列まで作ってから1つのトランザクションで`public`の
@@ -54,10 +54,10 @@ from app.batch import (  # noqa: E402
     derive_counts,
     derive_elevation,
     derive_landcover,
-    derive_node_materials,
+    derive_nodes,
     derive_stop_places,
     derive_topology,
-    derive_way_materials,
+    derive_way_directions,
 )
 from app.batch.code_fingerprint import code_fingerprint, library_versions  # noqa: E402
 from app.batch.common import (  # noqa: E402
@@ -107,19 +107,16 @@ def _outside_key(stage: DeriveStage) -> str:
     return f"{stage.name}/outside"
 
 
-#: 区間を切る段が行を作り直す表（区間・ノード・道・区間の値）。
-_ROAD_ROWS = ("road_edges", "node_materials", "way_materials", "edge_materials")
-
 STAGES: tuple[DeriveStage, ...] = (
-    DeriveStage("topology", derive_topology, frozenset({Source.OSM_WAY}), (), _ROAD_ROWS),
-    DeriveStage("nodes", derive_node_materials, frozenset({Source.OSM_NODE, Source.OSM_WAY}), ("topology",),
-                ("node_materials",), {"signal_radius_m": "signal.match_radius_m"}),
+    DeriveStage("topology", derive_topology, frozenset({Source.OSM_WAY}), (), ("road_edges", "road_ways", "road_nodes")),
+    DeriveStage("nodes", derive_nodes, frozenset({Source.OSM_NODE, Source.OSM_WAY}), ("topology",),
+                ("node_kinds", "node_turns"), {"signal_radius_m": "signal.match_radius_m"}),
     DeriveStage("counts", derive_counts, frozenset({Source.OSM_NODE, Source.OSM_WAY, Source.ACCIDENT}),
-                ("topology", "nodes"), ("edge_materials", "way_materials")),
-    DeriveStage("elevation", derive_elevation, frozenset({Source.OSM_WAY, Source.DEM}), ("topology",), ("edge_materials",)),
-    DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_materials", "way_materials"),
+                ("topology", "nodes"), ("edge_counts", "way_counts")),
+    DeriveStage("elevation", derive_elevation, frozenset({Source.OSM_WAY, Source.DEM}), ("topology",), ("edge_elevation",)),
+    DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_landcover", "way_landcover"),
                 per_edge=True),
-    DeriveStage("ways", derive_way_materials, frozenset({Source.OSM_WAY}), ("topology",), ("way_materials",)),
+    DeriveStage("directions", derive_way_directions, frozenset({Source.OSM_WAY}), ("topology",), ("way_directions",)),
     # 住所の区画は、道路（`osm_way`）のパーティションを読まず、取込の記録から範囲だけを読む（読んだ数の見張りに出ないので、
     # 手で挙げる）。
     DeriveStage("addresses", derive_addresses, frozenset({Source.ABR, Source.ISJ_BLOCK, Source.OSM_WAY}), (),
