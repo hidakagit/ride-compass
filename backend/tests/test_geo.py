@@ -231,13 +231,11 @@ def test_no_locations_give_no_indices():
 
 
 def test_nearest_point_index_has_no_answer_without_points():
-    assert geo.nearest_point_index(35.0, 139.0, np.array([]), np.array([])) is None
+    assert geo.nearest_point_index(Point(35.0, 139.0), []) is None
 
 
 @pytest.mark.parametrize("candidates", [[Point(0.0, 1.0), Point(0.0, -1.0)], [Point(0.0, -1.0), Point(0.0, 1.0)]])
 def test_nearest_point_index_takes_the_first_listed_of_equally_near_points(candidates):
-    index = geo.nearest_point_index(
-        0.0, 0.0, np.array([p.latitude for p in candidates]), np.array([p.longitude for p in candidates])
-    )
+    index = geo.nearest_point_index(Point(0.0, 0.0), candidates)
 
     assert index == 0
