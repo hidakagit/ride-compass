@@ -1,11 +1,12 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatJstDateTime } from "@/lib/time";
 import { errorMessage } from "@/lib/apiError";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { getDebugStats } from "@/features/admin/adminApi";
-import { getFrontendVersion } from "@/services/versionApi";
+import { frontendVersionQuery } from "@/services/versionApi";
 import { getQueryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/Button/Button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
@@ -18,13 +19,42 @@ interface SystemStatusPanelProps {
   onClose: () => void;
 }
 
-function formatStartedAt(iso: string): string {
+function formatIsoJst(iso: string): string {
   return formatJstDateTime(new Date(iso));
 }
 
 function formatLastError(error: { type: string; at: string } | null): string {
   if (error === null) return "—";
-  return `${error.type} (${formatStartedAt(error.at)})`;
+  return `${error.type} (${formatIsoJst(error.at)})`;
+}
+
+const SECTION_HEADING_CLASS = cn(textVariants({ variant: "note" }), "tracking-wide uppercase");
+
+/** 動いている版（commit・起動日時）のカード。フロントとバックで同じ形。 */
+function VersionCard({
+  title,
+  error,
+  version,
+  children,
+}: {
+  title: string;
+  error: string | null;
+  version: { commit: string | null; started_at: string } | null;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1.5">
+      <span className={SECTION_HEADING_CLASS}>{title}</span>
+      {error && <span className="text-[var(--color-danger)]">取得失敗: {error}</span>}
+      {version && (
+        <>
+          <span className="font-semibold [overflow-wrap:anywhere]">{version.commit ?? "(ローカル)"}</span>
+          <span className="text-[var(--color-muted)]">起動 {formatIsoJst(version.started_at)}</span>
+          {children}
+        </>
+      )}
+    </div>
+  );
 }
 
 // フロント・バックそれぞれの適用バージョン（commit・起動日時）とバックエンドの外部API
@@ -34,10 +64,7 @@ function formatLastError(error: { type: string; at: string } | null): string {
 export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelProps) {
   const client = getQueryClient();
   const backendQuery = useQuery({ queryKey: ["debug-stats"], queryFn: getDebugStats, enabled: open }, client);
-  const frontendQuery = useQuery(
-    { queryKey: ["frontend-version"], queryFn: getFrontendVersion, enabled: open },
-    client,
-  );
+  const frontendQuery = useQuery({ ...frontendVersionQuery, enabled: open }, client);
   const backend = backendQuery.data ?? null;
   const frontend = frontendQuery.data ?? null;
   const backendError = backendQuery.error && errorMessage(backendQuery.error);
@@ -71,27 +98,10 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
     >
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-1.5">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2">
-          <div className="flex flex-col gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1.5">
-            <span className={cn(textVariants({ variant: "note" }), "tracking-wide uppercase")}>フロントエンド</span>
-            {frontendError && <span className="text-[var(--color-danger)]">取得失敗: {frontendError}</span>}
-            {frontend && (
-              <>
-                <span className="font-semibold [overflow-wrap:anywhere]">{frontend.commit ?? "(ローカル)"}</span>
-                <span className="text-[var(--color-muted)]">起動 {formatStartedAt(frontend.started_at)}</span>
-              </>
-            )}
-          </div>
-          <div className="flex flex-col gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1.5">
-            <span className={cn(textVariants({ variant: "note" }), "tracking-wide uppercase")}>バックエンド</span>
-            {backendError && <span className="text-[var(--color-danger)]">取得失敗: {backendError}</span>}
-            {backend && (
-              <>
-                <span className="font-semibold [overflow-wrap:anywhere]">{backend.commit ?? "(ローカル)"}</span>
-                <span className="text-[var(--color-muted)]">起動 {formatStartedAt(backend.started_at)}</span>
-                <span className="text-[var(--color-muted)]">debug_mode {backend.debug_mode ? "ON" : "OFF"}</span>
-              </>
-            )}
-          </div>
+          <VersionCard title="フロントエンド" error={frontendError} version={frontend} />
+          <VersionCard title="バックエンド" error={backendError} version={backend}>
+            <span className="text-[var(--color-muted)]">debug_mode {backend?.debug_mode ? "ON" : "OFF"}</span>
+          </VersionCard>
         </div>
 
         {backend?.msm && (
@@ -99,9 +109,9 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
             className="flex flex-col gap-1 rounded-sm border border-[var(--color-border)] p-2 data-[healthy=false]:border-[var(--color-danger)]"
             data-healthy={backend.msm.healthy ? "true" : "false"}
           >
-            <span className={cn(textVariants({ variant: "note" }), "tracking-wide uppercase")}>予報（MSM）</span>
+            <span className={SECTION_HEADING_CLASS}>予報（MSM）</span>
             <span className="text-[var(--color-muted)]">
-              最新run {formatStartedAt(backend.msm.last_run_at)}（{backend.msm.run_age_hours}時間前）・ 予報の残り{" "}
+              最新run {formatIsoJst(backend.msm.last_run_at)}（{backend.msm.run_age_hours}時間前）・ 予報の残り{" "}
               {backend.msm.remaining_hours}時間
             </span>
             {!backend.msm.healthy && (
@@ -112,9 +122,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
 
         {externalEntries.length > 0 && (
           <>
-            <div className={cn(textVariants({ variant: "note" }), "mt-1 tracking-wide uppercase")}>
-              外部サービス呼び出しサマリ
-            </div>
+            <div className={cn(SECTION_HEADING_CLASS, "mt-1")}>外部サービス呼び出しサマリ</div>
             <Table>
               <TableHead>
                 <TableRow>

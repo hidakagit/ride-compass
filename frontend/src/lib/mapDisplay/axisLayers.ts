@@ -119,17 +119,20 @@ export interface DedicatedWayValueAxis extends CatalogAxis {
 export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogEntry[]): DedicatedWayValueAxis[] {
   return axes
     .filter((axis) => axis.dedicated_way_value_layer)
-    .map((axis) => ({
-      ...catalogAxisFromEntry(axis),
-      needsTime: axis.dynamic_way_value_conditions.includes("at"),
-      needsBearing: axis.dynamic_way_value_conditions.includes("bearing_deg"),
-      needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
-      undeterminedByBearing: axis.dynamic_way_value_undetermined_by_bearing,
-      display: {
-        kind: axis.map_paint.value.kind,
-        boundaries: axis.map_paint.thresholds,
-        legend: axis.map_paint.legend,
-        bandLabels: axis.map_paint.band_labels ?? undefined,
-      },
-    }));
+    .map((axis) => {
+      const base = catalogAxisFromEntry(axis);
+      return {
+        ...base,
+        needsTime: base.wayValueConditions.includes("at"),
+        needsBearing: base.wayValueConditions.includes("bearing_deg"),
+        needsSpeed: base.wayValueConditions.includes("speed_kmh"),
+        undeterminedByBearing: axis.dynamic_way_value_undetermined_by_bearing,
+        display: {
+          kind: base.mapValueKind,
+          boundaries: axis.map_paint.thresholds,
+          legend: axis.map_paint.legend,
+          bandLabels: axis.map_paint.band_labels ?? undefined,
+        },
+      };
+    });
 }

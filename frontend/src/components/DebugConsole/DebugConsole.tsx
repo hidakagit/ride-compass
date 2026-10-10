@@ -49,7 +49,8 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [visibleEntries]);
 
-  if (!enabled) return null;
+  // 閉じている間は行を組まない（記録のたびに全行の詳細を文字にし直すことになる）。
+  if (!enabled || !open) return null;
 
   return (
     <FloatingPanel

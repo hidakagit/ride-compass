@@ -20,10 +20,6 @@ import { fetchDynamicWayValues, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getQueryClient } from "@/lib/queryClient";
 
-// コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、bearingDeg
-// もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
-// 連続イベント数ぶんのfetchが発生してしまう）。
-
 interface DedicatedWayValuesResult {
   /** feature_key→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま
    * 使える（鍵は路面タイルの`feature_key`と同じ文字列）。nullは、その走行方位では値が決まらない道。 */
@@ -118,6 +114,7 @@ export function useDedicatedWayValues(
   speedKmh: number,
 ): ReadonlyMap<string, DedicatedWayValuesResult> {
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
+  // 向きのスライダーはドラッグ中に連続で変わり、そのまま使うとドラッグ1回で可視タイル数×イベント数の取得になる。
   const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);
   // 想定速度の入力欄も連続入力されるため、向きと同じくデバウンスする。
   const debouncedSpeedKmh = useDebouncedValue(speedKmh, MAP_FETCH_DEBOUNCE_MS);
