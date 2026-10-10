@@ -305,11 +305,7 @@ export default function AxisStudio() {
         </TabsContent>
       </Tabs>
 
-      <Button
-        size="sm"
-        className="self-start font-bold"
-        onClick={() => setComposer({ mode: "new" })}
-      >
+      <Button size="sm" className="self-start font-bold" onClick={() => setComposer({ mode: "new" })}>
         + 新しい軸を作る
       </Button>
 
