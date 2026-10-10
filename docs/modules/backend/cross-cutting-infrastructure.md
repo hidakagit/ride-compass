@@ -146,7 +146,7 @@ FastAPI(lifespan=lifespan)
 `apscheduler.executors.default`へスタックトレース付きのERRORで出す。そのうえで`main.py`の
 `_log_job_failure`（`EVENT_JOB_ERROR`の受け口）が`ridecompass.scheduler`へジョブidと例外を
 1行のWARNINGで出す——APScheduler側の名前は接頭辞`ridecompass.`から外れ、接頭辞単位で
-レベルを絞ると漏れるため（[logging.md](../../../.claude/rules/logging.md)「その他の運用上の注意」）。
+レベルを絞ると漏れるため（接頭辞は`test_canonical_definitions.py: test_loggers_use_the_documented_prefix`が見る）。
 スケジューラも受け口もlifespanの中で作って付けるので、lifespanを通るたびに同じ受け口の付いた新しいスケジューラになる。
 
 ## 1プロセスの境界（`single_process.py`）
@@ -313,7 +313,7 @@ JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測�
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
 `jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
-骨格に無い操作が要るときは骨格へ口を足す（.claude/rules/caching-retention.md「Redisへ持つときは`redis_json_cache`を使う」）。
+骨格に無い操作が要るときは骨格へ口を足す（骨格を呼び出し元へ写すと`test_redis_skeleton.py`が落とす）。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
