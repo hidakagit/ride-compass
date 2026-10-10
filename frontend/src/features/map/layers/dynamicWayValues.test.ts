@@ -28,6 +28,15 @@ describe("tilesCoveringViewport（画面を覆う道路タイル）", () => {
     expect(tiles.at(-1)).toEqual(se);
   });
 
+  // 道路タイルの最小ズーム未満では地図が道を描かないので、引いても塗る先が無く、1回に64枚引いて上限（1分あたり）を使い切る。
+  it.each([
+    [11.9, 0],
+    [12, 1],
+  ])("地図のズーム%sでは、最小ズーム12のタイルを%s枚並べる", (zoom, count) => {
+    const viewport = { west: 139.766, north: 35.682, east: 139.767, south: 35.681, zoom };
+    expect(tilesCoveringViewport(viewport, 12, 16)).toHaveLength(count);
+  });
+
   it("極端に広い画面でも1回に引くタイルは64枚まで", () => {
     const tiles = tilesCoveringViewport({ west: 120, north: 46, east: 150, south: 24, zoom: 12 }, 12, 16);
     expect(tiles).toHaveLength(64);

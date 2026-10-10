@@ -15,7 +15,6 @@
 import argparse
 import asyncio
 import json
-import math
 import os
 import socket
 import subprocess
@@ -24,6 +23,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -111,36 +111,38 @@ async def candidate_points(database_url: str) -> list[tuple[float, float]]:
     return [(float(r["lat"]), float(r["lon"])) for r in rows]
 
 
-def tile_of(z: int, lat: float, lon: float) -> tuple[int, int]:
-    n = 2**z
-    rad = math.radians(lat)
-    return int((lon + 180) / 360 * n), int((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * n)
-
-
-def roads_in_tile(api: str, lat: float, lon: float) -> int:
-    """最大ズームの路面タイルに道が何本出るか。0本の起点ではE2Eの前準備が止まる。"""
+def road_tile_counter(api: str) -> Callable[[float, float], int]:
+    """起点の最大ズームの路面タイルに道が何本出るかを数える関数。0本の起点ではE2Eの前準備が止まる。"""
     import mapbox_vector_tile
+
+    from app.domain.region import tile_position
 
     config = json.loads((WORKTREE / "frontend/src/types/generated/region-tile-config.json").read_text(encoding="utf-8"))
     catalog = json.loads(get(f"{api}/api/axis-catalog") or b"{}")
     version = (catalog.get("tile_versions") or {}).get("road_surface")
     z = int(config["road_tile_max_zoom"])
-    x, y = tile_of(z, lat, lon)
-    body = get(f"{api}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v={version}")
-    if not body:
-        return 0
-    layer = mapbox_vector_tile.decode(body).get(config["road_surface"]["layer_name"]) or {}
-    return len(layer.get("features") or [])
+    layer_name = config["road_surface"]["layer_name"]
+
+    def roads_in_tile(lat: float, lon: float) -> int:
+        x, y = (int(v) for v in tile_position(lon, lat, z))
+        body = get(f"{api}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v={version}")
+        if not body:
+            return 0
+        layer = mapbox_vector_tile.decode(body).get(layer_name) or {}
+        return len(layer.get("features") or [])
+
+    return roads_in_tile
 
 
 def choose_point(api: str, env: dict[str, str], given: str | None) -> str:
+    roads_in_tile = road_tile_counter(api)
     if given:
         lat, lon = (float(v) for v in given.split(","))
-        if not roads_in_tile(api, lat, lon):
+        if not roads_in_tile(lat, lon):
             raise SystemExit(f"起点 {given} の路面タイルに道が無い（開発DBの取込範囲の外）。--point を外すとDBから選ぶ")
         return given
     for lat, lon in asyncio.run(candidate_points(env["DATABASE_URL"])):
-        if roads_in_tile(api, lat, lon):
+        if roads_in_tile(lat, lon):
             return f"{lat:.5f},{lon:.5f}"
     raise SystemExit("開発DBの区間から、路面タイルに道が出る起点を選べなかった（--point で与える）")
 

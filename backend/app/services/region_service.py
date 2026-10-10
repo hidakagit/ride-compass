@@ -6,16 +6,20 @@ from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakd
 from app.domain.route_preference import RoutePreference
 from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.domain.registry import TileKind
-from app.infrastructure.cache_identity import is_known_tile_version
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
 from app.infrastructure.point_tile_layers import PointTileLayer
-from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE, RoadGraphRepository
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME, encode_empty_tile
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
 from app.infrastructure.region_tile_cache import TileResponse, serve_region_tile
 from app.services.dedicated_way_values import DirectionalMaterialService
-from app.services.tile_version_service import current_tile_versions, prune_other_tile_generations, served_tile_version
+from app.services.tile_version_service import (
+    TILE_SHAPES,
+    current_tile_versions,
+    prune_other_tile_generations,
+    served_tile_version,
+)
 
 # z・x・yとその範囲（経度・緯度）から、PostGISが生成したタイル1枚を返す読み出し。
 _TileReader = Callable[[int, int, int, BoundingBox], Awaitable[bytes | None]]
@@ -51,33 +55,11 @@ class RegionService:
         （`services/tile_version_service.py`）。"""
         return await prune_other_tile_generations(self._repository)
 
-    async def _tile_from_repository(
-        self, read_tile: _TileReader, z: int, x: int, y: int, fields: dict
-    ) -> bytes | None:
-        """PostGIS側（ST_AsMVT）でタイル1枚分のMVTを丸ごと生成する。
-
-        `read_tile`は「カバレッジ外はNone・カバレッジ内0件は空バイト列」という契約を
-        満たすこと。DB障害もNoneへ倒し、PostGIS停止時も地図表示全体を落とさない。
-        """
-        try:
-            # カバレッジ判定（取込の宣言した範囲か）はMVT生成と同じ1クエリへ畳み込まれて
-            # いる（DBの往復1回分を節約。repository側のdocstring参照）。
-            tile_bytes = await read_tile(z, x, y, tile_bounds_lonlat(z, x, y))
-        except DB_UNAVAILABLE_ERRORS as exc:
-            mark_failed(fields, exc)
-            return None
-        if tile_bytes is None:
-            fields["postgis"] = "uncovered"
-            return None
-        fields["postgis"] = "hit"
-        return tile_bytes
-
     async def _get_tile(
         self,
         *,
         read_tile: _TileReader,
         kind: TileKind,
-        shape: str,
         empty_tile: bytes,
         external_call_name: str,
         label: str,
@@ -86,20 +68,32 @@ class RegionService:
         y: int,
     ) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
-            postgis_tile = await self._tile_from_repository(read_tile, z, x, y, fields)
-            if postgis_tile is None and fields.get("result") != "error":
-                # 失敗のときに出さないのは、「取込範囲外」という表記がDB障害には当てはまらず、
-                # かつその失敗は記録の口が抜けるときにWARNINGで出すため。
+            """PostGIS側（ST_AsMVT）でタイル1枚分のMVTを丸ごと生成する。
+
+            `read_tile`は「カバレッジ外はNone・カバレッジ内0件は空バイト列」という契約を
+            満たすこと。DB障害もNoneへ倒し、PostGIS停止時も地図表示全体を落とさない。
+            """
+            try:
+                # カバレッジ判定（取込の宣言した範囲か）はMVT生成と同じ1クエリへ畳み込まれて
+                # いる（DBの往復1回分を節約。repository側のdocstring参照）。
+                tile_bytes = await read_tile(z, x, y, tile_bounds_lonlat(z, x, y))
+            except DB_UNAVAILABLE_ERRORS as exc:
+                # 「取込範囲外」のWARNINGは出さない——その表記はDB障害に当てはまらず、失敗は記録の口が抜けるときに出る。
+                mark_failed(fields, exc)
+                return None
+            if tile_bytes is None:
+                fields["postgis"] = "uncovered"
                 log_throttled_warning(
                     f"{external_call_name}-uncovered", "[%s] %sタイルがPostGIS取込範囲外 z=%d x=%d y=%d",
                     external_call_name, label, z, x, y,
                 )
-            return postgis_tile
+                return None
+            fields["postgis"] = "hit"
+            return tile_bytes
 
-        version = await served_tile_version(self._repository, shape)
         return await serve_region_tile(
             kind=kind,
-            generation=version,
+            generation=await served_tile_version(self._repository, TILE_SHAPES[kind]),
             z=z,
             x=x,
             y=y,
@@ -108,15 +102,12 @@ class RegionService:
             content_type=MVT_CONTENT_TYPE,
             external_call_name=external_call_name,
             fetch_tile=fetch_tile,
-            # 世代を読めていない間はディスクへ残さない（`serve_region_tile`のdocstring参照）。
-            persist=is_known_tile_version(version),
         )
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
             read_tile=self._repository.get_road_surface_tile_mvt,
             kind="road_surface",
-            shape=ROAD_SURFACE_TILE_SHAPE,
             empty_tile=encode_empty_tile(ROAD_SURFACE_LAYER_NAME),
             external_call_name="region:road-surface-tile",
             label="路面",
@@ -130,7 +121,6 @@ class RegionService:
         return await self._get_tile(
             read_tile=partial(self._repository.get_tile_mvt, layer.sql, layer.source_layer),
             kind=layer.name,
-            shape=layer.shape,
             empty_tile=encode_empty_tile(layer.source_layer),
             external_call_name=f"region:{layer.name}-tile",
             label=layer.name,

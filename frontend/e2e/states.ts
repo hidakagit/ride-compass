@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { catalogEntry } from "@/testing/catalogAxes";
 import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
 import {
+  API_BASE,
   MOBILE_VIEWPORT,
   axisCatalogFixture,
   clickMap,
@@ -282,7 +283,6 @@ export async function generate(page: Page, width: WidthName): Promise<void> {
 
 // 乗り換え後の段階の段取り。目的地へ向かう2候補が途中の1区間だけ別の道（N1 → VIA → N2）を通り、その区間が乗り換え先になる。
 // 地点は出発地（installApiMocks の現在地）の近くに置く。
-const API_BASE = "http://localhost:8000";
 const SPLICE_PLACES: Places = {
   S: [139.7387, 35.7597],
   N1: [139.7406, 35.7604],
@@ -426,6 +426,11 @@ export async function traverse(
     return settle(page);
   };
   const center = (n: number) => page.evaluate((n) => window.__e2e.center(n), n);
+  const pressOrEscape = async (spot: Spot | null) => {
+    if (spot?.pressable) return press(spot);
+    await page.keyboard.press("Escape");
+    return settle(page);
+  };
 
   const visit = async (path: string, ancestors: string[], entered: string) => {
     states += 1;
@@ -445,13 +450,7 @@ export async function traverse(
       const opened = await press(spot);
       if (opened === base) continue;
       await visit(`${path} > ${opener.label}`, next, opened);
-      const self = await center(opener.id);
-      let back: string;
-      if (self?.pressable) back = await press(self);
-      else {
-        await page.keyboard.press("Escape");
-        back = await settle(page);
-      }
+      const back = await pressOrEscape(await center(opener.id));
       if (back !== base)
         problems.push(`閉じても元に戻らない: ${path} > ${opener.label}（${describeDiff(base, back)}）`);
     }
@@ -474,13 +473,7 @@ export async function traverse(
         problems.push(`選ばれていたタブが無く、タブ列を元へ戻せない: ${path}`);
         continue;
       }
-      const spot = await center(restoreId);
-      let back: string;
-      if (spot?.pressable) back = await press(spot);
-      else {
-        await page.keyboard.press("Escape");
-        back = await settle(page);
-      }
+      const back = await pressOrEscape(await center(restoreId));
       if (back !== base) problems.push(`元のタブへ戻せない: ${path}（${describeDiff(base, back)}）`);
     }
   };

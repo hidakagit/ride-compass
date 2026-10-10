@@ -19,6 +19,8 @@
 
 from pathlib import Path
 
+from app.batch.common import FETCH_PART_SUFFIX
+
 TILE_ROOT = Path(__file__).resolve().parents[2] / "data" / "dem"
 
 TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{product}_png/{z}/{x}/{y}.png"
@@ -61,7 +63,7 @@ def write_tile(root: Path, product: str, zoom: int, x: int, y: int, content: byt
     """一時ファイルへ書いてから移す。半端なファイルが「取得済み」に見えないように。"""
     path = tile_path(root, product, zoom, x, y)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".part")
+    temporary = path.with_name(path.name + FETCH_PART_SUFFIX)
     temporary.write_bytes(content)
     temporary.replace(path)
 

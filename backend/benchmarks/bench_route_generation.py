@@ -34,6 +34,9 @@ from datetime import datetime
 from app.api.dependencies import get_route_generation_setup_opener
 from app.batch.common import asyncpg_dsn
 from app.config import settings
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
+from app.infrastructure.database import get_session_factory
+from app.services.axis_registry_service import refresh_axis_definitions
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
@@ -41,7 +44,6 @@ from app.domain.route_request import ASSUMED_SPEED_KMH
 from app.domain.route_request import DEFAULT_MAX_ROUTES
 from benchmarks._resources import sample_resources
 from benchmarks.revision import announce_revision
-from benchmarks._route_generation_service import refresh_axis_registry
 
 #: 段の所要を出しているロガー。ここが出す`key=value`を拾う。
 STAGE_LOGGERS = ("ridecompass.graph", "ridecompass.route_generator", "ridecompass.generate")
@@ -138,7 +140,9 @@ async def main() -> int:
     print(f"\n=== {label} / {origin.latitude},{origin.longitude} / {distance_km}km / {runs}回 ===")
     records: list[dict[str, object]] = []
 
-    await refresh_axis_registry()
+    # 軸レジストリを読む前に組み立てると、既定の重みが空になる。
+    async with get_session_factory()() as axis_session:
+        await refresh_axis_definitions(AxisDefinitionRepository(axis_session))
     # 評価条件を省いた生成の要求と、画面の既定の除外で組む。
     async with get_route_generation_setup_opener()(
         preference_override=None, penalty_strength=None, max_average_grade_percent=None,

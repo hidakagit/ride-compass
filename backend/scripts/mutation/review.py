@@ -17,9 +17,9 @@
 - 低い高さから順に、同じ高さ以下の残すテストで見つからない変異を多く見つける順に残し、何も足さないものを候補にする。
 - 消すのはテスト関数ごと: パラメータの組の1つでも残すなら、その関数は候補にしない。
 """
-import ast
 import collections
 import configparser
+import functools
 import glob
 import hashlib
 import heapq
@@ -28,8 +28,8 @@ import os
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from importtime import called_at_import, is_import_time  # noqa: E402
+from _shared import def_lines, fn_of
+from importtime import called_at_import, is_import_time
 
 ART, PREV, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 SCAFFOLD_TESTS = 200
@@ -43,10 +43,6 @@ tbf = {k: set(v) for k, v in json.load(open(os.path.join(shard, "mutmut-stats.js
        ["tests_by_mangled_function_name"].items()}
 found = {t: set(v) for t, v in pertest["found"].items()}
 baseline_failed = {t for v in pertest["baseline_failed"].values() for t in v}
-
-
-def fn_of(m):
-    return m.partition("__mutmut_")[0]
 
 
 def key_of(nodeid):
@@ -143,11 +139,15 @@ kept_found_by_height: dict[int, set[str]] = collections.defaultdict(set)
 for t in kept:
     if heights.get(t) is not None:
         kept_found_by_height[heights[t]] |= found[t]
+kept_found_at_or_below: dict[int, set[str]] = {}
+below: set[str] = set()
+for h in sorted(set(kept_found_by_height) | {v for v in heights.values() if v is not None}):
+    below = below | kept_found_by_height.get(h, set())
+    kept_found_at_or_below[h] = below
 violations = []
 for k in cand_keys:
     for t in by_key[k]:
-        below = set().union(*(v for h, v in kept_found_by_height.items() if h <= heights[t]))
-        if not found[t] <= below:
+        if not found[t] <= kept_found_at_or_below[heights[t]]:
             violations.append(t)
 if violations:
     raise SystemExit(f"低い方に残すの確かめに反する候補 {len(violations)} 件: {violations[:5]}")
@@ -158,26 +158,17 @@ for t in sorted(kept):
         finders_kept[m].append(t)
 
 
+@functools.cache
 def source_of(key):
     """テスト関数の中身（デコレータから）のハッシュと行数。"""
     path, _, name = key.partition("::")
     try:
-        tree = ast.parse(open(path, encoding="utf-8").read())
+        lines = def_lines(path, name)
     except OSError:
         return None, 0
-    body = tree.body
-    parts = name.split("::")
-    for i, p in enumerate(parts):
-        node = next((n for n in body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                     and n.name == p), None)
-        if node is None:
-            return None, 0
-        if i == len(parts) - 1:
-            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-            lines = open(path, encoding="utf-8").read().splitlines()[start - 1:node.end_lineno]
-            return hashlib.sha1("\n".join(lines).encode()).hexdigest()[:12], len(lines)
-        body = node.body
-    return None, 0
+    if lines is None:
+        return None, 0
+    return hashlib.sha1("\n".join(lines).encode()).hexdigest()[:12], len(lines)
 
 
 candidates = {}

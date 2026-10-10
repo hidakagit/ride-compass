@@ -1,7 +1,7 @@
 """`app/domain/routing.py`——Road Graphのトポロジと計算済みEdge Costだけで経路を探す層。
 
 見るもの: 探索用グラフ・CSR・ターンの遷移と秒の組み立て、一対全の木と2点間探索の結果（コスト・時刻ビン・
-経路の復元）、木の繋ぎ目、候補の間引き（パレートの層・重複率）、最近傍のノード、探索のJITの型。
+経路の復元）、木の繋ぎ目、候補の間引き（パレートの層・重複率）、最近傍のノード、置いた点を寄せてよいノード、探索のJITの型。
 
 ここで見ないもの:
 - Edge Costの中身（勾配・路面・風がどう秒へ化けるか） → `domain/evaluation.py`側
@@ -24,6 +24,8 @@ from typing import NamedTuple
 import numba
 import numpy as np
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from numba.core import event
 from numba.core.registry import CPUDispatcher
 
@@ -558,6 +560,34 @@ def test_nearest_node_is_the_closest_candidate_by_great_circle_distance(span_deg
         for mask in (candidates, candidates & allowed):
             expected = int(np.flatnonzero(mask)[np.argmin(distances[mask])])
             assert routing.find_nearest_node_indexed(index, point, None if mask is candidates else allowed) == expected
+
+
+# --- largest_strongly_connected_nodes ---
+
+
+@given(st.integers(1, 7).flatmap(lambda n: st.tuples(
+    st.just(n), st.lists(st.tuples(st.integers(0, n - 1), st.integers(0, n - 1), st.booleans()), min_size=1, max_size=20),
+)))
+def test_largest_strongly_connected_nodes_are_the_biggest_set_that_reach_each_other(graph):
+    """置いた点を寄せてよいNodeは、通れる区間だけで互いに行き来できる一番大きな集まり。外れると、出られない・戻れない
+    Nodeへ寄せた出発地・経由地から候補が出ないか、行き来できるNodeを寄せ先から外して遠くへ寄せる。
+    比べる相手は、到達の推移閉包から作った互いに届くNodeの集まり（同じ大きさが並べば、どれか1つ）。"""
+    node_count, edges = graph
+    lazy = routing.build_lazy_road_graph(
+        np.array([tail for tail, _, _ in edges]), np.array([head for _, head, _ in edges]), node_count)
+    passable = np.array([edges[row][2] for row in lazy.edge_rows], dtype=bool)
+    statics = routing.build_search_graph_statics(lazy, np.ones(len(edges)))
+
+    found = routing.largest_strongly_connected_nodes(statics.csr, passable)
+
+    reach = np.eye(node_count, dtype=bool)
+    reach[lazy.edge_from[passable], lazy.edge_to[passable]] = True
+    for middle in range(node_count):
+        reach |= reach[:, [middle]] & reach[[middle], :]
+    mutual = reach & reach.T
+    groups = {frozenset(np.flatnonzero(mutual[node]).tolist()) for node in range(node_count)}
+    largest = max(len(group) for group in groups)
+    assert frozenset(np.flatnonzero(found).tolist()) in {group for group in groups if len(group) == largest}
 
 
 # --- edge_bearings ---

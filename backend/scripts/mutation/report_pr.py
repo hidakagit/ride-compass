@@ -14,11 +14,11 @@
 import ast
 import collections
 import difflib
-import glob
 import json
 import os
 import sys
 
+from _shared import fn_of, read_kills
 from diff_scope import changed_lines
 
 OUT = os.environ["MUT_OUT"]
@@ -27,16 +27,7 @@ base = sys.argv[1]
 scope = json.load(open(os.path.join(OUT, "scope.json"), encoding="utf-8"))
 results = [json.loads(line) for line in open(os.path.join(OUT, "results.jsonl"), encoding="utf-8")] \
     if os.path.exists(os.path.join(OUT, "results.jsonl")) else []
-kills: dict[str, set[str]] = collections.defaultdict(set)
-for f in glob.glob(os.path.join(OUT, "kills", "*.tsv")):
-    for line in open(f, encoding="utf-8"):
-        m, t, _w = line.rstrip("\n").split("\t")
-        kills[m].add(t)
-
-
-def fn_of(m):
-    return m.partition("__mutmut_")[0]
-
+kills = read_kills(OUT)
 
 base_fail: dict[str, set[str]] = collections.defaultdict(set)
 for name, tests in kills.items():
@@ -87,28 +78,29 @@ def mutation_line(mutant):
     """書き換えた行の（今の版のファイルの行番号, 元の行, 書き換えた行）。見つからなければ None。"""
     path = file_of(mutant)
     short = mutant.rsplit(".", 1)[1]
-    orig_name = fn_of(short) + "__mutmut_orig"
+    fn = fn_of(short)
+    orig_name = fn + "__mutmut_orig"
     msrc, mtree = parsed(os.path.join("mutants", path))
     orig, mut = find(mtree.body, orig_name), find(mtree.body, short)
     if orig is None or mut is None:
         return None
     o = (ast.get_source_segment(msrc, orig) or "").split("\n")
     n = (ast.get_source_segment(msrc, mut) or "").replace(short, orig_name, 1).split("\n")
-    for tag, i1, _i2, j1, _j2 in difflib.SequenceMatcher(None, o, n).get_opcodes():
-        if tag != "equal":
-            fn = fn_of(short)
-            _src, tree = parsed(path)
-            if "ǁ" in fn:  # xǁクラスǁメソッド: そのクラスの中だけを探す（同じ名前のメソッドを別のクラスが持ちうる）
-                _x, cls, method = fn.split("ǁ")
-                owner = next((c for c in tree.body if isinstance(c, ast.ClassDef) and c.name == cls), None)
-                real = find(owner.body, method) if owner else None
-            else:
-                real = next((f for f in tree.body if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
-                             and f.name == fn[2:]), None)
-            if real is None:
-                return None
-            return real.lineno + i1, o[i1].strip() if i1 < len(o) else "", n[j1].strip() if j1 < len(n) else ""
-    return None
+    first = next((op for op in difflib.SequenceMatcher(None, o, n).get_opcodes() if op[0] != "equal"), None)
+    if first is None:
+        return None
+    _tag, i1, _i2, j1, _j2 = first
+    _src, tree = parsed(path)
+    if "ǁ" in fn:  # xǁクラスǁメソッド: そのクラスの中だけを探す（同じ名前のメソッドを別のクラスが持ちうる）
+        _x, cls, method = fn.split("ǁ")
+        owner = next((c for c in tree.body if isinstance(c, ast.ClassDef) and c.name == cls), None)
+        real = find(owner.body, method) if owner else None
+    else:
+        real = next((f for f in tree.body if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and f.name == fn[2:]), None)
+    if real is None:
+        return None
+    return real.lineno + i1, o[i1].strip() if i1 < len(o) else "", n[j1].strip() if j1 < len(n) else ""
 
 
 def escape(s):
@@ -118,17 +110,18 @@ def escape(s):
 diff = changed_lines(base)
 rows, notes, noted_lines = [], 0, set()
 for m in sorted(survivors):
+    path = file_of(m)
     where = mutation_line(m)
     if where is None:
-        rows.append((file_of(m), "", fn_of(m), "（書き換えた行を読めなかった）", False))
+        rows.append((path, "", fn_of(m), "（書き換えた行を読めなかった）", False))
         continue
     line, old, new = where
-    on_diff = line in diff.get(file_of(m), set())
-    rows.append((file_of(m), line, fn_of(m), f"`{old}` → `{new}`", on_diff))
-    if on_diff and (file_of(m), line) not in noted_lines and notes < MAX_NOTES:
-        noted_lines.add((file_of(m), line))
+    on_diff = line in diff.get(path, set())
+    rows.append((path, line, fn_of(m), f"`{old}` → `{new}`", on_diff))
+    if on_diff and (path, line) not in noted_lines and notes < MAX_NOTES:
+        noted_lines.add((path, line))
         notes += 1
-        print(f"::warning file=backend/{file_of(m)},line={line},title=テストが気づかない書き換え::"
+        print(f"::warning file=backend/{path},line={line},title=テストが気づかない書き換え::"
               + escape(f"この行を「{new}」に書き換えても、この関数を通るテストが全部通った（元: {old}）"))
 
 lines = ["## 変えた関数の変異テスト", "",

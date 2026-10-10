@@ -23,6 +23,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows, copy_reused_sql, reused_edges_sql
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.attributes import elevation_values_sql
 from app.domain.region import tile_position_sql
@@ -105,30 +106,13 @@ FROM ({elevation_values_sql(_VERTEX_ELEVATIONS)}) v
 
 
 def _reused_edges_sql(previous: str | None) -> str:
-    """前回の値を写す区間。同じ形とみなすのは、鍵が同じで座標とその並びも同じ区間だけ（`=`。`ST_Equals`のように
-    形を幾何として比べる計算をしない）。前回に行の無かった区間は、橋かトンネルかが変わっても今回も行を持たない
-    ——行が出るかは値のある頂点の数だけで決まる。"""
+    """前回の値を写す区間。形に加えて、橋かトンネルかも前回と同じ区間だけを写す。前回に行の無かった区間は、
+    橋かトンネルかが変わっても今回も行を持たない——行が出るかは値のある頂点の数だけで決まる。"""
     if previous is None:
-        return "CREATE TEMP TABLE _reused ON COMMIT DROP AS SELECT osm_way_id, segment_index FROM _shape WHERE false"
-    return f"""
-CREATE TEMP TABLE _reused ON COMMIT DROP AS
-SELECT s.osm_way_id, s.segment_index
-FROM _shape s JOIN {previous}.road_edges p
-  ON p.osm_way_id = s.osm_way_id AND p.segment_index = s.segment_index AND p.geom = s.geom
-LEFT JOIN {previous}.edge_elevation v
+        return reused_edges_sql(None, "_shape")
+    return reused_edges_sql(previous, "_shape", f"""LEFT JOIN {previous}.edge_elevation v
   ON v.osm_way_id = s.osm_way_id AND v.segment_index = s.segment_index
-WHERE v.osm_way_id IS NULL OR v.on_structure = s.on_structure
-"""
-
-
-def _copy_reused_sql(previous: str) -> str:
-    columns = ", ".join(_ELEVATION_COLUMNS)
-    return f"""
-INSERT INTO edge_elevation (osm_way_id, segment_index, {columns})
-SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in _ELEVATION_COLUMNS)}
-FROM _reused r JOIN {previous}.edge_elevation p
-  ON p.osm_way_id = r.osm_way_id AND p.segment_index = r.segment_index
-"""
+WHERE v.osm_way_id IS NULL OR v.on_structure = s.on_structure""")
 
 
 async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int]]:
@@ -164,7 +148,7 @@ async def _derive_elevation(conn: asyncpg.Connection, previous: str | None) -> N
     await conn.execute("ANALYZE _reused")
     reused = await conn.fetchval("SELECT count(*) FROM _reused")
     if previous is not None:
-        await conn.execute(_copy_reused_sql(previous))
+        await conn.execute(copy_reused_sql("edge_elevation", _ELEVATION_COLUMNS, previous))
     logger.info("標高: 形と橋・トンネルの変わらない区間 %d本へ前回の値を写し、%d本を計算する", reused, edges - reused)
     await conn.execute(_VERTICES)
     await conn.execute("ANALYZE _vertex")
@@ -172,14 +156,12 @@ async def _derive_elevation(conn: asyncpg.Connection, previous: str | None) -> N
     vertices = await conn.fetchval("SELECT count(*) FROM _vertex")
     remaining = vertices
     for product, zoom in products:
-        filled = int((await conn.execute(_FILL_FROM_PRODUCT, product, zoom)).split()[-1])
+        filled = affected_rows(await conn.execute(_FILL_FROM_PRODUCT, product, zoom))
         remaining -= filled
         logger.info("標高: %s（z%d）で頂点 %d点に値が付いた / 残り %d/%d点",
                     product, zoom, filled, remaining, vertices)
         await conn.execute("ANALYZE _vertex_elev")
-    updated = int((await conn.execute(_INSERT_ELEVATION)).split()[-1])
-    for table in ("_vertex_elev", "_vertex", "_reused", "_shape"):
-        await conn.execute(f"DROP TABLE {table}")
+    updated = affected_rows(await conn.execute(_INSERT_ELEVATION))
 
     logger.info("標高: 計算した区間 %d/%d本に値が付いた / %.1f秒",
                 updated, edges - reused, time.perf_counter() - started)

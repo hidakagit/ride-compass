@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installApiMocks, openMobileApp, openMobileSheet, seedStoredState } from "./fixtures";
+import { INTRO_CLOSED, installApiMocks, openMobileApp, openMobileSheet, seedStoredState } from "./fixtures";
 import { WIDTHS } from "./states";
 
 // 地図の右の列（拡大・縮小から、現在地まで）のボタンが、ほかの部品の下に潜らず押せ、継ぎ目の間隔が揃うこと（パターン4 観点1）。
@@ -66,7 +66,7 @@ test("スマホ: ルート設定のシートを開いても、地図の右の列
 test("PC: 地図の右の列のボタンはほかの部品の下に潜らず、継ぎ目の間隔が揃う", async ({ page }) => {
   await installApiMocks(page);
   await page.setViewportSize(WIDTHS.desktop);
-  await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true" });
+  await seedStoredState(page, INTRO_CLOSED);
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
   await expectColumnSound(page);

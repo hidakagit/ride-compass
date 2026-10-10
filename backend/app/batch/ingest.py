@@ -206,8 +206,11 @@ async def _close_run(conn: asyncpg.Connection, run_id: int, status: SourceRunSta
     )
 
 
+_JSON = json.JSONEncoder(ensure_ascii=False, default=str)
+
+
 def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, default=str)
+    return _JSON.encode(value)
 
 
 def _source_dict(spec: SourceSpec) -> dict[str, Any]:
@@ -275,12 +278,14 @@ async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name:
             yield (record.natural_key, record.geom_wkb, _json(record.attrs),
                    record.payload, record.rast)
 
+    def counts(elapsed: float) -> dict[str, Any]:
+        return {"records": written, "elapsed_seconds": round(elapsed, 1)}
+
     try:
         async with conn.transaction():
             locked_at = await _replace_rows(conn, spec.name, run_id, rows())
             elapsed = time.perf_counter() - started
-            await _close_run(conn, run_id, SourceRunStatus.SUCCEEDED,
-                             {"records": written, "elapsed_seconds": round(elapsed, 1)},
+            await _close_run(conn, run_id, SourceRunStatus.SUCCEEDED, counts(elapsed),
                              {**origin, INPUT_FINGERPRINT: fingerprint})
         locked = time.perf_counter() - locked_at
     except BaseException:
@@ -288,8 +293,7 @@ async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name:
         logger.warning("取込失敗: source=%s run_id=%d records=%d elapsed=%.1fs",
                        spec.name, run_id, written, elapsed)
         try:
-            await _close_run(conn, run_id, SourceRunStatus.FAILED,
-                             {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
+            await _close_run(conn, run_id, SourceRunStatus.FAILED, counts(elapsed), origin)
         except Exception:
             logger.warning("取込の失敗をrunへ書けなかった（runは running のまま残る）: run_id=%d",
                            run_id, exc_info=True)

@@ -165,7 +165,7 @@ def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
             {
                 **axis.model_dump(exclude={"categories", "palette", "hue_slot", "tone"}),
                 "categories": [
-                    c.model_dump(exclude_none=True) if color is None else {**c.model_dump(exclude_none=True), "color": color}
+                    {**c.model_dump(exclude_none=True), **({} if color is None else {"color": color})}
                     for c, color in zip(axis.categories, colors, strict=True)
                 ],
             }

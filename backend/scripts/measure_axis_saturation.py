@@ -62,19 +62,21 @@ Row = tuple[float, float, object]
 Cause = Literal["breakpoints", "single_value"]
 
 
-def share_at_or_above(pairs: list[tuple[float, float]], threshold: float) -> float:
-    """値が`threshold`以上である延長の割合。"""
+def _length_share(pairs: list[tuple[float, float]], in_band: Callable[[float], bool]) -> float:
+    """値が`in_band`に入る延長の割合。"""
     total_m = sum(m for m, _ in pairs)
     if total_m <= 0:
         return 0.0
-    return sum(m for m, value in pairs if value >= threshold) / total_m
+    return sum(m for m, value in pairs if in_band(value)) / total_m
+
+
+def share_at_or_above(pairs: list[tuple[float, float]], threshold: float) -> float:
+    """値が`threshold`以上である延長の割合。"""
+    return _length_share(pairs, lambda value: value >= threshold)
 
 
 def share_at_or_below(pairs: list[tuple[float, float]], threshold: float) -> float:
-    total_m = sum(m for m, _ in pairs)
-    if total_m <= 0:
-        return 0.0
-    return sum(m for m, value in pairs if value <= threshold) / total_m
+    return _length_share(pairs, lambda value: value <= threshold)
 
 
 def largest_single_input_share(rows: list[Row], in_band: Callable[[float], bool] = lambda _: True) -> float:
@@ -93,12 +95,12 @@ def saturation_cause(rows: list[Row]) -> Cause | None:
     """張り付いていなければNone。張り付いた側の割合を1つの値だけで超えるなら`single_value`
     （同じ値の道はどの折れ点でも同じ難易度になり、散らない）、そうでなければ`breakpoints`。"""
     pairs = [(m, score) for m, score, _ in rows]
-    bands: list[tuple[float, Callable[[float], bool], float]] = [
-        (share_at_or_above(pairs, SATURATION_THRESHOLD), lambda s: s >= SATURATION_THRESHOLD, SATURATED_SHARE),
-        (share_at_or_below(pairs, FLOOR_THRESHOLD), lambda s: s <= FLOOR_THRESHOLD, FLOORED_SHARE),
+    bands: list[tuple[Callable[[float], bool], float]] = [
+        (lambda s: s >= SATURATION_THRESHOLD, SATURATED_SHARE),
+        (lambda s: s <= FLOOR_THRESHOLD, FLOORED_SHARE),
     ]
-    for share, in_band, limit in bands:
-        if share >= limit:
+    for in_band, limit in bands:
+        if _length_share(pairs, in_band) >= limit:
             return "single_value" if largest_single_input_share(rows, in_band) >= limit else "breakpoints"
     return None
 
@@ -121,7 +123,8 @@ async def run(
         print("サンプルが0件でした（道の生データが未取込か、--bboxの範囲に道が無い可能性）")
         return 1
 
-    total_km = sum(m for m, _ in sample) / 1000.0
+    sample_m = sum(m for m, _ in sample)
+    total_km = sample_m / 1000.0
     scope = (
         f"TABLESAMPLE {sample_percent}%"
         if bbox is None
@@ -156,7 +159,7 @@ async def run(
         rows = by_axis.get(axis_id, [])
         pairs = [(m, score) for m, score, _ in rows]
         evaluated_m = sum(m for m, _ in pairs)
-        evaluated_share = evaluated_m / sum(m for m, _ in sample)
+        evaluated_share = evaluated_m / sample_m
         if not pairs:
             print(f"{axis_id:<28} {'0.0%':>7}  （全区間で材料が欠損）")
             continue

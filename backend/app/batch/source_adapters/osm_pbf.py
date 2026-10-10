@@ -63,6 +63,10 @@ class OsmWayRows:
             raise SourceProfileError(
                 f"rows.any_of の条件はどれも {WAY_KIND_TAG} を含む必要があります（含まない条件: {lacking}）")
 
+    def matches(self, tags: dict[str, str]) -> bool:
+        """wayを採るか。"""
+        return any(_matches(tags, rule) for rule in self.any_of)
+
 
 @dataclass(frozen=True)
 class OsmNodeRows:
@@ -88,15 +92,6 @@ def _matches(tags: dict[str, str], rule: dict[str, Any]) -> bool:
         if value not in allowed:
             return False
     return True
-
-
-def _way_matcher(rows: OsmWayRows):
-    """`rows`から、wayを採るかどうかの判定を組み立てる。"""
-
-    def matches(tags: dict[str, str]) -> bool:
-        return any(_matches(tags, rule) for rule in rows.any_of)
-
-    return matches
 
 
 def _pbf_path(rows: OsmWayRows) -> Path:
@@ -151,7 +146,9 @@ class _Handoff:
             self.queue.put(self._batch)
             self._batch = []
 
-    def run(self, work) -> threading.Thread:
+    async def stream(self, work) -> AsyncIterator[SourceRecord]:
+        """`work`を別スレッドで流し、積まれたものを順に返す。"""
+
         def body() -> None:
             try:
                 work(self)
@@ -163,9 +160,6 @@ class _Handoff:
 
         thread = threading.Thread(target=body, daemon=True)
         thread.start()
-        return thread
-
-    async def drain(self, thread: threading.Thread) -> AsyncIterator[SourceRecord]:
         loop = asyncio.get_running_loop()
         try:
             while True:
@@ -186,10 +180,9 @@ def _pbf_origin(path: Path) -> dict[str, Any]:
     取れたときだけ入れる。"""
     origin: dict[str, Any] = file_origin(path)
     try:
-        import osmium
+        from app.batch.pbf_source import replication_timestamp
 
-        header = osmium.io.Reader(str(path)).header()
-        stamp = header.get("osmosis_replication_timestamp")
+        stamp = replication_timestamp(path)
         if stamp:
             origin["replication_timestamp"] = stamp
     except Exception:  # noqa: BLE001 出所の付帯情報が取れないだけで取込は続ける
@@ -208,7 +201,6 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
 
     path = _pbf_path(spec.rows)
     origin.update(_pbf_origin(path))
-    matches = _way_matcher(spec.rows)
     target = profile.target
     logger.info("OSM way: %s", path.name)
 
@@ -234,10 +226,9 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
                 payload=way_payload(node_ids),
             ))
 
-        stream_ways(path, matches, sink)
+        stream_ways(path, spec.rows.matches, sink)
 
-    handoff = _Handoff()
-    async for record in handoff.drain(handoff.run(work)):
+    async for record in _Handoff().stream(work):
         yield record
     if incomplete:
         logger.warning("参照ノードの座標が欠けて取り込まなかったway: %d件", incomplete)
@@ -275,7 +266,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
     way_rows = _referenced_way_rows(spec, profile)
     path = _pbf_path(way_rows)
     origin.update(_pbf_origin(path))
-    road_matches = _way_matcher(way_rows)
+    road_matches = way_rows.matches
     logger.info("OSM node: %s（%s の頂点%s）", path.name, referenced_by,
                 "と補給・休憩の点" if standalone else "")
 
@@ -325,6 +316,5 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
 
         stream_ways(path, way_matches, sink, node_sink=node_sink)
 
-    handoff = _Handoff()
-    async for record in handoff.drain(handoff.run(work)):
+    async for record in _Handoff().stream(work):
         yield record

@@ -144,15 +144,8 @@ def _restore(client: httpx.Client, original: Definition) -> None:
     """元の定義へ戻す。戻せなければ、手で戻すための定義を添えて止まる。"""
     axis_id = original["axis_id"]
     try:
-        now = read_current(client, axis_id)
-        if now == original:
-            return
-        if now is None:
-            _request(client, "POST", ADMIN_PATH, original)
-            return
-        if now["is_published"]:
-            _request(client, "POST", f"{ADMIN_PATH}/{axis_id}/unpublish")
-        _request(client, "PUT", f"{ADMIN_PATH}/{axis_id}", original)
+        for step in plan(axis_id, read_current(client, axis_id), original):
+            _request(client, step.method, step.path, step.body)
     except AxisApplyError as error:
         raise AxisApplyError(
             f"元の定義へ戻せませんでした（{error}）。本番の軸 {axis_id} を次の定義へ手で戻してください:\n"

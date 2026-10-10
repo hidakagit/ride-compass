@@ -1,4 +1,5 @@
-"""立ち寄り先（食べる・飲む・入浴・自転車・景色・名所・泊まる・コンビニ・寺社）の群と、地点を群へ入れる判断。
+"""立ち寄り先（食べる・飲む・入浴・自転車・景色・名所・泊まる・コンビニ・寺社）の群と、地点を群へ入れる判断・地点の検索で
+打った語を群として読む判断。
 
 地点の生データの列の読み替えは`infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`・`BUNKA_HERITAGES_SOURCE_SQL`
 が持ち、ここへは読み替えた列で届く。群へ入れ、近くの同じ店をまとめるのは派生の段（`batch/derive_stop_places.py`）で、
@@ -9,9 +10,12 @@
 補給の点のコンビニは、群「コンビニ」の行から出す（`infrastructure/point_tile_layers.py`の`poi`）。
 """
 
+import re
+import unicodedata
 from enum import StrEnum
 
 from app.domain.address_area import HYPHEN_CHARACTERS
+from app.domain.material_sql import sql_literals
 
 
 class StopPlaceGroup(StrEnum):
@@ -43,6 +47,41 @@ OVERTURE_GROUP_WORDS: tuple[tuple[StopPlaceGroup, frozenset[str]], ...] = (
         "hotel", "hostel", "inn", "bed_and_breakfast", "campground", "resort", "lodge", "cabin", "cottage"})),
     (StopPlaceGroup.CONVENIENCE, frozenset({"convenience_store"})),
 )
+
+#: 群 → 打てばその群の店を近い順に出す語。利用者はどの群があるかを知らないので、群の名前と、群そのものを指す
+#: 言い換えを広く受ける。群の一部の種類だけを指す語（「公園」「ホテル」「神社」「カフェ」）は入れない——入れると、
+#: 群の別の種類の店（「公園」で博物館、「カフェ」でラーメン屋）が近い順に先に出る。その語は店の名前で引く。
+PLACE_GROUP_WORDS: dict[StopPlaceGroup, tuple[str, ...]] = {
+    StopPlaceGroup.CONVENIENCE: ("コンビニ", "コンビニエンスストア", "convenience", "convenience store", "konbini"),
+    StopPlaceGroup.BATH: (
+        "銭湯", "銭湯・温泉", "温泉", "天然温泉", "日帰り温泉", "スーパー銭湯", "スパ銭", "風呂", "お風呂", "入浴",
+        "日帰り入浴", "浴場", "公衆浴場", "健康ランド", "サウナ", "sento", "onsen", "sauna"),
+    StopPlaceGroup.EAT_DRINK: ("飲食店", "飲食", "食事", "ご飯", "ごはん", "グルメ", "レストラン"),
+    StopPlaceGroup.LODGING: ("宿", "宿泊", "宿泊施設", "泊まる", "泊まる所", "泊まれる所"),
+    StopPlaceGroup.BICYCLE: ("自転車", "自転車屋", "自転車店", "サイクルショップ", "自転車修理"),
+    StopPlaceGroup.SCENIC: ("景色・名所", "景色", "絶景", "名所", "観光地", "観光スポット", "景勝地", "見どころ"),
+    StopPlaceGroup.TEMPLE_SHRINE: ("寺社", "社寺", "神社仏閣", "寺社仏閣"),
+}
+
+#: 群の語を当てる形で除く文字（空白・中点・ハイフンの類。長音は残す——「スーパー」が「スパ」にならない）。
+_GROUP_WORD_IGNORED = re.compile(f"[\\s・{HYPHEN_CHARACTERS}]")
+#: ひらがな → カタカナ。
+_HIRAGANA_TO_KATAKANA = {code: code + 0x60 for code in range(ord("ぁ"), ord("ゖ") + 1)}
+
+
+def _group_word_form(text: str) -> str:
+    return _GROUP_WORD_IGNORED.sub("", unicodedata.normalize("NFKC", text).lower()).translate(_HIRAGANA_TO_KATAKANA)
+
+
+_GROUP_BY_WORD: dict[str, StopPlaceGroup] = {
+    _group_word_form(word): group for group, words in PLACE_GROUP_WORDS.items() for word in words}
+
+
+def queried_group(query: str) -> StopPlaceGroup | None:
+    """入力が群の語（`PLACE_GROUP_WORDS`。表記の揺れ——全角・半角・大文字・空白・中点・ひらがなとカタカナ——を除いて比べる）
+    なら、その群。語を含むだけの入力（「大江戸温泉物語」）は店の名前でありうるので、群として読まない。"""
+    return _GROUP_BY_WORD.get(_group_word_form(query))
+
 
 #: どれかの群に入る語の全部。取込はこのどれも道筋に持たない地点を落とす。
 OVERTURE_GROUPED_WORDS: frozenset[str] = frozenset().union(*(words for _, words in OVERTURE_GROUP_WORDS))
@@ -149,21 +188,21 @@ def chain_sql(name: str, brand: str) -> str:
     """地点のチェーンを出す式。`name`・`brand`は`chain_text_sql`の形の式（ブランドはNULLがある）。
     `CHAIN_WORDS`に当たらなければブランド、ブランドも無ければNULL。"""
     whens = " ".join(
-        f"WHEN {' OR '.join(f'strpos({text}, {word.translate(_DEVOICE)!r}) > 0' for text in (name, brand) for word in words)} THEN {chain!r}"
+        f"WHEN {' OR '.join(f'strpos({text}, {sql_literals([word.translate(_DEVOICE)])}) > 0' for text in (name, brand) for word in words)} THEN {sql_literals([chain])}"
         for chain, words in CHAIN_WORDS)
     return f"CASE {whens} ELSE nullif({brand}, '') END"
 
 
 def kept_sql(group: str, chain: str) -> str:
     """群に入った地点を表へ入れるかの式。群「コンビニ」は`CHAIN_WORDS`のチェーンだけ、ほかの群は全部。"""
-    chains = ", ".join(repr(chain_key) for chain_key, _ in CHAIN_WORDS)
+    chains = sql_literals(chain_key for chain_key, _ in CHAIN_WORDS)
     return f"({group} <> '{StopPlaceGroup.CONVENIENCE}' OR {chain} IN ({chains}))"
 
 
 def overture_group_sql(hierarchy: str) -> str:
     """分類の道筋（jsonbの文字列の配列を出す式）から群を出す式。どの群にも当たらなければNULL。"""
     whens = " ".join(
-        f"WHEN {hierarchy} ?| ARRAY[{', '.join(repr(word) for word in sorted(words))}] THEN '{group}'"
+        f"WHEN {hierarchy} ?| ARRAY[{sql_literals(sorted(words))}] THEN '{group}'"
         for group, words in OVERTURE_GROUP_WORDS)
     return f"CASE {whens} END"
 

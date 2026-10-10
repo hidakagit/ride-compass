@@ -10,11 +10,8 @@ import { fileURLToPath } from "node:url";
 
 const frontendRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-await cp(
-  path.join(frontendRoot, ".next", "static"),
-  path.join(frontendRoot, ".next", "standalone", ".next", "static"),
-  { recursive: true },
-);
-await cp(path.join(frontendRoot, "public"), path.join(frontendRoot, ".next", "standalone", "public"), {
-  recursive: true,
-});
+const standalone = path.join(frontendRoot, ".next", "standalone");
+await Promise.all([
+  cp(path.join(frontendRoot, ".next", "static"), path.join(standalone, ".next", "static"), { recursive: true }),
+  cp(path.join(frontendRoot, "public"), path.join(standalone, "public"), { recursive: true }),
+]);

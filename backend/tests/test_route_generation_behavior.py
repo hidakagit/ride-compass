@@ -41,12 +41,15 @@ from tests.route_world import (
     BASE_LAT,
     BASE_LON,
     CENTER,
+    COORDINATES,
+    ISLAND_WAY,
     LAT_STEP,
     LON_STEP,
     NODE_OF,
     NORTH_EAST,
     SOUTH_EAST,
     SOUTH_WEST,
+    WAYS,
     at,
     avoid_axis_declared,
     generator_for,
@@ -437,6 +440,63 @@ async def test_a_destination_on_an_isolated_road_is_moved_to_the_nearest_reachab
     assert generator.last_destination_correction == at(NORTH_EAST)
 
 
+def _stuck_by_north_east(stuck: str, east_deg: float) -> tuple[RoadNetwork, Coordinates]:
+    """格子と、北東の角から`east_deg`だけ東の点。その点の一番近い道は、格子へ出入りできない——`island`は格子と
+    つながらない道、`one_way_spur`は北東の角から入るだけの一方通行の行き止まり（入れるが出られない）。"""
+    end = (COORDINATES[NORTH_EAST][0], COORDINATES[NORTH_EAST][1] + east_deg)
+    if stuck == "island":
+        ways = {**WAYS, ISLAND_WAY: (90, 91)}
+        coordinates = {**COORDINATES, 90: (end[0], end[1] - 0.004), 91: end}
+        oneway: set[int] = set()
+    else:
+        ways = {**WAYS, ISLAND_WAY: (NORTH_EAST, 92)}
+        coordinates = {**COORDINATES, 92: end}
+        oneway = {ISLAND_WAY}
+    return road_network(ways, coordinates, oneway_ways=oneway), Coordinates(latitude=end[0], longitude=end[1])
+
+
+@pytest.mark.parametrize("stuck", ["island", "one_way_spur"])
+@pytest.mark.parametrize("placed", ["origin_of_distance_loop", "origin_of_waypoint_loop", "waypoint"])
+async def test_a_point_whose_nearest_road_cannot_be_left_is_moved_to_the_nearest_road_that_can(engine_over, stuck, placed):
+    """出発地・経由地の一番近い道から格子へ出入りできないと、そこを通る経路は無い。すぐ近くの出入りできる道へ寄せて出す。"""
+    network, point = _stuck_by_north_east(stuck, 0.008)
+    generator = engine_over(network)
+
+    if placed == "origin_of_distance_loop":
+        candidates = await generator.generate_loops(point, 6.0, 1.5, max_routes=3, start_time=DEPARTURE)  # 角から回れる長さ
+    elif placed == "origin_of_waypoint_loop":
+        candidates = await generator.generate_via_waypoints(
+            point, [at(SOUTH_WEST)], destination=None, max_routes=3, start_time=DEPARTURE)
+    else:
+        candidates = await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [point], destination=None, max_routes=3, start_time=DEPARTURE)
+
+    assert candidates
+    start = SOUTH_WEST if placed == "waypoint" else NORTH_EAST
+    for candidate in candidates:
+        assert_connected(candidate, start, start)
+        assert node_key(NORTH_EAST) in candidate.node_ids
+
+
+@pytest.mark.parametrize("placed", ["origin", "waypoint", "destination"])
+async def test_a_point_whose_only_nearby_road_cannot_be_left_is_refused(engine_over, placed):
+    """出入りできる道が近くに無いなら、指した覚えのない遠くの道へ黙って寄せない。"""
+    network, point = _stuck_by_north_east("island", 0.03)  # 北東の角から約2.7km
+    generator = engine_over(network)
+
+    if placed == "origin":
+        candidates = await generator.generate_loops(point, 4.0, 1.5, max_routes=3, start_time=DEPARTURE)
+    elif placed == "waypoint":
+        candidates = await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [point], destination=None, max_routes=3, start_time=DEPARTURE)
+    else:
+        candidates = await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [], destination=point, max_routes=3, start_time=DEPARTURE)
+
+    assert candidates == []
+    assert generator.last_no_candidates_reason
+
+
 # --- 区間の表示 ---
 
 
@@ -549,27 +609,28 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
         3.0 * fastest.segments[0].distance_km / sum(segment.distance_km for segment in fastest.segments), rel=1e-3)
 
 
-#: 信号の密度（回/km）を、上に凸の折れ線で点数にする軸（本番の停止密度の軸と同じ折れ線）。
+#: 信号の密度（回/km）を、0から始まる直線（9.58回/kmで100点、その先は100点）で点数にする軸（本番の停止密度の軸の形）。
 STOP_AXIS = AxisDefinition(
     axis_id="stops", label="停止", default_weight=0.0, is_published=True,
     shape=BreakpointLinearShape(
-        terms=[MaterialTerm(material=stop_count_material_ids()[0])],
-        breakpoints=[(0.0, 0.0), (0.5, 15.0), (1.5, 40.0), (3.0, 60.0), (7.0, 82.0), (12.0, 100.0)],
+        terms=[MaterialTerm(material=stop_count_material_ids()[0])], breakpoints=[(0.0, 0.0), (9.58, 100.0)],
     ),
 )
 
 
 async def test_a_route_scores_a_density_axis_from_its_mean_count_rather_than_the_mean_of_segment_scores(engine_over):
-    """1kmあたりの回数で測る軸は、ルートの値を回数の距離平均から点数にする。南西→南東の最速は同じ長さの道100（2回/km）と
-    道101（0回/km）で、区間の点数（46.7点と0点）の平均は23.3点だが、回数の平均（1回/km）の点数は27.5点。"""
+    """1kmあたりの回数で測る軸は、ルートの値を回数の距離平均から点数にする。南西→南東の最速は同じ長さの道100（12回/km）と
+    道101（0回/km）で、区間の点数（頭打ちの100点と0点）の平均は50点だが、回数の平均（6回/km）の点数は62.6点。
+    待ちの秒で遠回りが速くならないよう、南西と南東から北へ出る道は走れない道にする。"""
+    network = grid_network(stop_density_of={100: 12.0}, motorway_ways={200, 202})
     with replaced_axis_definitions({**AXIS_DEFINITIONS, "stops": STOP_AXIS}):
-        candidates = await engine_over(grid_network(stop_density_of={100: 2.0})).generate_via_waypoints(
+        candidates = await engine_over(network).generate_via_waypoints(
             at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert ways_of(fastest) == [100, 101]
-    assert [segment.axis_difficulties["stops"] for segment in fastest.segments] == [46.7, 0.0]
-    assert fastest.axis_difficulties["stops"] == 27.5
+    assert [segment.axis_difficulties["stops"] for segment in fastest.segments] == [100.0, 0.0]
+    assert fastest.axis_difficulties["stops"] == 62.6
 
 
 async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, fake_redis):

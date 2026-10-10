@@ -70,7 +70,7 @@ def stale_reason(state: RevisionState) -> str | None:
     return None
 
 
-def announce_revision() -> RevisionState:
+def announce_revision() -> None:
     """素性を1行出し、古ければ警告を出す（止めない）。
 
     個別のベンチは手元の反復でも使うため、配信元と違うコミットでも測れる方を採る。
@@ -82,4 +82,3 @@ def announce_revision() -> RevisionState:
     reason = stale_reason(state)
     if reason is not None:
         print(f"警告: {reason}")
-    return state

@@ -2,12 +2,11 @@ import { expect, type Page, type Response } from "@playwright/test";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { featureFilter } from "@maplibre/maplibre-gl-style-spec";
-import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { AxisCatalogResponse } from "@/types/route";
 import { FIXED_LENS_LABELS } from "@/lib/mapDisplay/routeStyleModes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { ROUTE_HIT_TARGET_SEGMENT } from "@/features/map/scene/groups/routes";
-import { installMapFinder } from "../e2e/fixtures";
+import { INTRO_CLOSED, MOBILE_VIEWPORT, installMapFinder, seedStoredState } from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
 
 // 実backendへ向けて回すe2eの共通の段取りと観測（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）。
@@ -21,8 +20,6 @@ export const LIVE_POINT = (() => {
   const [latitude, longitude] = (process.env.E2E_LIVE_POINT ?? "35.7597,139.7387").split(",").map(Number);
   return { latitude, longitude };
 })();
-
-const LIVE_VIEWPORT = { width: 390, height: 812 };
 
 export async function fetchCatalog(): Promise<AxisCatalogResponse> {
   const response = await fetch(`${LIVE_API}/api/axis-catalog`);
@@ -104,7 +101,7 @@ export async function openLive(
   page: Page,
   {
     storedState = {},
-    viewport = LIVE_VIEWPORT,
+    viewport = MOBILE_VIEWPORT,
   }: { storedState?: Record<string, string>; viewport?: { width: number; height: number } } = {},
 ) {
   const watch: Watch = {
@@ -128,26 +125,13 @@ export async function openLive(
   await page.setViewportSize(viewport);
   await page.addInitScript(installPageHelpers);
   await page.addInitScript(installMapFinder);
-  await page.addInitScript(
-    (items) => {
-      for (const [key, value] of Object.entries(items)) window.localStorage.setItem(key, value);
-    },
-    { "ridecompass:first-visit-intro-closed": "true", ...storedState },
-  );
+  await seedStoredState(page, { ...INTRO_CLOSED, ...storedState });
 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "メニュー" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 60_000 });
   await settleMap(page);
   return watch;
-}
-
-/** 全レイヤーONとデバッグログ（`[map:error]`を読むため）の保存状態。出どころは`map-runtime.spec.ts`と同じ宣言。 */
-export function allLayersOn(): Record<string, string> {
-  return {
-    "ridecompass:debug-enabled": "1",
-    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
-  };
 }
 
 /**

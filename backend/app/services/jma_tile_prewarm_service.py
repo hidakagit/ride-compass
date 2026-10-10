@@ -33,6 +33,7 @@ from app.domain.jma_tile_specs import (
     jma_tile_path,
     jma_tile_spec,
     read_target_times,
+    tile_extension,
     with_interpolated_zooms,
 )
 from app.domain.region import BoundingBox, tiles_covering_bbox
@@ -46,7 +47,6 @@ from app.domain.weather_elements import (
 from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, get_target_times
 from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.jma_tile_index import JmaTileIndex, JmaTileIndexCoverage, JmaTileIndexElement, set_index
-from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
 logger = logging.getLogger("ridecompass.jma_tile_prewarm_service")
 
@@ -71,20 +71,16 @@ class _PrewarmLayer:
         return effective_max_zoom(self.spec)
 
 
-def _stages_from_weather_elements() -> tuple[tuple[_PrewarmLayer, ...], ...]:
-    """タイルで描く要素ごとの、時刻の段（近い時刻から）。"""
-    return tuple(
-        tuple(_PrewarmLayer(element.label, delivery) for delivery in weather_element_deliveries(element))
-        for element in WEATHER_ELEMENTS
-        if weather_element_tile(element) is not None
-    )
+#: タイルで描く要素ごとの、時刻の段（近い時刻から）。
+_STAGES: tuple[tuple[_PrewarmLayer, ...], ...] = tuple(
+    tuple(_PrewarmLayer(element.label, delivery) for delivery in weather_element_deliveries(element))
+    for element in WEATHER_ELEMENTS
+    if weather_element_tile(element) is not None
+)
 
 
-_STAGES: tuple[tuple[_PrewarmLayer, ...], ...] = _stages_from_weather_elements()
-
-
-def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame, area: BoundingBox) -> list[str]:
-    paths = []
+def _tiles_for_layer(layer: _PrewarmLayer, frame: JmaFrame, area: BoundingBox) -> list[JmaTile]:
+    tiles = []
     for z in range(JMA_TILE_MIN_ZOOM, layer.max_zoom + 1):
         # 配信元が実データを持たないズーム（zoomUseの偶奇に合わない段）は温めても空タイル
         # しか積まれない。要求されたときは親から補間するため（infrastructure/
@@ -92,8 +88,8 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", frame: JmaFrame, area: Boundin
         if not has_native_tile(layer.spec, z):
             continue
         for x, y in tiles_covering_bbox(area, z):
-            paths.append(jma_tile_path(JmaTile(layer.element_id, frame, z, x, y)))
-    return paths
+            tiles.append(JmaTile(layer.element_id, frame, z, x, y))
+    return tiles
 
 
 async def _store_index(
@@ -147,7 +143,7 @@ async def prewarm_jma_tiles(client: JmaTileClient, area: BoundingBox) -> None:
     """
     started = time.monotonic()
     target_times_cache: dict[str, list[TargetTimesRow] | None] = {}
-    all_paths: list[str] = []
+    all_tiles: list[JmaTile] = []
     skipped_labels: list[str] = []
     layer_frames: dict[str, JmaFrame] = {}
 
@@ -165,7 +161,7 @@ async def prewarm_jma_tiles(client: JmaTileClient, area: BoundingBox) -> None:
                 skipped_labels.append(f"{layer.label}({layer.element_id})")
                 continue
             layer_frames[layer.element_id] = frame
-            all_paths.extend(_tile_paths_for_layer(layer, frame, area))
+            all_tiles.extend(_tiles_for_layer(layer, frame, area))
 
     if skipped_labels:
         logger.warning("jma tile prewarm: targetTimes取得/解析に失敗しスキップ labels=%s", skipped_labels)
@@ -180,10 +176,10 @@ async def prewarm_jma_tiles(client: JmaTileClient, area: BoundingBox) -> None:
     # 追加の取得は発生しない。
     present: dict[str, dict[int, list[list[int]]]] = {}
 
-    async def _fetch_one(path: str) -> None:
+    async def _fetch_one(tile: JmaTile) -> None:
         nonlocal fetched, empty, errors, total_bytes
         async with semaphore:
-            result = await client.get(path)
+            result = await client.get(jma_tile_path(tile))
         if result is None:
             errors += 1
             return
@@ -195,20 +191,19 @@ async def prewarm_jma_tiles(client: JmaTileClient, area: BoundingBox) -> None:
         fetched += 1
         content = result[0]
         total_bytes += len(content)
-        coords = parse_tile_path(path)
-        if coords is None or is_empty_tile(content, coords.ext):
+        if is_empty_tile(content, tile_extension(jma_tile_spec(tile.element_id))):
             empty += 1
             return
-        present.setdefault(coords.element, {}).setdefault(coords.z, []).append([coords.x, coords.y])
+        present.setdefault(tile.element_id, {}).setdefault(tile.z, []).append([tile.x, tile.y])
 
-    await asyncio.gather(*(_fetch_one(path) for path in all_paths))
+    await asyncio.gather(*(_fetch_one(tile) for tile in all_tiles))
     await _store_index(area, layer_frames, present)
 
     elapsed_ms = round((time.monotonic() - started) * 1000)
     non_empty = sum(len(coords) for zooms in present.values() for coords in zooms.values())
     logger.info(
         "jma tile prewarm 完了 tiles=%d fetched=%d empty=%d errors=%d non_empty=%d total_bytes=%d elapsed_ms=%d",
-        len(all_paths),
+        len(all_tiles),
         fetched,
         empty,
         errors,

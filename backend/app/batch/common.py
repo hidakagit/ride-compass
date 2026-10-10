@@ -7,7 +7,7 @@ import argparse
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TypeVar
@@ -57,6 +57,39 @@ def run_batch_cli(
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     return asyncio.run(start(args, args.database_url or settings.database_url))
+
+
+def affected_rows(status: str) -> int:
+    """asyncpgの`execute`が返す状態の文字列（`INSERT 0 123`・`UPDATE 45`等）から、書いた行の数を読む。"""
+    return int(status.split()[-1])
+
+
+def reused_edges_sql(previous: str | None, source: str = "road_edges", condition: str = "") -> str:
+    """区間ごとに写す段が、前回の値を写す区間を一時の表`_reused`に置く。
+
+    同じ形とみなすのは、鍵が同じで座標とその並びも同じ区間だけ（`=`。`ST_Equals`のように形を幾何として
+    比べる計算をしない）。`source`は今回の区間（別名`s`。`geom`を持つ）、`condition`は段が足す
+    結合と条件。`previous`がNone（写せない）なら空の表を置く。
+    """
+    if previous is None:
+        return f"CREATE TEMP TABLE _reused ON COMMIT DROP AS SELECT osm_way_id, segment_index FROM {source} WHERE false"
+    return f"""
+CREATE TEMP TABLE _reused ON COMMIT DROP AS
+SELECT s.osm_way_id, s.segment_index
+FROM {source} s JOIN {previous}.road_edges p
+  ON p.osm_way_id = s.osm_way_id AND p.segment_index = s.segment_index AND p.geom = s.geom
+{condition}
+"""
+
+
+def copy_reused_sql(table: str, columns: Sequence[str], previous: str) -> str:
+    """`_reused`の区間へ、前回の表`table`の値を写す。前回に値の無かった区間は前回の表に行が無く、今回も行を持たない。"""
+    return f"""
+INSERT INTO {table} (osm_way_id, segment_index, {", ".join(columns)})
+SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in columns)}
+FROM _reused r JOIN {previous}.{table} p
+  ON p.osm_way_id = r.osm_way_id AND p.segment_index = r.segment_index
+"""
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:
