@@ -15,7 +15,7 @@ from cachetools import TTLCache
 from app.domain.geo import SIXTEEN_POINT_LABELS
 from app.domain.jma_amedas import WindDirection
 from app.domain.time_zone import JST
-from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
+from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch, get_json
 
 # 観測所マスタは`amedastable.json`（`amedas.json`ではない）。最新時刻は`latest_time.txt`
 # （ISO時刻文字列1個のプレーンテキスト、JSON配列ではない。fetch_latest_observation_time
@@ -129,11 +129,7 @@ async def fetch_station_table(client: httpx.AsyncClient, cache: TTLCache) -> dic
     """観測所マスタ（観測所id → 観測所）を取得する。"""
 
     async def fetch() -> dict[str, AmedasStation]:
-        response = await client.get(AMEDAS_STATION_TABLE_URL, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise UnexpectedShapeError(f"station table is {type(payload).__name__}")
+        payload = await get_json(client, AMEDAS_STATION_TABLE_URL, dict, "station table is", timeout=REQUEST_TIMEOUT)
         return _parse_station_table(payload)
 
     return await cached_fetch("weather:jma-amedas-stations", fetch, cache=cache, key=_STATION_TABLE_CACHE_KEY)
@@ -176,13 +172,13 @@ async def fetch_observation_map(
     timestamp = observed_at.astimezone(JST).strftime("%Y%m%d%H%M%S")
 
     async def fetch() -> dict[str, AmedasReading]:
-        response = await client.get(
-            AMEDAS_OBSERVATION_URL_TEMPLATE.format(timestamp=timestamp), timeout=REQUEST_TIMEOUT
+        payload = await get_json(
+            client,
+            AMEDAS_OBSERVATION_URL_TEMPLATE.format(timestamp=timestamp),
+            dict,
+            "observation map is",
+            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise UnexpectedShapeError(f"observation map is {type(payload).__name__}")
         return {station_id: _parse_reading(raw) for station_id, raw in payload.items()}
 
     return await cached_fetch("weather:jma-amedas-observation", fetch, timestamp=timestamp)

@@ -55,11 +55,16 @@ def effective_max_zoom(spec: JmaTileSpec) -> int:
     ズームのタイルは存在せず空タイルが返る。合う側へ1段下げた値が実際の上限になる。
     """
     z = spec.max_native_zoom
+    return z if _matches_zoom_use(spec, z) else z - 1
+
+
+def _matches_zoom_use(spec: JmaTileSpec, zoom: int) -> bool:
+    """ズームが`zoom_use`の偶奇に合うか。"""
     if spec.zoom_use == "even":
-        return z if z % 2 == 0 else z - 1
+        return zoom % 2 == 0
     if spec.zoom_use == "odd":
-        return z if z % 2 == 1 else z - 1
-    return z
+        return zoom % 2 == 1
+    return True
 
 
 @dataclass(frozen=True)
@@ -254,8 +259,7 @@ class JmaTile(NamedTuple):
 
 def jma_tile_path(tile: JmaTile) -> str:
     """タイルの、配信元のパス。タイルで配らない要素は`ValueError`。"""
-    if JMA_ELEMENTS[tile.element_id].tile is None:
-        raise ValueError(f"タイルで配らない配信要素: {tile.element_id}")
+    jma_tile_spec(tile.element_id)
     return _fill(
         jma_url_template(tile.element_id),
         **tile.frame._asdict(),
@@ -278,13 +282,7 @@ def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:
 
     `zoom_use`の偶奇に合わないズームは、配信元が200を返しても中身は空タイルになる。
     """
-    if zoom < JMA_TILE_MIN_ZOOM or zoom > effective_max_zoom(spec):
-        return False
-    if spec.zoom_use == "even":
-        return zoom % 2 == 0
-    if spec.zoom_use == "odd":
-        return zoom % 2 == 1
-    return True
+    return JMA_TILE_MIN_ZOOM <= zoom <= effective_max_zoom(spec) and _matches_zoom_use(spec, zoom)
 
 
 def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
@@ -296,11 +294,7 @@ def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
     """
     element = JMA_ELEMENTS.get(element_id)
     spec = element.tile if element is not None else None
-    if spec is None or spec.zoom_use == "all":
-        return None
-    if zoom > effective_max_zoom(spec) or zoom < JMA_TILE_MIN_ZOOM:
-        return None
-    if has_native_tile(spec, zoom):
+    if spec is None or not JMA_TILE_MIN_ZOOM <= zoom <= effective_max_zoom(spec) or _matches_zoom_use(spec, zoom):
         return None
     parent = zoom - 1
     return parent if parent >= JMA_TILE_MIN_ZOOM else None
