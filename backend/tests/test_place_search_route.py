@@ -5,7 +5,7 @@
 （空白・漢数字・長音）、全部に当たる・番地付き・続きの3通りの当たり方とその並び（段の粗いもの → 全部に当たるもの → 続き → 中心に近いもの）、
 番地付きの残りの番号で当たる街区（住居表示の区域）と地番（それ以外の区域）、
 件数の上限、入力の一部にだけ当たった住所を出さないこと、施設の名前を表記の揺れを除いて部分一致で引くこと（並び・地図の
-真ん中に近い店から上限まで）、施設に添える辺り、住所と施設を並べる順、対象範囲を読めなければ502、回数制限。
+真ん中に近い店から上限まで）、群の語で群の店を名前に当たる店より先に引くこと、施設に添える辺り、住所と施設を並べる順、対象範囲を読めなければ502、回数制限。
 置いた位置の辺りの口（`GET /api/place-area`）も、同じ注入から本物を通して見る。
 住所の区画の表は、アドレス・ベース・レジストリの行（街区を含む。地番は街区レベル位置参照情報の行）を取り込んで住所の派生の段を
 本物のまま流して作る。辺りは小地域の境界の行を取り込んで引く。対象範囲は道路の取込の記録から、施設は Overture の地点の取込から立ち寄り先の派生の段を本物のまま流して作り、
@@ -14,7 +14,7 @@
 ここで見ないもの:
 - 対象範囲を読むこと（どの取込の記録の範囲か） → `test_ingested_area.py`
 - 住所の区画・鍵・街区の作り方（範囲・祖先・鍵の別形・地番を区画に結ぶ名前・住居表示の区域で ABR を採る） → `test_address_areas.py`、表記の揃え方の1つずつ → `test_address_area.py`
-- 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
+- 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`、入力を群の語として読むか → `test_stop_place_words.py`
 - 辺りの決め方（辺の上・境界の外・名前の無い境界・配布の境界の読み方） → `test_stop_place_areas.py`。置いた位置の辺りも
   同じ SQL の部品（`infrastructure/place_area_query.py: area_label_sql`）で決めるので、ここでは境界の中と外の両側だけを見る
 - 回数制限の窓 → `test_rate_limiter.py`
@@ -372,6 +372,34 @@ async def test_a_facility_nearer_on_the_ground_comes_first_even_when_degrees_sca
     assert [(c["longitude"], c["latitude"]) for c in response.json()["candidates"]] == [(LON, north)] + [
         (LON + 0.01 - i / 1e6, LAT) for i in range(PLACE_PREDICTION_LIMIT - 1, 0, -1)
     ]
+
+
+def _convenience_record(key: int, name: str, longitude: float, latitude: float = LAT) -> object:
+    """Overture の地点の1件（群「コンビニ」に入る分類。群はチェーンの名前の店だけを入れる）。"""
+    return point_record(key, longitude, latitude, {
+        "names": {"primary": name}, "confidence": 0.75,
+        "brand": {"names": {"primary": None}}, "taxonomy": {"hierarchy": ["shopping", "convenience_store"]}})
+
+
+@pytest.mark.usefixtures("area")
+async def test_a_name_of_a_group_finds_the_nearest_stores_of_the_group_before_the_names_it_matches():
+    """「コンビニ」と打つと、名前に「コンビニ」を含まない近くのコンビニの店が、名前に当たる店（より近くても）より先に近い順に出る。"""
+    await _ingest_facilities([
+        _facility_record(1, "コンビニ食堂", LON, LAT),
+        _convenience_record(2, "セブン-イレブン 西新宿店", LON + 0.02),
+        _convenience_record(3, "ファミリーマート 新宿店", LON + 0.01),
+        _convenience_record(4, "ローソン 道頓堀店", OUTSIDE_LON, OUTSIDE_LAT),
+        _facility_record(5, "ラーメン一風堂", LON + 0.005, LAT),
+    ])
+
+    response = await _search("コンビニ")
+
+    assert response.status_code == 200
+    assert response.json() == {"candidates": [
+        _facility("ファミリーマート 新宿店", LON + 0.01),
+        _facility("セブン-イレブン 西新宿店", LON + 0.02),
+        _facility("コンビニ食堂", LON),
+    ]}
 
 
 @pytest.mark.usefixtures("area")
