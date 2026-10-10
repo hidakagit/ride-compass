@@ -11,8 +11,6 @@ paths:
 **サーバーの中で一度得た値をどこに・どれだけ持つか**の決まり。クライアント側（ブラウザへ返す`Cache-Control`）は
 `backend/app/api/cache_policy.py`の対応表が唯一の正本。
 
-新しくキャッシュを足すとき、既存のキャッシュのTTLや保持方式を変えるときは、まずここを読む。
-
 何を持ち、いつ捨てるか（Redisへ置くもの・TTL・無効化）は[caching-retention.md](caching-retention.md)が持つ。
 
 ## 大原則
@@ -21,14 +19,16 @@ paths:
    キャッシュが唯一の持ち主になっている状態を作らない。
 2. **fail-open。** キャッシュ層の障害（Redis疎通不能・壊れたエントリ・ディスクエラー）はすべて「未キャッシュ」へ倒し、
    通常の取得経路へ進ませる。
-3. **失敗は必ず記録する。** 失敗は`log_external_call`のfields（`result="error"`・`error_type`）へ載せ、Redisなら
+3. **失敗は必ず記録する。** 出し方は[logging.md](logging.md)「外部API・キャッシュアクセス」。Redisなら
    サーキットブレーカー（`record_redis_failure`）へも記録する。
 4. **キャッシュで隠すのは遅さだけで、正しさを隠さない。** 「古い値でも返す」（stale fallback）を選ぶ場合は、
    どれだけ古いものまで許すかを定数で明示する。
 
 ## 入力（取得）と保持（キャッシュ）の対応
 
-取得層と保持層は対で決める。**両方とも既存の共通骨格を使うのが既定**で、自前で書くのは下表の「例外」に当たるときだけ。
+取得層と保持層は対で決める。**両方とも既存の共通骨格を使うのが既定**で、自前で書いてよい場合は骨格ごとの節が持つ
+（Redisは[caching-retention.md](caching-retention.md)「Redisへ持つときは`redis_json_cache`を使う」、プロセス内は下の
+「プロセス内キャッシュは`cachetools`に統一する」）。
 
 | 取得するもの | 入力（取得層） | 保持（キャッシュ層） |
 |---|---|---|
@@ -38,8 +38,6 @@ paths:
 | 気象庁MSMの予報 | `msm_client.py: refresh`（ETag条件付きGETでファイル同期） | ローカルファイル（`backend/data/msm/`） |
 | 色別標高図・基礎地図 | 各クライアント（`gsi_tile_client`・`basemap_client`） | `tile_cache.py`（ディスク、生バイト列） |
 | PostGIS由来の重い中間結果 | リポジトリ層 | 用途で選ぶ（次節） |
-
-新しい外部連携を足すときは、まず上表のどれと同じ性質かを考え、同じならその行の組み合わせをそのまま使う。
 
 ## 保持層の選び方
 
@@ -55,8 +53,8 @@ paths:
 | | Redis | ディスク |
 |---|---|---|
 | 実体の置き場所 | **常にRAM**（VMのRAMをPostgreSQLと共有） | ディスク |
-| 上限 | `maxmemory` 2GB | 無し（自分で管理する） |
-| 退避 | `maxmemory-policy volatile-lru`＝**TTLのあるキーだけ**自動退避。TTLなしのキーで上限に達すると書き込みがエラーになる | 無し（自分で消す） |
+| 上限 | `maxmemory`（値は[tech-stack.md](../../docs/architecture/tech-stack.md)「本番Redisの設定」） | 無し（自分で管理する） |
+| 退避 | `maxmemory-policy`により**TTLのあるキーだけ**自動退避。TTLなしのキーで上限に達すると書き込みがエラーになる | 無し（自分で消す） |
 | 使用量の可視化 | `INFO memory` | `du` |
 
 ### 速度は判断材料にならない（本番実測、2026-09-07）
@@ -72,14 +70,10 @@ paths:
 ### プロセス内キャッシュは`cachetools`に統一する
 
 追い出し処理（`OrderedDict`＋`move_to_end`＋`popitem`）を自前で書かない。TTLが要るなら`TTLCache`、件数上限だけなら
-`LRUCache`。件数上限そのものの根拠（メモリ量の実測等）はコメントへ書く。
+`LRUCache`。件数上限は、TTLと同じく何に合わせた値かをコメントへ書く（[caching-retention.md](caching-retention.md)「TTLの決め方」）。
 
 ライブラリで表現できない要件がある場合も、**自前で追い出しを書くのではなく`cachetools`を内側に包む**（包みは要件の分だけ
 薄く持ち、立ち退き自体は`LRUCache`・`TTLCache`へ委ねる）。
-
-テストで確かめるのは使う側の入口から見える振る舞いだけ（[testing.md](testing.md)「確かめる高さ」）。
-
-**L1（プロセス内）＋L2（Redis）の2段構成は既定にしない。** 1段で足りることを確認してから、実測で必要性を示せたときだけ足す。
 
 ### ディスクを選ぶときの責任
 
@@ -91,28 +85,15 @@ paths:
 2. **世代交代で不要になった実体を消す手段**と、それを**どこで呼ぶか**（上限とは別に要る。[caching-retention.md](caching-retention.md)「無効化」）
 3. 使用量が想定内に収まっているかを確認する方法
 
-鍵・読み書きの骨格・掃除は`infrastructure/`のモジュールが持ち（例: 地域タイルは`region_tile_cache.py`）、`services/`とは値で
-やり取りする。上の層が`tile_cache.py`・`tile_persistent_cache.py`を直にimportすると`lint-imports`が落ちる
-（[directory-layout.md](../../docs/architecture/directory-layout.md)「backend」）。
-
-現在のディスク保持と掃除:
-
-| 用途 | 掃除 |
-|---|---|
-| `tile_cache`（基礎地図・DEM・色別標高図の生バイト） | 容量上限（`tile_cache_size_limit_mb`）を超えると`diskcache`が書いた時刻の古い順に退避する |
-| `tile_cache`のうち土地被覆タイル（PNG） | 起動直後と24時間ごとに、今開けているラスタ構成でない世代を消す（[caching-retention.md](caching-retention.md)「無効化」）。容量上限の対象でもある |
-| `tile_cache`のうち地域のMVTタイル（路面・点。鍵`region/<系統>/v<世代>/…`） | 起動直後と24時間ごとに、配っていない世代を消す（[caching-retention.md](caching-retention.md)「無効化」）。容量上限の対象でもある |
-| `msm`（予報の`.om`ファイル） | 同期のたびに予報窓の外を削除 |
-| `tile_persistent_cache`（way_id別の動的値・タイルのフィーチャーごとの材料のpickle） | 容量上限＋`expire`による失効 |
-| `road_network`（取込範囲全体の道路網の配列、世代ごとの置き場。メモリマップで開く） | 作ったときに同じ形の古い世代を削除、起動後に形の違う置き場を削除 |
-
-これらをRedisへ移さない。
+鍵・読み書きの骨格・掃除を置く層は[directory-layout.md](../../docs/architecture/directory-layout.md)「backend（`backend/app/`）」
+が決め、`lint-imports`が見る。キャッシュごとの掃除の中身は、そのモジュールの`docs/modules/*.md`が持つ。
 
 ## 直接使ってよい場所
 
 `get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を直接呼んでよいファイルは
 `backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのもの・その接続本体と、単一キーのJSON読み書きでは
-表現できないもの）。ここに無いファイルで使うとテストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
+表現できないもの）。ここに無いファイルで使うとテストが落ちる。寄せられない事情（[caching-retention.md](caching-retention.md)
+「Redisへ持つときは`redis_json_cache`を使う」の例外）があるなら、理由とともに`ALLOWED`へ足すこと。
 
 **寄せ終わったのに`ALLOWED`へ残っている場合も落ちる**。
 

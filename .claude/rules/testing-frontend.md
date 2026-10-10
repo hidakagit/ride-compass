@@ -48,8 +48,7 @@ DOM（render/renderHook/window/document等）を使わない純ロジックの�
 （設定ファイルの`environmentMatchGlobs`は使わない）。
 既定のDOM環境はhappy-domで、個別ファイルで`// @vitest-environment jsdom`を付ければjsdomで動く。
 
-新規テストファイルがDOMに触れない場合、このdocblockの追加を検討する。判断に迷ったら、そのテストファイルが
-`render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているか確認する
+DOMに触れないかは、そのテストファイルが`render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているかで見る
 ——**テストファイル自身だけでなく、importしている実装側の関数が内部で
 `document.createElement`等を呼んでいないかも確認すること。**
 
@@ -108,4 +107,3 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 - 表と画面の両方で同じ事実を確かめる手書きのテストは、表へ寄せて消す。
 - **式の定数（丸めの桁・ズームの列・入力の下限等）は、表で確かめずに生成物から読む**。backendの定数を生成物（`export_openapi.py`）へ出し、画面の式は
   それを読む（例: タイルから組む点数の丸めは`mapDisplay.valueScale.difficultyDecimals`）。一致を確かめるテストは書かない。
-  backendに源泉の無い画面だけの値は、画面の中の1つの定数に置いて使う所がそれを読む。

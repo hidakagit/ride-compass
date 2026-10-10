@@ -22,14 +22,14 @@ E2Eは、**実ブラウザ・本番ビルドでしか出ず、かつ機械で判
 
 **対象にしないもの**:
 
-- **読みやすさ・色**（配色が凡例と合っているか、縁取りが見えるか）。人が見る
+- **決まった基準の無い見え方**（配色が凡例と合っているか、縁取りが見えるか）。画面を撮って見る
   （[frontend-design-system.md](../../docs/modules/frontend/frontend-design-system.md)「実機確認の方法」）。
 - **DOMの状態・ロジックだけの主張**（押すと何が出るか・候補が何件並ぶか・`aria-pressed`が
   反転するか）。vitestで確かめる。
 
 **合否の基準が、決まった規則として既にあるものだけを置く**（ページが横にスクロールしない・
 地図の外でピンチしてもページが拡大しない等）。どの状態・どの見え方が正しいかを実機の画面を見て判断する必要があるものは、
-「人が見る」に入る。
+画面を撮って見る側に入る。
 
 各テストは、冒頭のコメントで**どの観点を見ているか**を言えること。言えないテストは置かない。
 ブラウザはChromiumだけにする。
@@ -90,15 +90,12 @@ localStorageは指紋に入れない。
    書き直さない。** `openMobileApp`（モック登録・390x812・goto）→`openMobileSheet`（タブを押して開く。
    開くまで再試行する）→`generateRoutes`（距離指定→生成→完了待ち）の順に呼ぶ。保存される画面状態（レイヤーのON/OFF等）は
    クリックで作らず`seedStoredState`でlocalStorageへ与える。
-2. **レイアウトの溢れは座標・幅を実測して押さえる。** role・名前で見つかることを「押せる」ことの確かめにしない。
-   `scrollWidth`/`clientWidth`の比較と`boundingBox()`で確かめる（`e2e/mobile.spec.ts`の
-   ヘッダー検査）。
-3. **ロケータを当て推量で書かない。** 実際の名前は、落ちたテストの`test-results/<テスト名>/
+2. **ロケータを当て推量で書かない。** 実際の名前は、落ちたテストの`test-results/<テスト名>/
    error-context.md`（その時点の画面構造）で確かめる。
-4. **地図が描けたかは画素で見る。** 描けたことを見るのは`e2e/map-runtime.spec.ts`の1本だけに置き
+3. **地図が描けたかは画素で見る。** 描けたことを見るのは`e2e/map-runtime.spec.ts`の1本だけに置き
    （GeoJSONの面を専用色で塗り、canvasの写しにその色の画素が出るかを数える）、他の
    テストへ同じ確認を足さない。
-5. **タッチ操作は`Input.dispatchTouchEvent`（CDP）で指ごとに送る**（`isMobile`・`hasTouch`を付けた文脈で、
+4. **タッチ操作は`Input.dispatchTouchEvent`（CDP）で指ごとに送る**（`isMobile`・`hasTouch`を付けた文脈で、
    ページの拡大は`visualViewport.scale`で読む）。既定動作の確認に`Input.synthesizePinchGesture`を使わない。
-6. **足したテストは、わざと壊した入力で落ちることを見てから完了にする**（[fixing.md](fixing.md)
+5. **足したテストは、わざと壊した入力で落ちることを見てから完了にする**（[fixing.md](fixing.md)
    「直し方」）。

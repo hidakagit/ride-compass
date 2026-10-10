@@ -22,7 +22,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   3. **怪しいところがあって、CIの前に念を入れて確かめたいとき**（並べ替えで落ちそうな共有の状態・時計に依存する境界等）。
      回すのはその怪しいところに届くテストだけで、何を怪しんで回したかをPull Requestの本文の検証に書く。
 - **回さないもの**: フルスイート（backendの`tests`全体・frontendの`vitest run`全体）と、pushの前の念のための全体。
-  1行・1ファイル変えただけで全体を流し直さない。静的検査も、1の再現と下の`tsc`の例外のほかは回さない。
+  1行・1ファイル変えただけで全体を流し直さない。静的検査も、1の再現のほかは回さない（`tsc`を回すときの範囲は下の例外）。
 - **コミットの前に、frontendで変えたファイルへ整形をかける**: CIの`format:check`（`frontend/package.json`）が見る
   `src/**/*.{ts,tsx,css}`に当たる変えたファイルへ、`./node_modules/.bin/prettier --write <変えたファイル>`をかけてからコミットする。
   `format:check`（`--check`）は回さない。
@@ -35,14 +35,12 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   - backendに`ruff format`をかけない（CIは`ruff check`だけを回す）。
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった
-    ファイルだけを実行する。フルスイートを影響範囲の調査に使わない。
+    ファイルだけを実行する。
   - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing-structure.md](../../rules/testing-structure.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**
     （backend: `python -m pytest backend/tests/structure -q`、frontend: `./node_modules/.bin/vitest run src/structure`）。
 - **同じ作業ツリーで並行して複数のテストプロセスを走らせない**（下の「テストDBは作業ツリーごとに分かれる」）。
 
 ## 検査の置き場（手元・作業ブランチのCI・masterのCI）
-
-同じ検査を2つの層に置かない。
 
 | 層 | 回すもの | 担うこと |
 |---|---|---|
@@ -100,7 +98,6 @@ frontendで、入口（Next.jsのファイル規約・vitestとPlaywrightの設�
 - **入口を足すのは、knipが既定で見つけない設定と手動の道具だけ**（例: `-c`で指定して使う
   `playwright.live.config.ts`）。**無視の指定（`ignore`系）を足さない**——指摘は、消すか、入口として宣言するかの
   どちらかで解く。
-- 同じファイルの中だけで使う名前も`export`を外す対象にする（既定のまま）。
 
 ## 開発機でのbackendテストの回し方
 
@@ -133,7 +130,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 ### 実行順をばらす（pytest-randomly）
 
 入っているだけで働き、モジュールの並びと、モジュールの中の並びを混ぜる（違うモジュールのテストを交ぜ合わせはしない）。
-**並びが変わった回にだけ落ちる失敗は、実装の欠陥ではなく、テストの隠れた順序依存として直す**（直す向きは
+**並びが変わった回にだけ落ちる失敗は、隠れた順序依存として、汚した側を探して直す**（直す向きは
 [testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」の隔離）。
 
 - CIで落ちた並びは、手元で`--randomly-seed=<runのID>`を付けると同じ並びになる（CIはrunのIDを種に渡す。
@@ -151,8 +148,9 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 3. 前の id の半分と汚される側を、`-p no:randomly @<ファイル>`（1行に1つの id。書いた順のまま回る）で回す。落ちた半分に汚す側が
    いるので、それを次の候補にして、1本になるまで繰り返す。どちらの半分でも落ちないなら、汚すのは2本以上の組なので、
    前から1本ずつ外して、落ちなくなる所を探す。
-4. 汚す側が残す状態（モジュールの変数・プロセスに残る記録・DB の行・環境変数）を見つけ、汚す側が自分で片付ける形
-   （フィクスチャの後始末・`monkeypatch`）に直す。汚される側に片付けを足して隠さない。
+4. 汚す側が残す状態（モジュールの変数・プロセスに残る記録・DB の行・環境変数）を見つけ、汚す側が自分で片付ける形に直す
+   （片付け方は[testing-scaffold.md](../../rules/testing-scaffold.md)「テストの足場で、本来のNGを覆わない」の片付けの段落で、
+   本番の操作で片付けられない大域状態は実装の側で直す）。汚される側に片付けを足して隠さない。
 
 ### 止まったテストを落とす（pytest-timeout）
 
@@ -174,7 +172,6 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 環境ごとに必要な作業（開発機で一度だけ付ける権限・拡張）と、作業ツリーを消したあとの残骸の片付けは付録にある。
 
 **postgisを並列化しても速くならない**: DBを使うテストは`xdist_group(name="postgis")`により1ワーカーへ固定される。
-縮めるには**ワーカーごとに**DBを分ける必要があり、それ自体が別タスク。
 
 **`-m postgis`はCIが通し**、完了条件には含めない（手元で回すかは上の「手元の検査の回し方」）。作業ツリー専用のDBを
 作れない環境では共有の`ridecompass_test`へ退避するため、並行セッションと衝突しうる。
@@ -184,10 +181,11 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 今のテストが、実装の1か所の書き換え（`<` を `<=` に・`+` を `-` に等）を見つけられるかを測り、テストを消す・足す判断の
 材料にする（結果から何を足す・消す・直すかは [testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」）。台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）、回すのは
 `.github/workflows/mutation.yml`（手で起こす。全部の測り・当て直し・見直しを1回の起こしでつなぐ。段の中身は先頭のコメント）。
-全部の測りでテストを見直す1回の進め方（起こす・待つ・読む・行き先を決める）は [test-review/SKILL.md](../test-review/SKILL.md)。
+全部の測りでテストを見直す1回の進め方（起こす・待つ・読む・行き先を決める・止まったとき）は [test-review/SKILL.md](../test-review/SKILL.md)。
+ここに書くのは、試しと一覧の口で回すときの起こし方。
 
 ```bash
-gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測る版> -f count=0 -f stop_after=150
+gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測る版> -f count=5
 ```
 
 - **測る版と台本は `ref` から読む**。台本を直した作業ブランチを `ref` に渡せば、ワークフローを変えずに直した台本で回る。
@@ -206,9 +204,8 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
   チェックではない。読み方は .claude/skills/task-work/SKILL.md「作る担当」の5。
 - **結果は成果物**: 見直しの `mutation-review`（90日。`summary.md`・`review.json`・`analyze.txt`。読み方は test-review スキルの4）と、
   元の記録の `mutation-<番号>`・`recheck-<番号>`（14日）。元の記録から集計し直すときは、`gh run download <実行の id> -R hidakagit/ride-compass -D <場所>` で取り、
-  測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ。残したい数字は issue に書く。
-- **1本のランナーが「The runner has received a shutdown signal」で止まったら**、`gh run rerun <実行の id> -R hidakagit/ride-compass --failed`
-  で、その本と続く段だけを同じ入力でやり直す。同じ所で止まり続けるなら、ジョブの記録の「始め」の行で走っていた変異を見る。
+  測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ。
+- **ランナーが止まった・段が落ちたとき**は、test-review スキルの3の「落ちたとき」のとおりにやり直す。
 - **開発機では回さない**。
 - **測れない形**: 関数の外（モジュールの直下の表・定数・既定値）、`app/domain/routing.py`とログ・警告の行（`setup.cfg`で外している）、
   部分どうしのつなぎの食い違い（1つの関数の中の書き換えではないもの）。そこを確かめるテストは、変異を見つけないように
@@ -267,10 +264,10 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
     `cd frontend && E2E_LIVE_API=<本番の backend> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>`（起点は既定のまま）。
     backendの向け先を変えたらビルドし直す（`NEXT_PUBLIC_API_URL`等はビルドに埋め込まれる）。
   - **誰がいつ回すか**: 地図の描き方（`features/map/scene/`等）・タイルへ焼く値・軸カタログ・動的値の
-    配信・気象の描き方・ルート生成の応答に触る変更の担当が、**Pull Requestを出す前に1回**回し、
-    実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）をPull Requestの本文の検証へ書く。担当のランナーは本番のbackendへ向けて回す。
-    backendの応答を変える変更を本番へ向けて回したときは、変更が流しに入っていないことを同じ所へ書く。当たるファイルを変えたが描き方にも
-    応答にも触らない変更では、回さない理由を`e2e-live`の語を添えて同じ所へ書く。触らない変更では回さない。門にはしない（CIに載せない）。
+    配信・気象の描き方・ルート生成の応答に触る変更の担当が、変更が流しに入るとき（frontendの変更か、手元のbackendへ向けたときの
+    backendの変更）に、**Pull Requestを出す前に1回**回し、実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）を
+    Pull Requestの本文の検証へ書く。変更が流しに入らないとき（本番のbackendへ向けるしかない所でのbackendの変更）と、当たるファイルを
+    変えたが描き方にも応答にも触らないときは回さず、回さない理由を`e2e-live`の語を添えて同じ所へ書く。門にはしない（CIに載せない）。
 
 - **画面を撮る道具は`frontend/capture/`に置き、`playwright.capture.config.ts`で走らせる。テストではなく、CIに載せない**
   （判定を持たず、画像を出すだけ。Pull Requestの修正前後のキャプチャに使う）。入口は`node scripts/capture.mjs`の1つで、引数と使い方は
