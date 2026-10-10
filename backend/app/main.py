@@ -19,7 +19,7 @@ from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
-from app.infrastructure.debug_control import install_ring_buffer_handler, set_debug_mode
+from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import JSON_API_TIMEOUT, TILE_PROXY_TIMEOUT, get_http_client
 from app.infrastructure import road_network_store
 from app.infrastructure.region_tile_cache import PRUNE_INTERVAL_HOURS
@@ -37,8 +37,7 @@ from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.tuning_service import refresh_tuning_values
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
-logging.basicConfig()
-set_debug_mode(settings.debug_mode)
+logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
 for _handler in logging.getLogger().handlers:
     format_log_lines(_handler)
 
