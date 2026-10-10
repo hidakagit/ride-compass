@@ -32,7 +32,7 @@ all_tests = set(stats["duration_by_test"])
 file_of = {r[1]: r[0] for r in rows}
 
 results = {}
-kills = collections.defaultdict(set)
+kills: collections.defaultdict[str, set[str]] = collections.defaultdict(set)
 for d in shard_dirs:
     path = os.path.join(d, "results.jsonl")
     if os.path.exists(path):
