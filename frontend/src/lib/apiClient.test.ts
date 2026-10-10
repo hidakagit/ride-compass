@@ -36,13 +36,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
-  return new Response(JSON.stringify(body), {
-    ...init,
-    headers: { "content-type": "application/json", ...init.headers },
-  });
-}
-
 function logged() {
   return getDebugLogEntries().map(({ category, message, detail, level }) => ({ category, message, detail, level }));
 }
@@ -73,7 +66,7 @@ describe("呼び出し口の型はbackendの契約から決まる", () => {
 
 describe("成功", () => {
   it("応答の本体を返し、開始と成功を記録する（開始には呼び出し側の情報を、成功には要求のidを添える）", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ value: 1 }, { headers: { "x-request-id": "req-1" } }));
+    fetchMock.mockResolvedValue(Response.json({ value: 1 }, { headers: { "x-request-id": "req-1" } }));
 
     const data = await fetchJson<{ value: number }>(URL_A, { ...OPTIONS, requestMeta: { region: "r1" } });
 
@@ -95,7 +88,7 @@ describe("成功", () => {
   });
 
   it("成功の記録へ、応答から呼び出し側が数えた情報を足す", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ axes: [{}, {}, {}] }));
+    fetchMock.mockResolvedValue(Response.json({ axes: [{}, {}, {}] }));
 
     await requestApi((init) => backendApi.GET("/api/axis-catalog", init), {
       timeoutMs: 1000,
@@ -111,7 +104,7 @@ describe("成功", () => {
 describe("HTTPの失敗", () => {
   it("backendが`detail`を返せば、それを文言にし、状態と本文と要求のidを記録する", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ detail: "経路が見つかりません" }, { status: 404, headers: { "x-request-id": "req-1" } }),
+      Response.json({ detail: "経路が見つかりません" }, { status: 404, headers: { "x-request-id": "req-1" } }),
     );
 
     const error = await rejection(fetchJson(URL_A, OPTIONS));
@@ -131,7 +124,7 @@ describe("HTTPの失敗", () => {
   });
 
   it.each([
-    ["`detail`の無いJSON", () => jsonResponse({ message: "busy" }, { status: 503 })],
+    ["`detail`の無いJSON", () => Response.json({ message: "busy" }, { status: 503 })],
     ["JSONでない本文", () => new Response("Service Unavailable", { status: 503 })],
   ])("%sなら、呼び出し側の文言に状態を添える", async (_scene, response) => {
     fetchMock.mockResolvedValue(response());

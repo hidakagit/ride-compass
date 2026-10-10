@@ -41,10 +41,8 @@ interface DynamicLayerTimeSliderProps {
 // 可変幅のコマ・ホイールの横スクロール・離した位置への吸着はEmblaが持ち、コマの中心を左端の目印へ合わせる。
 // キーボード操作とsliderのARIAはEmblaに無いので自前で持つ。
 const emblaOptions = {
-  axis: "x" as const,
   align: (viewSize: number, snapSize: number) => INDICATOR_OFFSET_PX - snapSize / 2,
   containScroll: false as const,
-  dragFree: false,
 };
 
 /** ドラッグ・横スクロールで時刻のコマを選ぶルーラー。時刻の計算は知らない（コマの並びは呼ぶ側が作る）。 */

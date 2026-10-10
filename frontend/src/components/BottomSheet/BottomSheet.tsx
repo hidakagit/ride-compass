@@ -152,10 +152,7 @@ export default function BottomSheet({
     // app-bottom-sheetはglobals.cssのモバイル向けの規則（シート内の入力欄・チェックボックスを大きくする）の目印。
     <div
       ref={sheetRef}
-      className={cn(
-        "fixed right-0 bottom-[var(--mobile-tabbar-height)] left-0 z-[var(--z-bottom-sheet)] flex flex-col rounded-t-lg bg-[var(--background)] shadow-[0_-2px_16px_rgba(0,0,0,0.3)]",
-        "app-bottom-sheet",
-      )}
+      className="app-bottom-sheet fixed right-0 bottom-[var(--mobile-tabbar-height)] left-0 z-[var(--z-bottom-sheet)] flex flex-col rounded-t-lg bg-[var(--background)] shadow-[0_-2px_16px_rgba(0,0,0,0.3)]"
       role="dialog"
       aria-labelledby={titleId}
       style={{ height: `${heightVh}vh` }}

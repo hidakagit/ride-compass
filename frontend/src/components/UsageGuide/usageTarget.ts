@@ -12,11 +12,6 @@ export function isInUsageGuide(target: EventTarget | null): boolean {
 /** 押すと浮きパネルを開く部品の印（`components/ui/Popover/Popover.tsx: PopoverTrigger`が付ける）。 */
 export const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
 
-/** 押すと浮きパネルを開く部品か。 */
-function isPopoverOpener(element: Element): boolean {
-  return element.hasAttribute(USAGE_OPENS_ATTRIBUTE);
-}
-
 /** 選ばれていないタブか。Radix のタブは click でなく mousedown で切り替わる。 */
 export function isUnselectedTab(element: Element): boolean {
   return element.getAttribute("role") === "tab" && element.getAttribute("aria-selected") === "false";
@@ -30,7 +25,7 @@ export function isUnselectedTab(element: Element): boolean {
 function opensInside(element: Element): boolean {
   if (isUnselectedTab(element)) return true;
   if (element.getAttribute("aria-expanded") !== "false") return false;
-  return isPopoverOpener(element) || !element.hasAttribute("aria-haspopup");
+  return element.hasAttribute(USAGE_OPENS_ATTRIBUTE) || !element.hasAttribute("aria-haspopup");
 }
 
 /** 押して何かが起きる要素。押された要素から最寄りのこれを、説明する部品とみなす。 */

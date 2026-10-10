@@ -3,7 +3,7 @@
 // 「共有タイムラインのラベル」節が持つ。
 import { formatJstDateTime, formatJstHourMinute, formatJstMinute, jstParts } from "@/lib/time";
 import type { DynamicLayerTimeSliderFrame } from "@/features/conditions/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
-import { DEPARTURE_STEP_MS } from "@/features/conditions/rideConditions";
+import { DEPARTURE_STEP_MS, floorToDepartureStep } from "@/features/conditions/rideConditions";
 
 const HOUR_MS = 60 * 60_000;
 const FINE_WINDOW_MS = HOUR_MS;
@@ -15,7 +15,7 @@ const HORIZON_MS = 48 * HOUR_MS;
  * ことで、5分刻み→1時間刻みの切り替わり目が必ず正時になり、重複・欠落が生じない
  * （anchor+60分がちょうど正時なら60分ちょうどで切り替わる）。 */
 export function buildDepartureTimeline(anchor: Date): Date[] {
-  const fineStartMs = Math.floor(anchor.getTime() / DEPARTURE_STEP_MS) * DEPARTURE_STEP_MS;
+  const fineStartMs = floorToDepartureStep(anchor.getTime());
   const transitionMs = Math.ceil((fineStartMs + FINE_WINDOW_MS) / HOUR_MS) * HOUR_MS;
   const times: Date[] = [];
   for (let t = fineStartMs; t <= transitionMs; t += DEPARTURE_STEP_MS) {

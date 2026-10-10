@@ -28,11 +28,16 @@ interface ChipLegend {
   axisId?: string;
 }
 
+// 絞り込める凡例は生成物の宣言だけから決まるので、一度だけ組む。
+const SCENE_LEGEND_AXES = [...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()];
+
 function chipLegends(layer: ChipLayerDescriptor): ChipLegend[] {
   return [
-    ...[...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()]
-      .filter((axis) => axis.layerId === layer.id)
-      .map((axis) => ({ label: axis.label, legend: axis.entries, axisId: axis.axisId })),
+    ...SCENE_LEGEND_AXES.filter((axis) => axis.layerId === layer.id).map((axis) => ({
+      label: axis.label,
+      legend: axis.entries,
+      axisId: axis.axisId,
+    })),
     ...(layer.readOnlyLegend ?? []),
   ];
 }

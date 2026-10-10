@@ -1,6 +1,6 @@
 // レイヤーごとのデータ取得状態（loading/empty/error）の算出・追跡。純粋関数
 // （computeLayerDataStatus・clearStaleTrackedSourceErrors）とそれを使う状態管理・
-// イベント配線（erroredSourceIdsRef・recomputeLayerDataStatus）を1つのカスタムフックへ
+// イベント配線（erroredSourceIdsRef・recompute）を1つのカスタムフックへ
 // まとめてある。
 //
 // MapView.tsxとの循環import回避のため、対象レイヤーの(source, source-layer)対応表
