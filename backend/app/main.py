@@ -209,3 +209,5 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 install_admin_db_unavailable_handler(app)
 
 app.include_router(api_router)
+
+# 試し（tasks#809）
