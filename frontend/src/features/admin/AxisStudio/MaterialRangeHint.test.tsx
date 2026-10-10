@@ -6,11 +6,12 @@
  * ここで見ないもの:
  * - 分布の取得と共有 → `useMaterialDistribution.test.ts`
  */
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { MaterialDistribution } from "@/features/admin/adminApi";
 import { onSameOrigin } from "@/testing/backendServer";
+import { settle } from "@/testing/settle";
 
 import { MaterialRangeHint } from "./MaterialRangeHint";
 
@@ -40,7 +41,7 @@ describe("MaterialRangeHint", () => {
     ["出す分位が1つも無い", Response.json(distribution({ quantiles: { p10: 1 } }))],
   ])("%sときは何も出さない", async (_case, reply) => {
     const { container } = renderHint(reply);
-    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    await settle();
     expect(container).toBeEmptyDOMElement();
   });
 });

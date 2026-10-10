@@ -9,13 +9,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
+import { createRecordingMap, type RecordingMap } from "@/testing/mapTrace/recordingMap";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { sceneState } from "@/testing/sceneState";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import type { DynamicWeatherGroupState } from "@/features/map/layers/dynamicWeather";
 
-type Handle = ReturnType<typeof createRecordingMap>["handle"];
 type Chip = "precipitationNowcast" | "windVector" | "disaster";
 
 function raster(tileUrlTemplate: string) {
@@ -27,7 +26,7 @@ function apply(map: unknown, id: Chip, state: DynamicWeatherGroupState) {
   applyScene(map as never, buildMapScene(inputs));
 }
 
-function visibleLayerIds(handle: Handle): string[] {
+function visibleLayerIds(handle: RecordingMap): string[] {
   return handle.layerOrder().filter((layerId) => handle.layer(layerId)?.visibility === "visible");
 }
 
@@ -39,18 +38,10 @@ const BASELINE = (() => {
 })();
 
 /** 何も伝えなかったときより増えて見えているレイヤー。 */
-function shownByWeather(handle: Handle) {
+function shownByWeather(handle: RecordingMap) {
   return visibleLayerIds(handle)
     .filter((layerId) => !BASELINE.has(layerId))
     .map((layerId) => handle.layer(layerId)!);
-}
-
-/** ソースが今持っているタイル（作ったときの宣言か、その後に流し込んだもの）。 */
-function tilesOf(handle: Handle, sourceId: string): readonly string[] | undefined {
-  const poured = handle.sourceContent(sourceId)?.tiles;
-  if (poured !== undefined) return poured;
-  const added = [...handle.trace].reverse().find((entry) => entry.call === "addSource" && entry.args[0] === sourceId);
-  return (added?.args[1] as { tiles?: readonly string[] } | undefined)?.tiles;
 }
 
 describe("動的気象を地図へ伝えた結果", () => {
@@ -62,7 +53,7 @@ describe("動的気象を地図へ伝えた結果", () => {
 
     const shown = shownByWeather(handle);
     expect(shown.map((layer) => layer.type)).toEqual(["raster"]);
-    expect(tilesOf(handle, shown[0].source!)?.[0]).toContain("example.test/{z}/{x}/{y}.png");
+    expect(handle.sourceContent(shown[0].source!)?.tiles?.[0]).toContain("example.test/{z}/{x}/{y}.png");
   });
 
   it("表示ONでも、中身が来ていなければ見えない", () => {
@@ -83,7 +74,7 @@ describe("動的気象を地図へ伝えた結果", () => {
 
     const shown = shownByWeather(handle);
     expect(shown).toHaveLength(1);
-    expect(tilesOf(handle, shown[0].source!)?.[0]).toContain("/rain/");
+    expect(handle.sourceContent(shown[0].source!)?.tiles?.[0]).toContain("/rain/");
   });
 
   // 時刻を動かすと同じ状態が何度も届く。中身が同じなら手を触れない——作り直しても
