@@ -133,7 +133,7 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
 出す。** `ci.yml`の`deploy-backend`が、masterへのpushでbackend・api-contract・frontend・e2e・e2e-scanの
 ジョブが通ったときだけ`deploy-backend.yml`を呼ぶ——どれかが赤ならデプロイは起動しない（flow-gate・文書の検査は待たない）。呼ばれた側は、本番で
 動いているコミット（コンテナの`GIT_COMMIT`）からCIを通ったコミットまでの差分を
-`scripts/deploy_backend_gate.py`で見て、出すかを決める。
+`backend/scripts/deploy_backend_gate.py`で見て、出すかを決める。
 
 - **差分の起点は直前のpushではなく、本番で動いているコミット。** CIが赤で出せなかった変更は、
   次にCIを通ったコミットの差分にそのまま含まれて出る（直前のpushとの差分では、テストだけを
@@ -187,9 +187,8 @@ Renderのデプロイフックへその像を`imgURL`で渡す（Render公式の
   無料なので、ビルドはActionsでする。フックの`imgURL`は、タグ以外がサービスに設定した像のURLと同じでないと断られる
   （同じDeploy Hooksの文書）ので、リポジトリの持ち主が変わったらサービスの像のURLも直す。
 - **出すかは本番の`/api/version`の`commit`で決める。** CIを通ったコミットが本番のコミットか、その祖先なら出さない
-  （後から終わった古いCIの実行）。本番のコミットが読めない・履歴に無いときは出す。backendと違い変更のパスでは
-  振り分けない——重い検査が走ったmasterのコミットは全部出す（文書やタスク管理だけの変更は`ci.yml`の`changes`が
-  重い検査ごと飛ばすので、デプロイも起動しない）。
+  （後から終わった古いCIの実行）。本番のコミットが読めない・履歴に無いときは出す。このワークフローは変更のパスでは
+  振り分けず、`ci.yml`が`frontend/`の変更があるときだけ呼ぶ（下の「CIの実行枠」）。
 - **出したあと、本番の`/api/version`がそのコミットになるまで待つ。** Renderは最後に頼まれたデプロイを出す
   （同じ文書の「Handling overlapping deploys」）ので、待たずに次へ進むと古いコミットが新しいコミットを上書きしうる。
   判定・ビルド・フック・待ちは1つのジョブで1本ずつ走る。上限（30分）までに変わらなければジョブを落とす——Renderの
@@ -207,7 +206,7 @@ backendが先に配信すると、そのプロパティの有無を見ている�
 
 **本番のbackendで、利用者と同じ操作（ルートを作ってレンズを替える）が壊れていないかを外から見る。** CIの層は
 どれもこの組を本物の応答で通さない（e2eは応答がモックで、`frontend/e2e-live/`はCIに載らず、担当が変更のときに手で回すだけ）。
-`scripts/prod_route_check.py`が、軸カタログを1回読み、画面の既定の条件・backendの既定の重みで生成を1回頼み、
+`backend/scripts/prod_route_check.py`が、軸カタログを1回読み、画面の既定の条件・backendの既定の重みで生成を1回頼み、
 終わるまで結果を聞く。候補が0件か、カタログのどれかの軸について、候補1のどの区間もその軸のレンズが塗る値
 （軸カタログの`map_paint.value`が指す欄）を持たなければ失敗にする。区間ごとの値の有無は実データで変わるので、
 全区間が欠けたときだけ落とす。本番には書き込まない。
@@ -219,7 +218,7 @@ backendが先に配信すると、そのプロパティの有無を見ている�
   GitHub Actionsの失敗の知らせが届き、出したものは戻さない。決まった時刻の起動（`schedule`）は、GitHubが混むと遅れ、
   ひどく混むと取りこぼされ、publicのリポジトリに60日動きが無いと止められる（公式の「Events that trigger workflows」の
   `schedule`）。
-- **上限**: 生成を待つのは`scripts/prod_route_check.py: GENERATION_LIMIT_SECONDS`（120）秒までで、超えたら失敗にする。段には`timeout-minutes`の3分を置く。
+- **上限**: 生成を待つのは`backend/scripts/prod_route_check.py: GENERATION_LIMIT_SECONDS`（120）秒までで、超えたら失敗にする。段には`timeout-minutes`の3分を置く。
   2026-10-10に本番で同じ条件を測った値は、デプロイで再起動した直後の1回目が生成36.6秒（結果を聞いた回数21）、2回目以降が
   約4秒で、上限は再起動の直後の約3倍。デプロイのあとの確かめはいつも再起動の直後の形になる。
 - **利用者への影響**: 本番は生成を同時に決まった本数までしか受けないので、確かめの生成が走っている間（約4秒、再起動の直後は
@@ -246,33 +245,34 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
   途中で切らない）。打ち切った・待ちから外した実行のコミットにはCIの結論が残らないので、結論は最新のコミットで読む
   （.claude/skills/run-checks/SKILL.md「CIの結論を読む」）。数十秒で終わる`docs-consistency.yml`・`claude-gate.yml`には置かない
   （待ちが積もらない）。
-- ジョブの分け方・キャッシュ・文書や運用の道具だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`ジョブの
-  `case`）は、所要時間と同時実行の枠で決める（理由は各ワークフローのコメント）。
-- **masterのpushの`changes`は、成功で終わった実行のコミットと比べる。** 直前のコミット（`github.event.before`）と比べると、
-  直前の実行が失敗で終わったか待ちのまま取り消された（上の`concurrency`）とき、その変更が検査もデプロイもされないまま、
-  次の文書だけの変更の実行が重い検査とデプロイを飛ばして成功で終わる。そのため、masterの祖先のうちpushの実行が成功で
-  終わった一番近いコミットと比べ、成功で終わったmasterの実行のコミットまでの変更が本番に出ているようにする。
+- ジョブの分け方・キャッシュは、所要時間と同時実行の枠で決める（理由は各ワークフローのコメント）。
+- **どのジョブを走らせるかは、変わった置き場で決める。** 置き場（`backend/`・`frontend/`・`scripts/`）はどれも自分のテストを自分の中に
+  持ち、`ci.yml: changes`は変わったファイルの頭からどの置き場が変わったかだけを見て、その置き場の検査（backendならテスト・api-contract・
+  像の確かめ、frontendならテスト・e2e・全状態の走査・api-contract・像の確かめ、`scripts/`なら道具のテスト）とデプロイを走らせる。
+  それ以外の変更（文書・タスク管理・ほかのワークフロー）では何も走らせない。`ci.yml`と`.github/actions/`を変えたら、その定義で
+  全部を走らせて確かめる。置き場をまたいで読むものは数えず、テストを読む側の置き場へ置く（backendのための道具は`backend/scripts/`）。
+  走らせるジョブの組は`changes`の段だけが持ち、ジョブの`if`と`ci-ok`が読む。
+- **masterのpushの`changes`は、pushの実行が成功した一番近い祖先と比べる。** 直前のコミット
+  （`github.event.before`）と比べると、直前の実行が失敗で終わったか待ちのまま取り消された（上の`concurrency`）とき、その変更が
+  検査もデプロイもされないまま、次の文書だけの変更の実行がそれを飛ばして成功で終わる。デプロイだけが落ちた実行のあとは、
+  確かめ済みのテストも走り直すが、余分に走るだけで抜けはしない。
 - **タスク管理は製品のCIと分ける。** タスク管理の置き場（`.github/taskflow-paths`。ゲートの`tools/flow-gate/`と
   担当のワークフロー）の検査とゲートの公開は`claude-gate.yml`が持ち、`ci.yml`はその置き場を読まない。そのため
-  `ci.yml: changes`はその置き場だけの変更で重い検査を飛ばし、backend・frontendのデプロイも起動しない。
-  置き場の定義は、総量の計測（`scripts/review_checks.py: TASKFLOW_PREFIXES`）も同じファイルから読む。
+  `ci.yml: changes`はその置き場だけの変更でどのジョブも走らせず、backend・frontendのデプロイも起動しない。
+  置き場の定義は、総量の計測（`scripts/review_checks.py: TASKFLOW_PREFIXES`）が読む。
 - **ワークフローは`paths`で飛ばさず、いつも起こす。** コードのリポジトリは、master へ入れる前に必須チェック
   （`ci.yml`の`ci-ok`・`docs-consistency.yml`のジョブ・`claude-gate.yml`の`flow-gate`）が通ることを求める。ワークフローごと飛ばすと必須チェックが Pending のまま残り、
-  Pull Request がマージできない（公式の「Troubleshooting required status checks」）。重い検査を飛ばすのは
+  Pull Request がマージできない（公式の「Troubleshooting required status checks」）。ジョブを飛ばすのは
   `changes`ジョブが決め、ジョブの`if`で飛ばしたものはスキップとして必須チェックを通る。
-- **飛ばす範囲は、その検査が読む対象から導く。** 飛ばしてよいのは、`ci.yml`のどの検査も読まないパスだけ。
-  文書を読むテストを足したら、読む範囲がディレクトリに限られるなら`changes`の`case`でそこを先に当てて入れ直し、
-  全ての文書を読むなら常に走る`docs-consistency.yml`でも走らせる。飛ばす運用の道具（`scripts/`の一部）を
-  テストやデプロイが読むようにしたら、`case`からその行を外す。`ci.yml`が見ないか飛ばす運用の道具（backendの外の
-  Python・追跡しているsh）の静的検査は`docs-consistency.yml`が常に走らせる。
 - **文書の整合は`ci.yml`と分けたワークフローに置く。** 文書の整合の検査（`scripts/review_checks.py docs`）は
-  文書だけの変更こそが対象なので、`changes`が重い検査を飛ばす`ci.yml`に置かず、常に走る`docs-consistency.yml`に置く。
+  文書だけの変更こそが対象なので、`changes`が文書だけの変更でジョブを飛ばす`ci.yml`に置かず、常に走る`docs-consistency.yml`に置く。
+  backendの外のPythonとshの静的検査も、置き場を問わず同じワークフローが常に走らせる。
 
 **privateにしたら、この節の前提が崩れる。** 公式の同じページによれば、Freeプランのprivate
 リポジトリは標準ランナーで月2,000分までで、支払い方法が未登録なら使い切った時点で実行が止まる
 （登録済みなら超過分が課金される）。privateへ切り替えるときは、切り替えの前に次を見直す:
 Pull RequestごとにCIを走らせるか、古い実行を打ち切るか（`concurrency`）、文書・運用の道具
-だけの変更で重い検査を飛ばす範囲（`ci.yml: changes`）、ジョブの分け方とキャッシュ。検査の門を
+だけの変更でジョブを飛ばす範囲（`ci.yml: changes`）、ジョブの分け方とキャッシュ。検査の門を
 CIだけに置いているため、CIの分数が尽きると検査そのものが止まる。
 
 ## 秘密の値とトークン

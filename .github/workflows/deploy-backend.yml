@@ -46,7 +46,7 @@ jobs:
             echo "出す: 手動の起動"
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
-            python3 scripts/deploy_backend_gate.py "${{ steps.deployed.outputs.sha }}" "${{ github.sha }}"
+            python3 backend/scripts/deploy_backend_gate.py "${{ steps.deployed.outputs.sha }}" "${{ github.sha }}"
           fi
       - name: Deploy via SSH (native arm64 build on VM)
         id: deploy
@@ -204,7 +204,7 @@ jobs:
       - name: 本番でルートを作って区間の値を見る
         if: steps.gate.outputs.deploy == 'true'
         timeout-minutes: 3
-        run: python3 scripts/prod_route_check.py
+        run: python3 backend/scripts/prod_route_check.py
       # 本番のスキーマと、今出したコードのORMの宣言の差を測る。差が1件でもあれば終了コード1で
       # ジョブを失敗させる（差の行はログに出る）。差は人が本番で埋めるもので、
       # 出す前に埋めるもの（新しいコードが書く列を足す）と、出した後に埋めるもの（古いコードが

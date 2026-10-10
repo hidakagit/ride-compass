@@ -1,4 +1,4 @@
-# CI。masterへのpushとPull Requestごとに、backend・frontendの全チェックを回す。
+# CI。masterへのpushとPull Requestごとに、変更が届きうるbackend・frontendの検査を回す。
 #
 # - backend: ruff（lint）→ mypy（型検査）→ pytest（PostGIS統合テスト込み）。PostGIS統合テスト（tests/conftest.py の
 #   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
@@ -15,18 +15,22 @@
 #   決める（版が違うとブラウザの実行ファイルが見つからない。公式の文書 https://playwright.dev/docs/docker ）。
 #   @playwright/testを上げる変更（Dependabot等）が、そのままimageも上げる。
 # - e2e-scan: e2eのうち全状態の走査（幅 × 段階ごとに1本）を、幅ごとに段階の数だけの別ジョブ（--shard）で走らせる。
-# - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。飛ばす範囲の決め方は
-#   docs/architecture/tech-stack.md「CIの実行枠」。
-# - ci-ok: コードのリポジトリの必須チェックに置く1本。changes が成功し、重い検査が changes の決めたとおりに
-#   終わった（走らせるなら全部成功、飛ばすなら全部スキップ）ときだけ通し、それ以外は落とす。通す形を列挙するのは、
+# - frontend-image・backend-image: 本番の像を同じDockerfileで作り、起こせるかを見る（何を見るかは各ジョブの上）。
+# - scripts: 根の scripts/ の道具のテスト（scripts/tests/）。PostGIS も backend の依存も要らない。
+# - changes: 変わった置き場（backend/・frontend/・scripts/）から、どのジョブとデプロイを走らせるかを決める
+#   （決め方は docs/architecture/tech-stack.md「CIの実行枠」）。
+# - ci-ok: コードのリポジトリの必須チェックに置く1本。changes が成功し、ほかのジョブが changes の決めたとおりに
+#   終わった（走らせるなら成功、飛ばすならスキップ）ときだけ通し、それ以外は落とす。通す形を列挙するのは、
 #   GitHub Actions の障害でランナーが付かずに取り消されたジョブが、needs の結果に cancelled として渡らないことがあるため
 #   （失敗・取り消しを探す形では、それを見逃して通した）。
 #   （必須にするのをこの1本にまとめると、ジョブを足し引きしても必須チェックの設定を変えずに済む）。
-# - deploy-backend・deploy-frontend: masterへのpushで上の全ジョブが通ったときだけ、backend・frontendを本番へ出す
-#   （出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
+# - deploy-backend・deploy-frontend: masterへのpushで、changes が要ると決め、ci-ok が通ったときだけ、backend・frontendを
+#   本番へ出す（出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
 # - 持ち時間（各ジョブの timeout-minutes）: 2026-10-07 に測った成功した実行（masterへのpushの直近20件と
 #   Pull Requestの直近60件）の、ジョブごとの最長の所要の2倍を5分単位へ切り上げた値（e2e-scan は幅のうち長いほう）。
+#   frontend-image・backend-image は、2026-10-11 の試しの Pull Request の成功した実行（frontend-image 2件・backend-image 1件。
+#   最長はそれぞれ61秒・42秒）から同じ決め方で決めた。
 #   段が止まったジョブ（playwright install が進まなくなった等）を既定の360分まで待たせず、取り消しで終わらせて、
 #   作る担当・確かめる担当が流し直す（.claude/skills/task-work/SKILL.md「作る担当」の5）。成功する実行が切られるようになったら、同じ決め方で
 #   測り直す。deploy-backend・deploy-frontend の持ち時間は、呼ばれる側の deploy-*.yml が持つ。
@@ -37,7 +41,7 @@ on:
     # 作業ブランチ（orch/**）へのpushでは走らせない。masterへ入れてよいかはPull Requestの実行
     # （masterと合わせた版）で決める。
     branches: [master]
-  # ワークフローはいつも起こし、重い検査を走らせるかは changes ジョブが変更されたパスから決める
+  # ワークフローはいつも起こし、どのジョブを走らせるかは changes ジョブが変更されたパスから決める
   # （必須チェックは、ワークフローごと飛ばすと Pending のまま残り Pull Request がマージできない。
   # ジョブの if で飛ばしたものはスキップになり、必須チェックを通る。GitHub の公式の文書
   # 「Troubleshooting required status checks」）。
@@ -61,7 +65,7 @@ jobs:
       contents: read
       actions: read
     outputs:
-      heavy: ${{ steps.diff.outputs.heavy }}
+      run: ${{ steps.diff.outputs.run }}
       playwright: ${{ steps.playwright.outputs.version }}
     steps:
       - uses: actions/checkout@v5
@@ -72,6 +76,9 @@ jobs:
         run: |
           version=$(jq -er '.packages["node_modules/@playwright/test"].version' frontend/package-lock.json)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # 各置き場は自分のテストを自分の中に持ち、置き場が変わったときだけその置き場の検査を走らせる。それ以外の変更
+      # （文書・タスク管理・ほかのワークフロー等）では何も走らせない。CI の定義（このファイル・.github/actions/）を変えたら、
+      # その定義で全部を走らせて確かめる。走らせるジョブの組はここだけが持ち（run）、ジョブの if と ci-ok が読む。
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -86,27 +93,28 @@ jobs:
             BASE=$(git rev-list --first-parent --skip=1 "$GITHUB_SHA" | awk 'NR == FNR { ok[$0] = 1; next } !found && ($0 in ok) { print; found = 1 }' <(printf '%s\n' "$ok") -)
             echo "比べる相手: ${BASE:-無し}"
           fi
-          # 比べる相手が無い（手での実行・成功した master の実行が見つからない）ときは、すべて走らせる。
+          area() { grep -qE "$1" <<< "$changed" && echo true || echo false; }
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}"; then
-            echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0
+            # 比べる相手が無い（手での実行・成功した master の実行が見つからない）ときは、すべて走らせる。
+            backend=true; frontend=true; scripts=true
+          else
+            changed=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+            if [ "$(area '^(\.github/workflows/ci\.yml|\.github/actions/)')" = true ]; then
+              backend=true; frontend=true; scripts=true
+            else
+              backend=$(area '^backend/'); frontend=$(area '^frontend/'); scripts=$(area '^scripts/')
+            fi
           fi
-          mapfile -t taskflow < <(grep -Ev '^(#|[[:space:]]*$)' .github/taskflow-paths)
-          heavy=false
-          while IFS= read -r f; do
-            case "$f" in
-              # frontend/src の下の .md も読む検査（frontend/src/structure/caseOnlyPaths.test.ts）があるので、先に当てて入れ直す。
-              frontend/src/*) heavy=true; continue ;;
-              docs/*|*.md|.claude/*|scripts/size_thresholds.json|scripts/remote_dev/*) continue ;;
-            esac
-            skip=false
-            for p in "${taskflow[@]}"; do [[ "$f" == "$p"* ]] && skip=true; done
-            $skip || heavy=true
-          done < <(git diff --name-only "$BASE" "$GITHUB_SHA")
-          echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
+          push=$([ "$GITHUB_EVENT_NAME" = push ] && echo true || echo false)
+          run=$(jq -nc --argjson b "$backend" --argjson f "$frontend" --argjson s "$scripts" --argjson push "$push" \
+            '{backend: $b, "api-contract": ($b or $f), "backend-image": $b, frontend: $f, e2e: $f, "e2e-scan": $f, "frontend-image": $f,
+              scripts: $s, "deploy-backend": ($b and $push), "deploy-frontend": ($f and $push)}')
+          echo "$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
   backend:
     needs: changes
-    if: needs.changes.outputs.heavy == 'true'
+    if: fromJSON(needs.changes.outputs.run)['backend']
     # 本番（Oracle Cloud VMのAmpere A1）と同じaarch64・同じUbuntu 24.04で判定する。版の正本は
     # docs/architecture/tech-stack.md「DBの版」。
     runs-on: ubuntu-24.04-arm
@@ -153,7 +161,7 @@ jobs:
 
   api-contract:
     needs: changes
-    if: needs.changes.outputs.heavy == 'true'
+    if: fromJSON(needs.changes.outputs.run)['api-contract']
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
@@ -189,7 +197,7 @@ jobs:
 
   frontend:
     needs: changes
-    if: needs.changes.outputs.heavy == 'true'
+    if: fromJSON(needs.changes.outputs.run)['frontend']
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
@@ -218,7 +226,7 @@ jobs:
 
   e2e:
     needs: changes
-    if: needs.changes.outputs.heavy == 'true'
+    if: fromJSON(needs.changes.outputs.run)['e2e']
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
@@ -249,7 +257,7 @@ jobs:
   # 段階の所要は揃っている（2026-10-08 の成功した実行で desktop 35〜41秒ずつ）ので、1つのジョブに1段階ずつ割る。
   e2e-scan:
     needs: changes
-    if: needs.changes.outputs.heavy == 'true'
+    if: fromJSON(needs.changes.outputs.run)['e2e-scan']
     strategy:
       fail-fast: false
       matrix:
@@ -281,8 +289,69 @@ jobs:
           name: playwright-report-scan-${{ matrix.width }}-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 7
+  # frontendの像を本番と同じDockerfileで作って起こし、サーバーがコンテナの外（公開した口）からも、コンテナの中の
+  # 127.0.0.1からも応答するかを見る。本番の前段（Renderの転送）がコンテナのどの宛先へつなぐかはこちらで選べないので、
+  # どちらかで届かなければ落とす（公開した口だけを見ると、コンテナの名前の宛先だけで待ち受けるサーバーも通る）。
+  frontend-image:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.run)['frontend-image']
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build frontend --build-arg GIT_COMMIT="$GITHUB_SHA" --tag frontend-check
+      - run: docker run --detach --name frontend-check --publish 3000:3000 frontend-check
+      - name: コンテナの外と中から応答を見る
+        run: |
+          # 起動は本番で秒の単位で済む（Renderのログの Ready）。上限は起動が止まったときに待ち続けないためのもの。
+          WAIT_SECONDS=60
+          WAIT_STARTED=$SECONDS
+          until curl -fsS --max-time 5 -o /dev/null http://localhost:3000/api/version; do
+            if [ $((SECONDS - WAIT_STARTED)) -ge $WAIT_SECONDS ]; then
+              echo "::error::コンテナの外から${WAIT_SECONDS}秒以内に/api/versionへ届かない"
+              exit 1
+            fi
+            sleep 2
+          done
+          commit=$(curl -fsS --max-time 10 http://localhost:3000/api/version | jq -r .commit)
+          if [ "$commit" != "$GITHUB_SHA" ]; then
+            echo "::error::/api/versionのcommitが像に入れたコミットと違う（$commit）"
+            exit 1
+          fi
+          curl -fsS --max-time 30 -o /dev/null http://localhost:3000/ || { echo "::error::コンテナの外からトップの画面が開けない"; exit 1; }
+          docker exec frontend-check node -e "fetch('http://127.0.0.1:3000/api/version').then((r) => process.exit(r.ok ? 0 : 1), (e) => { console.error(e.cause ?? e); process.exit(1); })" \
+            || { echo "::error::コンテナの中の127.0.0.1から/api/versionへ届かない（サーバーが全部の宛先で待ち受けていない）"; exit 1; }
+      - if: failure()
+        run: docker logs frontend-check
+  # backendの像を本番と同じDockerfile・同じaarch64で作り、アプリを読み込めるかを見る（deploy-backend.ymlがコンテナを
+  # 入れ替える前に見るのと同じ確かめを、マージの前に置く）。サーバーの起動はDBの軸定義を読むので、ここでは起こさない。
+  backend-image:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.run)['backend-image']
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build backend --tag backend-check
+      - run: docker run --rm backend-check python -c "import app.main"
+  scripts:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.run)['scripts']
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # 版はbackendの依存の宣言から取る（backendジョブと同じ版）。
+      - run: pip install $(grep -hE '^pytest==' ../backend/requirements-dev.txt)
+      - run: python -m pytest -q
   ci-ok:
-    needs: [changes, backend, api-contract, frontend, e2e, e2e-scan]
+    needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, frontend-image, backend-image, scripts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -291,16 +360,18 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<< "$NEEDS"
-          jq -e '(.changes.outputs.heavy | if . == "true" then "success" elif . == "false" then "skipped" else null end) as $want
-            | .changes.result == "success" and $want != null and ([del(.changes)[].result] | all(. == $want))' <<< "$NEEDS"
+          jq -e '(.changes.outputs.run // "null" | fromjson) as $run
+            | .changes.result == "success" and $run != null
+              and (del(.changes) | to_entries | all(.value.result == ($run[.key] | if . == true then "success" elif . == false then "skipped" else null end)))' <<< "$NEEDS"
+  # どちらも、changes が決めたときだけ呼ぶ（ci-ok を待つので、この実行の検査が全部決めたとおりに終わってから）。
   deploy-backend:
-    needs: [backend, api-contract, frontend, e2e, e2e-scan]
-    if: github.event_name == 'push'
+    needs: [changes, ci-ok]
+    if: github.event_name == 'push' && fromJSON(needs.changes.outputs.run)['deploy-backend']
     uses: ./.github/workflows/deploy-backend.yml
     secrets: inherit
   deploy-frontend:
-    needs: [backend, api-contract, frontend, e2e, e2e-scan]
-    if: github.event_name == 'push'
+    needs: [changes, ci-ok]
+    if: github.event_name == 'push' && fromJSON(needs.changes.outputs.run)['deploy-frontend']
     # 呼ばれた側が像をGitHubのコンテナの置き場へ置く。呼ばれた側のGITHUB_TOKENは、ここで渡した権限より広げられない。
     permissions:
       contents: read

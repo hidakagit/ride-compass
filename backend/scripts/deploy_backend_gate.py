@@ -1,6 +1,6 @@
 """backendを本番へ出すかを決める（`.github/workflows/deploy-backend.yml`が呼ぶ）。
 
-    python scripts/deploy_backend_gate.py <本番で動いているコミット> <出したいコミット>
+    python backend/scripts/deploy_backend_gate.py <本番で動いているコミット> <出したいコミット>
 
 本番で動いているコミットから出したいコミットまでの変更に、`DEPLOY_PATHS`に当たり`NOT_DEPLOYED`に
 当たらないファイルが1つでもあれば出す。当てるのはgitのpathspec（`git diff --name-only`）で、
@@ -23,9 +23,8 @@ import sys
 DEPLOY_PATHS = (
     # backend/ops/はイメージに入らないが、デプロイがVMの作業コピーを揃えて届けるので外さない。
     "backend/**",
-    # デプロイの手順そのもの。
+    # デプロイの手順そのもの（この道具は上の backend/** に入る）。
     ".github/workflows/deploy-backend.yml",
-    "scripts/deploy_backend_gate.py",
 )
 
 #: `DEPLOY_PATHS`に当たっても、本番へ出す理由にならないもの（書き方は同じ）。
@@ -49,6 +48,8 @@ NOT_DEPLOYED = (
     # importされていないことを検査する**——importされた時点で、ここに挙げたままでは
     # 変更が本番へ届かなくなる。
     "backend/scripts/export_openapi.py",
+    # 本番でルートを作る確かめ。デプロイのあとと定時に、ランナーから本番を外から叩く（像の中では動かさない）。
+    "backend/scripts/prod_route_check.py",
     "backend/app/domain/map_display.py",
     "backend/app/domain/display_palette.py",
     "backend/app/domain/warning_display.py",

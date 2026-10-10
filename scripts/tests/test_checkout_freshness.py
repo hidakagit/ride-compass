@@ -8,9 +8,8 @@ origin は一時的な bare リポジトリで作り、git は本物を通す。
 from pathlib import Path
 
 import pytest
-
-from tests.git_repo import git
-from tests.script_module import load_script
+from git_repo import git
+from script_module import load_script
 
 cf = load_script("checkout_freshness")
 

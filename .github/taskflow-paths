@@ -1,7 +1,5 @@
 # タスク管理（タスクの流れのゲートと担当のワークフロー）の置き場。1行に1つ、パスの頭を書く。
-# 製品と無関係に作り直され、製品の CI（ci.yml）のどの検査も読まない。読む側は2つ:
-# - ci.yml: changes — ここだけの変更では重い検査とデプロイを走らせない（検査と公開は claude-gate.yml）。
-# - scripts/review_checks.py: TASKFLOW_PREFIXES — 総量の実装の内訳で、道具と分けて数える。
-# ci.yml のどれかの検査が読むものをここへ足さない（docs/architecture/tech-stack.md「CIの実行枠」）。
+# 製品と無関係に作り直され、製品の CI（ci.yml）のどの検査も読まない（検査と公開は claude-gate.yml）。
+# 読む側は scripts/review_checks.py: TASKFLOW_PREFIXES — 総量の実装の内訳で、道具と分けて数える。
 tools/flow-gate/
 .github/workflows/claude-
