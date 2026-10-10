@@ -129,7 +129,7 @@ jobs:
           cd mutants
           MUT_OUT="$RECHECK_OUT" MUT_STOP_AFTER=1800 python ../scripts/mutation/runner.py ../scripts/mutation/recheck.txt "$RECHECK_OUT/results.jsonl" "$WORKERS"
       - if: always() && steps.mode.outputs.full == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: recheck-${{ matrix.shard }}
           path: |
@@ -138,7 +138,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-${{ matrix.shard }}
           path: |
@@ -200,7 +200,7 @@ jobs:
       # 変異を全部回し終えた測りの見直しだけを残す（途中で止まった測り・count で減らした試しを、次の見直しが前回として
       # 読まないように）。見直しが落ちたときも残さない。
       - if: steps.review.outputs.complete == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-review
           path: /tmp/review/

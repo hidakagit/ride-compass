@@ -247,7 +247,7 @@ jobs:
       - run: npm ci
       # 全状態の走査は、下のe2e-scanが幅ごとの別ジョブで走らせる。
       - run: npm run test:e2e -- --grep-invert "全状態の走査"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -283,7 +283,7 @@ jobs:
       - run: npm ci
       - run: |
           npm run test:e2e -- -g "全状態の走査: ${{ matrix.width }}" --shard=${{ matrix.shard }}/3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report-scan-${{ matrix.width }}-${{ matrix.shard }}
