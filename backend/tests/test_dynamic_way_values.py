@@ -118,8 +118,9 @@ def test_the_map_paints_the_same_value_the_search_scores(axis_id):
 
 def test_values_from_a_service_replace_the_material_of_the_tile():
     """配信のサービスが返さなかったフィーチャーは「データなし」、Noneで返したフィーチャーは「向きで決まらない」に
-    なり、地図で見分けられる。タイルの材料に同じ材料の値があっても、サービスの値で塗る。"""
-    keys = ["feature-0", "feature-1", "feature-2"]
+    なり、地図で見分けられる。タイルの材料に同じ材料の値があっても、サービスの値で塗る。返さなかったフィーチャーを
+    先に置く（その後ろのフィーチャーの値を落とさないことも見る）。"""
+    keys = ["feature-2", "feature-0", "feature-1"]
     tile = {"num_a": np.array([1.0, 1.0, 1.0])}
 
     painted = paint_feature_values(
