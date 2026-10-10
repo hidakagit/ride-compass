@@ -25,7 +25,7 @@ export default defineConfig({
     // 既定のDOM環境はhappy-dom（jsdomより環境の準備もテスト本体も速い）。happy-domで挙動の違うAPIに
     // 当たったら、そのファイルに`// @vitest-environment jsdom`のdocblockを付けてjsdomで動かす。
     // `isolate: false`（ファイル間でモジュール状態・DOM環境を使い回す）は、実行のたびに違うテストが
-    // 落ちるため使わない（.claude/rules/testing.md「基本原則」の3: 速度の最適化は確かめる内容を変えない範囲で行う）。
+    // 落ちるため使わない（CLAUDE.md「原則」の5: 確かめを絞るのは量で、条件は軽くしない）。
     environment: "happy-dom",
     // backendは画面と別のオリジンにあり、happy-domの`fetch`はCORSの事前の要求（OPTIONS）を出して応答の見出しを照らす。
     // CORSを許すのはbackendの設定で、画面のテストが見るものではないため外す（外さないと、網の層の差し替え
