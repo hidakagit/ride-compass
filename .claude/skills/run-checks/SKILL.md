@@ -49,6 +49,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 | 手元 | 上の「手元の検査の回し方」 | CIの失敗の再現・書いているテストの動作・怪しいところの念押し（どれも届く範囲だけ） |
 | 作業ブランチ（`orch/**`）のCI | 必須チェックのワークフロー（名前と、文書や運用の道具・タスク管理だけの変更で重い検査を飛ばす範囲は[tech-stack.md](../../../docs/architecture/tech-stack.md)「CIの実行枠（リポジトリがpublicである間の前提）」。Pull Requestで走り、作業ブランチへのpushでは走らない） | 静的検査とフルスイート（Linuxでの結果）。masterと合わせた版で、masterへ入れてよいかの判定 |
 | masterのCI | 同じワークフロー | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイは起動しない（flow-gate・文書の検査は待たない） |
+| 本番 | `scripts/prod_route_check.py`（backendを出したあとと毎日1回。[tech-stack.md](../../../docs/architecture/tech-stack.md)「本番でルートを作る確かめ」） | 本物の応答で、ルートを作ってレンズを替える操作が壊れていないか。デプロイを伴わない本番の値の変化も拾う |
 
 - **コミット・pushの直前（gitのフック）には検査を置かない。** 何を見ているかの正本は`scripts/review_checks.py`と各CIの段で、ここへ写さない。
 
