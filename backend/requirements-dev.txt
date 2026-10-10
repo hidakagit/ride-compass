@@ -18,7 +18,7 @@ types-shapely==2.0.0.20250404
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-xdist==3.8.0
-pytest-cov==6.0.0
+pytest-cov==7.1.0
 # timeoutはpytest.iniが設定を持つため、入っていないと起動時にUnknown config optionで止まる。
 pytest-testmon==2.2.0
 pytest-randomly==5.0.0
