@@ -400,6 +400,16 @@ def test_a_tree_without_a_clock_reads_the_wind_at_each_segment_s_own_passage():
     assert leg.passage_hours is passage
 
 
+def test_trees_without_a_clock_that_pass_at_different_hours_are_not_mixed_up():
+    """同じ時刻・向きのレグでも、通過時刻が違えば前の合成を使い回さない（使い回すと別の時刻の風で探す）。"""
+    composer = _composer(_matrix(1), series=_series([0.0, 8.0]))
+
+    calm = composer.compose("inbound", None, 3.0, -1, passage_hours=np.array([0.0]))
+    windy = composer.compose("inbound", None, 3.0, -1, passage_hours=np.array([1.0]))
+
+    assert windy.travel_seconds_full[0] > calm.travel_seconds_full[0]
+
+
 @pytest.mark.parametrize("wind_weight", [0.0, 1.0])
 def test_values_recomposed_for_the_rows_on_the_route_match_the_composition_used_by_the_search(wind_axis, wind_weight):
     """表示は経路上の行だけをその時刻で合成し直す。探索が使った合成と同じ値になる（探索コストと表示の一致）。"""
