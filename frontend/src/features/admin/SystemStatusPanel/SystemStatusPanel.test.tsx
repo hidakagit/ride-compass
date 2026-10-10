@@ -2,7 +2,7 @@
  * `SystemStatusPanel.tsx`——開いたときと「更新」のときだけ、フロントとbackendの版・外部サービスの
  * 呼び出しの集計・予報の同期の鮮度を取って出すこと。
  *
- * 日時の書式はOSの時間帯で変わるため、日時の文字列そのものは見ない（testing-patterns-data.md パターン10）。
+ * 日時の書式はOSの時間帯で変わるため、日時の文字列そのものは見ない（testing.md パターン10）。
  *
  * ここで見ないもの:
  * - 浮動パネルの開閉・移動 → `components/FloatingPanel`

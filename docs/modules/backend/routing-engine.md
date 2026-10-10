@@ -875,7 +875,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
 ホットパスがバリデーションコストを避けるために使う。方位の呼び名と2地点の距離は画面も同じ計算を
 持つので、境界を含む入力とこのモジュールの答えを`scripts/cross_language_expectations.py: geo_expectations`が
-表にして生成物へ出し、画面のテストが全行を通す（置き場と作り方は[testing-patterns-data.md](../../../.claude/rules/testing-patterns-data.md)
+表にして生成物へ出し、画面のテストが全行を通す（置き場と作り方は[testing-frontend.md](../../../.claude/rules/testing-frontend.md)
 「パターン11」）。
 
 `errors.py`は`RoutingError`と`SearchAreaTooLargeError`を持つ。`RoutingError`は

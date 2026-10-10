@@ -1,6 +1,6 @@
 """autouse のフィクスチャが、テストの寄りかかれる値を配っていないことの検査。
 
-autouse で配ってよいのは何も与えないものだけ（.claude/rules/testing-rewrite.md「テストの足場で、本来のNGを覆わない」）。
+autouse で配ってよいのは何も与えないものだけ（.claude/rules/testing-scaffold.md「テストの足場で、本来のNGを覆わない」）。
 値・データ・動く代役を配ると、それに依るテストが依ると言わないまま通り、前提の無い状態で走るテストが1件も
 無くなる。
 
@@ -297,7 +297,7 @@ def test_autouse_fixtures_give_nothing() -> None:
 
     assert violations == [], (
         "autouse のフィクスチャが値・データ・代役を配っている。autouse を外し、要るテストが引数で取ること"
-        "（.claude/rules/testing-rewrite.md「テストの足場で、本来のNGを覆わない」）:\n  " + "\n  ".join(violations)
+        "（.claude/rules/testing-scaffold.md「テストの足場で、本来のNGを覆わない」）:\n  " + "\n  ".join(violations)
     )
 
 

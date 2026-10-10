@@ -51,9 +51,9 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す。プローブの後ろに書いた引数はそのままプローブへ渡す |
 | scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない）。接続情報を渡す前に、このチェックアウトがorigin/masterより遅れていれば止まる（[setup.md](../../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」） |
 | scripts | `drop_orphan_test_databases.py` | 作業ツリーごとに作られるPostGIS統合テストのDBのうち、作業ツリーが無くなったものを出し、`--drop`で落とす。どの作業ツリーのものかはDB自身のコメントから読む（名前から推測しない） |
-| scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[testing.md](../../../.claude/rules/testing.md)） |
+| scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[run-checks/SKILL.md](../../../.claude/skills/run-checks/SKILL.md)「E2E・画面の撮影の走らせ方」） |
 | scripts | `serve_capture.py` | 撮影の道具（`frontend/scripts/capture.mjs`の`--backend`）のために、この作業ツリーのbackendを、起動の段（DBの軸定義の読み込み・定期ジョブ）を外して起動する。ルーターとミドルウェアは`main.py: app`のまま。DBを読む経路は失敗するので、撮影の道具はDBを読まない経路（タイルの中継等）だけをここへ向ける |
-| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・そのテストだけが通す行が0行のテスト・カバレッジ・テストファイルごとの項目と関数と行の数・テストからしか使われない公開の名前の候補。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing.md](../../../.claude/rules/testing.md) |
+| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・そのテストだけが通す行が0行のテスト・カバレッジ・テストファイルごとの項目と関数と行の数・テストからしか使われない公開の名前の候補。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing-rewrite.md](../../../.claude/rules/testing-rewrite.md) |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 

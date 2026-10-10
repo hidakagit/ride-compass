@@ -16,7 +16,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   どの変更で何が走るかは下の「検査の置き場」）。手元では、CIの結論より先に知らないと作業が無駄になる答えだけを、
   その答えに要る最小の範囲で取る。
 - **回してよい場面は3つ**。どれでもなければ回さずにpushし、CIの結論を待つ。
-  1. **CIが落ちた失敗を再現して直すとき**（[testing-writing.md](../../rules/testing-writing.md)「テストが落ちたときの直し方」）。回すのは落ちた失敗に届く範囲だけ。
+  1. **CIが落ちた失敗を再現して直すとき**（[testing.md](../../rules/testing.md)「テストが落ちたときの直し方」）。回すのは落ちた失敗に届く範囲だけ。
   2. **テストそのものを書く・書き換えるとき**（新しいテスト・起こし直し・足場の作り直し）。書いた形をほかのファイルへ
      写す前に、書いたファイルが動くかを見る。回すのは書いた・直したテストファイルだけで、1ファイルを書くたびにそのファイルを回してよい。
   3. **怪しいところがあって、CIの前に念を入れて確かめたいとき**（並べ替えで落ちそうな共有の状態・時計に依存する境界等）。
@@ -36,7 +36,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった
     ファイルだけを実行する。フルスイートを影響範囲の調査に使わない。
-  - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing-writing.md](../../rules/testing-writing.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**
+  - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing-structure.md](../../rules/testing-structure.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**
     （backend: `python -m pytest backend/tests/structure -q`、frontend: `./node_modules/.bin/vitest run src/structure`）。
 - **同じ作業ツリーで並行して複数のテストプロセスを走らせない**（下の「テストDBは作業ツリーごとに分かれる」）。
 
@@ -131,13 +131,27 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 
 ### 実行順をばらす（pytest-randomly）
 
-入っているだけで働き、モジュールの中で並びを混ぜる（モジュールをまたいでは混ぜない）。**並びが変わった回にだけ落ちる
-失敗は、実装の欠陥ではなく、テストの隠れた順序依存として直す。**
+入っているだけで働き、モジュールの並びと、モジュールの中の並びを混ぜる（違うモジュールのテストを交ぜ合わせはしない）。
+**並びが変わった回にだけ落ちる失敗は、実装の欠陥ではなく、テストの隠れた順序依存として直す**（直す向きは
+[testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」の隔離）。
 
 - CIで落ちた並びは、手元で`--randomly-seed=<runのID>`を付けると同じ並びになる（CIはrunのIDを種に渡す。
   `.github/workflows/ci.yml`）。`-n`を付けずに流すと、ワーカーの中の順まではCIと揃わない。
 - 手元の回の種は、実行の見出しに`Using --randomly-seed=…`と出る（`-q`では出ない）。
 - 前回と同じ並びは`--randomly-seed=last`、混ぜずに流すのは`-p no:randomly`。
+
+**汚した側の探し方**（落ちたテスト1本＝汚される側について）:
+
+1. 汚される側だけを`-p no:randomly <テストのid>`で回し、通ることを見る。単独で落ちるなら向きが逆で、ふだん通るのは前に走った
+   テストが状態を用意しているから（頼っている側）。下の2〜4で用意している側を探し、テストが自分で用意する形に直す。
+2. `-n`を付けずに`--randomly-seed=<種> --collect-only -q`で、その種の1つのプロセスでの並びを出し、汚される側より前の id を
+   ファイルへ書く。同じ種で`-n`を付けずに回し、汚される側が落ちることを見る（落ちなければ、CIのワーカーの分け方で前に来たテストが
+   違う。別の種を試す）。
+3. 前の id の半分と汚される側を、`-p no:randomly @<ファイル>`（1行に1つの id。書いた順のまま回る）で回す。落ちた半分に汚す側が
+   いるので、それを次の候補にして、1本になるまで繰り返す。どちらの半分でも落ちないなら、汚すのは2本以上の組なので、
+   前から1本ずつ外して、落ちなくなる所を探す。
+4. 汚す側が残す状態（モジュールの変数・プロセスに残る記録・DB の行・環境変数）を見つけ、汚す側が自分で片付ける形
+   （フィクスチャの後始末・`monkeypatch`）に直す。汚される側に片付けを足して隠さない。
 
 ### 止まったテストを落とす（pytest-timeout）
 
@@ -154,7 +168,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 `tests/conftest.py: postgis_database_url`が、チェックアウトの場所からDB名を導き
 （`ridecompass_test_<ディレクトリ名>_<パスのダイジェスト>`）、無ければ作る。表が宣言と違う形になっていれば、
 ファイルごとのエンジンの準備（`tests/conftest.py: road_graph_engine`）が`scripts/schema_gap.py`で差を測って作り直すので、
-壊れ方の確かめ（[testing-necessity.md](../../rules/testing-necessity.md)「そのテストは要るか（3問を順に）」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
+壊れ方の確かめ（[testing-review.md](../../rules/testing-review.md)「消す・まとめる前に、残す側が落ちるかを見る」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
 
 環境ごとに必要な作業（開発機で一度だけ付ける権限・拡張）と、作業ツリーを消したあとの残骸の片付けは付録にある。
 
@@ -167,7 +181,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 ## 変異テストでテストの効きを測る
 
 今のテストが、実装の1か所の書き換え（`<` を `<=` に・`+` を `-` に等）を見つけられるかを測り、テストを消す・足す判断の
-材料にする。台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）、回すのは
+材料にする（結果から何を足す・消す・直すかは [testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」）。台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）、回すのは
 `.github/workflows/mutation.yml`（手で起こす）。
 
 ```bash
@@ -198,7 +212,7 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
 
 ## E2E・画面の撮影の走らせ方
 
-何をE2Eで見るか・書き方は[testing-patterns-runtime.md](../../rules/testing-patterns-runtime.md)パターン4が持つ。
+何をE2Eで見るか・書き方は[testing-e2e.md](../../rules/testing-e2e.md)パターン4が持つ。
 
 - **`npm run test:e2e`**（`npm run build:e2e`→`playwright test`）。CIのe2eジョブも同じコマンドを使う。`build:e2e`は型の検査を
   外した本番ビルドで（`next.config.ts`の`typescript.ignoreBuildErrors`）、型はCIの`frontend`ジョブの`tsc --noEmit`が見る。

@@ -4,7 +4,7 @@
  *
  * 決め方は環境変数と画面のオリジンを引数で受ける`resolveTileBaseUrl`にあり、それを呼ぶ。環境変数を読むだけの
  * `tileBaseUrl`は呼ばない——`NEXT_PUBLIC_TILE_BASE_URL`はほかの実装も読み、テストで立てると並行する別のファイルの
- * 期待値が変わる（testing-patterns-data.md「パターン7」）。
+ * 期待値が変わる（testing-frontend.md「パターン7」）。
  *
  * ここで見ないもの:
  * - オリジンをタイルのURLへ付けること → 使う側（`features/map/layers/jmaDelivery.test.ts`・`features/map/regionApi.test.ts`）

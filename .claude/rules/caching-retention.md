@@ -1,9 +1,6 @@
 ---
 paths:
-  - "backend/app/infrastructure/**"
-  - "backend/app/services/**"
-  - "backend/app/api/**"
-  - "backend/app/domain/**"
+  - "backend/app/**/*{cache,redis,store}*.py"
 ---
 
 # キャッシュ方針（何を持ち、いつ捨てるか）

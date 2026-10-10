@@ -32,7 +32,7 @@ from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, load_s
 from app.infrastructure.source_models import SourceFeatureRow
 from tests.conftest import postgis_database_url, raw_connection
 
-# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-patterns-runtime.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

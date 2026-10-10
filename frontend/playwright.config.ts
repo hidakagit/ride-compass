@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// 何をE2Eの対象にするかは .claude/rules/testing-patterns-runtime.md パターン4。
+// 何をE2Eの対象にするかは .claude/rules/testing-e2e.md パターン4。
 // 実バックエンド・実外部APIには依存しない（e2e/fixtures.ts）。
 
 /** E2E専用のポート。devサーバー（3000）や他の作業ツリーのサーバーと取り合わない。 */
@@ -11,7 +11,7 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  // 再試行しない（.claude/rules/testing-rewrite.md「テストの足場で、本来のNGを覆わない」）。
+  // 再試行しない（.claude/rules/testing-scaffold.md「テストの足場で、本来のNGを覆わない」）。
   retries: 0,
   // 1つのサーバーへ複数のChromiumが同時に地図（MapLibre・WASM）を読みに行くと、開発機では
   // ページ遷移とフックが30秒の枠を超える。CIのランナーはジョブ専有なので既定のまま。

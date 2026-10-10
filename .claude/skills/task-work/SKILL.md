@@ -59,8 +59,12 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      `scripts/deploy_backend_gate.py: DEPLOY_PATHS` に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>`
      が 0 で終われば出ている（本番の commit が手元に無ければ先に `git fetch origin`）。
      出ていなければ、master の CI の一番新しい実行（`gh run list -R hidakagit/ride-compass --workflow ci.yml --branch master --limit 1 --json databaseId,headSha`）を
-     作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。マージのコミットを含む実行（`headSha` がマージのコミットかその後の版）が
-     終わっても出ていなければ（失敗・取り消し）、問わずに、上の時間を待つ残りと同じく着手可能日を翌日にして終える。
+     作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。まだ出ていなければ、同じ `gh run list` で一番新しい
+     実行を引き直し、待った実行と違えばそれを同じく待って見直す（master の CI は待ちを一番新しい1件だけにし、新しい実行が来ると古い待ちを
+     取り消す。`.github/workflows/ci.yml` の `concurrency`）。待ち直す回数に上限は置かない（押されて取り消された待ちには、押した新しい実行が
+     必ずあり、master へのコミットが止まれば終わる。外の上限は担当のジョブの持ち時間）。
+     マージのコミットを含む実行（`headSha` がマージのコミットかその後の版）のうち一番新しいものが終わっても出ておらず（失敗・取り消し）、
+     それより新しい実行が無いときだけ、問わずに、上の時間を待つ残りと同じく着手可能日を翌日にして終える。
      出たら、判断材料にユーザーが見る版を書く。frontend に届く変更は「画面右上のメニュー（︙）の『バージョン表示』の版が <見た時点の
      本番の `commit` の頭8文字> なら修正を含む版。違えば、それより後の版が出ていて、それも修正を含む」、backend にだけ届く変更は
      開く URL と見た時点の `started_at`（「`started_at` がこの時刻以降なら修正を含む版」）。
@@ -78,7 +82,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    コードのリポジトリの規則で断られるので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは .claude/skills/run-checks/SKILL.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
-5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
+5. マージの前に済ませる本番への書き込みが要り、まだ済んでいなければ、出さずに `docs/conventions/flow.md`「担当」の「自動で進めないもの」のとおり返す。
+   コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （`docs/conventions/flow.md`「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
    題名と本文は、そのまま master のコミットになる（`docs/conventions/flow.md`「コミット」）。本文は `.github/pull_request_template.md`
@@ -122,13 +127,13 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    ルールセットの必須のチェック（`gh api repos/hidakagit/ride-compass/rules/branches/master --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`）
    と揃っていることを見る。揃っていなければまだ起きていない実行があるので、`gh run list` から打ち直す。`gh pr checks --watch` では待たない。
    落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で回す場面と範囲は
-   .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing-writing.md「テストが落ちたときの直し方」）、4 から続ける。
+   .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing.md「テストが落ちたときの直し方」）、4 から続ける。
    取り消し（`cancelled`）で終わったチェックも「落ちたら」と同じに扱う。master を取り込んでも直すものが無ければ（GitHub Actions の
    障害でランナーが付かなかった等）、`gh run rerun <id> --failed -R hidakagit/ride-compass` で流し直して `gh run watch` から待ち直す。
    `backend/app` を変えたときは、必須でないワークフロー Mutation PR（`.github/workflows/mutation-pr.yml`）も走り、変えた関数の変異のうち
    テストが気づかないもの（生き残り）を、変えた行への注記（`gh run view <id> -R hidakagit/ride-compass` の ANNOTATIONS）と実行の要約に出す。
    これも終わるまで待って読み、生き残りのうち利用者や運用に見える振る舞いが変わるものは、それを落とすテストを足して 4 から続ける
-   （足すかの判断は .claude/rules/testing-necessity.md「そのテストは要るか」）。足さないもの（振る舞いが変わらない書き換え・テストで確かめない
+   （足すかの判断は .claude/rules/testing.md「そのテストは要るか」）。足さないもの（振る舞いが変わらない書き換え・テストで確かめない
    約束）と、変わったのにどのテストも通らない関数は、Pull Request の本文の検証に1件1行で理由を書く。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。

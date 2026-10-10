@@ -14,7 +14,7 @@ from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import empty_ingested_tables
 from tests.source_ingest import ingest_records, point_record, way_record
 
-# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-patterns-runtime.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * 要素ごとに確かめるテストが、母集団が空のとき何も確かめずに通る形になっていないかを見る
- * （規約は .claude/rules/testing-patterns-data.md パターン6。backend の同じ検査は
+ * （規約は .claude/rules/testing-structure.md パターン6。backend の同じ検査は
  * `backend/tests/structure/test_vacuous_loops.py`）。
  *
  * 母集団は`frontend/src`配下の全`*.test.ts(x)`で、TypeScriptの構文木で読む。
