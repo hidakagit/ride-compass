@@ -58,7 +58,9 @@ function formatTime(date: Date): string {
 export function debugLog(category: string, message: string, detail?: unknown, level: DebugLogLevel = "info"): void {
   if (!enabled) return;
   const entry: DebugLogEntry = { id: nextId++, time: formatTime(new Date()), category, message, detail, level };
-  entries = [...entries, entry].slice(-MAX_ENTRIES);
+  const next = entries.slice(1 - MAX_ENTRIES);
+  next.push(entry);
+  entries = next;
   const consoleFn = level === "error" ? console.error : level === "warn" ? console.warn : console.debug;
   consoleFn(`[RideCompass Debug] [${category}] ${message}`, detail ?? "");
   notify();

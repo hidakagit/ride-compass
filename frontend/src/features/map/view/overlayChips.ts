@@ -3,7 +3,6 @@
  * チップも▶パネルの中身も宣言から作る——チップはレイヤーカタログ（`buildMapLayers`）、絞り込める
  * 凡例は`scene/legends.ts`、表示専用の凡例は記述子の`readOnlyLegend`。
  */
-import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import {
   buildDefaultLayerVisibility,
   isAxisStudioLayer,
@@ -21,12 +20,7 @@ import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "@/fea
 import { hiddenKeysOf, presentHiddenKeys } from "./legendFilters";
 import type { HiddenLegendKeys } from "./mapLook";
 
-/** 凡例1本。`axisId`を持てば絞り込める（保存先の鍵）。 */
-interface ChipLegend {
-  label: string;
-  legend: readonly LegendEntry[];
-  axisId?: string;
-}
+type ChipLegend = Omit<LegendFilterSummaryAxis, "hiddenKeys">;
 
 // 絞り込める凡例は生成物の宣言だけから決まるので、一度だけ組む。
 const SCENE_LEGEND_AXES = [...roadLegendAxes(), ...pointLegendAxes(), disasterSourceLegendAxis()];

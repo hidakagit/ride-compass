@@ -9,7 +9,7 @@ import { HelpIcon, LogIcon, MenuIcon, RedrawMapIcon, VersionIcon } from "@/compo
 import { textVariants } from "@/components/ui/Text/Text";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { getQueryClient } from "@/lib/queryClient";
-import { getFrontendVersion } from "@/services/versionApi";
+import { frontendVersionQuery } from "@/services/versionApi";
 
 interface HeaderMenuProps {
   /** デバッグログ項目自体の表示可否（デバッグモードのON/OFFは/adminで切り替える）。 */
@@ -129,7 +129,7 @@ export default function HeaderMenu({
 const SHORT_COMMIT_LENGTH = 8;
 
 function VersionDialog() {
-  const { data, error } = useQuery({ queryKey: ["frontend-version"], queryFn: getFrontendVersion }, getQueryClient());
+  const { data, error } = useQuery(frontendVersionQuery, getQueryClient());
 
   return (
     <DialogContent title="バージョン">

@@ -7,14 +7,13 @@
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
-import type { Feature, FeatureCollection, LineString } from "geojson";
+import type { Feature, FeatureCollection, LineString, Position } from "geojson";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import { noDataDashExpression, zoomScaleExpression, sceneSourceId } from "@/features/map/scene/sceneBuilders";
 
 /** [経度, 緯度] の並び。 */
-type RoutePoint = readonly [number, number];
-export type RoutePath = readonly RoutePoint[];
+export type RoutePath = readonly Position[];
 
 /** 見た目の値は源泉が配る（`backend/app/domain/map_display.py`）。ここは受け取って塗るだけ。 */
 const ROUTE = mapDisplay.route;
@@ -69,11 +68,25 @@ function collection(features: readonly Feature<LineString>[]): FeatureCollection
   return { type: "FeatureCollection", features: [...features] };
 }
 
-function arrowSize(scale: number): unknown {
-  return zoomScaleExpression(scale, ROUTE.arrowSizeByZoom);
-}
-
 export const routeGroup = declareGroup<RouteState>((state) => {
+  // 衝突判定を無効にする——有効にすると、同じ位置の2層のうち後ろが丸ごと落ちる。
+  const arrowLayer = (role: string, scale: number, color: string, opacity: number): SceneLayerEntry => ({
+    role,
+    tier: "route",
+    source: SOURCE.selected,
+    type: "symbol",
+    visible: state.visible,
+    layout: {
+      "icon-image": state.arrowIconImage,
+      "symbol-placement": "line",
+      "symbol-spacing": ROUTE.arrowSpacingPx,
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-size": zoomScaleExpression(scale, ROUTE.arrowSizeByZoom),
+    },
+    paint: { "icon-color": color, "icon-opacity": opacity },
+  });
+
   const selected = state.candidates.find((candidate) => candidate.routeId === state.selectedRouteId) ?? null;
   // 区間を描いている候補は参考線から外す——同じ線を2本重ねると、上の色分け線の下から
   // 単色の線がはみ出す。
@@ -208,41 +221,8 @@ export const routeGroup = declareGroup<RouteState>((state) => {
       paint: { ...HIT_PAINT, "line-width": HIT_WIDTH_PX },
       hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_SPLICE_BAND],
     },
-    // 衝突判定を無効にする——有効にすると、同じ位置の2層のうち後ろが丸ごと落ちる。
-    ...[
-      {
-        role: "arrowHalo",
-        tier: "route" as const,
-        source: SOURCE.selected,
-        type: "symbol" as const,
-        visible: state.visible,
-        layout: {
-          "icon-image": state.arrowIconImage,
-          "symbol-placement": "line",
-          "symbol-spacing": ROUTE.arrowSpacingPx,
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-          "icon-size": arrowSize(ROUTE.arrowHaloScale),
-        },
-        paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": ROUTE.opacities.arrowHalo },
-      },
-      {
-        role: "arrow",
-        tier: "route" as const,
-        source: SOURCE.selected,
-        type: "symbol" as const,
-        visible: state.visible,
-        layout: {
-          "icon-image": state.arrowIconImage,
-          "symbol-placement": "line",
-          "symbol-spacing": ROUTE.arrowSpacingPx,
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-          "icon-size": arrowSize(1),
-        },
-        paint: { "icon-color": palette.semantic.route_arrow, "icon-opacity": 1 },
-      },
-    ],
+    arrowLayer("arrowHalo", ROUTE.arrowHaloScale, palette.semantic.route_arrow_halo, ROUTE.opacities.arrowHalo),
+    arrowLayer("arrow", 1, palette.semantic.route_arrow, 1),
   ];
 
   return { sources, layers };

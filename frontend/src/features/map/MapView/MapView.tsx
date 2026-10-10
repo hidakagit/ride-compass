@@ -31,13 +31,13 @@ import {
   type MapLayerDataSource,
   type MapLayerDescriptor,
   type LayerDataStatusByLayer,
-  type MapLayerId,
 } from "@/features/map/layers/mapLayers";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { reloadStyle, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import { isStyleReady, reloadStyle, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
   applyScene,
+  effectiveLayerVisibility,
   ROAD_TILE_SOURCE_LAYER,
   sceneInputsFrom,
   type SpliceStretchInput,
@@ -49,27 +49,15 @@ import {
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
-import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
+import { POINT_TILE_SOURCES, pointLayerOfSceneLayer } from "@/features/map/scene/groups/points";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
-import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-
-/** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
-const POINT_LAYER_BY_SCENE_ID = new Map(
-  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_TILE_SOURCES[layer.tile_kind].sourceId, layer.attr_id), layer]),
-);
-
-/** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
-function routeHitLayerId(scene: MapScene, target: string): string | undefined {
-  return sceneLayerIdsForHitTarget(scene, target)[0];
-}
-import { axisMapLayerId } from "@/lib/mapDisplay/axisLayers";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { MapLook } from "@/features/map/view/mapLook";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMapAxisCatalog } from "@/features/map/useMapAxisCatalog";
-import { useLayerDataStatus } from "@/features/map/MapView/useLayerDataStatus";
-import { useMapMarkers } from "@/features/map/MapView/useMapMarkers";
+import { useLayerDataStatus, type LayerDataSourceEntry } from "@/features/map/MapView/useLayerDataStatus";
+import { ORIGIN_ZOOM, useMapMarkers } from "@/features/map/MapView/useMapMarkers";
 import { useJmaTileIndex } from "@/features/map/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
 import { debugLog } from "@/lib/debugLog";
@@ -84,7 +72,10 @@ function mapStyleUrl(): string {
   return `${tileBaseUrl()}${MAP_STYLE_PATH}`;
 }
 
-type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
+/** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
+function routeHitLayerId(scene: MapScene, target: string): string | undefined {
+  return sceneLayerIdsForHitTarget(scene, target)[0];
+}
 
 // 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。覆いは基礎地図が描けた時点（"load"）で外すので、
 // これは基礎地図のタイルが止まって"load"が来ないときの保険。
@@ -106,7 +97,7 @@ const TILE_SOURCE_BY_DATA_SOURCE: Record<
 
 /** レイヤーごとのデータ取得状態の算出元。母集団はレイヤーカタログそのもの。自前のJSで取りに行くもの（`ownFetch`）は
  * MapLibreのソースイベントでは観測できないため除く（取得した側が状態を出す）。 */
-function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): readonly LayerDataSource[] {
+function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): readonly LayerDataSourceEntry[] {
   return layers.flatMap((layer) =>
     layer.dataSource === "ownFetch" ? [] : [{ key: layer.id, ...TILE_SOURCE_BY_DATA_SOURCE[layer.dataSource] }],
   );
@@ -141,15 +132,15 @@ const ROUTE_FIT_MIN_VISIBLE_PX = 80;
  * 地図の幅・高さを食い尽くす場合は、可視領域がROUTE_FIT_MIN_VISIBLE_PX残るところまで
  * その2辺を同じ比率で縮める。 */
 function computeRouteFitPadding(
-  obscured: RouteFitObscuredPx | undefined,
+  obscured: Required<RouteFitObscuredPx>,
   canvas: { width: number; height: number },
-): { top: number; bottom: number; left: number; right: number } {
+): Required<RouteFitObscuredPx> {
   const base = ROUTE_FIT_BASE_PADDING_PX;
   const padding = {
-    top: base + (obscured?.top ?? 0),
-    bottom: base + (obscured?.bottom ?? 0),
-    left: base + (obscured?.left ?? 0),
-    right: base + (obscured?.right ?? 0),
+    top: base + obscured.top,
+    bottom: base + obscured.bottom,
+    left: base + obscured.left,
+    right: base + obscured.right,
   };
 
   const shrink = (a: number, b: number, size: number): [number, number] => {
@@ -166,7 +157,7 @@ function computeRouteFitPadding(
 }
 
 /** 呼び出し側が測った覆いと、印の付いた部品（`mapOverlayEdge`）の覆いの、辺ごとの大きい方。 */
-function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx): RouteFitObscuredPx {
+function mergeObscured(a: RouteFitObscuredPx | undefined, b: RouteFitObscuredPx): Required<RouteFitObscuredPx> {
   return {
     top: Math.max(a?.top ?? 0, b.top ?? 0),
     bottom: Math.max(a?.bottom ?? 0, b.bottom ?? 0),
@@ -220,7 +211,6 @@ function nearestPointOnLineString(
   point: readonly [number, number],
 ): [number, number] {
   if (coordinates.length === 0) return [point[0], point[1]];
-  if (coordinates.length === 1) return [coordinates[0][0], coordinates[0][1]];
 
   let best: [number, number] = [coordinates[0][0], coordinates[0][1]];
   let bestDistSq = Infinity;
@@ -363,14 +353,10 @@ export default function MapView({
   // 最初のタイルが揃うまでの白紙を覆う。
   const [initialTilesLoading, setInitialTilesLoading] = useState(true);
   // 取得状態の算出が見る表示ON/OFF。塗っているramp軸はレンズが決める。
+  const { layerVisibility: shownLayers, paintedAxisId } = look;
   const layerVisibility = useMemo(
-    () => ({
-      ...look.layerVisibility,
-      ...Object.fromEntries(
-        mapCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), axis.axisId === look.paintedAxisId]),
-      ),
-    }),
-    [look.layerVisibility, look.paintedAxisId, mapCatalog.rampAxes],
+    () => effectiveLayerVisibility({ layerVisibility: shownLayers, paintedAxisId }, mapCatalog.rampAxes),
+    [shownLayers, paintedAxisId, mapCatalog.rampAxes],
   );
   // 地図のイベント（初期化のeffectで一度だけ登録する）が、いまのpropsを読むための参照。
   const latestProps = {
@@ -430,7 +416,7 @@ export default function MapView({
       container: mapContainerRef.current,
       style: mapStyleUrl(),
       center: [location.longitude, location.latitude],
-      zoom: 13,
+      zoom: ORIGIN_ZOOM,
       // 常に使うデータの出典は、どのレイヤーを出しているかと関係なく出す（宣言はbackend）。
       attributionControl: { compact: true, customAttribution: [...mapDisplay.alwaysShownAttributions] },
       // デバッグモードの間、MapLibreが出す要求を種別ごとにログする（無効の間debugLogは何もしない）。
@@ -443,7 +429,7 @@ export default function MapView({
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     map.getContainer().querySelector(".maplibregl-ctrl-top-right")?.setAttribute(MAP_OVERLAY_EDGE_ATTRIBUTE, "right");
     mapRef.current = map;
-    debugLog("map:lifecycle", "初期化", { center: [location.longitude, location.latitude], zoom: 13 });
+    debugLog("map:lifecycle", "初期化", { center: [location.longitude, location.latitude], zoom: ORIGIN_ZOOM });
 
     // 出典の表示は、データが載った時点でMapLibreが開いた状態（全文）にし、地図を一度ドラッグするまで閉じない。
     // その間ほかのUIと重なるため、同じイベントのたびに畳む。
@@ -460,6 +446,12 @@ export default function MapView({
       mapRef.current?.resize();
     });
     resizeObserver.observe(mapContainerRef.current);
+    /** その位置にある、押せるレイヤー（いま地図に載っているもの）の地物。 */
+    function interactiveFeaturesAt(point: MapMouseEvent["point"]) {
+      const layers = latest.current.interactiveLayerIds.filter((id) => map.getLayer(id));
+      return layers.length === 0 ? [] : map.queryRenderedFeatures(point, { layers });
+    }
+
     // 地物を押すと詳細を出す。**どれかの役割で武装している間だけ**、その1タップは地物を見ずにピンを置く（道の
     // 上を目的地にしたいこともある）。武装していなければピンは増えない（見ているだけの操作で経由地が増えない）。
     function handleClick(e: MapMouseEvent) {
@@ -475,26 +467,19 @@ export default function MapView({
           return;
         }
       }
-      const layers = latest.current.interactiveLayerIds.filter((id) => map.getLayer(id));
-      if (layers.length === 0) return;
-      const features = map.queryRenderedFeatures(e.point, { layers });
+      const features = interactiveFeaturesAt(e.point);
       if (features.length === 0) return;
 
       const feature = features[0];
       // 道はルート結果と同じ「軸ごとの効き方」を見せるためReactの部品で描く。点（事故・POI）は数行の事実だけなので
       // MapLibreのPopupへ直接載せる。
-      const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
-      // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。点の層のタイルは点1つずつを焼く。
-      let pointContent: HTMLDivElement | null = null;
+      const point = pointLayerOfSceneLayer(feature.layer.id);
       if (point !== undefined) {
+        // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。点の層のタイルは点1つずつを焼く。
         if (feature.geometry.type !== "Point") throw new Error(`点の層 ${point.attr_id} の地物が点でない`);
         const [lng, lat] = feature.geometry.coordinates;
-        pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
-      }
-
-      popupRef.current?.remove();
-      popupRef.current = null;
-      if (pointContent !== null) {
+        const pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
+        popupRef.current?.remove();
         setRoadPopup(null);
         popupRef.current = new maplibregl.Popup({ closeButton: true })
           .setLngLat(e.lngLat)
@@ -502,6 +487,8 @@ export default function MapView({
           .addTo(map);
         return;
       }
+      popupRef.current?.remove();
+      popupRef.current = null;
       setRoadPopup({
         lngLat: [e.lngLat.lng, e.lngLat.lat],
         properties: feature.properties,
@@ -526,21 +513,12 @@ export default function MapView({
       const segment: RouteSegmentDetail = { ...properties, geometry: null };
       const geometry = feature.geometry as GeoJSON.Geometry | undefined;
       const lineCoordinates = geometry?.type === "LineString" ? (geometry.coordinates as [number, number][]) : [];
-      const [snappedLng, snappedLat] =
-        lineCoordinates.length > 0
-          ? nearestPointOnLineString(lineCoordinates, [e.lngLat.lng, e.lngLat.lat])
-          : [e.lngLat.lng, e.lngLat.lat];
+      const [snappedLng, snappedLat] = nearestPointOnLineString(lineCoordinates, [e.lngLat.lng, e.lngLat.lat]);
       latest.current.onRouteSegmentSelect({ segment, latitude: snappedLat, longitude: snappedLng });
     }
 
     function handleMouseMove(e: MapMouseEvent) {
-      const layers = latest.current.interactiveLayerIds.filter((id) => map.getLayer(id));
-      if (layers.length === 0) {
-        map.getCanvas().style.cursor = "";
-        return;
-      }
-      const features = map.queryRenderedFeatures(e.point, { layers });
-      map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
+      map.getCanvas().style.cursor = interactiveFeaturesAt(e.point).length > 0 ? "pointer" : "";
     }
 
     // "load"は載っているすべてのタイルが揃った最初の描画で来る。アプリのソースは"load"の後に足す
@@ -555,8 +533,7 @@ export default function MapView({
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
       // 有効なスタイルがまだ無いときの失敗は致命的（地図が白紙のまま）。それ以外の大半はタイル1枚の一過性の
       // 失敗で、次の取得で直るため警告にとどめる。
-      const tagged = map as unknown as { __rcStyleReady?: boolean };
-      const isFatal = !tagged.__rcStyleReady || styleReloadPendingRef.current;
+      const isFatal = !isStyleReady(map) || styleReloadPendingRef.current;
       debugLog("map:error", e.error?.message ?? "unknown error", { sourceId }, isFatal ? "error" : "warn");
       if (isFatal) {
         setStyleLoadFailed(true);
@@ -599,14 +576,10 @@ export default function MapView({
       settleViewport();
       reportViewport();
     }
-    function handleZoomEnd() {
-      debugLog("map:viewport", "zoomend", { zoom: Number(map.getZoom().toFixed(2)) });
-      settleViewport();
-      reportViewport();
-    }
-    // 動いている最中のresizeはmoveendを出さず"resize"だけを出す。範囲を渡さないと、広がった所が塗られない。
-    function handleResize() {
-      debugLog("map:viewport", "resize", { zoom: Number(map.getZoom().toFixed(2)) });
+    // zoomendとresizeで受ける。動いている最中のresizeはmoveendを出さず"resize"だけを出す。範囲を渡さないと、
+    // 広がった所が塗られない。
+    function handleZoomEndOrResize(e: { type: string }) {
+      debugLog("map:viewport", e.type, { zoom: Number(map.getZoom().toFixed(2)) });
       settleViewport();
       reportViewport();
     }
@@ -630,8 +603,8 @@ export default function MapView({
     map.on("load", handleLoad);
     map.on("error", handleMapError);
     map.on("moveend", handleMoveEnd);
-    map.on("zoomend", handleZoomEnd);
-    map.on("resize", handleResize);
+    map.on("zoomend", handleZoomEndOrResize);
+    map.on("resize", handleZoomEndOrResize);
     map.on("sourcedataloading", handleTrackedSourceDataLoading);
     map.on("sourcedata", handleTrackedSourceData);
     map.on("idle", handleIdleRecompute);
@@ -654,8 +627,8 @@ export default function MapView({
       map.off("load", handleLoad);
       map.off("error", handleMapError);
       map.off("moveend", handleMoveEnd);
-      map.off("zoomend", handleZoomEnd);
-      map.off("resize", handleResize);
+      map.off("zoomend", handleZoomEndOrResize);
+      map.off("resize", handleZoomEndOrResize);
       map.off("sourcedataloading", handleTrackedSourceDataLoading);
       map.off("sourcedata", handleTrackedSourceData);
       map.off("idle", handleIdleRecompute);
@@ -704,9 +677,7 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
 
-    if (routes.length > 0) {
-      fitBoundsToRoutes(map, routes, latest.current.measureRouteFitObscuredPx);
-    }
+    fitBoundsToRoutes(map, routes, latest.current.measureRouteFitObscuredPx);
   }, [routes]);
 
   // 「地図の表示を再描画」: スタイルを取り直し、消えたレイヤーをいまの宣言から当て直す（押した人の地図だけ）。
@@ -752,7 +723,7 @@ export default function MapView({
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
-      {initialTilesLoading && !styleLoadFailed && (
+      {initialTilesLoading && (
         <div
           className="pointer-events-none absolute inset-0 z-5 flex flex-col items-center justify-center gap-2.5 bg-[var(--color-surface-2)]"
           aria-hidden="true"

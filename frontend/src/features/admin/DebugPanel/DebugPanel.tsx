@@ -5,8 +5,7 @@ import { setDebugEnabled } from "@/lib/debugLog";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 
 // 管理画面に置く小さなトグル。オンにすると地図イベント・外部API呼び出しの詳細ログを
-// 画面下部のDebugConsoleとブラウザコンソールの両方に出す（services/配下のfetchラッパー、
-// MapView.tsxのmapイベントハンドラから呼ばれるdebugLog()を参照）。
+// DebugConsole（地図の画面のメニューから開く）とブラウザコンソールの両方に出す（`lib/debugLog.ts`）。
 export default function DebugPanel() {
   const enabled = useDebugEnabled();
 

@@ -1,18 +1,10 @@
-/** MapLibreの地図インスタンスに対する、どのレイヤーからも使う低水準の操作。
- *
- * ここに置くのは「特定のレイヤー種を知らない」ものだけ。レイヤー固有の描画は
- * それぞれの担当ファイル（`features/map/scene/groups/*.ts`）が持つ。
- */
+/** MapLibreの地図インスタンスに対する、どのレイヤーからも使う低水準の操作。 */
 import type { ExpressionSpecification, FilterSpecification, Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 import { debugLog } from "@/lib/debugLog";
 
 /** 「面で塗る」レイヤー種。地図の一区画を色で覆い、下にあるものを隠す描き方をまとめて指す
  * （残りのline/symbol/circle/heatmapは線・記号として、面の上に乗って読まれる側）。 */
 const AREA_LAYER_TYPES: ReadonlySet<string> = new Set(["background", "raster", "fill", "fill-extrusion", "hillshade"]);
-
-function isAreaLayerType(type: string): boolean {
-  return AREA_LAYER_TYPES.has(type);
-}
 
 /** 基礎地図のベクタタイルが道路網を収めているレイヤー名（OpenMapTilesスキーマ。
  * 基礎地図はこのスキーマのタイルを配る）。スタイルの並び順やレイヤーidと違い、
@@ -24,7 +16,7 @@ const ROAD_NETWORK_SOURCE_LAYER = "transportation";
  * 土地の塗り（公園・土地利用・水面・建物）の上・道路と地名の下に入る。
  *
  * **並び順から導いてはいけない**。基礎地図は面と線を交互に描き、道路網より後ろにも面を置く
- * （libertyでは建物のfill/fill-extrusionが道路・橋の41枚より後ろ）。「最後に面を描いた
+ * （libertyでは建物のfill/fill-extrusionが道路・橋のレイヤーより後ろ）。「最後に面を描いた
  * レイヤーの次」を採ると位置が道路の後ろまで下がり、面が道路を覆ったまま残る。道路網より後ろの面は
  * `basemapAreaLayersAfter`が前へ動かす。
  *
@@ -48,7 +40,7 @@ function labelLayerAnchorIndex(layers: readonly { type: string }[]): number {
 function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorIndex: number): string[] {
   return layers
     .slice(anchorIndex + 1)
-    .filter((layer) => isAreaLayerType(layer.type))
+    .filter((layer) => AREA_LAYER_TYPES.has(layer.type))
     .map((layer) => layer.id);
 }
 
@@ -66,7 +58,7 @@ export const NO_BASEMAP_POI_KINDS: BasemapPoiKinds = { class: [], subclass: [] }
  * 配信元の絞りへ足すので、何度当てても絞りを重ねない。基礎地図の絞りは式の形（libertyはそう書いている）を前提にする
  * ——旧い形の絞りと式は1つの`all`に混ぜられない。 */
 export function hideBasemapPois(map: MapLibreMap, kinds: BasemapPoiKinds): void {
-  const tagged = map as unknown as StyleReadyTag;
+  const tagged = tagOf(map);
   const original = tagged.__rcBasemapPoiFilters;
   if (original === undefined) return;
   const notHidden: ExpressionSpecification | null =
@@ -97,6 +89,10 @@ interface StyleReadyTag {
   __rcBasemapPoiFilters?: ReadonlyMap<string, FilterSpecification | undefined>;
 }
 
+function tagOf(map: MapLibreMap): StyleReadyTag {
+  return map as unknown as StyleReadyTag;
+}
+
 /** 基礎地図をこのアプリの層を重ねられる形にする。同じスタイルに対しては1度しか実行しない。
  * - 店・施設を描くレイヤーの配信元の絞りを記録する（隠すのは`hideBasemapPois`）
  * - 面レイヤーの差し込み位置を求めて記録し、基礎地図が道路より後ろに置いている面をその手前へ動かす
@@ -109,7 +105,7 @@ interface StyleReadyTag {
  * 位置が求まらないスタイルでは面が最前面へ戻る＝面の濃さだけで下の情報の読みやすさが
  * 決まる状態に落ちるため、黙って続けずログへ残す。 */
 export function prepareBasemap(map: MapLibreMap): void {
-  const tagged = map as unknown as StyleReadyTag;
+  const tagged = tagOf(map);
   if (tagged.__rcBasemapPrepared) return;
   // `getStyle()`がundefinedを返すのは、スタイルが読み込まれる前（最初の読み込みと、差分にできず作り直す
   // `setStyle()`から新しいスタイルの`style.load`まで）だけ。差分で当てる間は今のスタイルを返す（`reloadStyle`）。
@@ -146,12 +142,12 @@ function recordedAnchor(map: MapLibreMap, anchorId: string | undefined): string 
 
 /** 面レイヤーの差し込み位置（`recordedAnchor`）。 */
 export function areaLayerAnchor(map: MapLibreMap): string | undefined {
-  return recordedAnchor(map, (map as unknown as StyleReadyTag).__rcAreaLayerAnchorId);
+  return recordedAnchor(map, tagOf(map).__rcAreaLayerAnchorId);
 }
 
 /** 文字に場所を譲る点の差し込み位置（`recordedAnchor`）。 */
 export function labelLayerAnchor(map: MapLibreMap): string | undefined {
-  return recordedAnchor(map, (map as unknown as StyleReadyTag).__rcLabelLayerAnchorId);
+  return recordedAnchor(map, tagOf(map).__rcLabelLayerAnchorId);
 }
 
 /** スタイルを`url`から取り直し、新しいスタイルが読み込まれたら（`style.load`）、次の`prepareBasemap`が新しいスタイルに
@@ -160,10 +156,15 @@ export function labelLayerAnchor(map: MapLibreMap): string | undefined {
  * その間に準備し直すと、隠した後の絞りを配信元の絞りとして記録する。 */
 export function reloadStyle(map: MapLibreMap, url: string, onLoaded: () => void): void {
   map.once("style.load", () => {
-    (map as unknown as StyleReadyTag).__rcBasemapPrepared = false;
+    tagOf(map).__rcBasemapPrepared = false;
     onLoaded();
   });
   map.setStyle(url);
+}
+
+/** スタイルが一度でも読み込まれたか（`runWhenStyleReady`が記録する印）。 */
+export function isStyleReady(map: MapLibreMap): boolean {
+  return tagOf(map).__rcStyleReady === true;
 }
 
 // map.isStyleLoaded()はタイル読み込み中も一時的にfalseを返すため、
@@ -171,7 +172,7 @@ export function reloadStyle(map: MapLibreMap, url: string, onLoaded: () => void)
 // 二度目以降の描画が永久にスキップされることがある。スタイル自体が一度でも
 // 読み込まれたかどうかだけをmapインスタンスに記録し、それを判定に使う。
 export function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
-  const tagged = map as unknown as StyleReadyTag;
+  const tagged = tagOf(map);
   if (tagged.__rcStyleReady) {
     fn();
     return;

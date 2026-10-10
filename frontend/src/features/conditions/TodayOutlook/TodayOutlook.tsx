@@ -82,7 +82,14 @@ const PANEL_PROPS = {
   side: "bottom",
   align: "start",
 } as const;
-const MODEL_HEADING = "今日のモデルの計算値";
+
+function ModelHeading({ className }: { className?: string }) {
+  return (
+    <p className={cn(textVariants({ variant: "note" }), "font-bold tracking-wide uppercase", className)}>
+      今日のモデルの計算値
+    </p>
+  );
+}
 
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
   return (
@@ -118,9 +125,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
           </Button>
         </PopoverTrigger>
         <PopoverContent {...PANEL_PROPS}>
-          <p className={cn(textVariants({ variant: "note" }), "mb-2 font-bold tracking-wide uppercase")}>
-            {MODEL_HEADING}
-          </p>
+          <ModelHeading className="mb-2" />
           <p>取得に失敗しました: {error}</p>
         </PopoverContent>
       </Popover>
@@ -189,9 +194,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
         )}
         {hasModelValue && (
           <>
-            <p className={cn(textVariants({ variant: "note" }), "font-bold tracking-wide uppercase")}>
-              {MODEL_HEADING}
-            </p>
+            <ModelHeading />
             <p className={cn(textVariants({ variant: "note" }), "mb-2")}>
               気象庁の数値予報モデルMSMの計算値です。予報ではなく、誤差を含みえます。
             </p>

@@ -180,7 +180,7 @@ export function valueBands(
   const prefix = isScore ? SCORE_RANGE_PREFIX : "";
   return buildRangeLegendBands(legend.boundaries, colors, unit, labels, prefix).map((band, index) => ({
     ...band,
-    lowerBound: index === 0 ? Number.NEGATIVE_INFINITY : (boundaries[index - 1] as number),
+    lowerBound: index === 0 ? Number.NEGATIVE_INFINITY : boundaries[index - 1],
   }));
 }
 

@@ -48,7 +48,7 @@ async def _ingest_switchback(session) -> dict[int, tuple[float, float]]:
     await ingest_records("dem", dem_tile_records(PRODUCT_PRIORITY[0], 15, AREA, _climbing_north))
     async with raw_connection() as conn:
         await derive_topology.derive(conn)
-        await derive_elevation.derive(conn)
+        await derive_elevation.derive(conn, previous=None)
     rows = await session.execute(
         text("SELECT e.segment_index, e.distance_m, m.average_grade FROM road_edges e JOIN edge_elevation m"
              " USING (osm_way_id, segment_index) WHERE e.osm_way_id = :way"), {"way": SWITCHBACK_WAY_ID})

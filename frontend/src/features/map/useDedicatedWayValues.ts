@@ -2,14 +2,10 @@
 
 // 専用way値配信軸（`dedicated_way_value_layer=true`の軸）のフィーチャー→値フェッチ・状態管理。
 // viewportをデバウンスしてから、表示中のタイル範囲ぶんをまとめて取る——パン・ズームのたびに個別way_idを
-// 都度問い合わせない。取得対象の軸が0件の間はfetchせず（他の外部APIと同じ「表示中のものだけ叩く」方針）、結果も空へ戻す。
+// 都度問い合わせない。取得対象の軸が0件の間はfetchせず、結果も空へ戻す。
 //
 // 対象の軸ごとに別インスタンスを持たず、1つのフックが軸の配列を受け取って全軸ぶんを賄う
-// （Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできない
-// ——軸スタジオで3件目が公開されても呼び出し側の変更が要らないようにするための構造）。
-// 時刻・向き・想定速度をどの軸のリクエストへ載せるかは軸カタログの宣言
-// （`needsTime`/`needsBearing`/`needsSpeed`）から決め、載せない軸はその入力が変わっても
-// 再フェッチしない（キーが変わらないため）。
+// （Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできない）。
 
 import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -19,10 +15,6 @@ import type { MapViewport } from "@/features/map/layers/windLayer";
 import { fetchDynamicWayValues, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/features/map/regionApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getQueryClient } from "@/lib/queryClient";
-
-// コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、bearingDeg
-// もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
-// 連続イベント数ぶんのfetchが発生してしまう）。
 
 interface DedicatedWayValuesResult {
   /** feature_key→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま
@@ -118,6 +110,7 @@ export function useDedicatedWayValues(
   speedKmh: number,
 ): ReadonlyMap<string, DedicatedWayValuesResult> {
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
+  // 向きのスライダーはドラッグ中に連続で変わり、そのまま使うとドラッグ1回で可視タイル数×イベント数の取得になる。
   const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);
   // 想定速度の入力欄も連続入力されるため、向きと同じくデバウンスする。
   const debouncedSpeedKmh = useDebouncedValue(speedKmh, MAP_FETCH_DEBOUNCE_MS);
@@ -152,7 +145,7 @@ export function useDedicatedWayValues(
     client,
   );
 
-  // 入力キーが同じなら同じ結果の参照を返す（参照が変わるとMapView側のsetFeatureState反映が無用に走り直す）。
+  // 入力キーが同じなら同じ結果の参照を返す（参照が変わると、受け取る側が同じ値を当て直す）。
   return useMemo(() => {
     if (requests.length === 0) return EMPTY_RESULTS;
     const results = new Map<string, DedicatedWayValuesResult>();
