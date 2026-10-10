@@ -21,9 +21,9 @@
  *
  * 差し替えたもの: 検索の口と辺りの口の応答（網の層）。保存した地点は本物の置き場（この端末の保存）を通す。
  */
-import { fireEvent, screen, render, within } from "@testing-library/react";
+import { act, fireEvent, screen, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SavedPlace } from "@/features/route/savedPlaces";
 import { useSavedPlaces } from "@/features/route/useSavedPlaces";
@@ -66,6 +66,9 @@ const NEAR_SENSOJI: Coordinates = { latitude: 35.713, longitude: 139.7967 };
 
 beforeEach(() => {
   window.localStorage.clear();
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 /** 前に保存した地点を、この端末の保存へ置く。 */
@@ -191,20 +194,29 @@ describe("PointDetail 打つ欄", () => {
   });
 
   it("文字を引き始める長さより短くすると候補を下げ、打ち直すとその文字の候補を出す", async () => {
+    // 時計は打ち終えてから進める（本物の時計では、遅い機械で打鍵の間が引くまでの待ちを超え、打ちかけの文字で引く）。
+    // `userEvent`は打つたびに本物の時計の`setTimeout`を待つので、偽の時計の下では打鍵を1字ずつ起こす。
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const sent = onBackend("GET", "/api/place-search", (request) =>
       Response.json({ candidates: request.query.q === "浅草寺" ? [FACILITY] : [AZA] }),
     );
     renderDetail();
+    const typeText = async (text: string) => {
+      for (let end = 1; end <= text.length; end += 1)
+        fireEvent.input(searchBox(), { target: { value: text.slice(0, end) } });
+      await act(() => vi.advanceTimersByTimeAsync(routeGenerateConfig.place_prediction_delay_seconds * 1000));
+    };
+    const listed = () => vi.waitFor(() => screen.getByRole("list", { name: "地点の候補" }));
 
-    await userEvent.type(searchBox(), "丸の内");
-    await screen.findByRole("list", { name: "地点の候補" });
+    await typeText("丸の内");
+    await listed();
 
     // 空の欄は、どの引き始める長さにも足りない。
-    await userEvent.clear(searchBox());
+    fireEvent.input(searchBox(), { target: { value: "" } });
     expect(screen.queryByRole("list", { name: "地点の候補" })).toBeNull();
 
-    await userEvent.type(searchBox(), "浅草寺");
-    const list = await screen.findByRole("list", { name: "地点の候補" });
+    await typeText("浅草寺");
+    const list = await listed();
     expect(within(list).getByRole("button")).toHaveTextContent(FACILITY.name);
     expect(sent.map((request) => request.query.q)).toEqual(["丸の内", "浅草寺"]);
   });

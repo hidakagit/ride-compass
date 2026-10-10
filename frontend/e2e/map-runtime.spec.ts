@@ -269,8 +269,9 @@ async function showKeyboard(page: Page): Promise<number> {
   }, KEYBOARD_PX);
 }
 
-// 狭い画面では、候補が出ると打つ欄と候補を画面の上側へ出し、候補はキーボードの上までの中で送る。候補が多くてもキーボードに
-// 覆われずに末尾まで押せて、選んだ地点が地図に立つことを実ブラウザの寸法で見る（単体テストはレイアウトの実寸を持たない）。
+// 狭い画面では、欄を押すと欄のあった位置からせり上がって、打つ欄と候補を画面の上側へ出し、候補はキーボードの上までの中で
+// 送る。せり上がりが欄の位置から始まること、候補が多くてもキーボードに覆われずに末尾まで押せて、選んだ地点が地図に立つことを
+// 実ブラウザの寸法で見る（単体テストはレイアウトの実寸を持たない）。
 test("モバイル: 目的地を探すと候補を画面の上側でキーボードに隠れずに選べ、選ぶと地点の並びにその名前が出て地図にピンが立つ", async ({
   page,
 }) => {
@@ -290,7 +291,24 @@ test("モバイル: 目的地を探すと候補を画面の上側でキーボー
   const settings = await openMobileSheet(page, "ルート設定");
   await settings.getByRole("radio", { name: "目的地", exact: true }).click();
   const searchBox = settings.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
+  await searchBox.scrollIntoViewIfNeeded();
+  const fieldTop = (await searchBox.boundingBox())!.y;
   await searchBox.click();
+  // 上側へは、欄のあった位置からせり上がって開く（一瞬で画面が切り替わらない）。動きを始めに止めて欄の位置を測り、終わらせる。
+  const risingFrom = await searchBox.evaluate((input) => {
+    const rising = document
+      .getAnimations()
+      .filter((animation) => (animation.effect as KeyframeEffect | null)?.target?.contains(input));
+    rising.forEach((animation) => {
+      animation.pause();
+      animation.currentTime = 0;
+    });
+    const top = rising.length > 0 ? input.getBoundingClientRect().top : null;
+    rising.forEach((animation) => animation.finish());
+    return top;
+  });
+  expect(risingFrom).not.toBeNull();
+  expect(Math.abs(risingFrom! - fieldTop)).toBeLessThan(2);
   const keyboardTop = await showKeyboard(page);
   await searchBox.fill("浅草寺");
   await searchBox.press("Enter");
