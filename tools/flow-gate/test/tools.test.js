@@ -1,5 +1,5 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
-// 27（問いの形と打ち直し。src/move.js: askTask）・28・29・33・34（タスクを持つ印。開発機の対話のセッションが持つ・手放すのと担当の
+// 27（問いの形と打ち直し。src/move.js: askTask）・28・29・33・34・37（タスクを持つ印。開発機の対話のセッションが持つ・手放すのと担当の
 // 引き受け。src/hold.js）・30（画像の貼り方。src/attach.js: attach）・31（Pull Request の本文の形。src/rules.js: checkBody）・32（試しを
 // 持たない道具は --dry-run を断る。bin/cli.js: args）・36（着手可能日時の欄へ書く値の形。src/github.js: setField）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・29 は
 // GitHub（網）だけを、30 は gh を打つ口だけを差し替える。持つ印の置き場は手元の裸のリポジトリで、本物の git が受ける。32・33 は本物の
@@ -215,6 +215,16 @@ test("34 持てたかは読み直しで決める: 押し込みのあとの読み
   const flaky = { ...r, git: (a, input) => (a[0] === "fetch" && fetches++ === 0 ? Promise.resolve({ status: 128, stdout: "", stderr: "fatal: 読めない" }) : r.git(a, input)) };
   assert.deepEqual(await take(flaky, config, 7, devHolder("a")), { held: false, by: null });
   assert.deepEqual(await readHolds(r, config), []);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("37 git が標準入力を読まずに終わっても、印の道具は落ちずに git の終わりの状態を返す", async () => {
+  const dir = origin();
+  const r = holdRemote(dir);
+  await r.ready;
+  // パイプの容量より大きい入力を、入力を読まずにすぐ終わる git へ渡す（書き込みが EPIPE になる並び）。
+  const done = await r.git(["version"], "x".repeat(8 * 1024 * 1024));
+  assert.deepEqual([done.status, /^git version/.test(done.stdout)], [0, true]);
   rmSync(dir, { recursive: true, force: true });
 });
 
