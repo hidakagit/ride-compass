@@ -1,26 +1,32 @@
 // 開発機の対話のセッションがタスクを持つ・手放す（bin/hold.js）。持つのは、そのタスクの担当のワークフローのグループ
 // （.github/workflows/claude-task.yml の concurrency）で動いている種類「開発機」の実行。
-import { readActive, runOf } from "./dispatch.js";
+import { readActive, runOf, startRun } from "./dispatch.js";
 import { again } from "./github.js";
 
+const DEV = "開発機";
+
+// 実行がその番号の種類「開発機」のものか。
+const isHold = (run, number) => {
+  const [n, kind] = runOf(run.display_title);
+  return Number(n) === Number(number) && kind === DEV;
+};
+
 // その番号の種類「開発機」の終わっていない実行（GitHub の実行の形のまま）。
-const holds = async (gh, config, number) => (await readActive((path) => gh.rest("GET", path), config))
-  .filter((r) => { const [n, kind] = runOf(r.display_title); return Number(n) === Number(number) && kind === "開発機"; });
+const holds = async (gh, config, number) => (await readActive((path) => gh.rest("GET", path), config)).filter((r) => isHold(r, number));
 
 // 動いている種類「開発機」の実行があれば、それを held で返す（誰の実行かは道具には分からないので、どうするかは打った者が決める）。
 // 無ければ持つ実行を mine で返す: 待っている種類「開発機」の実行があれば、前に打って落ちたときに起こしたものとみて、起こし直さずに
 // それを待つ（起こし直すと2本目が待ちに残り、手放したあとに誰も触らないまま持つ）。無ければ起こす。待つのは、動き始めるか
 // 終わるまで（wait を挟んで読み直す）。起こす要求は打ち直さない（github.js: again）。落ちたら打ち直せば、起きていた実行を待つ。
 export async function hold(gh, config, number, wait) {
-  const { repository, base } = config.code;
+  const { repository } = config.code;
   const runs = await holds(gh, config, number);
   const held = runs.find((r) => r.status === "in_progress");
   if (held) return { held };
   let id = runs[0]?.id;
   if (!id) {
     // return_run_details で、起こした実行の id が返る（公式の文書「Create a workflow dispatch event」）。
-    ({ workflow_run_id: id } = await gh.rest("POST", `/repos/${repository}/actions/workflows/${config.coordinator.workflow}/dispatches`,
-      { ref: base, inputs: { issue: String(number), kind: "開発機" }, return_run_details: true }));
+    ({ workflow_run_id: id } = await startRun(gh, config, number, DEV, { return_run_details: true }));
   }
   for (;;) {
     const mine = await gh.rest("GET", `/repos/${repository}/actions/runs/${id}`);
@@ -36,8 +42,7 @@ export async function hold(gh, config, number, wait) {
 // （src/dispatch.js: ready）。
 export async function release(gh, config, number, id) {
   const path = `/repos/${config.code.repository}/actions/runs/${id}`;
-  const [n, kind] = runOf((await gh.rest("GET", path)).display_title);
-  if (Number(n) !== Number(number) || kind !== "開発機") throw new Error(`実行 ${id} は #${number} の種類「開発機」の実行ではない`);
+  if (!isHold(await gh.rest("GET", path), number)) throw new Error(`実行 ${id} は #${number} の種類「開発機」の実行ではない`);
   return again(true, async () => {
     const run = await gh.rest("GET", path);
     if (run.status !== "completed") await gh.rest("POST", `${path}/cancel`);

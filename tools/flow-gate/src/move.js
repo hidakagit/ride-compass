@@ -1,16 +1,16 @@
 // Claude の道具がステータスを動かす。ほかの経路と同じ照らし（rules.js: judge）で見て、通れば書く。
 // 同じタスクを触るのが1者だけなのは、担当のワークフローのグループ（.github/workflows/claude-task.yml の concurrency）が守る。
-import { readTask, setField } from "./github.js";
-import { checkQuestion, judge, normalize, SCAN } from "./rules.js";
+import { addComment, readTask, setField } from "./github.js";
+import { checkQuestion, judge, lastAsked, normalize, SCAN } from "./rules.js";
 
 // comment を渡すと、そのコメントを書いてから動かす（同じ要求で）。
-export async function moveTask(gh, config, number, to, { comment, dryRun = false } = {}) {
+export async function moveTask(gh, config, number, to, { comment, dryRun } = {}) {
   const { project, issue } = await readTask(gh, config, { number }, { comments: SCAN });
   if (!issue?.item || issue.state !== "OPEN") throw new Error(`#${number} は ${config.repository} の Project の開いた件ではありません。`);
   const verdict = judge(config, issue.status, to, { close: to === config.done ? "COMPLETED" : undefined, body: issue.body, comments: [...issue.comments.nodes.map((c) => c.body), comment] });
   if (!verdict.ok) throw new Error(verdict.reason);
   if (dryRun) return `（試し）#${number}: ${issue.status} → ${to}`;
-  await gh.write([...(comment ? [["addComment", { subjectId: issue.id, body: comment }]] : []), setField(project, issue.item, config.project.statusField, to)]);
+  await gh.write([...(comment ? [addComment(issue.id, comment)] : []), setField(project, issue.item, config.project.statusField, to)]);
   return `#${number}: ${issue.status} → ${to}`;
 }
 
@@ -21,9 +21,9 @@ export async function askTask(gh, config, number, question) {
   const problems = checkQuestion(config.questionTemplate, question);
   if (problems.length) throw new Error(`問いが形（tools/flow-gate/question_template.md）に合いません: ${problems.join("・")}`);
   const { issue } = await readTask(gh, config, { number }, { comments: SCAN });
-  const last = issue?.comments.nodes.findLast((c) => /^## (問い|回答)\n/.test(normalize(c.body)));
-  const comment = last && normalize(last.body).trim() === question ? undefined : question;
+  const last = issue && lastAsked(issue.comments.nodes.map((c) => c.body));
+  const comment = last && normalize(last).trim() === question ? undefined : question;
   if (issue?.state !== "OPEN" || issue.status !== config.waiting) return moveTask(gh, config, number, config.waiting, { comment });
-  if (comment) await gh.write([["addComment", { subjectId: issue.id, body: comment }]]);
+  if (comment) await gh.write([addComment(issue.id, comment)]);
   return `#${number}: 回答待ちのまま${comment ? "問い直した" : "（同じ問いがあるので書かなかった）"}`;
 }

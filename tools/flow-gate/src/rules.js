@@ -7,15 +7,14 @@ export const SCAN = 30; // 今の問いを探すために読むコメントの�
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
 
-// 今日（日本時間）の日付と、着手可能日が今日より先ならその日（無ければ null）。
-const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
-const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
+// 今日（日本時間）の日付。
+const today = (now) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
 
 // 作る担当へ振り出さずに待つ理由（無ければ null）: 開いた前提・ラベル coordinator.devLabel・今日より先の着手可能日。見回り
 // （src/dispatch.js: ready）と後始末（src/after.js: settle）が同じ見分けを使う。
 export const waitsFor = (config, { blocked, labels, startOn }, now = new Date()) =>
   blocked ? "開いた前提（blocked by）" : labels.includes(config.coordinator.devLabel) ? `ラベル「${config.coordinator.devLabel}」`
-    : waitsUntil(startOn, now) ? `着手可能日 ${startOn}` : null;
+    : startOn && startOn > today(now) ? `着手可能日 ${startOn}` : null;
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
 const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
@@ -26,6 +25,12 @@ export const withButton = (rest, url, image) => `<!-- flow-gate -->\n[![回答�
 export const remaining = (body) => [...bodyRest(body).matchAll(/^\s*- \[ \] (.+)$/gm)].map((m) => m[1]);
 export const checkAll = (body) => normalize(body).replace(/^(\s*- )\[ \] /gm, "$1[x] ");
 
+// 本文の並び（古い順）のうち、最新の問いか答え（無ければ undefined）。
+export const lastAsked = (bodies) => bodies.findLast((b) => /^## (問い|回答)\n/.test(normalize(b)));
+
+// 作業の状態（進行中・検証中）か。
+export const isWorking = (config, status) => [config.working, config.review].includes(status);
+
 // from から to への遷移を照らす。誰が・どの経路で動かしても、ここだけで決める。表（transitions）に無ければ断る。
 // 表のほかのルールは2つ: 完了へ完成（close が COMPLETED）で入るとき、body に完了の条件の残りがあれば断る。回答待ちへ入るとき、
 // comments（古い順の本文。同じ要求で書くコメントも含める）の最新の問いか答えが、形に合う問いでなければ断る。
@@ -33,7 +38,7 @@ export function judge(config, from, to, { close, body, comments = [] } = {}) {
   if (!(config.transitions[from] ?? []).includes(to)) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to}」へは動かせません（遷移の表に無い）。` };
   const left = to === config.done && close === "COMPLETED" ? remaining(body) : [];
   if (left.length) return { ok: false, reason: `完成にするには次が残っています。\n\n${left.map((l) => `- ${l}`).join("\n")}\n\n` };
-  const asked = to === config.waiting ? checkQuestion(config.questionTemplate, comments.findLast((b) => /^## (問い|回答)\n/.test(normalize(b)))) : [];
+  const asked = to === config.waiting ? checkQuestion(config.questionTemplate, lastAsked(comments)) : [];
   return asked.length ? { ok: false, reason: `回答待ちには、答えていない問いが形（tools/flow-gate/question_template.md）のとおりに要ります: ${asked.join("・")}。` } : { ok: true };
 }
 
@@ -68,8 +73,10 @@ export function checkBody(template, body) {
 }
 
 // 問いの誤り（無ければ空）: 行の並びは parseQuestion、判断材料は形（tools/flow-gate/question_template.md。設定の questionTemplate）の節。
-export const checkQuestion = (template, text) =>
-  parseQuestion(text) ? checkBody(parseQuestion(template).material, parseQuestion(text).material) : ["「## 問い」・問いの文（1行）・「### 案」と1行1案・<details> の判断材料のほかに行がある（か、問いでない）"];
+export function checkQuestion(template, text) {
+  const asked = parseQuestion(text);
+  return asked ? checkBody(parseQuestion(template).material, asked.material) : ["「## 問い」・問いの文（1行）・「### 案」と1行1案・<details> の判断材料のほかに行がある（か、問いでない）"];
+}
 
 // 問い（.claude/skills/ask/SKILL.md「問い」）: 「## 問い」の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の
 // 判断材料だけ。ほかの行があれば形に合わないので null。
@@ -102,7 +109,7 @@ export function worksAfter(config, body) {
   if (parseQuestion(text) || /^Pull Request \[#\d+ /.test(text)) return false;
   if (/^### \S+?担当の着手\n/.test(text)) return true;
   const to = /^(\S+?)にする理由: /.exec(text)?.[1] ?? /「([^」]+)」へ戻しました。$/.exec(text)?.[1];
-  return config.statuses.includes(to) ? [config.working, config.review].includes(to) : null;
+  return config.statuses.includes(to) ? isWorking(config, to) : null;
 }
 
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。

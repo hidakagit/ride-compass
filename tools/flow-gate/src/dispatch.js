@@ -1,5 +1,6 @@
 // 振り出しの見回りの1周の判断と、Project の状況の更新の書き込み。
-import { waitsFor, worksAfter } from "./rules.js";
+import { blockedOpen, labelNames } from "./github.js";
+import { isWorking, waitsFor, worksAfter } from "./rules.js";
 
 const ITEMS = `query Items($o: String!, $n: Int!, $q: String!, $st: String!, $p: String!, $sz: String!, $s: String!, $c: String) {
   organization(login: $o) { projectV2(number: $n) { field(name: $p) { ... on ProjectV2SingleSelectField { options { name } } }
@@ -31,10 +32,10 @@ export async function readTasks(gh, config, query) {
     const p = (await gh.gql(ITEMS, { o: owner, n: number, q: query, st: statusField, p: priorityField, sz: sizeField, s: startField, c })).organization.projectV2;
     ranks = p.field?.options.map((o) => o.name) ?? [];
     for (const { content: t, status, priority, size, start } of p.items.nodes.filter((i) => i.content?.number)) {
-      const labels = t.labels.nodes.map((l) => l.name);
+      const labels = labelNames(t);
       tasks.push({
         number: t.number, status: status?.name ?? null, labels, urgent: labels.includes(urgentLabel), priority: priority?.name ?? null, size: size?.name ?? null,
-        startOn: start?.date ?? null, blocked: t.blockedBy.nodes.some((b) => b.state !== "CLOSED"),
+        startOn: start?.date ?? null, blocked: blockedOpen(t),
       });
     }
     if (!p.items.pageInfo.hasNextPage) return { tasks, ranks };
@@ -61,13 +62,14 @@ function workHours(config, items, now) {
   return total === null ? null : total / 3600e3;
 }
 
-// 番号ごとの作業時間（区間の無いものは持たない）。1回の要求で 50 件ずつ読む。
+// 番号ごとの作業時間（区間の無いものは持たない）。1回の要求で 50 件ずつ、要求どうしは並べて読む。
 async function readWorkHours(gh, config, numbers, now) {
   const [o, n] = config.repository.split("/");
+  const parts = [];
+  for (let k = 0; k < numbers.length; k += 50) parts.push(numbers.slice(k, k + 50));
+  const read = await Promise.all(parts.map(async (part) => ({ part, r: (await gh.gql(RECORDS(part), { o, n })).repository })));
   const hours = new Map();
-  for (let k = 0; k < numbers.length; k += 50) {
-    const part = numbers.slice(k, k + 50);
-    const r = (await gh.gql(RECORDS(part), { o, n })).repository;
+  for (const { part, r } of read) {
     for (const number of part) {
       const h = workHours(config, r[`i${number}`].timelineItems.nodes, now);
       if (h !== null) hours.set(number, h);
@@ -101,7 +103,7 @@ async function readRecent(gh, config, sizes) {
 // 作業の状態にいて規模の欄を持つタスク（作業時間を足したもの。区間の無いものは除く）と、その規模の想定（時間）。想定は、完成で
 // 閉じた同じ規模の直近 coordinator.recent 件のうち、作業時間を持つものの p90。記録はこの2つの分だけ読む。
 export async function workload(gh, config, open, now = new Date()) {
-  const working = open.filter((t) => [config.working, config.review].includes(t.status) && t.size);
+  const working = open.filter((t) => isWorking(config, t.status) && t.size);
   const sizes = [...new Set(working.map((t) => t.size))];
   const samples = await readRecent(gh, config, sizes);
   const hours = await readWorkHours(gh, config, [...working, ...samples].map((t) => t.number), now);
@@ -116,6 +118,11 @@ export async function workload(gh, config, open, now = new Date()) {
 // 担当の種類はステータスで決まる。実行の名前（run-name）は「#<番号> <種類>」。
 const kindOf = (config, status) => ({ [config.todo]: "作る", [config.review]: "確かめる" })[status];
 export const runOf = (title) => (/^#(\d+) (\S+)$/.exec(title ?? "") ?? []).slice(1);
+
+// 担当のワークフローを、その番号の種類で起こす。extra は要求に足す欄。
+export const startRun = (gh, config, number, kind, extra = {}) =>
+  gh.rest("POST", `/repos/${config.code.repository}/actions/workflows/${config.coordinator.workflow}/dispatches`,
+    { ref: config.code.base, inputs: { issue: String(number), kind }, ...extra });
 
 // 担当のワークフローの終わっていない実行（GitHub の実行の形のまま）。一覧は新しい順で1回に100件までなので、終わっていない状態ごとに
 // 絞って全部のページを読む（長く動く実行が新しい実行の後ろへ押し出されても数える）。状態は実行が移る順に読み、読んでいる間に次の状態へ
@@ -137,10 +144,11 @@ export async function readActive(get, config) {
 export function ready(config, { tasks, ranks }, running, now = new Date()) {
   const rank = (p) => ranks.indexOf(p ?? config.project.unsetPriority);
   return tasks
-    .filter((t) => kindOf(config, t.status) && !running.some((r) => r.number === t.number))
+    .map((t) => ({ ...t, kind: kindOf(config, t.status) }))
+    .filter((t) => t.kind && !running.some((r) => r.number === t.number))
     .filter((t) => t.status === config.review || !waitsFor(config, t, now))
     .sort((a, b) => b.urgent - a.urgent || rank(a.priority) - rank(b.priority) || a.number - b.number)
-    .map((t) => ({ number: t.number, kind: kindOf(config, t.status) }));
+    .map(({ number, kind }) => ({ number, kind }));
 }
 
 // 種類ごとに、枠（coordinator.slots）から動いている数を引いた分だけ上から選ぶ。
@@ -148,6 +156,9 @@ export function pick(config, candidates, running) {
   const free = Object.fromEntries(Object.entries(config.coordinator.slots).map(([kind, n]) => [kind, n - running.filter((r) => r.kind === kind).length]));
   return candidates.filter((t) => free[t.kind]-- > 0);
 }
+
+// 状況の更新の書き出し。見回りが書いたものを、これで見分ける（putStatus）。
+const STATUS_HEAD = "振り出しの見回り";
 
 // 状況の更新の中身。気づくべきもの（想定を超えたタスク・進行中なのに動いている担当が無いタスク・振り出せる仕事があるのに空いた枠・
 // 一番新しい実行が失敗したタスク）があれば At risk。working と expected は workload の結果、runs は担当の実行の新しい順（終わったものは
@@ -165,7 +176,7 @@ export function summary(config, { watcher, tasks, working, expected, runs, start
     ...(idle ? [`- 振り出せる仕事があるのに枠が空いている: ${idle}`] : []),
     ...[...latest.values()].filter((r) => r.conclusion === "failure" && tasks.some((t) => t.number === r.number)).map((r) => `- #${r.number} の${r.kind}担当の実行が失敗で終わった [実行](${r.url})`),
   ];
-  const lines = [`振り出しの見回り（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
+  const lines = [`${STATUS_HEAD}（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
   for (const [kind, n] of Object.entries(config.coordinator.slots)) {
     const rows = [...runs.filter((r) => r.kind === kind && !r.conclusion).map((r) => `- #${r.number} [実行](${r.url})`), ...started.filter((t) => t.kind === kind).map((t) => `- #${t.number}（いま起こした）`)];
     lines.push("", `### ${kind}担当（${rows.length}/${n}）`, ...(rows.length ? rows : ["無し"]));
@@ -181,7 +192,7 @@ export async function putStatus(gh, config, { status, body }) {
     statusUpdates(first: 1, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { id status body creator { login } } } } } }`,
     { o: config.project.owner, n: config.project.number })).organization.projectV2;
   const latest = p.statusUpdates.nodes[0];
-  const ours = latest?.creator?.login === config.claude && latest.body?.startsWith("振り出しの見回り") ? latest : null;
+  const ours = latest?.creator?.login === config.claude && latest.body?.startsWith(STATUS_HEAD) ? latest : null;
   if (ours?.status === status && ours.body === body) return false;
   await gh.write([ours?.status === status ? ["updateProjectV2StatusUpdate", { statusUpdateId: ours.id, status, body }] : ["createProjectV2StatusUpdate", { projectId: p.id, status, body }]]);
   return true;
