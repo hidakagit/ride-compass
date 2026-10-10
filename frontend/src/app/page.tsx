@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
@@ -91,6 +91,7 @@ export default function Home() {
     handleLocateMe,
     setManualLocation,
   } = useLocation();
+  const originManual = locationSource === "manual";
 
   const axisCatalog = useAxisCatalog();
 
@@ -110,7 +111,7 @@ export default function Home() {
   const savedConditions = useSavedConditions({
     conditions,
     origin: locationKnown ? location : null,
-    originManual: locationSource === "manual",
+    originManual,
     onOriginPlace: setManualLocation,
     onOriginFollowCurrent: handleLocateMe,
   });
@@ -129,14 +130,10 @@ export default function Home() {
     MOBILE_SHEET_HEIGHT_STORAGE_KEY,
     null,
     {
-      serialize: (v) => JSON.stringify(v),
+      serialize: JSON.stringify,
       deserialize: (raw) => {
-        try {
-          const parsed = JSON.parse(raw);
-          return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
-        } catch {
-          return null;
-        }
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
       },
     },
   );
@@ -207,22 +204,18 @@ export default function Home() {
   };
 
   // モバイルのタブ。同じタブをもう一度押したら閉じる。
-  const handleMobileTabClick = useCallback(
-    (sheet: Exclude<MobileSheet, null>) => {
-      setMobileSheet((prev) => (prev === sheet ? null : sheet));
-      // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
-      if (sheet === "routeOutcome") setUnseenOutcome(null);
-    },
-    [setMobileSheet],
-  );
+  const handleMobileTabClick = (sheet: Exclude<MobileSheet, null>) => {
+    setMobileSheet((prev) => (prev === sheet ? null : sheet));
+    // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+    if (sheet === "routeOutcome") setUnseenOutcome(null);
+  };
 
-  const handleMobileSheetHeightCommit = useCallback(
-    (vh: number) => {
-      setChosenSheetHeightVh(vh);
-      setWorkingSheetHeightVh(null);
-    },
-    [setChosenSheetHeightVh, setWorkingSheetHeightVh],
-  );
+  const handleMobileSheetHeightCommit = (vh: number) => {
+    setChosenSheetHeightVh(vh);
+    setWorkingSheetHeightVh(null);
+  };
+
+  const handleSettingsTabChange = (value: string) => setSettingsTab(value as SettingsTab);
 
   // 「今日」のパネル・最寄りの実測・警報の類（位置が分かってから、位置が変わるたびに取る。仮の地点では取らない）。
   const {
@@ -299,7 +292,7 @@ export default function Home() {
           saved={savedConditions.saved}
           current={savedConditions.current}
           suggestedName={savedConditions.suggestedName}
-          originManual={locationSource === "manual"}
+          originManual={originManual}
           originKnown={locationKnown}
           onSave={savedConditions.save}
         />
@@ -344,10 +337,10 @@ export default function Home() {
       <RouteForm
         conditions={conditions}
         origin={location}
-        originManual={locationSource === "manual"}
+        originManual={originManual}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
-        originFound={locationSource === "manual" ? conditions.foundAt(location) : null}
+        originFound={originManual ? conditions.foundAt(location) : null}
         // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
         mapCenter={mapView.center ?? location}
         onPlaceFound={placeFound}
@@ -444,25 +437,10 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* モバイルの下部タブと同じ区分・同じ順序。タブ列（見出し行）とタブの中身（本文）の両方を囲む。 */}
-                <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
-                  <Disclosure
-                    className="border-t border-[var(--color-border)] pt-2"
-                    headerClassName={"flex items-center justify-between gap-2"}
-                    triggerClassName={cn(
-                      textVariants({ variant: "heading" }),
-                      "group flex cursor-pointer items-center gap-1.5",
-                    )}
-                    bodyClassName={"flex flex-col gap-2"}
+                <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
+                  <SectionDisclosure
                     id={GENERATE_SECTION_TITLE_ID}
-                    summary={
-                      <>
-                        <span
-                          aria-hidden="true"
-                          className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                        />
-                        ルート設定
-                      </>
-                    }
+                    title="ルート設定"
                     trailing={
                       <div className="flex min-w-0 flex-auto items-center justify-between gap-2">
                         {renderSettingsTabs()}
@@ -474,27 +452,12 @@ export default function Home() {
                     usage="押すと開き・畳みます。ルートを作る条件をここで決め、右の「ルート生成」で作ります。"
                   >
                     {renderRouteSectionBody()}
-                  </Disclosure>
+                  </SectionDisclosure>
                 </Tabs>
 
-                <Disclosure
-                  className="border-t border-[var(--color-border)] pt-2"
-                  headerClassName={"flex items-center justify-between gap-2"}
-                  triggerClassName={cn(
-                    textVariants({ variant: "heading" }),
-                    "group flex cursor-pointer items-center gap-1.5",
-                  )}
-                  bodyClassName={"flex flex-col gap-2"}
+                <SectionDisclosure
                   id={OUTCOME_SECTION_TITLE_ID}
-                  summary={
-                    <>
-                      <span
-                        aria-hidden="true"
-                        className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                      />
-                      ルート結果
-                    </>
-                  }
+                  title="ルート結果"
                   trailing={
                     results.routes.length > 0 ? (
                       <div className="flex flex-shrink-0 items-center gap-2">{renderRouteResultHeaderActions()}</div>
@@ -510,7 +473,7 @@ export default function Home() {
                     splice={splice}
                     routeWeights={route.routeWeights}
                   />
-                </Disclosure>
+                </SectionDisclosure>
               </>
             )}
           </aside>
@@ -595,7 +558,8 @@ export default function Home() {
                   <p
                     className={cn(
                       cardVariants({ variant: "float" }),
-                      "pointer-events-none absolute top-0 right-full mr-2 w-max max-w-55 border-0 px-2.5 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)]",
+                      textVariants({ variant: "error" }),
+                      "pointer-events-none absolute top-0 right-full mr-2 w-max max-w-55 border-0 px-2.5 py-1.5",
                     )}
                   >
                     {locateError}
@@ -638,7 +602,7 @@ export default function Home() {
             ))}
           </nav>
 
-          <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+          <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
             <BottomSheet
               open={mobileSheet === "routeSettings"}
               onClose={() => setMobileSheet(null)}
@@ -673,5 +637,33 @@ export default function Home() {
         </>
       )}
     </div>
+  );
+}
+
+// デスクトップのサイドバーの区分（「ルート設定」「ルート結果」）。見出しの見た目と開閉の矢印をここに1つだけ持つ。
+function SectionDisclosure({
+  title,
+  ...props
+}: { title: string } & Omit<
+  ComponentProps<typeof Disclosure>,
+  "className" | "headerClassName" | "triggerClassName" | "bodyClassName" | "summary"
+>) {
+  return (
+    <Disclosure
+      {...props}
+      className="border-t border-[var(--color-border)] pt-2"
+      headerClassName="flex items-center justify-between gap-2"
+      triggerClassName={cn(textVariants({ variant: "heading" }), "group flex cursor-pointer items-center gap-1.5")}
+      bodyClassName="flex flex-col gap-2"
+      summary={
+        <>
+          <span
+            aria-hidden="true"
+            className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
+          />
+          {title}
+        </>
+      }
+    />
   );
 }
