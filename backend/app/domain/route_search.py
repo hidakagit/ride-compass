@@ -68,12 +68,12 @@ ALTERNATIVE_MAX_STRETCH = 1.3
 VIA_NODE_MAX_OVERLAP_RATIO = TURNAROUND_MAX_OVERLAP_RATIO
 VIA_NODE_RELAXED_OVERLAP_RATIO = TURNAROUND_RELAXED_OVERLAP_RATIO
 
-#: 目的地が起点から到達できないとき、「到達できる最寄りNode」へ寄せてよい上限（km）。
-#: 補正の狙いは、タップした先が本線から孤立した小塊だった場合にすぐ近くの本線へ移すこと
+#: 利用者が置いた点（出発地・経由地・目的地）の一番近いNodeから出て戻れないとき、「出て戻れる最寄りNode」へ
+#: 寄せてよい上限（km）。狙いは、置いた先が本線から孤立した小塊・一方通行の袋だった場合にすぐ近くの本線へ移すこと
 #: なので、それより遠くへ動かすと利用者が指した覚えのない場所を通るルートになる
-#: （補正後の座標は`corrected_destination`として返すが、動いたことが分かっても
+#: （目的地の補正後の座標は`corrected_destination`として返すが、動いたことが分かっても
 #: 指した場所とは別物である事実は変わらない）。
-MAX_DESTINATION_CORRECTION_KM = 1.0
+MAX_SNAP_CORRECTION_KM = 1.0
 
 #: 学習する迂回率の実測に使う到達Nodeの、起点からの道なり距離の下限（m）。直線距離が短いNodeほど
 #: 比が大きくぶれるため、起点のすぐ近くを除く（目的地ルートの前向き木が使う）。

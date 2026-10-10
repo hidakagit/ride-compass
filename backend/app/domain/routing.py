@@ -560,6 +560,104 @@ def find_nearest_node_indexed(
         return None
     return nearest_node
 
+
+def snap_to_accessible_node(
+    index: NodeSpatialIndex, accessible: np.ndarray, point: Coordinates, max_correction_km: float,
+) -> tuple[int, bool] | None:
+    """利用者が置いた点を、そこから出て戻れるNode（`accessible`が真）へ寄せる。
+
+    一番近いNodeが出て戻れればそのNode、そうでなければ`max_correction_km`以内で一番近い出て戻れるNode
+    （2つ目の値が真）。どちらも無ければNone。一番近いNodeが孤立した小さな塊・一方通行の袋にあると、
+    そこへ寄せた点からは経路が出ない（出発地なら走り出せず、経由地・目的地なら着いても出られない）。
+    """
+    nearest = find_nearest_node_indexed(index, point)
+    if nearest is None:
+        return None
+    if accessible[nearest]:
+        return nearest, False
+    corrected = find_nearest_node_indexed(index, point, allowed=accessible, max_distance_km=max_correction_km)
+    return None if corrected is None else (corrected, True)
+
+
+def largest_strongly_connected_nodes(csr: CsrGraphStructure, passable: np.ndarray) -> np.ndarray:
+    """通れる区間（`passable`、区間の番号順の真偽）だけでたどったとき、互いに行き来できるNodeの一番大きな集まり
+    （最大の強連結成分。ノード番号順の真偽）。
+
+    探索の遷移はどの区間からも同じNodeを出るどの区間へも移れる（Uターンも費用で抑えるだけで禁じない）ので、
+    Nodeどうしの行き来はターンを展開しても変わらない。この集まりの中のNodeからは、集まりの中のどのNodeへも
+    経路があり、集まりの外のNodeへ寄せた点は、出られないか戻れない。
+    """
+    passable_entries = np.asarray(passable, dtype=np.bool_)[csr.entry_edge_index]
+    component = _strong_components(
+        csr.indptr.astype(np.int64), csr.indices.astype(np.int64), passable_entries,
+    )
+    if len(component) == 0:
+        return np.zeros(0, dtype=bool)
+    return component == int(np.argmax(np.bincount(component)))
+
+
+@njit(cache=True)
+def _strong_components(indptr: np.ndarray, indices: np.ndarray, passable: np.ndarray) -> np.ndarray:
+    """Tarjanの強連結成分分解（再帰を明示のスタックへ直したもの）。戻り値はノード番号順の成分の番号。"""
+    node_count = len(indptr) - 1
+    order = np.full(node_count, -1, dtype=np.int64)
+    low = np.zeros(node_count, dtype=np.int64)
+    on_stack = np.zeros(node_count, dtype=np.bool_)
+    component = np.full(node_count, -1, dtype=np.int64)
+    stack = np.empty(node_count, dtype=np.int64)
+    call_node = np.empty(node_count, dtype=np.int64)
+    call_entry = np.empty(node_count, dtype=np.int64)
+    stack_size = 0
+    visited = 0
+    components = 0
+    for root in range(node_count):
+        if order[root] != -1:
+            continue
+        order[root] = visited
+        low[root] = visited
+        visited += 1
+        stack[stack_size] = root
+        stack_size += 1
+        on_stack[root] = True
+        call_node[0] = root
+        call_entry[0] = indptr[root]
+        depth = 1
+        while depth > 0:
+            node = call_node[depth - 1]
+            entry = call_entry[depth - 1]
+            if entry < indptr[node + 1]:
+                call_entry[depth - 1] = entry + 1
+                if not passable[entry]:
+                    continue
+                head = indices[entry]
+                if order[head] == -1:
+                    order[head] = visited
+                    low[head] = visited
+                    visited += 1
+                    stack[stack_size] = head
+                    stack_size += 1
+                    on_stack[head] = True
+                    call_node[depth] = head
+                    call_entry[depth] = indptr[head]
+                    depth += 1
+                elif on_stack[head]:
+                    low[node] = min(low[node], order[head])
+                continue
+            depth -= 1
+            if low[node] == order[node]:
+                while True:
+                    stack_size -= 1
+                    member = stack[stack_size]
+                    on_stack[member] = False
+                    component[member] = components
+                    if member == node:
+                        break
+                components += 1
+            if depth > 0:
+                parent = call_node[depth - 1]
+                low[parent] = min(low[parent], low[node])
+    return component
+
 # --- ターン展開（状態＝有向Edge、辺＝ターン） ---
 
 
@@ -1324,16 +1422,17 @@ def turn_expanded_shortest_path(
 
 
 def compile_search_kernels() -> None:
-    """一対全木と2点間探索のJITを、最小の道路網で1回ずつ呼んでコンパイルする。
+    """探索のJIT（出て戻れるNodeの集まり・一対全木・2点間探索）を、最小の道路網で1回ずつ呼んでコンパイルする。
 
     `@njit(cache=True)`の結果はこのファイルの隣の`__pycache__`に残り、別のプロセスはそこから読む。
     イメージの組み立て（`backend/Dockerfile`）で呼び、入れ替えたコンテナの最初のルート生成が
     コンパイルを待たないようにする。探索の入口が引数の型を揃える（`_kernel_array`）ため、ここで
     作る入力は形が合えばよい。焼くのはここがPythonから呼ぶJITだけなので、本番の経路がPythonから呼ぶJITも
-    この2本に限る（部品は探索の中へ展開し、Pythonからは素の関数を呼ぶ）。
+    ここで呼ぶものに限る（部品は探索の中へ展開し、Pythonからは素の関数を呼ぶ）。
     """
     lazy_graph = build_lazy_road_graph(np.array([0, 1]), np.array([1, 0]), 2)
     statics = build_search_graph_statics(lazy_graph, np.ones(2))
+    largest_strongly_connected_nodes(statics.csr, np.ones(2, dtype=bool))
     structure = build_turn_expanded_structure(
         statics.csr, lazy_graph, np.zeros(2), np.zeros(2, dtype=np.int64), current_turn_cost(),
         np.zeros(2, dtype=bool), np.zeros(2, dtype=np.int64),

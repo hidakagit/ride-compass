@@ -310,14 +310,11 @@ class _NoDistanceFinish:
         traced = await engine.select_via_nodes(context, fixed, destination, self.max_routes)
         select_ms = round((time.monotonic() - select_started) * 1000)
         if not traced:
-            side = context.no_candidates_side
             if self.points.waypoints:
                 reason = _UNREACHABLE_POINTS_REASON
-            elif side == "origin":
-                reason = "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。"
             else:
                 reason = "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
-            return _Selection.empty(reason, f"no via-node candidates side={side or 'unknown'} select_ms={select_ms}")
+            return _Selection.empty(reason, f"no via-node candidates select_ms={select_ms}")
         if destination is None:
             def arrange_loops(candidates: list[RouteCandidate]) -> list[RouteCandidate]:
                 kept, _ = keep_routes_with_baseline(candidates, None, self.max_routes)
@@ -412,6 +409,14 @@ class RouteGenerator:
             self.last_no_candidates_reason = (
                 "探索範囲の道路が多すぎるため、ルートを生成できませんでした。"
                 "距離を短くするか、経由地・目的地を起点に近づけてお試しください。")
+            return None
+        except RoutingError as exc:
+            logger.warning(
+                "%s origin=%s %s -> origin not snapped: %s prepare_ms=%d",
+                log_label, origin_label, log_detail, exc, round((time.monotonic() - started) * 1000),
+            )
+            self.last_no_candidates_reason = (
+                "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。")
             return None
         if context is None:
             logger.warning(

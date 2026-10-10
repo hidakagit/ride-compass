@@ -12,8 +12,8 @@
 
 エンジンの代役は、各メソッドを`RoadGraphEngine`の同名メソッドの署名へ当ててから呼ぶ（`bound`）。応答を返すだけで、呼ばれ方を記録しない。
 代役が返す探索結果・候補は本物の型（`TracedLoop`・`LoopTurnaround`・`RouteCandidate`・`FixedLegs`）で作る。
-探索の文脈（`context`）は戦略層にとって中身を読まない値で、読むのは`destination_correction`と
-`no_candidates_side`の2属性だけのため、その2属性だけを持つ器で渡す。
+探索の文脈（`context`）は戦略層にとって中身を読まない値で、読むのは`destination_correction`の
+1属性だけのため、その属性だけを持つ器で渡す。
 """
 
 import logging
@@ -90,7 +90,7 @@ class FakeEngine:
     def __init__(self, *, routes=None, context=..., prepare_error=None, turnarounds=(), similar=(),
                  fixed_error=None, via=(), fastest=None, build_error=None, drop_evaluated=False):
         self.routes = routes or {}
-        self.context = SimpleNamespace(destination_correction=None, no_candidates_side=None) if context is ... else context
+        self.context = SimpleNamespace(destination_correction=None) if context is ... else context
         self.prepare_error = prepare_error
         self.turnarounds = list(turnarounds)
         self.similar = set(similar)
@@ -193,15 +193,22 @@ async def test_no_road_data_gives_no_candidates_and_says_why(entrance, phrase, c
     assert _warned(caplog)
 
 
-async def test_too_large_search_area_gives_no_candidates_and_says_why(caplog):
-    """どの入口も上の未整備と同じ所で土台を作るので、もう片方の断り方は1つの入口で見る。"""
-    generator = RouteGenerator(FakeEngine(prepare_error=SearchAreaTooLargeError(edges=1_300_000, limit=1_200_000)))
+@pytest.mark.parametrize(
+    ("error", "reason", "logged"),
+    [
+        (SearchAreaTooLargeError(edges=1_300_000, limit=1_200_000), "探索範囲の道路が多すぎるため", "edges=1300000"),
+        (RoutingError("no accessible node near origin"), "起点から走り出せる道が見つかりませんでした。", "no accessible node"),
+    ],
+)
+async def test_a_search_area_that_cannot_be_used_gives_no_candidates_and_says_why(error, reason, logged, caplog):
+    """どの入口も上の未整備と同じ所で土台を作るので、ほかの断り方は1つの入口で見る。"""
+    generator = RouteGenerator(FakeEngine(prepare_error=error))
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
         assert await ENTRANCES["destination"](generator) == []
 
-    assert generator.last_no_candidates_reason.startswith("探索範囲の道路が多すぎるため")
-    assert any("edges=1300000" in r.getMessage() for r in caplog.records)
+    assert generator.last_no_candidates_reason.startswith(reason)
+    assert any(logged in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize(
@@ -400,10 +407,8 @@ async def test_waypoint_routes_to_a_destination_add_the_fastest():
 
 
 @pytest.mark.parametrize("failing", ["fixed_error", "via"])  # 置いた点どうし・最後の点から終点まで
-@pytest.mark.parametrize("side", [None, "origin"])  # 最後の点から走り出せなくても、起点のせいにしない
-async def test_waypoints_that_cannot_be_connected_give_no_candidates_and_say_why(failing, side, caplog):
+async def test_waypoints_that_cannot_be_connected_give_no_candidates_and_say_why(failing, caplog):
     generator = RouteGenerator(FakeEngine(
-        context=SimpleNamespace(destination_correction=None, no_candidates_side=side),
         **({"fixed_error": RoutingError("到達不能")} if failing == "fixed_error" else {"via": []}),
     ))
 
@@ -469,20 +474,14 @@ async def test_destination_routes_without_another_route_to_compare_mark_no_faste
     assert (_keys(result), _fastest(result)) == (expected, [])
 
 
-@pytest.mark.parametrize(
-    ("side", "reason"),
-    [
-        ("origin", "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。"),
-        ("destination", "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"),
-    ],
-)
-async def test_destination_without_alternatives_says_which_end_is_stuck(side, reason, caplog):
-    generator = RouteGenerator(FakeEngine(context=SimpleNamespace(destination_correction=None, no_candidates_side=side)))
+async def test_destination_without_alternatives_says_why(caplog):
+    generator = RouteGenerator(FakeEngine())
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
         assert await _no_distance(generator, [], DESTINATION) == []
 
-    assert generator.last_no_candidates_reason == reason
+    assert generator.last_no_candidates_reason == (
+        "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。")
     assert _warned(caplog)
 
 
