@@ -1,6 +1,6 @@
 // 回答フォーム。回答待ちのときだけ開く。答えのコメントは hidakagit の名義（env.FORM_TOKEN）で書き、遷移はゲートが書く。
 import { Gate } from "./gate.js";
-import { GitHub } from "./github.js";
+import { addComment, GitHub, labelNames } from "./github.js";
 import { answerBody, bodyRest, checkAll, judge, nextChoices, normalize, parseQuestion, remaining } from "./rules.js";
 
 const RECENT = 5; // 材料に載せる最近のコメントの件数（上に出した問いのコメントは数えない）
@@ -69,7 +69,7 @@ function render({ issue, asked, question, labels, choices, left, html }) {
   const box = (type, name, value, text, extra = "", cls = "opt") => `<label class="${cls}"><input type="${type}" name="${name}" value="${esc(value)}"${extra}><span>${esc(text)}</span></label>`;
   const when = (t) => new Date(Date.parse(t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
   const recent = issue.comments.nodes.filter((c) => c !== asked).slice(-RECENT).reverse().map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`);
-  const have = new Set(issue.labels.nodes.map((l) => l.name));
+  const have = new Set(labelNames(issue));
   return page(
     `<p class="num">#${issue.number}</p><p class="title">${esc(issue.title)}</p><p>${esc(question.text)}</p>` +
       (html.material ? fold("判断材料", html.material, true) : "") +
@@ -92,7 +92,7 @@ async function submit(gate, env, data) {
   if (data.get("q") !== asked.url) return { error: "問いが新しくなっています。開き直してください。" };
   const choice = choices[Number(data.get("next"))];
   if (!choice) return { error: "次のステータスを1つ選んでください。" };
-  const had = issue.labels.nodes.map((l) => l.name).filter((n) => labels.includes(n));
+  const had = labelNames(issue).filter((n) => labels.includes(n));
   const chosen = data.getAll("label").filter((n) => labels.includes(n));
   const checked = choice.close === "COMPLETED" ? data.getAll("done").filter((d) => left.includes(d)) : [];
   const body = checked.length && checked.length === left.length ? checkAll(issue.body) : undefined;
@@ -101,7 +101,7 @@ async function submit(gate, env, data) {
   if (!verdict.ok) return { error: verdict.reason };
   const answer = { question, plan: plansOf(question).find((p) => p === data.get("plan")), choice, checked,
     added: chosen.filter((n) => !had.includes(n)), removed: had.filter((n) => !chosen.includes(n)), note: String(data.get("note") ?? "").trim() };
-  await new GitHub(env.FORM_TOKEN).write([["addComment", { subjectId: issue.id, body: answerBody(answer) }]]);
+  await new GitHub(env.FORM_TOKEN).write([addComment(issue.id, answerBody(answer))]);
   await gate.apply(issue, choice.to, { close: choice.close, body, labels: answer.added, unlabels: answer.removed });
   return { url: issue.url, label: choice.text };
 }

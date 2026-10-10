@@ -14,7 +14,7 @@ from app.domain.axis_definitions import (
     replace_axis_definitions,
 )
 from app.domain.evaluation import averages_density, build_static_edge_score_matrix
-from app.domain.material_catalog import GRADIENT_PERCENT
+from app.domain.material_catalog import GRADIENT_PERCENT, WIND_DRAG_RATIO
 from app.domain.traffic import stop_count_material_ids
 from tests.axis_system_fixture import replaced_axis_definitions
 
@@ -76,6 +76,25 @@ def test_axes_saved_while_building_do_not_mix_into_the_matrix():
     assert matrix.axis_ids == ["before"]
     assert {"rain_1h_mm", "rain_3h_mm"} <= set(matrix.material_ids)
     assert not {"rain_6h_mm", "rain_12h_mm"} & set(matrix.material_ids)
+
+
+def test_leaf_materials_go_to_the_column_of_their_kind_and_wind_stays_out():
+    """公開軸を材料まで分解した葉は、数値なら数値の列へ、categoricalなら値ごとの列へ載る。風は載せない。
+
+    分け損なうと、ルートの内訳で道路種別の延長割合が消えるか、風の材料が全区間NaNのまま内訳に出る。
+    """
+    road_kind = AxisDefinition(
+        axis_id="road_kind", label="道路種別", default_weight=0.0, is_published=False,
+        shape=CategoricalShape(material="highway", mapping={"primary": 50.0}),
+    )
+    composite = published_axis("composite", WIND_DRAG_RATIO, "road_kind", GRADIENT_PERCENT)
+
+    with replaced_axis_definitions({"road_kind": road_kind, "composite": composite}):
+        matrix = build_static_edge_score_matrix(no_materials(2), {})
+
+    assert "highway" in matrix.categorical_material_ids
+    assert GRADIENT_PERCENT in matrix.material_ids
+    assert not {"highway", WIND_DRAG_RATIO} & set(matrix.material_ids)
 
 
 SIGNALS, CROSSINGS, STOP_SIGNS = stop_count_material_ids()[:3]
