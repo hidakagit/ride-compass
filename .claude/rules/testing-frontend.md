@@ -21,7 +21,7 @@ paths:
 | 純関数（`lib/`等） | 引数 | 戻り値 |
 
 **画面の操作は、利用者の1つの流れを1本のテストにしてよい**（開く→選ぶ→送る、のような流れ。途中で何度
-確かめてもよい）。backendは1つのテストで1つの振る舞いを確かめる。
+確かめてもよい）。
 
 **差し替えてよいのは次の境界だけ。** 自前のフック・`lib/`の関数・定数は、表の境界（環境変数の読み取り口・ファイルを落とす関数等）を除いて、差し替えずに本物を通す。
 
@@ -29,7 +29,7 @@ paths:
 |---|---|
 | backendとの通信 | 網の層で差し替える（msw）。backendを呼ぶ口のモジュール（`services/*Api.ts`・`features/**/*Api.ts`）も、通信を包む自前のフック（`hooks/useAxisCatalog.ts: useAxisCatalog`等）も差し替えず、本物を通す（取得のキャッシュは`vitest.setup.ts`がテストごとに空にする）。応答は`frontend/src/testing/backendServer.ts`の手引きで経路ごとに与え、応答を与えていない要求はテストを落とす。口それぞれは、網の層で確かめる自分のテストを持つ |
 | 時計 | `vi.useFakeTimers()`で進める。待ち時間の定数や、待つフック（`hooks/useDebouncedValue.ts: useDebouncedValue`）を差し替えない |
-| 環境変数 | 値を**使う側**は、読み取り口のモジュール（`lib/tileBaseUrl.ts: tileBaseUrl`・`lib/adminBasicAuth.ts: adminBasicAuthCredentials`等）を`vi.mock`して値を固定する。使う側のテストで`process.env`を立てない。立ててよいのは読み取り口そのもののテストだけ（「パターン7」） |
+| 環境変数 | 「パターン7」 |
 | テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`）・レイアウトの実寸（`embla-carousel-*`）等。`maplibre-gl`は`frontend/src/testing/maplibre.ts`の代役へ差し替え、地図の部品は本物を描く（代役は受けたものを記録するだけで、出来事と押した所の地物はテストが起こす）。テスト環境が持つもの（`localStorage`・`navigator`の値等。環境変数は上の行）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が投げる場面を作るときは`window`のゲッター（`vi.spyOn(window, "localStorage", "get")`）を差し替え、`getItem`/`setItem`へスパイを張らない |
 | ファイルを落とす | GPXの書き出し等、ブラウザにファイルを保存させる関数 |
 | 子の部品 | 下の条件を満たすときだけ |
@@ -67,7 +67,8 @@ export function tileBaseUrl(): string {
 export function resolveTileBaseUrl(configured: string | undefined, origin: string | null): string { ... }
 ```
 
-その値を**使う側**のテスト（URLの組み立て等）は、読み取り口のモジュールをモックして固定する。
+その値を**使う側**のテスト（URLの組み立て等）は、`process.env`を立てず、読み取り口のモジュール（`lib/tileBaseUrl.ts: tileBaseUrl`・
+`lib/adminBasicAuth.ts: adminBasicAuthCredentials`等）を`vi.mock`して値を固定する。
 
 ```ts
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
@@ -75,8 +76,7 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
 漏れは`vitest.setup.ts`が実行時に見る（テストファイルの終わりに`process.env`が開始時と違えば落ちる。`vi.stubEnv`のように
 復元されるものは通る）。自分のテスト対象だけが読む環境変数
-（`app/api/version/route.ts: GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は対象外で、`vi.stubEnv`で立てて公開の入口を呼ぶ
-（使う側のテストは読み取り口のモジュールをモックして、その値を読まない）。
+（`app/api/version/route.ts: GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、その対象のテストが`vi.stubEnv`で立てて公開の入口を呼ぶ。
 
 ## パターン9: 期待値の出どころを選ぶ（書き写さない・素のテキストを引く・軸を取り違えない）
 
@@ -104,6 +104,5 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 - **画面のテストは表の全行を画面の関数へ当てる**。表の置き場は対象の関数の隣のテスト（例: `lib/cardinalLabel.test.ts`）で、
   全行を回す前に表が空でないことを確かめる（testing-structure.md パターン6）。浮動小数の許す差は表に持たせず、テストの側で決める。
 - **backendの関数は、表とは別に手で書いたあるべき値のpytestで確かめる**。pytestで表を通さない。
-- 表と画面の両方で同じ事実を確かめる手書きのテストは、表へ寄せて消す。
 - **式の定数（丸めの桁・ズームの列・入力の下限等）は、表で確かめずに生成物から読む**。backendの定数を生成物（`export_openapi.py`）へ出し、画面の式は
   それを読む（例: タイルから組む点数の丸めは`mapDisplay.valueScale.difficultyDecimals`）。一致を確かめるテストは書かない。

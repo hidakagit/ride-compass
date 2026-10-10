@@ -19,16 +19,17 @@ paths:
    キャッシュが唯一の持ち主になっている状態を作らない。
 2. **fail-open。** キャッシュ層の障害（Redis疎通不能・壊れたエントリ・ディスクエラー）はすべて「未キャッシュ」へ倒し、
    通常の取得経路へ進ませる。
-3. **失敗は必ず記録する。** 出し方は[logging.md](logging.md)「外部API・キャッシュアクセス」。Redisなら
-   サーキットブレーカー（`record_redis_failure`）へも記録する。
+3. **失敗は必ず記録する。** 出し方は[logging.md](logging.md)「外部API・キャッシュアクセス」。Redisの失敗は
+   骨格（[caching-retention.md](caching-retention.md)「Redisへ持つときは`redis_json_cache`を使う」）がサーキットブレーカーへも
+   記録する。骨格の外で接続を使う所（下の「直接使ってよい場所」）は自分で`record_redis_failure`を呼ぶ。
 4. **キャッシュで隠すのは遅さだけで、正しさを隠さない。** 「古い値でも返す」（stale fallback）を選ぶ場合は、
    どれだけ古いものまで許すかを定数で明示する。
 
 ## 入力（取得）と保持（キャッシュ）の対応
 
-取得層と保持層は対で決める。**両方とも既存の共通骨格を使うのが既定**で、自前で書いてよい場合は骨格ごとの節が持つ
+取得層と保持層は対で決める。骨格に無いことが要るときの扱いは骨格ごとの節が持つ
 （Redisは[caching-retention.md](caching-retention.md)「Redisへ持つときは`redis_json_cache`を使う」、プロセス内は下の
-「プロセス内キャッシュは`cachetools`に統一する」）。
+「プロセス内キャッシュは`cachetools`に統一する」）。下の表は対応の例（全件ではない）。
 
 | 取得するもの | 入力（取得層） | 保持（キャッシュ層） |
 |---|---|---|
@@ -46,7 +47,7 @@ paths:
 | | 実体がRAMに載る | 実体がディスクに載る |
 |---|---|---|
 | **プロセス内**（そのプロセスだけ） | `cachetools`（`TTLCache`／`LRUCache`） | — |
-| **プロセスをまたぐ** | **Redis**（既定） | ディスク（`tile_cache`・`tile_persistent_cache`） |
+| **プロセスをまたぐ** | **Redis**（既定） | ディスク（例: `tile_cache`・`tile_persistent_cache`） |
 
 **「再起動しても残るか」は軸にならない。** 判断を分けるのは**実体がどこに載るか**と、**上限・退避を誰が持つか**である。
 
@@ -57,9 +58,11 @@ paths:
 | 退避 | `maxmemory-policy`により**TTLのあるキーだけ**自動退避。TTLなしのキーで上限に達すると書き込みがエラーになる | 無し（自分で消す） |
 | 使用量の可視化 | `INFO memory` | `du` |
 
-### 速度は判断材料にならない（本番実測、2026-09-07）
+### 速度は判断材料にならない
 
-速さを理由にRedisを選ばない。速度を改善したいなら、保持層の選択ではなく**シリアライズ形式**（pickle以外の表現）を変える。
+速さを理由にRedisを選ばない。速度を改善したいなら、保持層の選択ではなく**シリアライズ形式**（pickle以外の表現）を変える
+（本番の実測の値と条件は`docs/records/tasks/T649.md`「対応方針」。Redisの読み出しはページキャッシュに当たったディスクの
+読み出しより遅く、どちらも支配するのは復元の時間だった）。
 
 **判断の順序**:
 
@@ -77,10 +80,10 @@ paths:
 
 ### ディスクを選ぶときの責任
 
-ディスクを選ぶのは、**大きくて・TTLで自然消滅させたくない**ものである。ディスクを選んだ側は次を**必ず用意する**。
+ディスクを選んだ側（上の「判断の順序」の3）は、次を**必ず用意する**。
 
 1. **容量の上限と退避**（`tile_persistent_cache.py`・`tile_cache.py`は`diskcache`の`size_limit`と退避の順（`eviction_policy`）で
-   持つ。**自前で書かない**。退避の順は読み方で選ぶ——`least-recently-used`は読むたびに書き込みが走るため、
+   持つ。退避の順は読み方で選ぶ——`least-recently-used`は読むたびに書き込みが走るため、
    地図の読み込みで大量に読まれる`tile_cache`は書いた順（`least-recently-stored`）にする）
 2. **世代交代で不要になった実体を消す手段**と、それを**どこで呼ぶか**（上限とは別に要る。[caching-retention.md](caching-retention.md)「無効化」）
 3. 使用量が想定内に収まっているかを確認する方法
@@ -91,15 +94,12 @@ paths:
 ## 直接使ってよい場所
 
 `get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を直接呼んでよいファイルは
-`backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのもの・その接続本体と、単一キーのJSON読み書きでは
-表現できないもの）。ここに無いファイルで使うとテストが落ちる。寄せられない事情（[caching-retention.md](caching-retention.md)
-「Redisへ持つときは`redis_json_cache`を使う」の例外）があるなら、理由とともに`ALLOWED`へ足すこと。
+`backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのものと、その接続の本体）。ここに無いファイルで
+使うとテストが落ちる。骨格に無い操作は骨格へ足す（[caching-retention.md](caching-retention.md)「Redisへ持つときは
+`redis_json_cache`を使う」）。それでも寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
 
 **寄せ終わったのに`ALLOWED`へ残っている場合も落ちる**。
 
 ## 関連
 
-- クライアント側の`Cache-Control`: `backend/app/api/cache_policy.py`の対応表
-- 外部API取得層の共通骨格: `simple_api_client.py: cached_fetch`
 - 各キャッシュの実装詳細: [docs/modules/backend/cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)
-- ログの出し方（`log_external_call`のfields）: [.claude/rules/logging.md](logging.md)

@@ -1,9 +1,12 @@
 ---
 paths:
-  - "backend/tests/[!t]*.py"
+  - "backend/tests/**/*.py"
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.test.tsx"
   - "frontend/src/testing/**"
   - "frontend/vitest.setup.ts"
-  - "frontend/e2e/fixtures.ts"
+  - "frontend/e2e/**"
+  - "frontend/playwright*.config.ts"
 ---
 
 # テストの足場とフェイク
@@ -39,8 +42,8 @@ paths:
 テストも宣言する。
 
 **覆いを外して落ちたら、どちらの欠陥かを分ける。** 前提を宣言していなかっただけならテストに
-宣言させる。本物の型が拒む入力を足場が通していた等、**実装の判断が問われるもの**は、決まったこと（設計書・記録に残る
-ユーザーの判断）から1つに導けるなら直して筋を issue に書き、導けなければ要確認として出す（testing-review.md「要確認の出し方」）。
+宣言させる。本物の型が拒む入力を足場が通していた等は、**実装の判断が問われるもの**として扱う（問うときの形は
+testing-review.md「要確認の出し方」）。
 
 **覆いではないもの**: 並行実行のための隔離（作業ツリーごとのDB・一時ディレクトリ）、時刻の固定、
 テスト環境が作れない本番の規則を本番と同じに置くもの（`vitest.setup.ts`の`pointer-events-auto`の規則）、
@@ -79,7 +82,6 @@ paths:
 
 `backend/tests/`直下の、`test_`で始まらないモジュール（`conftest.py`を除く）が、複数のテストで
 同じ形になるフェイク・足場を持つ。何を持ち、どの場面で使うかは各モジュールの先頭のdocstringが書く。
-新しいフェイクを書く前に、この直下を一覧してdocstringを読む。
 共有へ出す足場を新しく置くときも、この直下に置き、用途を先頭のdocstringに書く。
 
 **共有の足場とフェイク（この直下と、frontendの`frontend/src/testing/`）は、それ自身のテストを持つかを3問で決める。**
@@ -90,7 +92,7 @@ paths:
 例: `frontend/src/testing/mapTrace/recordingMap.contract.ts`）。これはtesting-review.md「消すべきテストの型」の「本番に生えたテスト専用の口の検査」
 とは別物である。
 
-**網・時計・Redisの代役は自前で書かず、定番の道具を使う**（どれも`requirements-dev.txt`）。
+網・時計・Redisの代役の道具（どれも`requirements-dev.txt`）:
 
 | 境界 | 道具 | 使い方 |
 |---|---|---|
@@ -99,8 +101,9 @@ paths:
 | 時計 | freezegun | フィクスチャ`clock`（`tests/conftest.py`）。`tick`・`move_to`で進める |
 | Redis | fakeredis | フィクスチャ`fake_redis`（`tests/conftest.py`）。接続の失敗は`redis_server.connected = False` |
 
-例外は窓・TTLを数える単調時計（`tests/conftest.py: MonotonicClock`。回数制限・外部I/Oの警告の抑制・
-データの世代の読み直しが読む）で、これらのモジュールが読む時計だけを差し替える。
+回数制限・外部I/Oの警告の抑制・データの世代の読み直しが読む単調時計は、freezegunでなく`tests/conftest.py: MonotonicClock`へ
+差し替え、これらのモジュールが読む時計だけを替える。これらの窓・TTLの記録はプロセスに残ってテストをまたぐので、テストの終わりに
+実時計へ戻るfreezegunで進めると、戻ったあとに窓・TTLが明けなくなる。
 
 フィクスチャ同士に順序が要るなら、**先に動くべきものを引数に取って依存で書く**。宣言順に頼らない。
 確かめるには`pytest <対象> --setup-plan`でセットアップ順を出す。

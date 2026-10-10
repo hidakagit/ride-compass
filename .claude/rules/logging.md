@@ -96,7 +96,7 @@ WARNINGへ昇格し、原因の内訳（どの段で減ったか）を同じ行�
 
 ## 観測エンドポイント
 
-障害調査で読む運用エンドポイント（例: デプロイ確認の`/health`・集計の`/api/debug/stats`）の中身は
+障害調査で読む運用エンドポイント（例: デプロイ確認の`/health`・集計の`/api/debug/stats`）の応答の項目は
 [cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)「運用エンドポイント（`api/routers/health.py`）」が持つ。
 `/api/debug/stats`の集計はプロセス内のカウンタで、デプロイ・再起動で0へ戻る（起点は`started_at`）。
 

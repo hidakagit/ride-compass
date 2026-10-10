@@ -25,7 +25,7 @@ backend のテストを、.claude/rules/testing-review.md「テストを変異�
 
     gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=master
 
-- `--ref` はワークフローの定義を読む版、`-f ref=` は測る版（台本も同じ版から読む）。ふだんはどちらも master。
+- `--ref` と `-f ref=` の違い・一覧の口・成果物の保持の日数は .claude/skills/run-checks/SKILL.md「変異テストでテストの効きを測る」。
 - 起こした実行の id は、`gh run list -R hidakagit/ride-compass --workflow mutation.yml -L 1 --json databaseId,createdAt,status` で
   取り、`createdAt` が起こした時刻のあとであることを見る。
 - 同じワークフローが動いていれば、終わるまで待ってから始まる（`concurrency: mutation`）。
@@ -90,7 +90,7 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 
 | 観点 | 一覧 | 行き先 |
 |---|---|---|
-| 効き | `analyze.txt` の変異スコア・生き残り | タスクにしない（変えた所は Pull Request ごとの Mutation PR が見る）。6 に数を書く |
+| 効き | `analyze.txt` の変異スコア・生き残り | タスクにしない（変えた所は Pull Request ごとの Mutation PR が見る） |
 | 重なり | `delete` | 空なら何もしない（前回が無い・2回続けて候補になったものが無い）。あれば、記録する issue を親にして、消す段階を作り、記録する issue の完了の条件に「消す段階が全部閉じている」の行を足す（下の「消す段階」） |
 | 隔離 | `isolation` | あれば、1つのタスクに並べて起こす。やることは run-checks/SKILL.md「実行順をばらす」の汚した側の探し方 |
 | 書き方 | `writing.zero`・`writing.broad_only` | あれば、1つのタスクに並べて起こす。やることは testing-review.md の書き方（1本ずつ3問へ通し、型として決まったものを「消すべきテストの型」と構造の検査に足す） |
@@ -100,11 +100,10 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 - テストのファイルの並びで、1段階あたりテスト関数の行（`lines` の和）が約600行までに分ける。
 - 段階の本文のやることに、消すテスト関数の表（テスト関数・行数・高さ・`mutant`・`kept_test`）と、次の確かめを書く。
   1. 表のテスト関数を消す。
-  2. 表の `mutant` を1行ずつ `only.txt`（置き場は `backend/scripts/mutation/`）に書いて作業ブランチへ push し、
-     `gh workflow run mutation.yml -R hidakagit/ride-compass --ref <作業ブランチ> -f ref=<作業ブランチ>` で回す（一覧だけを回し、
-     当て直しと review は走らない）。成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の
-     `kept_test` があることを見る。
-  3. `only.txt` を消してから Pull Request を出す（master へ入れない）。テスト全体が通ることは Pull Request の CI が見る。CI で
+  2. 表の `mutant` を1行ずつ `only.txt`（run-checks/SKILL.md「変異テストでテストの効きを測る」の一覧の口）に書いて作業ブランチへ push し、
+     `gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<作業ブランチ>` で回す。
+     成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の `kept_test` があることを見る。
+  3. `only.txt` を消してから Pull Request を出す。テスト全体が通ることは Pull Request の CI が見る。CI で
      落ちたときは testing-review.md「重なり」の4のとおりにする。
   4. Pull Request の本文の検証に、testing-review.md「消す・まとめる前に、残す側が落ちるかを見る」の4の表を、2 の変異と結果で書く。
 
@@ -112,9 +111,8 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 
 1. 記録する issue へコメントする: 実行の id と URL・測った版・比べた前回の版・ジョブごとの実際の時間（空き待ちと分けて）と
    起こすときに動いていた実行の数・`summary.md` の表・5 で起こした（コメントを足した）タスクの番号・3 で止めたならその理由。
-   成果物 mutation-review は90日で消えるので、数はコメントに残す。
-2. 片付け: 4 で取ってきた場所を消す。作業ツリーを作ったなら消す。
-3. 記録する issue の完了の条件を確かめ、残りが無ければ閉じる（`GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed`）。
+   成果物は消える（保持の日数は run-checks/SKILL.md「変異テストでテストの効きを測る」）ので、数はコメントに残す。
+2. 記録する issue の完了の条件を確かめ、残りが無ければ閉じる（`GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed`）。
    消す段階を作ったときは「消す段階が全部閉じている」の行が残るので閉じず、段階が全部閉じたあとで担当が確かめて閉じる
    （file-issue「段階に分ける」）。どちらも、終えたら持ちを手放す（dev-session「持つ」）。
-4. ユーザーへ報告する: 観点ごとの数・起こしたタスク・止めたならその理由。
+3. ユーザーへ報告する: 観点ごとの数・起こしたタスク・止めたならその理由。
