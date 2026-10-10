@@ -24,7 +24,7 @@ $ARGUMENTS があればそれを対象範囲とする。
 **起票案と、見送り判断だけ。** 生のレビュー記録は残さない。
 
 - 直すもの → 既存のタスクに属するなら、そのタスクの issue へ書く。属さなければ起票案として置き場に
-  issue を起こす（採否の問いが付いて回答待ちになり、ユーザーが採否を決める。`docs/conventions/flow.md`）
+  issue を起こす（入口は種類で決まる。`docs/conventions/flow.md`「ステータスと割り当て」の「入口」）
 - **やらないと決めたもの → 見送りの理由と再評価の条件を、下のタグの注釈に書く。** issue は起こさない。過去の見送りは
   `git tag -n99 -l 'periodic-review/*'`と、それ以前の記録（`grep -l "^## 判断: 見送り" docs/records/tasks/*.md`）で引く
 - レビューを終えたら、**見た対象コミットへ注釈付きタグを打つ**:
@@ -74,6 +74,23 @@ python scripts/review_checks.py size
 python scripts/review_checks.py docs
 ```
 
+#### 流れの摩擦を集める
+
+担当と開発機の対話のセッションは、流れで困ったことを起票せずに「流れの摩擦:」の行としてタスクの issue に残す
+（`.claude/skills/file-issue/SKILL.md`「流れの摩擦を記録する」）。前のタグより後に書かれたその行を全部集め、全体最適の観点の
+材料にする。1行ずつ直さず、原因の同じものをまとめ、`docs/conventions/flow.md`「原則」から直し方（消す・まとめるを先に考える）を
+決めて起票案か見送りにする。
+
+```bash
+since=$(git for-each-ref --sort=-taggerdate --count=1 --format='%(taggerdate:unix)' 'refs/tags/periodic-review/*')
+for n in $(gh issue list -R ridecompass/ride-compass-tasks --state all --limit 1000 --search "updated:>=$(date -d @$since +%F)" --json number --jq '.[].number'); do
+  gh issue view "$n" -R ridecompass/ride-compass-tasks --json comments --jq ".comments[] | select((.createdAt | fromdateiso8601) >= $since) | .body | split(\"\n\")[] | select(test(\"^(> )?(- )?流れの摩擦:\")) | \"#$n \(.)\""
+done
+```
+
+（一覧の `--json comments` は100件を超えると読めずに落ちるので、番号だけを取って1件ずつ読む。担当の終え方の要約は、後始末が
+終わりのコメントへ `> ` で引用して写すので、引用と箇条書きの頭も拾う。）
+
 ### 3. 4つの観点で見る
 
 観点は下の「確認観点」節。**同じ事象に2つの観点から指摘を出さない**——
@@ -92,7 +109,7 @@ python scripts/review_checks.py docs
 
 優先度順に並べ、**1件ずつ「起票案にする／見送る」を決める**（それぞれの行き先は「産出物」）。
 書き方は下の「指摘の書き方」。既存のタスクに属するかは、
-置き場の開いているタスク（採否の答えを待つものを含む）を、指摘の主な語で検索してから決める。
+置き場の開いているタスク（保留・回答待ちを含む）を、指摘の主な語で検索してから決める。
 
 ## 指摘の書き方
 
@@ -192,7 +209,8 @@ python scripts/review_checks.py docs
   DI・抽象化（利用者が1つしかないinterface/Protocol）・素通しの委譲
 - **規模ウォッチ**: `review_checks.py size` の表をそのまま出力へ含める。発火したファイルは
   (a)理由つきで現状維持、(b)抽出・分割の提案、(c)個別閾値の設定、のいずれかへ必ず分類する。
-  **次の閾値を決めずに発火させたままにしない**。
+  **次の閾値を決めずに発火させたままにしない**。指示の文書（`size_thresholds.json`の`instruction_limits`に当たるもの）は
+  (b)だけで、上限を上げず、ファイルごとの閾値も置かない。
   「閾値の見直し」に出たエントリ（縮んだ・消えたファイル）は、下げるか外すかを決める。
   分割先を先に決めておけるファイルは、閾値と並べて`scripts/size_thresholds.json`の`on_fire`へ
   既定の対応を書く（発火したとき`size`が一覧の下に出し、それが(b)の既定になる）
@@ -276,7 +294,7 @@ python scripts/review_checks.py docs
 - **実装↔テスト**: 変更に対応するテストがあるか。実装詳細への依存（privateメソッド直叩き）、
   不要になったテスト、過剰なmock、**実質的に意味のないテスト**（実装をなぞるだけで
   壊れ方を検証しない、常にpassする）、DBを使うテストに`postgis`の印が付け忘れられていないか
-  （`.claude/rules/testing.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
+  （`.claude/rules/testing-scaffold.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
   ヘルパー）が複数のテストファイルに写されていないか
 
 #### 文書とコメントが名指しするもの

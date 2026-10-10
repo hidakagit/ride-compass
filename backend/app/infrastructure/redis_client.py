@@ -1,4 +1,4 @@
-"""Redis共有クライアント（何をRedisへ置くかは .claude/rules/caching.md）。
+"""Redis共有クライアント（何をRedisへ置くかは .claude/rules/caching-retention.md）。
 
 すべての用途がTTL付きキャッシュ、またはPostGIS（正本）へ即座にフォールバック可能な
 cache-asideのため、Redis接続自体の障害はfail-fastさせない。

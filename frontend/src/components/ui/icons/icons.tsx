@@ -10,6 +10,7 @@ import {
   Clock,
   Cloud,
   Copy,
+  CornerUpLeft,
   Download,
   Droplet,
   EllipsisVertical,
@@ -20,9 +21,11 @@ import {
   Layers,
   ListChecks,
   MapPin,
+  MapPinned,
   MapPinX,
   Moon,
   Play,
+  RotateCcw,
   RotateCw,
   Save,
   Shield,
@@ -556,3 +559,13 @@ export const VersionIcon = fromLucide(GitCommitHorizontal);
 export const SelectedSpotIcon = fromLucide(MapPin);
 /** 置いた経由地と目的地を一度に消す。ClearAllLayersIconと同じく、消す対象の形（地点のピン）にバツを添える。 */
 export const ClearPointsIcon = fromLucide(MapPinX);
+/** 地点を地図で置く（地図で選ぶ・地図で追加・地図で置き直す。押している間は地図のタップがその地点を置く）。 */
+export const PlaceOnMapIcon = fromLucide(MapPinned);
+/** 置いた地点を1つ消す。保存したものを消す`DeleteSavedIcon`と同じく、消す操作はごみ箱の形にそろえる。 */
+export const RemovePointIcon = fromLucide(Trash);
+/** 変えた値を既定値に戻す。 */
+export const ResetDefaultsIcon = fromLucide(RotateCcw);
+/** 取れなかったものを取り直す。 */
+export const RetryIcon = fromLucide(RotateCw);
+/** 編集で作ったルートの元にしたルートを見る。 */
+export const ShowOriginIcon = fromLucide(CornerUpLeft);

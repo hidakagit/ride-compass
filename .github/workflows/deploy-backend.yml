@@ -49,6 +49,7 @@ jobs:
             python3 scripts/deploy_backend_gate.py "${{ steps.deployed.outputs.sha }}" "${{ github.sha }}"
           fi
       - name: Deploy via SSH (native arm64 build on VM)
+        id: deploy
         if: steps.gate.outputs.deploy == 'true'
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -194,12 +195,29 @@ jobs:
             done
             echo "入れ替えたコンテナが/healthに応答するまで $((SECONDS - WAIT_STARTED))秒 commit=$GIT_COMMIT"
             sudo docker image prune -f
-            # 本番のスキーマと、今出したコードのORMの宣言の差を測る。差が1件でもあれば終了コード1で
-            # set -eによりジョブを失敗させる（差の行はログに出る）。差は人が本番で埋めるもので、
-            # 出す前に埋めるもの（新しいコードが書く列を足す）と、出した後に埋めるもの（古いコードが
-            # 読む列を消す・新しいコードが宣言した表を作る）がある。そのため**入れ替えの後に置き、
-            # 出すのは止めない**——前に置くと、出した後に埋める差がデプロイを止め、埋められなくなる。
-            # `public`には書かない（一時スキーマへ宣言を作って巻き戻す）。
+      # 出したbackendで、利用者と同じ操作（ルートを作ってレンズを替える）が壊れていないかを外から見る。
+      # 落ちたらジョブが失敗し、GitHub Actionsの失敗の知らせが届く（出したものは戻さない）。
+      # 何を見るか・上限の根拠は docs/architecture/tech-stack.md「本番でルートを作る確かめ」。
+      - name: 本番でルートを作って区間の値を見る
+        if: steps.gate.outputs.deploy == 'true'
+        timeout-minutes: 3
+        run: python3 scripts/prod_route_check.py
+      # 本番のスキーマと、今出したコードのORMの宣言の差を測る。差が1件でもあれば終了コード1で
+      # ジョブを失敗させる（差の行はログに出る）。差は人が本番で埋めるもので、
+      # 出す前に埋めるもの（新しいコードが書く列を足す）と、出した後に埋めるもの（古いコードが
+      # 読む列を消す・新しいコードが宣言した表を作る）がある。そのため**入れ替えの後に置き、
+      # 出すのは止めない**——前に置くと、出した後に埋める差がデプロイを止め、埋められなくなる。
+      # 上のルートの確かめとは別の段にし、互いの失敗で飛ばさない——差を埋めるまで毎回赤になるので、
+      # 同じ段の後ろに確かめを置くと、その間ずっと確かめが回らない。
+      # `public`には書かない（一時スキーマへ宣言を作って巻き戻す）。
+      - name: 本番のスキーマとORMの宣言の差を測る
+        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.ORACLE_VM_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          script: |
             sudo docker run --rm \
               --network=host \
               --env-file /home/ubuntu/ridecompass-backend.env \

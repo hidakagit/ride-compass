@@ -39,7 +39,7 @@ from app.domain.region import tile_bounds_lonlat
 from tests.conftest import empty_ingested_tables
 from tests.source_ingest import ingest_records, way_record
 
-# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

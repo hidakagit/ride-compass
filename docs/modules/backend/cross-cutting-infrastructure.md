@@ -46,14 +46,14 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | ops | `ridecompass-admin-data-backup.service`・`ridecompass-admin-data-backup.timer` | それを毎日打つsystemdのユニット（VMへの登録は手で1回） |
 | scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す。宣言どおりの表を同じ接続の一時スキーマへ作ってから巻き戻すまでの間に、`public`とカタログを突き合わせる——制約・既定値・索引の式をPostgreSQLが正規化した形で比べるので、CHECKの式・主キー・一意も比べられる。名前は比べない。取込が作る子パーティション（生データの区画）は、列のNULL許容だけをアダプタの宣言（`batch/ingest.py: partition_required_columns`）と比べ、カタログの値だけを読む（取込が入れ直している最中でも、そのロックを待たずに測れる）。本番DBへは、backendのデプロイがコンテナを入れ替えたあとに毎回当てる（差があればデプロイが失敗で終わる。docs/architecture/tech-stack.md「デプロイの反映確認」）ほか、手で`run_probe.py`から当てる |
 | scripts | `lost_constraints.py` | 2つの版の`backend/app`をgitから取り出し、ORMが宣言する表・制約を名前抜きの同じ形へ揃えて、消えたものを出す（DBは使わない）。SQLの文の中の絞り込みは見ない——断片をつないで組み立てるSQLは文字列から構文木を取れないものが残るため |
-| scripts | `mutation/` | 変異テストの台本。mutmut 3.8.0（測るときだけ入れる）には`app`の関数の中の変異の生成と、関数ごとに通るテストの記録だけをさせ（`gen.py`）、変異ごとに別のプロセスでそのテストを最後まで回して、落ちたテストを記録する（`runner.py`・`mutkill.py`）。回す変異の並べ方と一覧の口（`plan.py`）・集計（`analyze.py`）・生き残りの振り分け（`classify.py`・`importtime.py`）。回し方は[run-checks/SKILL.md](../../../.claude/skills/run-checks/SKILL.md)「変異テストでテストの効きを測る」 |
+| scripts | `mutation/` | 変異テストの台本。mutmut 3.8.0（測るときだけ入れる）には`app`の関数の中の変異の生成と、関数ごとに通るテストの記録だけをさせ（`gen.py`）、変異ごとに別のプロセスでそのテストを最後まで回して、落ちたテストを記録する（`runner.py`・`mutkill.py`）。回す変異の並べ方と一覧の口（`plan.py`）・集計（`analyze.py`）・生き残りの振り分け（`classify.py`・`importtime.py`）・Pull Request の差分で変わった関数を拾って回し、生き残りを知らせる（`diff_scope.py`・`pr_plan.py`・`report_pr.py`）。回し方は[run-checks/SKILL.md](../../../.claude/skills/run-checks/SKILL.md)「変異テストでテストの効きを測る」 |
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 | scripts | `run_probe.py` | 調査用のスクリプトを本番DBに対して走らせる（手元のPythonから本番DBを引くか、本番のbackendコンテナの中で走らせる）。手元実行では接続文字列をSQLAlchemy用と素のasyncpg用の両方の形で環境変数へ渡す。プローブの後ろに書いた引数はそのままプローブへ渡す |
 | scripts | `_prod_env.py` | 本番へつなぐ道具（`run_probe.py`・`axis_apply.py`等）が共有する、手元の接続情報（`backend/.env.oracle.local`）の読み方。worktreeから打ったときは本体のチェックアウト側のファイルを読む（gitignore対象のファイルはworktreeへ写らない）。接続情報を渡す前に、このチェックアウトがorigin/masterより遅れていれば止まる（[setup.md](../../architecture/setup.md)「開発機の本体のチェックアウトの遅れ」） |
 | scripts | `drop_orphan_test_databases.py` | 作業ツリーごとに作られるPostGIS統合テストのDBのうち、作業ツリーが無くなったものを出し、`--drop`で落とす。どの作業ツリーのものかはDB自身のコメントから読む（名前から推測しない） |
-| scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[testing.md](../../../.claude/rules/testing.md)） |
+| scripts | `serve_e2e_live.py` | e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて空いたポートで起動し、路面タイルに道が出る起点を開発DBの区間から選んで、ビルドと実行のコマンドを出す（手順の正本は[run-checks/SKILL.md](../../../.claude/skills/run-checks/SKILL.md)「E2E・画面の撮影の走らせ方」） |
 | scripts | `serve_capture.py` | 撮影の道具（`frontend/scripts/capture.mjs`の`--backend`）のために、この作業ツリーのbackendを、起動の段（DBの軸定義の読み込み・定期ジョブ）を外して起動する。ルーターとミドルウェアは`main.py: app`のまま。DBを読む経路は失敗するので、撮影の道具はDBを読まない経路（タイルの中継等）だけをここへ向ける |
-| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・そのテストだけが通す行が0行のテスト・カバレッジ・テストファイルごとの項目と関数と行の数・テストからしか使われない公開の名前の候補。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing.md](../../../.claude/rules/testing.md) |
+| scripts | `audit_test_rewrite.py` | 実装から起こし直したテストを外から測る（実装を変えていないか・テストが読む`app.*`・対象の属性の出どころ・seams 数・実装へ1行も入らないテスト・そのテストだけが通す行が0行のテスト・カバレッジ・テストファイルごとの項目と関数と行の数・テストからしか使われない公開の名前の候補。テストは対象を読む母集団を並べて渡す。PostGISのテストはテスト用DBへ繋がるときだけ含める）。起こし直しの手順は[testing-rewrite.md](../../../.claude/rules/testing-rewrite.md) |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 
@@ -110,7 +110,7 @@ FastAPI(lifespan=lifespan)
         │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
         ├─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
         │       （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
-        │       タイミングに当たる、.claude/rules/caching.md「無効化」参照）
+        │       タイミングに当たる、.claude/rules/caching-retention.md「無効化」参照）
         └─ (7) 同じくAPSchedulerで地域タイルの旧世代掃除ジョブを登録（interval=24時間＋
                 next_run_time=now。世代は派生の作り直し・取込でも再起動なしに変わるため定期に回す。
                 [静的道路属性](static-road-attributes.md)「共通骨格」の旧世代の掃除）
@@ -292,7 +292,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 ## Redisのcache-aside（`redis_json_cache.py`）
 
-どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[.claude/rules/caching.md](../../../.claude/rules/caching.md)が
+どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[.claude/rules/caching.md](../../../.claude/rules/caching.md)と[.claude/rules/caching-retention.md](../../../.claude/rules/caching-retention.md)が
 正本で、ここは実装の説明に絞る。
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
@@ -312,7 +312,7 @@ JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測�
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
 `jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
-自前の骨格を持ってよい場合は.claude/rules/caching.md「自前で骨格を書いてよい例外」が決める。
+自前の骨格を持ってよい場合は.claude/rules/caching-retention.md「Redisへ持つときは`redis_json_cache`を使う」の「自前で骨格を書いてよい例外」が決める。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

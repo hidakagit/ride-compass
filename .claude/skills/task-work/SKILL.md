@@ -4,15 +4,15 @@ description: "タスクを作る担当・確かめる担当として進める手
 ---
 
 **作る担当**・**確かめる担当**のどちらも、作業は担当のワークフローが取り出した作業ツリーの中だけで行う。どの終わり方でも
-（PR を出した・問うた・段階に分けた・完成で閉じた・確かめてマージした／閉じた・開発機が要ると返した）、手順の中で当たった改善点を
-.claude/skills/file-issue/SKILL.md「改善を起票する」のとおり起票し、範囲の外の気づきに行き先か直さない理由を付け（下の「範囲の外の気づき」）、push と issue への
+（PR を出した・問うた・段階に分けた・完成で閉じた・確かめてマージした／閉じた・開発機が要ると返した）、手順の中で当たった流れの摩擦を
+.claude/skills/file-issue/SKILL.md「流れの摩擦を記録する」のとおり終え方の要約に書き、範囲の外の気づきに行き先か直さない理由を付け（下の「範囲の外の気づき」）、push と issue への
 報告をして終える。次の担当を起こすのは振り出しなので、担当は触れない。
 
-**範囲の外の気づき**: 作業の中で見つけた、今のタスクの範囲の外のもの（流れの改善点に限らず、製品のコード・文書・テストの誤りや
-残骸も）は、報告に書くだけで終えない。
-1件ずつ、次のどれかをしてから終える。今の差分で直せるものは直す（.claude/skills/file-issue/SKILL.md「改善を起票する」）。
-1. 寄せる: 直す場所が同じ開いた issue（探し方は.claude/skills/file-issue/SKILL.md「前後関係と組」の「探す」）があれば、そこへコメントで書く（.claude/skills/file-issue/SKILL.md「改善を起票する」の「重ねない」）。
-2. 起こす: 無ければ、.claude/skills/file-issue/SKILL.md「改善を起票する」の「書き方」のとおり起票する（種類は気づきの性質で選ぶ）。
+**範囲の外の気づき**: 作業の中で見つけた、今のタスクの範囲の外の製品（コード・文書・テスト）の誤りや残骸は、報告に書くだけで
+終えない（流れの摩擦は上のとおり記録するだけ）。
+1件ずつ、次のどれかをしてから終える。今の差分で直せるものは直す（.claude/skills/file-issue/SKILL.md「起票する」）。
+1. 寄せる: 直す場所が同じ開いた issue（探し方は.claude/skills/file-issue/SKILL.md「前後関係と組」の「探す」）があれば、そこへコメントで書く（.claude/skills/file-issue/SKILL.md「起票する」の「重ねない」）。
+2. 起こす: 無ければ、.claude/skills/file-issue/SKILL.md「起票する」の「書き方」のとおり起票する（種類は気づきの性質で選ぶ）。
 3. 直さない理由を書く: 寄せも起こしもしないなら、その理由（答えを変えない・テストの冒頭の「ここで見ないもの」に書いた等）を書く。
 
 どれをしたか（寄せた先・起こした issue の番号・理由）は、気づきと並べて報告（作る担当の6・確かめる担当の2）に書く。
@@ -59,8 +59,12 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      `scripts/deploy_backend_gate.py: DEPLOY_PATHS` に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>`
      が 0 で終われば出ている（本番の commit が手元に無ければ先に `git fetch origin`）。
      出ていなければ、master の CI の一番新しい実行（`gh run list -R hidakagit/ride-compass --workflow ci.yml --branch master --limit 1 --json databaseId,headSha`）を
-     作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。マージのコミットを含む実行（`headSha` がマージのコミットかその後の版）が
-     終わっても出ていなければ（失敗・取り消し）、問わずに、上の時間を待つ残りと同じく着手可能日を翌日にして終える。
+     作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。まだ出ていなければ、同じ `gh run list` で一番新しい
+     実行を引き直し、待った実行と違えばそれを同じく待って見直す（master の CI は待ちを一番新しい1件だけにし、新しい実行が来ると古い待ちを
+     取り消す。`.github/workflows/ci.yml` の `concurrency`）。待ち直す回数に上限は置かない（押されて取り消された待ちには、押した新しい実行が
+     必ずあり、master へのコミットが止まれば終わる。外の上限は担当のジョブの持ち時間）。
+     マージのコミットを含む実行（`headSha` がマージのコミットかその後の版）のうち一番新しいものが終わっても出ておらず（失敗・取り消し）、
+     それより新しい実行が無いときだけ、問わずに、上の時間を待つ残りと同じく着手可能日を翌日にして終える。
      出たら、判断材料にユーザーが見る版を書く。frontend に届く変更は「画面右上のメニュー（︙）の『バージョン表示』の版が <見た時点の
      本番の `commit` の頭8文字> なら修正を含む版。違えば、それより後の版が出ていて、それも修正を含む」、backend にだけ届く変更は
      開く URL と見た時点の `started_at`（「`started_at` がこの時刻以降なら修正を含む版」）。
@@ -73,12 +77,14 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 確かめの問い（確かめの行だけが残ったとき・コードを変えないタスクの結果）に未着手の答えが返ったら、確かめが済んだと読み、
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
-4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストを手元で回す場面と範囲と、
+4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。push はほかのコマンドとつながずに1つで打つ
+   （拒否の一覧の `Bash(git push *master*)` はつないだ全文に当たり、後ろの `gh pr create --base master` 等の `master` でも断る）。静的検査とテストを手元で回す場面と範囲と、
    コミットの前に frontend で変えたファイルへかける整形は、.claude/skills/run-checks/SKILL.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られるので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは .claude/skills/run-checks/SKILL.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
-5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
+5. マージの前に済ませる本番への書き込みが要り、まだ済んでいなければ、出さずに `docs/conventions/flow.md`「担当」の「自動で進めないもの」のとおり返す。
+   コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （`docs/conventions/flow.md`「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
    題名と本文は、そのまま master のコミットになる（`docs/conventions/flow.md`「コミット」）。本文は `.github/pull_request_template.md`
@@ -125,6 +131,11 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing.md「テストが落ちたときの直し方」）、4 から続ける。
    取り消し（`cancelled`）で終わったチェックも「落ちたら」と同じに扱う。master を取り込んでも直すものが無ければ（GitHub Actions の
    障害でランナーが付かなかった等）、`gh run rerun <id> --failed -R hidakagit/ride-compass` で流し直して `gh run watch` から待ち直す。
+   `backend/app` を変えたときは、必須でないワークフロー Mutation PR（`.github/workflows/mutation-pr.yml`）も走り、変えた関数の変異のうち
+   テストが気づかないもの（生き残り）を、変えた行への注記（`gh run view <id> -R hidakagit/ride-compass` の ANNOTATIONS）と実行の要約に出す。
+   これも終わるまで待って読み、生き残りのうち利用者や運用に見える振る舞いが変わるものは、それを落とすテストを足して 4 から続ける
+   （足すかの判断は .claude/rules/testing.md「そのテストは要るか」）。足さないもの（振る舞いが変わらない書き換え・テストで確かめない
+   約束）と、変わったのにどのテストも通らない関数は、Pull Request の本文の検証に1件1行で理由を書く。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
 
@@ -193,6 +204,12 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    開発機の対話のセッションで出た Pull Request の条件も、ここで付ける。
    付けないのは、確かめの行（`- [ ] ユーザーが確かめる: …`）・マージのあとでないとできない条件・3 と 4 で足した行。4 で閉じるときは
    どの行にも付けない。
+   **マージの前の本番の値**: マージすると本番へ自動で出て前の版が消えるので、完了の条件に本番での前後の比べ（.claude/rules/fixing.md「性能は本番で測る」等）が
+   残っていて、今の本番の版で取った前の値が issue に無ければ、マージの前に取る。本番を読むだけの口（書き込まない要求で画面・API を外から通す。
+   `scripts/prod_route_check.py` と同じ口）で、その行と同じ要求・同じ測り方で取り、値・要求・取った時点の本番の版（作る担当の3の「本番に出てから問う」と
+   同じ口の `commit`）を issue にコメントで書いてからマージする。読むだけの口で取れない（本番の DB・ログが要る）なら、マージせずに、要る前の値と
+   取り方をコメントに書いて 4 のとおり Pull Request を閉じ、issue にラベル「開発機が要る」を付ける（開発機の対話のセッションが前の値を取って
+   ラベルを外すと、作る担当が出し直す）。
    そのあと Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`）。CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も
    待たない（ゲートが閉じる）。通ったかは
    `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見て、`OPEN` のままなら打ち直す。

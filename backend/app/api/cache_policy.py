@@ -60,7 +60,7 @@ BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: `max-age`ぶん遅れる。押す頻度と表示速度の釣り合いで10分にしてある。
 BASEMAP = CachePolicy(max_age_seconds=10 * 60)
 #: 派生の作り直しまで答えが変わらない引き当て（地点の検索。住所（住所の区画の表）も施設（立ち寄り先の表）も
-#: 派生の作り直しのときにしか変わらない。施設を近い順に並べる点はURLに入るので、同じURLの答えは変わらない）。caching.md「TTLの決め方」の「ほぼ不変なマスタ」。
+#: 派生の作り直しのときにしか変わらない。施設を近い順に並べる点はURLに入るので、同じURLの答えは変わらない）。caching-retention.md「TTLの決め方」の「ほぼ不変なマスタ」。
 MASTER_LOOKUP = CachePolicy(max_age_seconds=24 * 60 * 60)
 #: 数分の再利用で表示が古くならないもの（例: 風グリッド・材料タイル・天候予報）。
 SHORT = CachePolicy(max_age_seconds=5 * 60)
