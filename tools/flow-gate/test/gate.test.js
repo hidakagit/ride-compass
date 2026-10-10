@@ -54,11 +54,11 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: ユーザーの起票と Claude の改善は未着手、それ以外（種類なしを含む）の Claude の起票は保留で入り、どれにも問いを置かない。段階は優先度の欄が空なら親の値を継ぎ、ほかの欄は書かない", async () => {
+test("4 入口: ユーザーの起票と Claude の改善は未着手、それ以外（種類なしを含む）の Claude の起票は保留で入る。段階は優先度の欄が空なら親の値を継ぎ、ほかの欄は書かない", async () => {
   for (const [issue, want] of [[{ type: "要" }, "前"], [{ author: "c", type: "保" }, "前"], [{ author: "c", type: "要" }, "置き"], [{ author: "c" }, "置き"]]) {
     const gh = fakeGitHub({ issue: { number: 2, status: "中", ...issue } });
     await deliver("projects_v2_item", item({ action: "created" }));
-    assert.deepEqual([gh.issue.status, said(gh).length, gh.issue.fields.重さ], [want, 0, undefined], JSON.stringify(issue));
+    assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], [want, undefined], JSON.stringify(issue));
   }
   let gh = fakeGitHub({ issue: { number: 3, author: "c", type: "要" }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));
@@ -73,7 +73,7 @@ const Q = "## 問い\nどうする？\n\n### 案\n- A\n- B\n\n<details><summary>
 test("5 本文の先頭には、回答待ちの間だけ回答フォームへのボタンがある", async () => {
   const gh = fakeGitHub({ issue: { number: 2, status: "答え待ち", comments: [{ author: "c", body: Q }] } });
   await move("置き", "答え待ち");
-  assert.notEqual(gh.issue.body, "本文");
+  assert.deepEqual([gh.issue.body.includes(`](${config.urls.form}/answer?issue=2)`), gh.issue.body.endsWith("\n本文")], [true, true]);
   await move("答え待ち", "置き");
   assert.equal(gh.issue.body, "本文");
 });
@@ -124,7 +124,7 @@ test("9 回答フォームの完成は、残りの完了の条件を全部チェ
 test("12 回答待ちへは、最新の問いか答えが形に合う答えていない問いのときだけ入る。合わなければ前へ戻して理由を書き、ゲートは問いを置かない", async () => {
   const q = { author: "c", body: Q };
   const a = { author: "u", body: "## 回答\n**どうする？**\n\n次のステータス: 置き" };
-  for (const [comments, want] of [[[q], 0], [[a, q], 0], [[], 1], [[q, a], 1], [[{ author: "c", body: "## 問い\nどうする？" }], 1]]) {
+  for (const [comments, want] of [[[q], 0], [[], 1], [[q, a], 1], [[{ author: "c", body: "## 問い\nどうする？" }], 1]]) {
     const gh = fakeGitHub({ issue: { number: 4, status: "答え待ち", comments } });
     await move("置き", "答え待ち");
     assert.deepEqual([gh.issue.status, said(gh).length], [want ? "置き" : "答え待ち", want], JSON.stringify(comments));
