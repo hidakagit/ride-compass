@@ -8,10 +8,11 @@ import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
 import SavedPlacesPanel from "@/features/route/SavedPlacesPanel/SavedPlacesPanel";
 import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import RoutePoints from "./RoutePoints";
-import type { RouteMode } from "./useRouteFormSubmit";
-import { Button } from "@/components/ui/Button/Button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
+import { Button, buttonVariants } from "@/components/ui/Button/Button";
+import { DistanceTargetIcon } from "@/components/ui/icons/icons";
+import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { textVariants } from "@/components/ui/Text/Text";
+import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { cn } from "@/lib/cn";
 
 /** 「ルート設定」区分のタブ。タブ列と選択状態はpage.tsxが持ち（見出し行に置くため）、
@@ -19,16 +20,15 @@ import { cn } from "@/lib/cn";
 export type SettingsTab = "generate" | "weights" | "exclusions" | "saved";
 
 /** 「条件」タブが読む生成の条件（`features/route/useGenerationConditions.ts`の返り値をそのまま渡す）。距離・候補数は
- * 文字列のまま持つ——生成条件のdirty判定（`features/route/useRouteGeneration.ts`）に使うため。候補数は周回モードと、
- * 目的地モードで経由地が無い場合に意味を持つ（経由地を伴う目的地ルートはbackendが常に1件へ固定し無視する）。 */
+ * 文字列のまま持つ——生成条件のdirty判定（`features/route/useRouteGeneration.ts`）に使うため。 */
 type RouteFormConditions = Pick<
   GenerationConditionsState,
   | "distanceInput"
   | "setDistanceInput"
   | "maxRoutesInput"
   | "setMaxRoutesInput"
-  | "routeMode"
-  | "changeRouteMode"
+  | "distanceTargeted"
+  | "setDistanceTargeted"
   | "waypoints"
   | "removeWaypoint"
   | "destination"
@@ -87,7 +87,9 @@ export default function RouteForm({
   exclusionsPanel,
   savedConditionsPanel,
 }: RouteFormProps) {
-  const { distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput, routeMode, changeRouteMode } = conditions;
+  const { distanceTargeted, setDistanceTargeted, distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput } =
+    conditions;
+  const distanceToggleName = distanceTargeted ? "全長の目標をやめる" : "全長の目標を決める";
 
   // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
@@ -101,55 +103,34 @@ export default function RouteForm({
           重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
           重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
       <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
-        {/* モードと候補数は同じ行に置く。候補数はどちらのモードでも効く共通の条件で、
-            モードごとの入力（距離／地点）とは別の階層にある。 */}
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <ToggleGroup
-            className="shrink-0"
-            value={routeMode}
-            onValueChange={(mode) => changeRouteMode(mode as RouteMode)}
-            aria-label="ルート生成モード"
-          >
-            <ToggleGroupItem value="loop" usage="出発地から出て出発地へ戻る、指定した距離のルートを作ります。">
-              周回
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="destination"
-              usage="地図で置いた目的地へ向かうルートを作ります。経由地を置くと、そこを通ります。"
+        <div className="mb-2 flex items-center justify-end gap-2">
+          <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
+          <div className="inline-flex items-center gap-2">
+            <Button
+              variant="stepper"
+              size="sm"
+              onClick={() => stepMaxRoutes(-1)}
+              disabled={Number(maxRoutesInput) <= MIN_ROUTES}
+              aria-label="候補数を減らす"
+              usage="一度に作る候補の数を減らします。"
             >
-              目的地
-            </ToggleGroupItem>
-          </ToggleGroup>
-          <div className="flex items-center gap-2">
-            <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
-            <div className="inline-flex items-center gap-2">
-              <Button
-                variant="stepper"
-                size="sm"
-                onClick={() => stepMaxRoutes(-1)}
-                disabled={Number(maxRoutesInput) <= MIN_ROUTES}
-                aria-label="候補数を減らす"
-                usage="一度に作る候補の数を減らします。"
-              >
-                ‹
-              </Button>
-              <span className="min-w-[2.5em] text-center tabular-nums">{`${maxRoutesInput}件`}</span>
-              <Button
-                variant="stepper"
-                size="sm"
-                onClick={() => stepMaxRoutes(1)}
-                disabled={Number(maxRoutesInput) >= MAX_ROUTES}
-                aria-label="候補数を増やす"
-                usage="一度に作る候補の数を増やします。"
-              >
-                ›
-              </Button>
-            </div>
+              ‹
+            </Button>
+            <span className="min-w-[2.5em] text-center tabular-nums">{`${maxRoutesInput}件`}</span>
+            <Button
+              variant="stepper"
+              size="sm"
+              onClick={() => stepMaxRoutes(1)}
+              disabled={Number(maxRoutesInput) >= MAX_ROUTES}
+              aria-label="候補数を増やす"
+              usage="一度に作る候補の数を増やします。"
+            >
+              ›
+            </Button>
           </div>
         </div>
 
         <div className="flex flex-col gap-2">
-          {/* 出発地はどちらのモードでも置ける（現在地が取れないときの案内が指す入口）。 */}
           <RoutePoints
             conditions={conditions}
             origin={origin}
@@ -161,28 +142,43 @@ export default function RouteForm({
             onPlaceFound={onPlaceFound}
             savedPlaces={savedPlaces}
           />
-          {routeMode === "loop" && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
-                距離
-              </label>
-              <input
-                id="route-form-distance"
-                type="range"
-                min={MIN_DISTANCE_KM}
-                max={MAX_DISTANCE_KM}
-                step={1}
-                value={distanceInput}
-                onChange={(e) => setDistanceInput(e.target.value)}
-                className="h-6 min-w-0 flex-1"
-                data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
-              />
-              <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distanceInput}km</span>
-              <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
-                ±{DISTANCE_TOLERANCE_KM}km
-              </span>
-            </div>
-          )}
+          {/* 外している間もスライダーと値は出したまま薄くする（入れ直すと前の値に戻ることが見え、行の高さも変わらない）。 */}
+          <div className="flex items-center gap-2">
+            <Toggle
+              variant="plain"
+              className={cn(
+                buttonVariants({ size: "panelIcon" }),
+                "flex-none data-[state=on]:border-[var(--color-accent)] data-[state=on]:bg-[var(--color-accent)] data-[state=on]:text-white",
+              )}
+              pressed={distanceTargeted}
+              aria-label={distanceToggleName}
+              title={distanceToggleName}
+              onClick={() => setDistanceTargeted(!distanceTargeted)}
+              usage="押している間は、ルート全体の長さを目標に合わせます。"
+            >
+              <DistanceTargetIcon />
+            </Toggle>
+            <input
+              aria-label="全長の目標"
+              type="range"
+              min={MIN_DISTANCE_KM}
+              max={MAX_DISTANCE_KM}
+              step={1}
+              value={distanceInput}
+              disabled={!distanceTargeted}
+              onChange={(e) => setDistanceInput(e.target.value)}
+              className="h-6 min-w-0 flex-1 disabled:opacity-40"
+              data-usage="ルート全体の長さの目標を決めます。"
+            />
+            <span
+              className={cn("min-w-[3.5em] flex-shrink-0 text-right tabular-nums", !distanceTargeted && "opacity-40")}
+            >
+              {distanceInput}km
+            </span>
+            <InfoPopover triggerAriaLabel="全長の目標の説明" triggerClassName="flex-none">
+              {`ルート全体の長さの目標です。作る候補は、この長さの±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。外すと長さを決めず、目的地（無ければ出発地）へ良い道で向かいます。`}
+            </InfoPopover>
+          </div>
         </div>
       </TabsContent>
 

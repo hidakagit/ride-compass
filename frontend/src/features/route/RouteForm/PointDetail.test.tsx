@@ -11,7 +11,7 @@
  * ここで見ないもの:
  * - 地点ごとの呼び名・出どころ・名前・地図で置く操作・消す・「現在地に戻す」・上限、候補を選んだあとに打った文字と一覧を消すこと →
  *   `RouteForm/RouteForm.test.tsx`
- * - 周回で経由地・目的地を選んだときのモードの切り替えと、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
+ * - 選んだ候補を置いたあとに、置ける状態を解くこと → `features/route/useGenerationConditions.test.ts`
  * - 置いた地点へ地図を寄せること・地図の上でピンを動かすこと → `e2e/map-runtime.spec.ts`
  * - 狭い画面で、候補が出ている間に欄と候補をキーボードの上の見える範囲へ出すこと（レイアウトの実寸） → `e2e/map-runtime.spec.ts`
  * - 打ちかけの語の続きの候補・施設の候補とその並びを返すこと、位置の辺りの決め方 → backend の `tests/test_place_search_route.py`

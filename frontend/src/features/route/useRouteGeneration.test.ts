@@ -5,7 +5,7 @@
  * 失敗）を返す。
  *
  * ここで見ないもの:
- * - 検証の文言の中身と、目的地モードで地点が無いときの検証 → `RouteForm/useRouteFormSubmit.test.ts`
+ * - 検証の文言の中身と、作るものが無いときの検証 → `RouteForm/useRouteFormSubmit.test.ts`
  * - 条件の値の持ち方（保存・地点の置き方・重みの揃え方） → `useGenerationConditions.test.ts`
  * - 入力から要求の形を組む細部（どの項目を比べないか・選んでいない出発時刻・キーの並びに依らない比較） →
  *   `generationRequest.test.ts`
@@ -118,13 +118,14 @@ afterEach(() => {
 });
 
 describe("送る要求", () => {
-  it("周回は、いまの位置・入力した距離と候補数・走行条件・除外を送り、置いてある地点・重みは送らない", async () => {
+  it("全長の目標を決めていれば、いまの位置・入力した距離と候補数・走行条件・除外と、置いた経由地（置いた順）・目的地をそのまま送り、重みは送らない", async () => {
     const rendered = renderGeneration();
     const { conditions } = rendered.result.current;
     act(() => conditions.setDistanceInput("42"));
     act(() => rendered.result.current.conditions.setMaxRoutesInput("3"));
     act(() => rendered.result.current.conditions.setDestination(A));
     act(() => rendered.result.current.conditions.placePin("waypoint", B));
+    act(() => rendered.result.current.conditions.placePin("waypoint", A));
     respond([route("r1")]);
 
     await submit(rendered);
@@ -138,12 +139,14 @@ describe("送る要求", () => {
       max_routes: 3,
       assumed_speed_kmh: 20,
       start_time: T1.toISOString(),
+      waypoints: [B, A],
+      destination: A,
     });
   });
 
-  it("目的地は距離を送らず（全長の目標を置かない）、目的地を送る", async () => {
+  it("全長の目標を外すと距離を送らず、置いた地点は同じに送る", async () => {
     const rendered = renderGeneration();
-    act(() => rendered.result.current.conditions.changeRouteMode("destination"));
+    act(() => rendered.result.current.conditions.setDistanceTargeted(false));
     act(() => rendered.result.current.conditions.placePin("destination", A));
     respond([route("r1")]);
 
@@ -151,19 +154,6 @@ describe("送る要求", () => {
 
     expect(sentRequest()).not.toHaveProperty("distance_km");
     expect(sentRequest()).toMatchObject({ destination: A });
-  });
-
-  it("経由地があっても入力の候補数を送り、経由地は置いた順に送る", async () => {
-    const rendered = renderGeneration();
-    act(() => rendered.result.current.conditions.changeRouteMode("destination"));
-    act(() => rendered.result.current.conditions.setMaxRoutesInput("4"));
-    act(() => rendered.result.current.conditions.placePin("waypoint", B));
-    act(() => rendered.result.current.conditions.placePin("waypoint", A));
-    respond([route("r1")]);
-
-    await submit(rendered);
-
-    expect(sentRequest()).toMatchObject({ max_routes: 4, waypoints: [B, A] });
   });
 });
 
@@ -288,7 +278,6 @@ describe("生成の結果", () => {
 
   it("backendが目的地を補正したら、置いた目的地を補正後の地点へ動かして知らせ、条件が変わったとは扱わない", async () => {
     const rendered = renderGeneration();
-    act(() => rendered.result.current.conditions.changeRouteMode("destination"));
     act(() => rendered.result.current.conditions.placePin("destination", A));
     respond([route("r1")], used({ destination: A, corrected_destination: B }));
 
@@ -303,7 +292,6 @@ describe("生成の結果", () => {
 
   it("生成を待つ間に目的地を置き直したら、補正後の地点で置き直した目的地を上書きせず、条件が変わったと返す", async () => {
     const rendered = renderGeneration();
-    act(() => rendered.result.current.conditions.changeRouteMode("destination"));
     act(() => rendered.result.current.conditions.placePin("destination", A));
     const job = heldReplies();
     jobs.answerWith(job.reply);
@@ -396,7 +384,6 @@ describe("消す", () => {
   it("生成の結果（作った条件・補正・既定の配分・案内）を消す", async () => {
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.setWeightOverrideEnabled(true));
-    act(() => rendered.result.current.conditions.changeRouteMode("destination"));
     act(() => rendered.result.current.conditions.placePin("destination", A));
     respond([route("r1")], used({ corrected_destination: B }));
     await submit(rendered);

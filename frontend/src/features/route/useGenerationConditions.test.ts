@@ -1,5 +1,5 @@
 /**
- * 生成の条件（`useGenerationConditions.ts`）——周回か目的地か・距離・候補数・地点（出発地以外）・重み・除外と、地図の
+ * 生成の条件（`useGenerationConditions.ts`）——全長の目標を決めるか・距離・候補数・地点（出発地以外）・重み・除外と、地図の
  * タップで置ける地点の役割（経由地は足すか、何番目を置き直すか）と、検索で置いた地点の候補（その位置のままの間だけ）を返す。保存する値（地点以外）は開き直しても残り、読むときに今の画面が受け付ける範囲・
  * 今の項目へ揃える。重みは軸カタログの公開軸へ揃えた値を返し、送るのは上書きを有効にしてカタログが届いた後だけ。
  *
@@ -58,63 +58,14 @@ beforeEach(() => {
   onBackend("GET", "/api/axis-catalog", heldReplies().reply);
 });
 
-describe("周回か目的地か", () => {
-  it("既定は周回で、選んだモードは開き直しても残る", () => {
+describe("全長の目標", () => {
+  it("既定は決める形で、外したことは開き直しても残る", () => {
     const first = renderConditions();
-    expect(first.result.current.routeMode).toBe("loop");
+    expect(first.result.current.distanceTargeted).toBe(true);
 
-    act(() => first.result.current.changeRouteMode("destination"));
+    act(() => first.result.current.setDistanceTargeted(false));
 
-    expect(reopen(first).result.current.routeMode).toBe("destination");
-  });
-
-  it("知らない値の保存値は捨てて周回で始める", () => {
-    window.localStorage.setItem("ridecompass:route-mode", "zigzag");
-
-    expect(renderConditions().result.current.routeMode).toBe("loop");
-  });
-
-  it("目的地へ切り替えたとき、何も置いていなければ次のタップで目的地を置け、周回へ戻すとやめる", () => {
-    const { result } = renderConditions();
-
-    act(() => result.current.changeRouteMode("destination"));
-    expect(result.current.armedPinRole).toBe("destination");
-
-    act(() => result.current.changeRouteMode("loop"));
-    expect(result.current.armedPinRole).toBeNull();
-  });
-
-  it("目的地モードで開き直したとき、何も置いていなければ目的地を置け、役割を選び直せばそれに従う", () => {
-    window.localStorage.setItem("ridecompass:route-mode", "destination");
-    const { result } = renderConditions();
-    expect(result.current.armedPinRole).toBe("destination");
-
-    act(() => result.current.armPinRole(null));
-    expect(result.current.armedPinRole).toBeNull();
-  });
-
-  it.each([
-    { label: "目的地", place: (r: ReturnType<typeof useGenerationConditions>) => r.setDestination(A) },
-    { label: "経由地", place: (r: ReturnType<typeof useGenerationConditions>) => r.placePin("waypoint", A) },
-  ])("「$label」が既に置いてあれば、目的地へ切り替えても自動では置けるようにしない", ({ place }) => {
-    const { result } = renderConditions();
-    act(() => place(result.current));
-
-    act(() => result.current.changeRouteMode("destination"));
-
-    expect(result.current.armedPinRole).toBeNull();
-  });
-
-  it("モードを切り替えても置いた地点は消さない", () => {
-    const { result } = renderConditions();
-    act(() => result.current.changeRouteMode("destination"));
-    act(() => result.current.placePin("destination", A));
-    act(() => result.current.placePin("waypoint", B));
-
-    act(() => result.current.changeRouteMode("loop"));
-
-    expect(result.current.destination).toEqual(A);
-    expect(result.current.waypoints).toEqual([B]);
+    expect(reopen(first).result.current.distanceTargeted).toBe(false);
   });
 });
 
@@ -172,8 +123,9 @@ describe("地点", () => {
     expect(result.current.destination).toBeNull();
   });
 
-  it("経由地と目的地は一度に消せ、出発地はそのまま残し、次のタップで目的地を置ける", () => {
+  it("経由地と目的地は一度に消せ、出発地はそのまま残し、地図のタップで置く状態を解く", () => {
     const { result, onOriginPlace } = renderConditions();
+    act(() => result.current.armPinRole("waypoint"));
     act(() => result.current.placePin("waypoint", A));
     act(() => result.current.placePin("waypoint", B));
     act(() => result.current.placePin("destination", C));
@@ -182,7 +134,7 @@ describe("地点", () => {
 
     expect(result.current.waypoints).toEqual([]);
     expect(result.current.destination).toBeNull();
-    expect(result.current.armedPinRole).toBe("destination");
+    expect(result.current.armedPinRole).toBeNull();
     expect(onOriginPlace).not.toHaveBeenCalled();
   });
 
@@ -200,18 +152,16 @@ describe("地点", () => {
     expect(result.current.waypointToReplace).toBeNull();
   });
 
-  it("検索で選んだ経由地・目的地は、周回なら目的地へ切り替えて置き（経由地は番号を指せばそれを置き直し）、地図のタップで置く状態を解く。出発地はモードを変えない", () => {
+  it("検索で選んだ地点はその役割で置き（経由地は番号を指せばそれを置き直し、指さなければ置き直す途中でも足す）、地図のタップで置く状態を解く", () => {
     const { result, onOriginPlace } = renderConditions();
     act(() => result.current.armPinRole("origin"));
 
     act(() => result.current.placeFound("origin", candidateAt(A, "出発の店"), null));
     expect(onOriginPlace).toHaveBeenCalledWith(A);
-    expect(result.current.routeMode).toBe("loop");
 
     // 経由地は地図のタップなら置いたあとも置く状態を続けるので、検索で置いたときに解けるかはここで分かる。
     act(() => result.current.armPinRole("waypoint"));
     act(() => result.current.placeFound("waypoint", candidateAt(B, "寄る店"), null));
-    expect(result.current.routeMode).toBe("destination");
     expect(result.current.waypoints).toEqual([B]);
     expect(result.current.armedPinRole).toBeNull();
 
@@ -220,6 +170,11 @@ describe("地点", () => {
 
     act(() => result.current.placeFound("waypoint", candidateAt(A, "寄り直す店"), 0));
     expect(result.current.waypoints).toEqual([A]);
+
+    // 地図の小窓から足すときは、置き直す経由地を選んで地図のタップを待つ途中でも、置き直さずに足す。
+    act(() => result.current.armPinRole("waypoint", 0));
+    act(() => result.current.placeFound("waypoint", candidateAt(C, "小窓の店"), null));
+    expect(result.current.waypoints).toEqual([A, C]);
   });
 
   it("検索で置いた地点の候補は、その位置のままの間だけ返す（ピンを動かす・地図で置き直すと外れる）", () => {

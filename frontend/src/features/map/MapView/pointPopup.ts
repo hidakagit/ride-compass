@@ -23,6 +23,15 @@ function externalMapSearchUrl(name: string, lngLat: { lng: number; lat: number }
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+/** 点の名前（`point_name_property`の値）。名前を宣言しない点・値の無い点はnull。 */
+export function pointPlaceName(
+  layer: { point_name_property: string | null },
+  properties: Record<string, unknown>,
+): string | null {
+  const name = layer.point_name_property === null ? undefined : properties[layer.point_name_property];
+  return typeof name === "string" && name !== "" ? name : null;
+}
+
 /** 名前のある点（`point_name_property`の値がある）は、1行目に名前を出し、最後に名前と位置で外の地図を開く導線を添える
  * ——閉店にデータが追いついていないことがあるので、営業を外で確かめられるようにする。続く行は「<点の名前>: <区分の名前>」
  * （区分の軸が複数なら「・」で並べる）。区分の名前は凡例と同じ宣言から引き、引けない値は「不明」にする（値は分類器が付ける
@@ -41,15 +50,14 @@ export function buildPointPopupContent(
     const value = String(properties[axis.property]);
     return axis.categories.find((category) => category.values.some((v) => String(v) === value))?.label ?? "不明";
   });
-  const placeName = layer.point_name_property === null ? undefined : properties[layer.point_name_property];
-  const hasName = typeof placeName === "string" && placeName !== "";
-  const lines = [...(hasName ? [placeName] : []), `${layer.label}: ${names.join(" ・ ")}`];
+  const placeName = pointPlaceName(layer, properties);
+  const lines = [...(placeName !== null ? [placeName] : []), `${layer.label}: ${names.join(" ・ ")}`];
   for (const fact of layer.point_facts) {
     const value = properties[fact.property];
     if (value != null) lines.push(`${fact.label}: ${String(value)}`);
   }
   const body = popupBody(lines);
-  if (hasName) {
+  if (placeName !== null) {
     const link = document.createElement("a");
     link.href = externalMapSearchUrl(placeName, lngLat);
     link.target = "_blank";

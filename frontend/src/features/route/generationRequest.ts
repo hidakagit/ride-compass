@@ -19,7 +19,7 @@ export interface GenerationInput {
   hardFilters: HardFilterOverride;
   /** 重み上書きが有効なときのみ（無効ならbackendの既定値に委ねる）。 */
   routePreference: RoutePreferenceWeights | null;
-  /** 目的地モードのときだけ値を持つ（周回モードでは常に空・null）。 */
+  /** 置いた経由地（通る順）と目的地。目的地が無ければ出発地へ戻る。 */
   waypoints: readonly Coordinates[];
   destination: Coordinates | null;
   /** 利用者が出発時刻を明示的に選んだか。falseの間の`startTime`は「今」へ張り付いて
@@ -42,7 +42,6 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
     assumed_speed_kmh: input.assumedSpeedKmh,
     start_time: input.startTime.toISOString(),
     ...(input.routePreference !== null ? { route_preference: input.routePreference } : {}),
-    // 目的地モードのときだけ経由地・目的地を送る（backend側の分岐はapi/routers/routes.py）。
     ...(input.waypoints.length > 0 ? { waypoints: [...input.waypoints] } : {}),
     ...(input.destination !== null ? { destination: input.destination } : {}),
   };

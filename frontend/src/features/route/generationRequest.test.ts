@@ -30,7 +30,7 @@ const LOOP: GenerationInput = {
 };
 
 describe("buildGenerateRequest", () => {
-  it("周回では、地点・目標距離・幅・除外・候補数・速度・出発時刻を送り、値の無い項目は載せない", () => {
+  it("地点を置かなければ、出発地・目標距離・幅・除外・候補数・速度・出発時刻を送り、値の無い項目は載せない", () => {
     expect(buildGenerateRequest(LOOP)).toEqual({
       latitude: 35.68,
       longitude: 139.77,
@@ -43,7 +43,7 @@ describe("buildGenerateRequest", () => {
     });
   });
 
-  it("目標距離が無ければ（経由地・目的地を置いたとき）距離を載せず、経由地と目的地を送る", () => {
+  it("目標距離が無ければ距離を載せず、置いた経由地と目的地を送る", () => {
     const waypoints = [
       { latitude: 35.7, longitude: 139.8 },
       { latitude: 35.71, longitude: 139.81 },

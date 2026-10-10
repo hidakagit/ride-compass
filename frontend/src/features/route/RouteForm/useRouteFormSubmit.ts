@@ -1,9 +1,8 @@
 import { useState } from "react";
 
-export type RouteMode = "loop" | "destination";
-
 interface UseRouteFormSubmitOptions {
-  routeMode: RouteMode;
+  /** 全長の目標を決めているか。 */
+  distanceTargeted: boolean;
   waypointCount: number;
   /** 目的地を置いてあるか。 */
   destinationSet: boolean;
@@ -13,7 +12,7 @@ interface UseRouteFormSubmitOptions {
 }
 
 interface UseRouteFormSubmitResult {
-  /** 生成できない理由（出発地が分からない・目的地モードで地点が1つも無い）。生成結果の失敗と同じ場所
+  /** 生成できない理由（出発地が分からない・全長の目標も経由地・目的地も無く作るものが無い）。生成結果の失敗と同じ場所
    * （「ルート結果」欄）へ出す——押した場所とは別のどこかに出ると見落とすため。 */
   error: string | null;
   /** 検証し、通ったかを返す。通らなければ理由を`error`に置く。 */
@@ -24,7 +23,7 @@ interface UseRouteFormSubmitResult {
  * 入力がスライダー・ステッパーで、保存値も読むときに範囲の外を捨てる（`features/route/useGenerationConditions.ts`）ので、
  * 範囲の外の値は作れない。 */
 export function useRouteFormSubmit({
-  routeMode,
+  distanceTargeted,
   waypointCount,
   destinationSet,
   originKnown,
@@ -36,8 +35,8 @@ export function useRouteFormSubmit({
       setError("現在地が分かりません。位置情報を許可するか、「出発地を地図で選ぶ」を押して地図をタップしてください。");
       return false;
     }
-    if (routeMode === "destination" && waypointCount === 0 && !destinationSet) {
-      setError("地図をタップして目的地か経由地を指定してください。");
+    if (!distanceTargeted && waypointCount === 0 && !destinationSet) {
+      setError("「全長の目標を決める」を押すか、経由地・目的地を置いてください。");
       return false;
     }
     setError(null);

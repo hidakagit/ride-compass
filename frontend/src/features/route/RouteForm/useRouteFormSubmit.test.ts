@@ -1,10 +1,11 @@
 /**
- * 生成の前の検証（`RouteForm/useRouteFormSubmit.ts`）——出発地が仮の地点のままなら、どちらのモードでも生成せずに
- * 位置情報か地図での指定を促す。目的地モードで地点が1つも無ければ、地図での指定を促す。通れば前の文言を消す。
+ * 生成の前の検証（`RouteForm/useRouteFormSubmit.ts`）——出発地が仮の地点のままなら生成せずに
+ * 位置情報か地図での指定を促す。全長の目標を決めず経由地も目的地も無ければ、作るものが無いのでそのどれかを促す。
+ * 通れば前の文言を消す。
  *
  * ここで見ないもの:
  * - 文言を出す場所（「ルート結果」欄・モバイルの「ルート設定」シート） → `RouteOutcome/RouteOutcome.test.tsx`・`app/page.test.tsx`
- * - 検証を通った値で何を送るか（目的地の距離・候補数） → `useRouteGeneration.test.ts`
+ * - 検証を通った値で何を送るか（距離・経由地・目的地・候補数） → `useRouteGeneration.test.ts`
  * - 候補数のステッパーを押せなくする表示 → `RouteForm/RouteForm.test.tsx`
  * - 距離・候補数の値域 → 検証しない（入力はスライダー・ステッパーで、保存値は読むときに範囲の外を捨てる。
  *   `useGenerationConditions.test.ts`）
@@ -12,20 +13,21 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { type RouteMode, useRouteFormSubmit } from "./useRouteFormSubmit";
+import { useRouteFormSubmit } from "./useRouteFormSubmit";
 
 const ORIGIN_UNKNOWN =
   "現在地が分かりません。位置情報を許可するか、「出発地を地図で選ぶ」を押して地図をタップしてください。";
-const NO_POINT = "地図をタップして目的地か経由地を指定してください。";
+const NOTHING_TO_MAKE = "「全長の目標を決める」を押すか、経由地・目的地を置いてください。";
 
 interface Options {
-  routeMode: RouteMode;
+  distanceTargeted: boolean;
   waypointCount: number;
   destinationSet: boolean;
   originKnown: boolean;
 }
 
-const LOOP: Options = { routeMode: "loop", waypointCount: 0, destinationSet: false, originKnown: true };
+const LOOP: Options = { distanceTargeted: true, waypointCount: 0, destinationSet: false, originKnown: true };
+const NO_DISTANCE: Options = { ...LOOP, distanceTargeted: false };
 
 function renderSubmit(options: Options) {
   return renderHook((props: Options) => useRouteFormSubmit(props), { initialProps: options });
@@ -40,7 +42,7 @@ function check(result: { current: ReturnType<typeof useRouteFormSubmit> }) {
 }
 
 describe("useRouteFormSubmit", () => {
-  it("周回は出発地が分かれば生成する", () => {
+  it("全長の目標を決めていれば、出発地が分かるだけで生成する", () => {
     const { result } = renderSubmit(LOOP);
 
     expect(check(result)).toBe(true);
@@ -54,19 +56,22 @@ describe("useRouteFormSubmit", () => {
     expect(result.current.error).toBe(ORIGIN_UNKNOWN);
   });
 
-  it("目的地モードは経由地だけでも生成する", () => {
-    const { result } = renderSubmit({ ...LOOP, routeMode: "destination", waypointCount: 2 });
+  it.each([
+    { label: "経由地だけ", options: { ...NO_DISTANCE, waypointCount: 2 } },
+    { label: "目的地だけ", options: { ...NO_DISTANCE, destinationSet: true } },
+  ])("全長の目標を決めなくても、$labelがあれば生成する", ({ options }) => {
+    const { result } = renderSubmit(options);
 
     expect(check(result)).toBe(true);
   });
 
-  it("目的地モードで目的地も経由地も無ければ生成せず、地図での指定を促す。文言は押し直すまで残り、目的地を置いて押し直すと消えて生成する", () => {
-    const { result, rerender } = renderSubmit({ ...LOOP, routeMode: "destination" });
+  it("全長の目標を決めず経由地も目的地も無ければ生成せず、そのどれかを促す。文言は押し直すまで残り、目的地を置いて押し直すと消えて生成する", () => {
+    const { result, rerender } = renderSubmit(NO_DISTANCE);
     expect(check(result)).toBe(false);
-    expect(result.current.error).toBe(NO_POINT);
+    expect(result.current.error).toBe(NOTHING_TO_MAKE);
 
-    rerender({ ...LOOP, routeMode: "destination", destinationSet: true });
-    expect(result.current.error).toBe(NO_POINT);
+    rerender({ ...NO_DISTANCE, destinationSet: true });
+    expect(result.current.error).toBe(NOTHING_TO_MAKE);
 
     expect(check(result)).toBe(true);
     expect(result.current.error).toBeNull();

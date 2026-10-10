@@ -332,7 +332,7 @@ export async function clickVisible(page: Page, lngLat: readonly [number, number]
   await clickMap(page, lngLat as [number, number]);
 }
 
-/** 目的地モードで2候補を生成し、1つ目の候補で合成を始めて乗り換え先を1つ押し、基本の状態へ戻して落ち着くまで待つ。 */
+/** 目的地を置いて2候補を生成し、1つ目の候補で合成を始めて乗り換え先を1つ押し、基本の状態へ戻して落ち着くまで待つ。 */
 export async function splice(page: Page, width: WidthName): Promise<void> {
   const result = routeGenerateResponseFixture();
   result.routes = [
@@ -353,7 +353,8 @@ export async function splice(page: Page, width: WidthName): Promise<void> {
   ];
   await page.route(`${API_BASE}/api/routes/generate/*`, (route) => route.fulfill({ json: doneJobFixture(result) }));
   const scope = width === "mobile" ? await openMobileSheet(page, "ルート設定") : page;
-  await scope.getByRole("radio", { name: "目的地" }).click();
+  await scope.getByRole("button", { name: "目的地: 未設定", exact: true }).click();
+  await scope.getByRole("button", { name: "目的地を地図で選ぶ" }).click();
   // スマホ幅は、シートを閉じると目的地の指定が外れるので、開いたまま見えている地図を押す。
   await clickVisible(page, SPLICE_PLACES.D);
   await expect(scope.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();

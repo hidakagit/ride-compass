@@ -133,7 +133,8 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   await openMobileApp(page);
 
   const settings = await openMobileSheet(page, "ルート設定");
-  await settings.getByRole("radio", { name: "目的地", exact: true }).click();
+  await settings.getByRole("button", { name: "目的地: 未設定", exact: true }).click();
+  await settings.getByRole("button", { name: "目的地を地図で選ぶ" }).click();
   await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
   await expect(settings.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();
 
@@ -173,7 +174,7 @@ test("目的地を探して置いた地点は地図のその位置にピンが�
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
 
-  await page.getByRole("radio", { name: "目的地", exact: true }).click();
+  await page.getByRole("button", { name: "目的地: 未設定", exact: true }).click();
   const searchBox = page.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
   await searchBox.fill("王子");
   await searchBox.press("Enter");
@@ -287,7 +288,7 @@ test("モバイル: 目的地を探すと候補を画面の上側でキーボー
     routes: (p) => p.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates } })),
   });
   const settings = await openMobileSheet(page, "ルート設定");
-  await settings.getByRole("radio", { name: "目的地", exact: true }).click();
+  await settings.getByRole("button", { name: "目的地: 未設定", exact: true }).click();
   const searchBox = settings.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
   await searchBox.scrollIntoViewIfNeeded();
   const fieldTop = (await searchBox.boundingBox())!.y;

@@ -312,13 +312,13 @@ export async function openMobileSheet(page: Page, name: MobileSheetName) {
 }
 
 /**
- * 「ルート設定」シートから距離を指定してルートを生成し、完了まで待つ。生成中は
+ * 「ルート設定」シートから全長の目標を指定してルートを生成し、完了まで待つ。生成中は
  * ボタンの名前が「生成中...」へ変わるため、「ルート生成」が再び押せることが完了の合図。
  * @public 撮影の脚本が口（`capture/context.ts`の`fixtures`）越しに呼ぶ。knipは口越しの呼び出しを辿れない。
  */
 export async function generateRoutes(page: Page, { distanceKm = 20 }: { distanceKm?: number } = {}) {
   const sheet = await openMobileSheet(page, "ルート設定");
-  await sheet.getByLabel("距離").fill(String(distanceKm));
+  await sheet.getByLabel("全長の目標", { exact: true }).fill(String(distanceKm));
   await runGeneration(sheet);
   return sheet;
 }

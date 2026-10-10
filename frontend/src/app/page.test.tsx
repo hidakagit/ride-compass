@@ -7,8 +7,8 @@
  *   全消去は確認の窓で「消す」を押してから両方から消えること、候補がある間だけ条件のずれの印が点き全消去で消えること、走行条件の想定速度・出発時刻が
  *   生成と地図の道の詳細へ同じ値で渡ること、「地図の色分け」の未使用を分ける重み（生成の前はいまの重み・後は使われた重み）、
  *   保存した条件が地図で置いた出発地を持ち、呼び出すとその出発地から生成すること、前に保存した条件が「保存」の「設定」に出ること
- * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、
- *   周回の間は目的地を地図へ出さないこと、目的地の行で探して置いた地点が地図に立ち、行にその名前が出ること、
+ * - 地図で扱えること: 地点を置けるのは「ルート設定」の条件タブを見ている間だけで、目的地の行で探して置いた地点と、
+ *   名前のある点の小窓から置いた地点が地図に立ち、行にその名前が出ること、
  *   名前を付けて保存した地点を打つ欄から選び直せ、「保存」の「地点」に並ぶこと、
  *   区間を押して詳細を出せるのは「ルート結果」を見ている間だけのこと、編集の間は地図で地点も区間も扱わず全部の候補を重ね、
  *   作り直すと編集が終わること、作ると直前の作り直しの失敗の文言を消し、合成ルートを選んでいる間は元のルートだけを重ねること、
@@ -41,6 +41,8 @@ import { heldReplies, onBackend, onSameOrigin, serveAxisCatalog } from "@/testin
 import { catalogEntry, catalogResponse, rampEntry } from "@/testing/catalogAxes";
 import { serveGenerationJobs } from "@/testing/generationJobs";
 import { mapOnScreen, type PointedFeature } from "@/testing/maplibre";
+import { POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
+import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { Coordinates, RouteCandidate } from "@/types/route";
 import type { AxisInspectorResult } from "@/features/map/regionApi";
@@ -181,6 +183,12 @@ function marksAt(point: Coordinates) {
     .filter((mark) => mark.coordinates.latitude === point.latitude && mark.coordinates.longitude === point.longitude);
 }
 
+/** 地点の並びで目的地を押し、地図で選ぶ状態にする（押さなければ地図のタップは地点を置かない）。 */
+async function armDestination(user: User) {
+  await user.click(screen.getByRole("button", { name: "目的地: 未設定" }));
+  await user.click(screen.getByRole("button", { name: "目的地を地図で選ぶ" }));
+}
+
 /** 地図を押す。`features`はそこに描かれている地物。 */
 function clickMap(at: Coordinates, features: PointedFeature[] = []) {
   act(() => mapOnScreen().click(at, features));
@@ -283,7 +291,7 @@ describe("ルートを作る", () => {
     await generate(user);
     await waitFor(() => expect(candidateTabs()).toHaveLength(1));
 
-    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("全長の目標"), { target: { value: "50" } });
     await user.click(changedMark()!);
     expect(screen.getByRole("dialog")).toHaveTextContent("生成条件が変更されています");
     await user.keyboard("{Escape}");
@@ -405,9 +413,9 @@ describe("ルートを作る", () => {
 });
 
 describe("地図で扱えること", () => {
-  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）で、周回の間は目的地を地図へ出さない", async () => {
+  it("地点を置けるのは「ルート設定」の条件タブを見ている間だけ（パネルを畳むと区分ごと隠れる）", async () => {
     const { user } = renderHome();
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
+    await armDestination(user);
     clickMap(DESTINATION);
     expect(marksAt(DESTINATION)).toEqual([expect.objectContaining({ draggable: true })]);
     expect(screen.getByRole("button", { name: "目的地を消す" })).toBeInTheDocument();
@@ -428,8 +436,35 @@ describe("地図で扱えること", () => {
     await user.click(screen.getByRole("button", { name: "パネルを開く" }));
     clickMap(ELSEWHERE);
     expect(marksAt(ELSEWHERE)).toEqual([expect.objectContaining({ draggable: true })]);
-    await user.click(screen.getByRole("radio", { name: "周回" }));
-    expect(marksAt(DESTINATION)).toEqual([]);
+  });
+
+  it("名前のある点の小窓から、経由地に足す・目的地にすると地図と地点の並びにその名前で出し、条件タブを見ていない間は置く操作を出さない", async () => {
+    const shop: Coordinates = { latitude: 35.71, longitude: 139.71 };
+    const pointed = [
+      {
+        layer: sceneLayerId(POINT_TILE_SOURCES.poi.sourceId, "supply_poi"),
+        properties: { name: "角の店", kind: "convenience" },
+        geometry: { type: "Point", coordinates: [shop.longitude, shop.latitude] },
+      } satisfies PointedFeature,
+    ];
+    const { user } = renderHome();
+    await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
+    await user.click(screen.getByRole("checkbox", { name: "補給・休憩ポイント" }));
+    await user.keyboard("{Escape}");
+
+    clickMap(shop, pointed);
+    await user.click(screen.getByRole("button", { name: "経由地に足す" }));
+    expect(marksAt(shop)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "経由地1: 角の店" })).toBeInTheDocument();
+
+    clickMap(shop, pointed);
+    await user.click(screen.getByRole("button", { name: "目的地にする" }));
+    expect(marksAt(shop)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "目的地: 角の店" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "重み" }));
+    clickMap(shop, pointed);
+    expect(screen.queryByRole("button", { name: "経由地に足す" })).toBeNull();
   });
 
   it("目的地を探して選んだ地点は地図に目的地として立ち、地点の並びにその名前が出る", async () => {
@@ -443,7 +478,7 @@ describe("地図で扱えること", () => {
     } as const;
     onBackend("GET", "/api/place-search", () => Response.json({ candidates: [candidate] }));
     const { user } = renderHome();
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "目的地: 未設定" }));
     const searchBox = screen.getByRole("searchbox", { name: "目的地を住所・施設で探す" });
 
     await user.type(searchBox, "浅草寺{Enter}");
@@ -455,7 +490,7 @@ describe("地図で扱えること", () => {
 
   it("名前を付けて保存した地点は、目的地を消したあとも打つ欄を押して選び直せ、「保存」の「地点」に並ぶ", async () => {
     const { user } = renderHome();
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
+    await armDestination(user);
     clickMap(DESTINATION);
     await user.click(screen.getByRole("button", { name: "地点を保存" }));
     const dialog = screen.getByRole("dialog", { name: "地点を保存" });
@@ -531,7 +566,7 @@ describe("地図で扱えること", () => {
 
     /** 目的地を置いて2本の候補を作る。 */
     async function generateTwo(user: User) {
-      await user.click(screen.getByRole("radio", { name: "目的地" }));
+      await armDestination(user);
       clickMap(DESTINATION);
       jobs.respond([BASE, OTHER], DESTINATION_CONDITIONS);
       await generate(user);
@@ -671,7 +706,7 @@ describe("画面の枠", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(settingsTab());
-    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("全長の目標"), { target: { value: "50" } });
     expect(outcomeTab).toHaveAccessibleDescription("生成条件が変更されています");
     jobs.respond([], LOOP_CONDITIONS, "起点の近くに道路データがありません");
     await generate(user);
@@ -746,7 +781,7 @@ describe("画面の枠", () => {
     onBackend("GET", "/api/axis-catalog", () => Response.json({ detail: "失敗" }, { status: 502 }));
     onBackend("GET", "/api/weather/warnings", () => Response.json({ detail: "失敗" }, { status: 502 }));
     const { user } = renderHome();
-    const missing = () => screen.getByRole("button", { name: /を取得できていません/ });
+    const missing = () => screen.getByRole("button", { name: /を取得できていません。押すと/ });
     await waitFor(() => expect(missing()).toHaveAccessibleName(/現在地.*評価軸の一覧|評価軸の一覧.*現在地/));
     expect(missing()).not.toHaveAccessibleName(/警報/);
 
