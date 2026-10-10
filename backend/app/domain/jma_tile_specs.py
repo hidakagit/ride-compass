@@ -312,9 +312,10 @@ def with_interpolated_zooms(
         return zooms
     filled = dict(zooms)
     for zoom in range(min(zooms) + 1, effective_max_zoom(jma_tile_spec(element_id)) + 1):
-        if source_zoom_for_interpolation(element_id, zoom) is None:
+        parent = source_zoom_for_interpolation(element_id, zoom)
+        if parent is None:
             continue
-        parents = filled.get(zoom - 1)
+        parents = filled.get(parent)
         if not parents:
             continue
         filled[zoom] = [

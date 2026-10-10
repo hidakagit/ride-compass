@@ -32,7 +32,7 @@ from collections.abc import Collection, Iterable
 from typing import Annotated, Literal, Mapping, Sequence, SupportsFloat, cast
 
 import numpy as np
-from cachetools import LRUCache
+from cachetools import LRUCache, cached
 from pydantic import (
     BeforeValidator,
     ConfigDict,
@@ -560,7 +560,7 @@ def _leaf_materials(definition: AxisDefinition) -> list[str]:
     軸は葉まで降りないと材料が分からないため、辿る側がそれぞれ再帰を書かずに済むよう
     ここに1本だけ置く。循環は軸スタジオが拒否するが、`visited`で止めて安全側に倒す。
     """
-    seen: dict[str, None] = {}
+    leaves: list[str] = []
     visited: set[str] = set()
 
     def descend(current: AxisDefinition) -> None:
@@ -572,10 +572,10 @@ def _leaf_materials(definition: AxisDefinition) -> list[str]:
             if referenced_axis is not None:
                 descend(referenced_axis)
             else:
-                seen.setdefault(ref, None)
+                leaves.append(ref)
 
     descend(definition)
-    return list(seen)
+    return list(dict.fromkeys(leaves))
 
 
 def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
@@ -744,15 +744,13 @@ def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinit
             )
 
 
-_topological_order_cache: LRUCache = LRUCache(maxsize=64)
-
-
 def _topological_axis_order_cache_key(
     definitions: dict[str, AxisDefinition],
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple((axis_id, tuple(definition.materials)) for axis_id, definition in definitions.items())
 
 
+@cached(cache=LRUCache(maxsize=64), key=_topological_axis_order_cache_key)
 def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """軸を「依存先（参照される軸）が先」の順序に並べ替える（深さ優先探索による
     トポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
@@ -771,11 +769,6 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     しない（軸スタジオでの試行錯誤中に一時的な循環を経て修正された場合の再評価を妨げない
     ため）。
     """
-    cache_key = _topological_axis_order_cache_key(definitions)
-    cached = _topological_order_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
     known_axis_ids = set(definitions.keys())
     order: list[str] = []
     visited: dict[str, int] = {}  # 0=visiting, 1=done
@@ -794,8 +787,6 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
     for axis_id in definitions:
         visit(axis_id, [])
-
-    _topological_order_cache[cache_key] = order
     return order
 
 
@@ -829,8 +820,6 @@ def check_axis_set(definitions: dict[str, AxisDefinition]) -> None:
 # `domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
 REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({WIND_DRAG_RATIO})
 
-_dynamic_axis_order_cache: LRUCache = LRUCache(maxsize=64)
-
 
 def _axes_depending_on_materials(
     material_ids: frozenset[str], definitions: dict[str, AxisDefinition]
@@ -850,6 +839,7 @@ def _axes_depending_on_materials(
     return dynamic
 
 
+@cached(cache=LRUCache(maxsize=64), key=_topological_axis_order_cache_key)
 def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """`definitions`内の軸のうち`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に依存する軸を、
     依存順（`topological_axis_order`のサブセット）で返す。
@@ -863,16 +853,8 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
     `topological_axis_order`と同じ理由（タイル読込時・リクエスト時の両方で呼ばれる）で
     プロセス内メモリへ内容ベースのキーでメモ化する。
     """
-    cache_key = _topological_axis_order_cache_key(definitions)
-    cached = _dynamic_axis_order_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
     dynamic_ids = _axes_depending_on_materials(REQUEST_DYNAMIC_MATERIAL_IDS, definitions)
-    order = [axis_id for axis_id in topological_axis_order(definitions) if axis_id in dynamic_ids]
-
-    _dynamic_axis_order_cache[cache_key] = order
-    return order
+    return [axis_id for axis_id in topological_axis_order(definitions) if axis_id in dynamic_ids]
 
 
 def published_axis_definitions(definitions: Mapping[str, AxisDefinition] | None = None) -> list[AxisDefinition]:
@@ -1092,9 +1074,8 @@ def axis_raw_value_array(
     判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる。
     """
     shape = definition.shape
-    if not has_axis_raw_value_array(definition):
+    if not isinstance(shape, BreakpointLinearShape):
         return None
-    assert isinstance(shape, BreakpointLinearShape)
     return _breakpoint_raw_value_array(shape, materials)
 
 
@@ -1139,15 +1120,6 @@ def raw_values(shape: "AxisShape", materials: Mapping[str, Sequence[object]], le
     term_ids = [term.material for term in shape.terms]
     columns = _python_value_columns(materials, term_ids, term_ids, length)
     return _scores_or_none(_breakpoint_raw_value_array(shape, columns))
-
-
-def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
-    """`axis_raw_value_array`が配列を返すか。**データではなく軸の宣言だけで決まる**。
-
-    列の集合を数えるときにデータを持たずに判定できる必要がある（静的スコア行列の
-    空タイル分岐・読み出し時の列検証が、実際に配列を作らずに同じ答えを得るため）。
-    """
-    return isinstance(definition.shape, BreakpointLinearShape)
 
 
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, MaterialColumn]) -> np.ndarray:

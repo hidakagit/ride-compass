@@ -58,12 +58,12 @@ def _drop_thresholds_that_share_a_score(
     得点で入る道が無い（凡例に「0点未満」のような届かない段が出る）。
     """
     kept: list[float] = []
-    seen: list[float] = [min(shape.score_at(x) for x, _ in shape.breakpoints)]
+    last_score = min(shape.score_at(x) for x, _ in shape.breakpoints)
     for threshold in thresholds:
         score = shape.score_at(threshold)
-        if score <= seen[-1]:
+        if score <= last_score:
             continue
-        seen.append(score)
+        last_score = score
         kept.append(threshold)
     return kept
 

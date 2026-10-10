@@ -10,7 +10,7 @@ from app.domain.display_palette import ORDERED_END_COLOR_NAMES
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
 from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
 from app.domain.place_search import ADDRESS_AREA_ATTRIBUTIONS
-from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES, PRIMARY_ATTRIBUTES_BY_ID
 from app.domain.registry import DisplayAxisSpec
 from app.domain.region import ROAD_TILE_MIN_ZOOM
 from app.domain.weather_elements import WEATHER_ELEMENTS, WEATHER_LAYER_GROUPS, FrameRuleKind, forecast_reach
@@ -215,7 +215,7 @@ def _tile_layer(
     hide_missing_rows: bool = False,
 ) -> MapLayerSpec:
     """タイルで配る一次属性のレイヤー。情報源は属性自身が宣言するタイルの系統。"""
-    tile_kind = next(attr.tile_kind for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
+    tile_kind = PRIMARY_ATTRIBUTES_BY_ID[attr_id].tile_kind
     assert tile_kind is not None, attr_id
     return MapLayerSpec(
         tile_kind,
@@ -229,7 +229,7 @@ def _tile_layer(
 
 def _first_axis(attr_id: str) -> DisplayAxisSpec:
     """一次属性の先頭の見方（色を決める軸）。"""
-    return next(attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id).display_axes[0]
+    return PRIMARY_ATTRIBUTES_BY_ID[attr_id].display_axes[0]
 
 
 def _point_kind_list(attr_id: str) -> str:
@@ -253,7 +253,7 @@ def ordered_ends_text(axis: DisplayAxisSpec) -> str:
 
 def size_text(attr_id: str) -> str:
     """大きさで示す見方の文。半径を宣言した軸の、半径の最も大きい行の名前から組む。"""
-    attribute = next(attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
+    attribute = PRIMARY_ATTRIBUTES_BY_ID[attr_id]
     axis = next(
         axis for axis in attribute.display_axes if all(category.radius_px is not None for category in axis.categories)
     )
@@ -555,7 +555,7 @@ def map_layer_label(layer_id: str, spec: MapLayerSpec) -> str:
     """レイヤーの名前。一次属性を描くレイヤーは属性の名前で、どちらも無ければ生成の時点で落とす。"""
     if spec.label is not None:
         return spec.label
-    attribute = next((attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == layer_id), None)
+    attribute = PRIMARY_ATTRIBUTES_BY_ID.get(layer_id)
     if attribute is None:
         raise ValueError(f"地図レイヤー'{layer_id}'に名前が無い（一次属性でもない）")
     return attribute.label

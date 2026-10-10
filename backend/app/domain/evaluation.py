@@ -39,7 +39,6 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     axis_raw_value_array,
     copy_axis_definitions,
-    has_axis_raw_value_array,
     evaluate_axes_array,
     published_axis_definitions,
     topological_axis_order,
@@ -95,9 +94,7 @@ def route_facing_raw_axis_ids(definitions: dict[str, AxisDefinition]) -> list[st
     return [
         axis_id
         for axis_id in topological_axis_order(definitions)
-        if definitions[axis_id].is_published
-        and has_route_facing_raw_value(definitions[axis_id])
-        and has_axis_raw_value_array(definitions[axis_id])
+        if definitions[axis_id].is_published and has_route_facing_raw_value(definitions[axis_id])
     ]
 
 
@@ -106,14 +103,12 @@ def _published_axis_leaf_material_ids(definitions: dict[str, AxisDefinition]) ->
 
     下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。
     """
-    seen: dict[str, None] = {}
-    for axis_id in topological_axis_order(definitions):
-        definition = definitions[axis_id]
-        if not definition.is_published:
-            continue
-        for entry in axis_material_shares(definition, definitions):
-            seen.setdefault(entry.material_id, None)
-    return list(seen)
+    return list(dict.fromkeys(
+        entry.material_id
+        for axis_id in topological_axis_order(definitions)
+        if definitions[axis_id].is_published
+        for entry in axis_material_shares(definitions[axis_id], definitions)
+    ))
 
 
 def route_facing_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:

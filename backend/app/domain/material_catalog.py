@@ -188,12 +188,18 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
         missing_semantics="unknown",
     )
 
-_CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
-_CYCLEWAY_SOURCE = f"OSM wayのタグ {' / '.join(CYCLEWAY_TAG_NAMES)}（いずれも無い場合に欠損）"
+_CYCLEWAY_TAGS_COVERAGE = WayMaterialCoverageSpec(
+    missing_condition=" AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES),
+    source=f"OSM wayのタグ {' / '.join(CYCLEWAY_TAG_NAMES)}（いずれも無い場合に欠損）",
+    missing_semantics="definite",
+)
 #: 生データの道は親の表のCHECK（`infrastructure/source_models.py: source_features_way_has_kind`）でhighwayを必ず持つ。
 _HIGHWAY_ALWAYS_PRESENT = "生データの道はDBの制約でhighwayタグを必ず持ち、欠損が無い"
-_EDGE_COUNTS_PRESENT_CONDITION = "em.intersection_count IS NOT NULL"
-_EDGE_COUNTS_SOURCE = "区間の数の表（edge_counts）に行があるか"
+_EDGE_COUNTS_COVERAGE = EdgeMaterialCoverageSpec(
+    present_condition="em.intersection_count IS NOT NULL",
+    source="区間の数の表（edge_counts）に行があるか",
+    missing_semantics="unknown",
+)
 
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
@@ -617,11 +623,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=ATTR_INTERSECTION,
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
         value_sql=per_km_value_sql("em.intersection_count"),
-        coverage=EdgeMaterialCoverageSpec(
-                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
-                source=_EDGE_COUNTS_SOURCE,
-                missing_semantics="unknown",
-            ),
+        coverage=_EDGE_COUNTS_COVERAGE,
     ),
     ACCIDENT_COUNT_PER_KM_YEAR: MaterialSpec(
         material_id=ACCIDENT_COUNT_PER_KM_YEAR,
@@ -637,11 +639,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
         value_sql=f"CASE WHEN :accident_years > 0 THEN {per_km_value_sql('em.accident_count')} / :accident_years END",
-        coverage=EdgeMaterialCoverageSpec(
-                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
-                source=_EDGE_COUNTS_SOURCE,
-                missing_semantics="unknown",
-            ),
+        coverage=_EDGE_COUNTS_COVERAGE,
     ),
     "lit": MaterialSpec(
         material_id="lit",
@@ -841,11 +839,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="cycleway_has_track",
         primary_attribute=ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("track"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
-                source=_CYCLEWAY_SOURCE,
-                missing_semantics="definite",
-            ),
+        coverage=_CYCLEWAY_TAGS_COVERAGE,
     ),
     "cycleway_has_lane": MaterialSpec(
         material_id="cycleway_has_lane",
@@ -855,11 +849,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="cycleway_has_lane",
         primary_attribute=ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("lane"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
-                source=_CYCLEWAY_SOURCE,
-                missing_semantics="definite",
-            ),
+        coverage=_CYCLEWAY_TAGS_COVERAGE,
     ),
     "cycleway_has_shared": MaterialSpec(
         material_id="cycleway_has_shared",
@@ -869,11 +859,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="cycleway_has_shared",
         primary_attribute=ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("share_busway", "shared_lane"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
-                source=_CYCLEWAY_SOURCE,
-                missing_semantics="definite",
-            ),
+        coverage=_CYCLEWAY_TAGS_COVERAGE,
     ),
     "shared_pedestrian_path": MaterialSpec(
         material_id="shared_pedestrian_path",
@@ -959,11 +945,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             tile_encoding=_DENSITY_TILE_ENCODING,
             value_sql=poi_density_value_sql(kind),
             # 行があれば載っていないキーは0件と確定できる（欠損は行そのものの不在だけ）。
-            coverage=EdgeMaterialCoverageSpec(
-                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
-                source=_EDGE_COUNTS_SOURCE,
-                missing_semantics="unknown",
-            ),
+            coverage=_EDGE_COUNTS_COVERAGE,
             primary_attribute=ATTR_STOP_POI,
             reference_points=_POI_COUNT_PER_KM_REFERENCE_POINTS,
         )

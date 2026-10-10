@@ -448,10 +448,11 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
         point_name_property="name",
     ),
 )
-# 読む側はidで1件を引く（`next(...)`）ため、同じidを2度宣言すると後の宣言が黙って消える。
+# 読む側はidで1件を引く（`PRIMARY_ATTRIBUTES_BY_ID`）ため、同じidを2度宣言すると片方の宣言が黙って消える。
 _REPEATED_ATTR_IDS = sorted(attr_id for attr_id, n in Counter(a.attr_id for a in PRIMARY_ATTRIBUTES).items() if n > 1)
 if _REPEATED_ATTR_IDS:
     raise ValueError(f"primary attribute declared more than once: {_REPEATED_ATTR_IDS}")
+PRIMARY_ATTRIBUTES_BY_ID = {attr.attr_id: attr for attr in PRIMARY_ATTRIBUTES}
 
 
 def stop_poi_map_group_sql(alias: str) -> str:
