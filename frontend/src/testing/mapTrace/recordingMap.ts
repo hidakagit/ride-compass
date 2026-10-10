@@ -1,7 +1,6 @@
-/** 地図への呼び出しを順番に記録する代役。
+/** 地図への呼び出しを順番に記録し、地図に載っているもの（レイヤー・ソース・地物の状態）を持つ代役。
  *
- * 新旧どちらの実装へも同じ筋書きを通し、出てくる呼び出し列を突き合わせるために使う。
- * 記録するのは**地図の中身を変える呼び出しと、その判断に使う問い合わせ**だけで、
+ * 受けるのは**地図の中身を変える呼び出しと、その判断に使う問い合わせ**だけで、
  * 描画そのものは行わない。`maplibre-gl` の代役（`testing/maplibre.ts`）も、地図の中身の記録にこれを使う。
  */
 interface TraceEntry {
@@ -20,7 +19,7 @@ interface FakeLayer {
   layout: Record<string, unknown>;
 }
 
-interface RecordingMap {
+export interface RecordingMap {
   /** 出た呼び出しの列（順序を持つ）。 */
   readonly trace: readonly TraceEntry[];
   /** いま載っているレイヤーのid（背面から前面の順）。 */
@@ -30,7 +29,7 @@ interface RecordingMap {
   /** `addSource` に渡された宣言。 */
   sourceSpec(sourceId: string): unknown;
   featureState(sourceId: string, featureId: string): Record<string, unknown> | undefined;
-  /** ソースへ最後に流し込まれた中身（`setData`・`setTiles`）。 */
+  /** ソースの今の中身（作ったときの宣言の `data`・`tiles` か、そのあと `setData`・`setTiles` で流し込んだもの）。 */
   sourceContent(sourceId: string): { data?: unknown; tiles?: readonly string[] } | undefined;
   /** スタイルを差し替えたときの状態（このアプリが足したものが消える）。 */
   dropEverything(): void;
@@ -51,15 +50,19 @@ export interface StyleLayer {
  * `map`として実装へ渡す値と、記録を読む側のハンドルを返す。
  * `basemapLayerIds` は、スタイルが最初から持つ下地のレイヤー（背面から前面の順）。
  */
-export function createRecordingMap(options: { styleReady?: boolean; basemapLayerIds?: readonly string[] } = {}) {
+export function createRecordingMap(options: { basemapLayerIds?: readonly string[] } = {}) {
   const trace: TraceEntry[] = [];
-  let layers: FakeLayer[] = (options.basemapLayerIds ?? []).map((id) => ({
-    id,
-    type: "background",
-    visibility: "visible",
-    paint: {},
-    layout: {},
-  }));
+  const fromStyle = (styleLayers: readonly StyleLayer[]): FakeLayer[] =>
+    styleLayers.map((layer) => ({
+      id: layer.id,
+      type: layer.type,
+      sourceLayer: layer["source-layer"],
+      ...(layer.filter === undefined ? {} : { filter: layer.filter }),
+      visibility: "visible",
+      paint: {},
+      layout: {},
+    }));
+  let layers = fromStyle((options.basemapLayerIds ?? []).map((id) => ({ id, type: "background" })));
   let sources = new Map<string, unknown>();
   // **ソースの実体は id ごとに1つに保つ。** 実装側は「同じ中身なら流し込まない」の判定に
   // ソースのインスタンスを鍵として使うため、呼ぶたびに別物を返すと毎回作り直しになる。
@@ -88,7 +91,7 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
 
   const map = {
     // スタイルの準備を待つ仕組み（`mapStyleOps.ts: runWhenStyleReady`）が読む印。
-    __rcStyleReady: options.styleReady ?? true,
+    __rcStyleReady: true,
 
     getStyle: () =>
       styleLoading
@@ -110,6 +113,8 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
     addSource: (id: string, spec: unknown) => {
       record("addSource", id, spec);
       sources.set(id, spec);
+      const { data, tiles } = spec as { data?: unknown; tiles?: readonly string[] };
+      content.set(id, { data, tiles });
       sourceHandles.set(id, {
         setData: (data: unknown) => {
           record("setData", id, data);
@@ -200,22 +205,6 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
       const entry = featureStates.get(`${target.source}:${target.id}`);
       if (entry && key) delete entry[key];
     },
-
-    // 地図の生成・カメラ・購読は記録だけして何もしない。
-    addControl: (...args: unknown[]) => record("addControl", ...args),
-    on: (...args: unknown[]) => record("on", args[0]),
-    once: (event: string, handler: () => void) => {
-      record("once", event);
-      if (event === "style.load" || event === "load") handler();
-    },
-    off: () => {},
-    flyTo: (...args: unknown[]) => record("flyTo", ...args),
-    fitBounds: (...args: unknown[]) => record("fitBounds", ...args),
-    getZoom: () => 14,
-    getBounds: () => ({ getWest: () => 139, getSouth: () => 35, getEast: () => 140, getNorth: () => 36 }),
-    getCanvas: () => ({ clientWidth: 390, clientHeight: 812, style: {} }),
-    isStyleLoaded: () => true,
-    queryRenderedFeatures: () => [],
   };
 
   const handle: RecordingMap = {
@@ -232,19 +221,10 @@ export function createRecordingMap(options: { styleReady?: boolean; basemapLayer
       sourceHandles = new Map();
       content.clear();
       featureStates = new Map();
-      trace.push({ call: "__styleReplaced", args: [] });
     },
     loadStyle: (next) => {
       styleLoading = next === undefined;
-      layers = (next ?? []).map((layer) => ({
-        id: layer.id,
-        type: layer.type,
-        sourceLayer: layer["source-layer"],
-        ...(layer.filter === undefined ? {} : { filter: layer.filter }),
-        visibility: "visible",
-        paint: {},
-        layout: {},
-      }));
+      layers = fromStyle(next ?? []);
     },
   };
 

@@ -105,8 +105,7 @@ export function catalogResponse(
   };
 }
 
-/** 既定の重みが違う2軸（`axis_a`が0.4・`axis_b`が0.6）だけの応答。生成の条件の重みが、カタログの既定から
- * 始まること・保存から戻ることを見るテストが使う。 */
+/** 既定の重みが軸ごとに違う2軸だけの応答。 */
 export const TWO_AXIS_CATALOG = catalogResponse([
   catalogEntry({ axis_id: "axis_a", default_weight: 0.4 }),
   catalogEntry({ axis_id: "axis_b", default_weight: 0.6 }),

@@ -1,13 +1,8 @@
+// ルート候補とその周り（生成の条件・区間）の組み立て。呼び出し側は変えたいフィールドだけ渡す。
+// **既定値は型を満たすための空だけ。** 見たい値（id・方位・距離等）は呼び出し側が書く。
 import type { GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 
-/**
- * テスト・ベンチで使う`RouteCandidate`の組み立て。
- *
- * `RouteCandidate`は全フィールドが必須（backendは既定値の項目も必ず返す）のため、素直に書くと
- * 構築するファイルの数だけ全フィールドの写しができ、フィールドを1つ足すたびに同じ数の
- * 差分が要る。ここを唯一の置き場にして、呼び出し側は変えたいフィールドだけ渡す。
- * **既定値は型を満たすための空だけ。** 見たい値（id・方位・距離等）は呼び出し側が書く。
- */
+/** `RouteCandidate`の組み立て（backendは既定値の項目も必ず返すため、型は全フィールドが必須）。 */
 export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
   return {
     id: "",
@@ -64,7 +59,7 @@ export function routeThrough(
   };
 }
 
-/** `GenerationConditions`（生成に使われた条件）の組み立て。既定値は`makeRouteCandidate`と同じく型を満たすための空だけ。 */
+/** `GenerationConditions`（生成に使われた条件）の組み立て。 */
 export function makeGenerationConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
   return {
     latitude: 0,
@@ -86,7 +81,7 @@ export function makeGenerationConditions(overrides: Partial<GenerationConditions
   };
 }
 
-/** `RouteSegmentDetail`（候補の区間1つ）の組み立て。既定値は型を満たすための空だけ。 */
+/** `RouteSegmentDetail`（候補の区間1つ）の組み立て。 */
 export function makeRouteSegment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetail {
   return {
     geometry: null,
