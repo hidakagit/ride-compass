@@ -183,7 +183,8 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 
 今のテストが、実装の1か所の書き換え（`<` を `<=` に・`+` を `-` に等）を見つけられるかを測り、テストを消す・足す判断の
 材料にする（結果から何を足す・消す・直すかは [testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」）。台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）、回すのは
-`.github/workflows/mutation.yml`（手で起こす）。
+`.github/workflows/mutation.yml`（手で起こす。全部の測り・当て直し・見直しを1回の起こしでつなぐ。段の中身は先頭のコメント）。
+全部の測りでテストを見直す1回の進め方（起こす・待つ・読む・行き先を決める）は [test-review/SKILL.md](../test-review/SKILL.md)。
 
 ```bash
 gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測る版> -f count=0 -f stop_after=150
@@ -191,21 +192,23 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
 
 - **測る版と台本は `ref` から読む**。台本を直した作業ブランチを `ref` に渡せば、ワークフローを変えずに直した台本で回る。
   `count` は1本あたりの件数（`0` で全部。通しで動くかの試しは `5`）。
-- **一覧の口**: 測る版の `backend/scripts/mutation/` に一覧を置くと、その変異だけを回す。
+- **一覧の口**: 測る版の `backend/scripts/mutation/` に一覧を置くと、その変異だけを回す（当て直しと見直しの段は走らない）。
   - `only.txt`: 記録のテスト（その関数を通るテスト）で回す。テストを消したあと、消したテストが見つけていた変異を残る側が
     落とすかを確かめるときに使う。
-  - `recheck.txt`: テスト全体を当てる。生き残りのうち読み込みのときに呼ばれる関数の変異を `importtime.py` で拾って当て直すときに使う。
+  - `recheck.txt`: テスト全体を当てる。全部の測りでは当て直しの段が `importtime.py` で拾って自分で書くので、手で置くのは
+    決まった変異だけを当て直したいときだけ。
   - `baseline.txt`: 変異を入れずに、関数ごとに同じテストの組み合わせを同じ並びで2回回す（基準。行は関数の名前か、全部なら `*`）。
-    基準で落ちるテストは、テストどうしの依存や揺れで落ちていて、変異の回で落ちても見つけたとは言えない。
+    基準で落ちるテストは、テストどうしの依存や揺れで落ちていて、変異の回で落ちても見つけたとは言えない。全部の測りでは
+    基準を変異と一緒に回す（`plan.py` の `MUT_WITH_BASELINE`）ので、手で置くのは基準だけを回したいときだけ。
   - どれも master へ入れない。
 - **Pull Request ごと**: `backend/app` を変えた Pull Request では `.github/workflows/mutation-pr.yml` が自動で走り、変えた関数の変異と
   その基準だけを回して、生き残りを変えた行への注記と実行の要約に出す（`diff_scope.py`・`pr_plan.py`・`report_pr.py`）。必須の
   チェックではない。読み方は .claude/skills/task-work/SKILL.md「作る担当」の5。
-- **結果は成果物 `mutation-<番号>`**（14日で消える）。`gh run download <実行の id> -R hidakagit/ride-compass -D <場所>` で取り、
-  測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ
-  （層ごとの変異スコア・テスト1本ごとの発見と重なり）。残したい数字は issue に書く。
-- **1本のランナーが「The runner has received a shutdown signal」で止まったら**、Actions の画面の「Re-run failed jobs」で、
-  その本だけを同じ入力でやり直す。同じ所で止まり続けるなら、ジョブの記録の「始め」の行で走っていた変異を見る。
+- **結果は成果物**: 見直しの `mutation-review`（90日。`summary.md`・`review.json`・`analyze.txt`。読み方は test-review スキルの4）と、
+  元の記録の `mutation-<番号>`・`recheck-<番号>`（14日）。元の記録から集計し直すときは、`gh run download <実行の id> -R hidakagit/ride-compass -D <場所>` で取り、
+  測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ。残したい数字は issue に書く。
+- **1本のランナーが「The runner has received a shutdown signal」で止まったら**、`gh run rerun <実行の id> -R hidakagit/ride-compass --failed`
+  で、その本と続く段だけを同じ入力でやり直す。同じ所で止まり続けるなら、ジョブの記録の「始め」の行で走っていた変異を見る。
 - **開発機では回さない**。
 - **測れない形**: 関数の外（モジュールの直下の表・定数・既定値）、`app/domain/routing.py`とログ・警告の行（`setup.cfg`で外している）、
   部分どうしのつなぎの食い違い（1つの関数の中の書き換えではないもの）。そこを確かめるテストは、変異を見つけないように
