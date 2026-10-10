@@ -7,14 +7,13 @@
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
-import type { Feature, FeatureCollection, LineString } from "geojson";
+import type { Feature, FeatureCollection, LineString, Position } from "geojson";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import { noDataDashExpression, zoomScaleExpression, sceneSourceId } from "@/features/map/scene/sceneBuilders";
 
 /** [経度, 緯度] の並び。 */
-type RoutePoint = readonly [number, number];
-export type RoutePath = readonly RoutePoint[];
+export type RoutePath = readonly Position[];
 
 /** 見た目の値は源泉が配る（`backend/app/domain/map_display.py`）。ここは受け取って塗るだけ。 */
 const ROUTE = mapDisplay.route;
