@@ -50,7 +50,9 @@ export function useStoredState<T>(
     (next) => {
       setValue((prev) => {
         const resolved = typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
-        writeStoredValue(key, serializeRef.current(resolved));
+        try {
+          writeStoredValue(key, serializeRef.current(resolved));
+        } catch {}
         return resolved;
       });
     },
