@@ -95,6 +95,24 @@ async def test_get_conditions_aggregates_today_only(monkeypatch):
     assert conditions.wind_speed_max_ms == 4.0
 
 
+async def test_today_values_are_rounded_to_the_digits_the_panel_shows(monkeypatch):
+    """「今日」のパネルの値の桁。日次の値とコマの気温は小数1桁、コマの降水量は小数2桁へ丸めて配る。"""
+    _patch_read_series(
+        monkeypatch,
+        times=["2026-09-07T13:00", "2026-09-07T14:00"],
+        temperature=[23.46, 25.04],
+        precipitation=[1.234, 0.0],
+        u=[3.96, 0.0],
+    )
+
+    conditions = await WeatherService().get_conditions(POINT)
+
+    assert conditions.temperature_range == TemperatureRange(min_c=23.5, max_c=25.0)
+    assert conditions.precipitation_max_mm == 1.2
+    assert conditions.wind_speed_max_ms == 4.0
+    assert (conditions.today_periods[0].temperature_c, conditions.today_periods[0].precipitation_mm) == (23.5, 1.23)
+
+
 async def test_a_missing_hour_leaves_the_temperature_range_out(monkeypatch):
     """格子の欠損（NaN）を含む日の範囲は、片方だけでなく丸ごと無い（応答でnullが混ざった範囲を配らない）。"""
     _patch_read_series(monkeypatch, times=["2026-09-07T13:00", "2026-09-07T14:00"], temperature=[24.0, float("nan")])
