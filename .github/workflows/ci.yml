@@ -28,7 +28,8 @@
 #   どれかが赤ならデプロイは起動しない。
 # - 持ち時間（各ジョブの timeout-minutes）: 2026-10-07 に測った成功した実行（masterへのpushの直近20件と
 #   Pull Requestの直近60件）の、ジョブごとの最長の所要の2倍を5分単位へ切り上げた値（e2e-scan は幅のうち長いほう）。
-#   frontend-image・backend-image はまだ測っておらず、手元のビルド（数分）から見込んだ値。
+#   frontend-image・backend-image は、2026-10-11 の試しの Pull Request の成功した実行（frontend-image 2件・backend-image 1件。
+#   最長はそれぞれ61秒・42秒）から同じ決め方で決めた。
 #   段が止まったジョブ（playwright install が進まなくなった等）を既定の360分まで待たせず、取り消しで終わらせて、
 #   作る担当・確かめる担当が流し直す（.claude/skills/task-work/SKILL.md「作る担当」の5）。成功する実行が切られるようになったら、同じ決め方で
 #   測り直す。deploy-backend・deploy-frontend の持ち時間は、呼ばれる側の deploy-*.yml が持つ。
@@ -264,7 +265,7 @@ jobs:
     needs: changes
     if: fromJSON(needs.changes.outputs.run)['frontend-image']
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
       - run: docker build frontend --build-arg GIT_COMMIT="$GITHUB_SHA" --tag frontend-check
@@ -297,7 +298,7 @@ jobs:
     needs: changes
     if: fromJSON(needs.changes.outputs.run)['backend-image']
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
       - run: docker build backend --tag backend-check
