@@ -9,7 +9,7 @@ const ITEMS = `query Items($o: String!, $n: Int!, $q: String!, $st: String!, $p:
     status: fieldValueByName(name: $st) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     priority: fieldValueByName(name: $p) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     size: fieldValueByName(name: $sz) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-    start: fieldValueByName(name: $s) { ... on ProjectV2ItemFieldDateValue { date } }
+    start: fieldValueByName(name: $s) { ... on ProjectV2ItemFieldTextValue { text } }
     content { ... on Issue { number labels(first: 20) { nodes { name } } blockedBy(first: 50) { nodes { state } } } } } } } } }`;
 
 // 閉じた issue を更新日の新しい順に（GitHub の IssueOrder は閉じた日では並べられない）。規模は Project の欄から読む。
@@ -34,7 +34,7 @@ export async function readTasks(gh, config, query) {
       const labels = labelNames(t);
       tasks.push({
         number: t.number, status: status?.name ?? null, labels, urgent: labels.includes(urgentLabel), priority: priority?.name ?? null, size: size?.name ?? null,
-        startOn: start?.date ?? null, blocked: blockedOpen(t),
+        start: start?.text ?? null, blocked: blockedOpen(t),
       });
     }
     if (!p.items.pageInfo.hasNextPage) return { tasks, ranks: p.field?.options.map((o) => o.name) ?? [] };
