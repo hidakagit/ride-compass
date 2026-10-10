@@ -58,7 +58,9 @@ function DailyStat({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0", className)}>
+    <div
+      className={cn("flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0", className)}
+    >
       {icon}
       <span>
         <span className={cn(textVariants({ variant: "note" }), "block")}>{term}</span>

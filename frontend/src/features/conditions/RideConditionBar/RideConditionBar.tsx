@@ -3,12 +3,7 @@
 import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import {
-  clampSpeedKmh,
-  departureLabelParts,
-  MAX_SPEED_KMH,
-  MIN_SPEED_KMH,
-} from "@/features/conditions/rideConditions";
+import { clampSpeedKmh, departureLabelParts, MAX_SPEED_KMH, MIN_SPEED_KMH } from "@/features/conditions/rideConditions";
 
 import DynamicLayerTimeSlider from "@/features/conditions/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { nearestTimeIndex, parseJstLocalValue, toJstLocalValue } from "@/lib/time";
