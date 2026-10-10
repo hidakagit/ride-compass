@@ -257,7 +257,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 - `TracedLoop.bearing`は出発地から見た中継点の方位で、名前（`direction_label`）にだけ使う。目的地で終わる候補・
   距離なしの代わりの道はNone。逆回りを作るかは`TracedLoop.reversible`（下の`_build_best_candidate`）。
 - 候補は折返し点候補のランク順に逐次処理する（復路探索が共有`cost_lazy`を一時的に
-  書き換える同期処理のため`asyncio.gather`による並列化の余地は無い）。距離フィルタ合格が
+  書き換えるため`asyncio.gather`による並列化の余地は無い）。距離フィルタ合格が
   `max_routes`件に達した時点で処理を打ち切る。
 - 候補0件になった理由は`RouteGenerator.last_no_candidates_reason`に人間可読な文字列で
   残り、`RouteGenerateResponse.no_candidates_reason`としてクライアントへ返る。文は利用者の語で書き、
@@ -573,10 +573,11 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
 ——同じコスト配列でA*をかけ直しても同じ経路になるため）。帰りの探索の間だけ、走った区間（前段＋往路）＋
 同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`倍（`domain/route_search.py: retrace_penalized`）へ
 **差し替え**（infにはしない——帰りが走った道を戻る以外に道が無い区間[袋小路等]は通れる必要が
-ある）、A*（帰りの目的地は1回の生成で終点に決まっているため、ヒューリスティック配列は終点ごとに1回だけ
-計算し全候補で共有する）で探索した後、`try`/`finally`で元の値へ復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
-（並列化すると共有`cost_lazy`の書き換えが競合するため両立しない）である前提の上で
-安全。
+ある）、A*（向かう先は1回の生成で決まっているため、ヒューリスティック配列は向かう先ごとに1回だけ計算し、
+区間の探索・最速の経路・全候補の帰りの探索で共有する。`road_graph_engine.py: _RoadGraphContext.heuristics`）で探索した後、
+`try`/`finally`で元の値へ復元する。差し替え・探索・戻すはイベントループの外の1つのスレッドの中で続けて行い、間にawaitを
+挟まない（間に他のコルーチンへ制御が渡ると、別の候補が書き換え後の値を見る）。候補は呼び出し側が1本ずつawaitする
+直列実行である前提の上で安全（並列化すると共有`cost_lazy`の書き換えが競合するため両立しない）。
 
 ### `select_via_nodes`（距離なしのvia-node方式代替経路）
 
