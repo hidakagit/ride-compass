@@ -10,28 +10,23 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 
 ## 手元の検査の回し方
 
-- **手元とCIで同じ答えを2回買わない**: CIはPull Requestで毎回、静的検査（`.github/workflows/ci.yml`のジョブ
-  （backend・frontend）がテスト（`pytest`・`npm test`）より前に回す段・`api-contract`のOpenAPI生成物のドリフト・
-  `.github/workflows/docs-consistency.yml`の段）とフルスイートを回す（[task-work/SKILL.md](../task-work/SKILL.md)「作る担当」の4・5。
-  どの変更で何が走るかは下の「検査の置き場」）。手元では、CIの結論より先に知らないと作業が無駄になる答えだけを、
+- **手元とCIで同じ答えを2回買わない**: CIはPull Requestで毎回、静的検査とフルスイートを回す（[task-work/SKILL.md](../task-work/SKILL.md)「作る担当」の4・5。
+  どの変更で何が走るかは下の「検査の置き場」、段の中身は各ワークフロー）。手元では、CIの結論より先に知らないと作業が無駄になる答えだけを、
   その答えに要る最小の範囲で取る。
-- **回してよい場面は3つ**。どれでもなければ回さずにpushし、CIの結論を待つ。
+- **CIが回す検査とテストを手元で回してよい場面は3つ**。どれでもなければ回さずにPull Requestへpushし（CIはPull Requestで走る）、
+  CIの結論を待つ。CIに載らない`e2e-live`は下の「E2E・画面の撮影の走らせ方」。
   1. **CIが落ちた失敗を再現して直すとき**（[testing.md](../../rules/testing.md)「テストが落ちたときの直し方」）。回すのは落ちた失敗に届く範囲だけ。
   2. **テストそのものを書く・書き換えるとき**（新しいテスト・起こし直し・足場の作り直し）。書いた形をほかのファイルへ
      写す前に、書いたファイルが動くかを見る。回すのは書いた・直したテストファイルだけで、1ファイルを書くたびにそのファイルを回してよい。
   3. **怪しいところがあって、CIの前に念を入れて確かめたいとき**（並べ替えで落ちそうな共有の状態・時計に依存する境界等）。
      回すのはその怪しいところに届くテストだけで、何を怪しんで回したかをPull Requestの本文の検証に書く。
-- **回さないもの**: フルスイート（backendの`tests`全体・frontendの`vitest run`全体）と、pushの前の念のための全体。
-  1行・1ファイル変えただけで全体を流し直さない。静的検査も、1の再現のほかは回さない（`tsc`を回すときの範囲は下の例外）。
 - **コミットの前に、frontendで変えたファイルへ整形をかける**: CIの`format:check`（`frontend/package.json`）が見る
   `src/**/*.{ts,tsx,css}`に当たる変えたファイルへ、`./node_modules/.bin/prettier --write <変えたファイル>`をかけてからコミットする。
-  `format:check`（`--check`）は回さない。
 - 回すときは、どの場面でも次のとおりにする。
   - **範囲の例**: backend `pytest backend/tests/<テストのファイル> -q`、frontend `./node_modules/.bin/vitest run <該当ファイル>`。
     **frontendのコマンドに`npx`を付けない**。**例外は`tsc --noEmit`**で、プロジェクト全体で1回通す（Next.jsの生成型が無い
     作業ツリーでは、`tsc`の前に`next typegen`を回す）。所要時間と生成型の前提は[setup.md](../../../docs/architecture/setup.md)「テスト」。
-  - **静的検査とテストの両方が落ちていれば、静的検査を先に全部直してからテストを回す**。**1件直すたびに回し直さない**——
-    出た指摘は全部直してから、次の1回を回す。
+  - **静的検査とテストの両方が落ちていれば、静的検査を先に全部直してからテストを回す**。
   - backendに`ruff format`をかけない（CIは`ruff check`だけを回す）。
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった
@@ -54,7 +49,6 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 ### CIの結論を読む
 
 **masterの結論は、masterの最新コミットに対するものを読む。** masterが赤いままの間は、「CIが通った」を完了の根拠にしない。
-実行中の実行は赤に数えない。打ち切り・時間切れで終わった実行は「通った」に数えない。
 
 `gh`が入っていない環境では、ActionsのREST APIを直接読む。そのとき:
 
@@ -72,7 +66,6 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 
 - **対象はapp・scripts・benchmarksで、testsは入れない**（テストの偽物を本物の型の引数へ渡す書き方が誤検知になる）。
 - **型注釈の無い関数の中身も見る**（`check_untyped_defs`。見ないと、注釈の無い呼び出し側の食い違いが止まらない）。
-- **ファイルやモジュールを検査から外さない。**
 - 型情報（`py.typed`）を配っていないライブラリは、まず型のスタブ（typeshedの`types-*`等）を探し、
   あれば本体の版に合わせて`requirements-dev.txt`へ固定する。無いものだけを設定の`ignore_missing_imports`の節へ足す。
 - **Linuxとして検査する**（`platform = linux`。本番とCIがLinuxで動くため）。
@@ -87,7 +80,7 @@ backendの層（[directory-layout.md](../../../docs/architecture/directory-layou
 （引数なし）。同じ設定に、`domain/`が外部の書式を読む道具を読んだら止める`forbidden`契約も置く
 （`include_external_packages = True`なので、禁じる先に標準ライブラリの`io`も書ける。禁じられるのは最上位の名前だけ）。
 
-- **契約を緩める指定（`ignore_imports`）を足さない**。越境は、読む側を正しい層へ移すか、共有したいものを下の層へ下ろして解く。
+- 越境は、読む側を正しい層へ移すか、共有したいものを下の層へ下ろして解く。
 - **`.importlinter`はASCIIだけで書く。**
 
 ### 使われないコード（knip）
@@ -96,8 +89,7 @@ frontendで、入口（Next.jsのファイル規約・vitestとPlaywrightの設�
 ファイル・export・依存と、宣言せずに読んでいる依存を止める。設定は`frontend/knip.json`、実行は`frontend/`で`npm run knip`。
 
 - **入口を足すのは、knipが既定で見つけない設定と手動の道具だけ**（例: `-c`で指定して使う
-  `playwright.live.config.ts`）。**無視の指定（`ignore`系）を足さない**——指摘は、消すか、入口として宣言するかの
-  どちらかで解く。
+  `playwright.live.config.ts`）。指摘は、消すか、入口として宣言するかのどちらかで解く。
 
 ## 開発機でのbackendテストの回し方
 
@@ -150,7 +142,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
    前から1本ずつ外して、落ちなくなる所を探す。
 4. 汚す側が残す状態（モジュールの変数・プロセスに残る記録・DB の行・環境変数）を見つけ、汚す側が自分で片付ける形に直す
    （片付け方は[testing-scaffold.md](../../rules/testing-scaffold.md)「テストの足場で、本来のNGを覆わない」の片付けの段落で、
-   本番の操作で片付けられない大域状態は実装の側で直す）。汚される側に片付けを足して隠さない。
+   本番の操作で片付けられない大域状態は実装の側で直す）。
 
 ### 止まったテストを落とす（pytest-timeout）
 
