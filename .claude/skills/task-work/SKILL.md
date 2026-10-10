@@ -78,7 +78,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    コードのリポジトリの規則で断られるので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは .claude/skills/run-checks/SKILL.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
-5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
+5. マージの前に済ませる本番への書き込みが要り、まだ済んでいなければ、出さずに `docs/conventions/flow.md`「担当」の「自動で進めないもの」のとおり返す。
+   コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （`docs/conventions/flow.md`「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
    題名と本文は、そのまま master のコミットになる（`docs/conventions/flow.md`「コミット」）。本文は `.github/pull_request_template.md`
