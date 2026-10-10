@@ -63,6 +63,9 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
   （台本の直しは、その回の外のタスクにする。.claude/skills/file-issue/SKILL.md「改善を起票する」）。
 - **shard の1本が、DB を用意する手順（`./.github/actions/postgis`）の10分の上限で落ちた**（apt の取得が詰まった）:
   同じく `gh run rerun <id> -R hidakagit/ride-compass --failed` で1回やり直す。続けて落ちるなら、次の「それ以外」と同じに扱う。
+- **1つの手順が上限の無いまま、見込みより長く止まっている**: 起こしたのは自分なので、`gh run cancel <id> -R hidakagit/ride-compass`
+  で止め、止まったのを見てから `gh run rerun <id> -R hidakagit/ride-compass --failed` で、止めた本と続く段をやり直す（止まった本は
+  ランナーの枠を使い続け、担当や CI の待ちを延ばす）。担当や CI の実行は止めない。
 - **それ以外で落ちた**: `gh run view <id> -R hidakagit/ride-compass --log-failed` で読む。台本・ワークフローの誤りなら、その回の
   中で直さず、起票して 6 の記録に書いて止める（直したあとの回で測り直す）。
 - **review の段の要約に「変異を回し終えていない」と出た**（stop_after で抜けた本がある）: その回の見直しは比べに使えない。

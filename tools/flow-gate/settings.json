@@ -56,8 +56,6 @@
       "PowerShell(gh auth *)",
       "Bash(gh release *)",
       "PowerShell(gh release *)",
-      "Bash(gh run cancel *)",
-      "PowerShell(gh run cancel *)",
       "Bash(gh run delete *)",
       "PowerShell(gh run delete *)"
     ],
@@ -88,7 +86,8 @@
       "Writing to the local test databases (on localhost:5432, databases whose name starts with ridecompass_test: the per-worktree ridecompass_test_<dir>_<digest> that backend/tests/conftest.py postgis_database_url derives, the shared ridecompass_test, which is also the only database on the Actions runner, and the template ridecompass_test_template) is routine test setup and verification, including writing a temporary script (for example under /tmp) that inserts, deletes, drops or alters tables, columns or constraints there and running it, and trying there a script that will later be handed to the owner for production. They hold no data to lose: before each test file the test fixtures rebuild any table that differs from the declarations and delete all rows (backend/tests/conftest.py road_graph_engine). This does not cover the development database ridecompass on the development machine (settings.database_url), the production database, or running such a script through backend/scripts/run_probe.py.",
       "Fetching public official documentation and source (for example docs.github.com, code.claude.com, docs.anthropic.com, and files of official repositories on raw.githubusercontent.com) with WebFetch or curl is routine: CLAUDE.md requires reading the official documents before describing or designing around a tool's behavior.",
       "Building and serving the frontend from the working copy (npm run build, node frontend/scripts/capture.mjs) to capture screenshots of a change is routine, as .claude/skills/task-work/SKILL.md describes.",
-      "Deleting a wip/tasks-<n>-<time> branch in hidakagit/ride-compass after taking in its changes is routine: these branches only hold leftovers that this workflow's cleanup step saved from an earlier worker run on the same task."
+      "Deleting a wip/tasks-<n>-<time> branch in hidakagit/ride-compass after taking in its changes is routine: these branches only hold leftovers that this workflow's cleanup step saved from an earlier worker run on the same task.",
+      "Cancelling a GitHub Actions run in hidakagit/ride-compass that this worker or interactive session started itself (gh run cancel <id>, for example a mutation testing run from .claude/skills/test-review/SKILL.md whose job is stuck) is routine. Cancelling runs that this agent did not start, such as the task workflows (Claude Task, Claude Dispatch, Claude Gate) or CI, is not: a task is released with tools/flow-gate/bin/hold.js --release, as .claude/skills/dev-session/SKILL.md describes."
     ]
   }
 }
