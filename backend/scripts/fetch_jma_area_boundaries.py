@@ -16,6 +16,7 @@
 """
 
 import logging
+import shutil
 import sys
 import tempfile
 import time
@@ -53,7 +54,8 @@ def read_areas(archive_path: Path) -> dict[str, BaseGeometry]:
         for member in archive.namelist():
             suffix = Path(member).suffix.lower()
             if suffix in (".shp", ".shx", ".dbf"):
-                stem.with_suffix(suffix).write_bytes(archive.read(member))
+                with archive.open(member) as source, stem.with_suffix(suffix).open("wb") as target:
+                    shutil.copyfileobj(source, target)
         with shapefile.Reader(str(stem), encoding="utf-8") as reader:
             parts: dict[str, list[BaseGeometry]] = defaultdict(list)
             for record in reader.iterShapeRecords():

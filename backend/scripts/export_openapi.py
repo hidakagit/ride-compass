@@ -148,10 +148,9 @@ from app.domain.material_catalog import (  # noqa: E402
     display_axis_missing_semantics,
 )
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES  # noqa: E402
-from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
+from app.domain.region import MAX_MERCATOR_LATITUDE, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
 from app.config import Settings  # noqa: E402
-from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
 from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_SHARE  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402

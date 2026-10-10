@@ -73,13 +73,13 @@ PHASES: tuple[tuple[str, Callable[[str, Path | None], Awaitable[None]]], ...] = 
     ("ingest", _ingest),
     ("derive", _derive),
 )
+PHASE_NAMES = [name for name, _ in PHASES]
 
 
 async def run(database_url: str, profile_path: Path | None, start_from: str | None,
               stop_at: str | None = None, create_extensions: bool = False) -> int:
-    names = [name for name, _ in PHASES]
-    begin = names.index(start_from) if start_from else 0
-    end = names.index(stop_at) + 1 if stop_at else len(PHASES)
+    begin = PHASE_NAMES.index(start_from) if start_from else 0
+    end = PHASE_NAMES.index(stop_at) + 1 if stop_at else len(PHASES)
     if end <= begin:
         raise ValueError(f"--to {stop_at} が --from {start_from} より前にある")
     started = time.perf_counter()
@@ -92,7 +92,7 @@ async def run(database_url: str, profile_path: Path | None, start_from: str | No
         logger.info("=== %s 完了 / %s ===", name,
                     format_duration(time.perf_counter() - phase_started))
     logger.info("DBを立ち上げた: %s / 合計 %s",
-                "→".join(names[begin:end]), format_duration(time.perf_counter() - started))
+                "→".join(PHASE_NAMES[begin:end]), format_duration(time.perf_counter() - started))
     return 0
 
 
@@ -101,10 +101,10 @@ def main() -> int:
     # 母集団の宣言はプロファイルが持つ。狭い範囲で試すときは別のプロファイルを指す。
     parser.add_argument("--profile", default=None, type=Path)
     parser.add_argument("--from", dest="start_from", default=None,
-                        choices=[name for name, _ in PHASES],
+                        choices=PHASE_NAMES,
                         help="途中から流し直す。前の段の出力が残っていることが前提")
     parser.add_argument("--to", dest="stop_at", default=None,
-                        choices=[name for name, _ in PHASES],
+                        choices=PHASE_NAMES,
                         help="この段まで流して止める（例: スキーマだけ作る --to schema）")
     parser.add_argument("--create-extensions", action="store_true",
                         help="先にREQUIRED_EXTENSIONSを入れる（接続するロールがスーパーユーザーのときだけ通る）")
