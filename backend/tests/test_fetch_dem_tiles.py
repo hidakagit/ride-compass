@@ -1,9 +1,10 @@
 """標高タイルの取得（scripts/fetch_dem_tiles.py）。
 
 入口は`fetch`。配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
-本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをタイル1枚ぶんへ絞る。
-見るのは、宣言した製品をそれぞれのズームでPNG形式のURLから取り、返ったものを置いて404は区域外の印にすることと、
-次の実行がどちらも叩かないこと。
+本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをz15のタイル2×2枚ぶんへ絞る。
+見るのは、宣言した製品をそれぞれのズームでPNG形式のURLから取り、返ったものをタイルごとに置いて404は区域外の印にすることと、
+次の実行がどちらも叩かないこと。同じ製品の中で列・行の違うタイルと、置いたタイルと区域外の印が隣り合う形を含め、
+置き場で別のタイルが重なると、別の場所の標高を読むか、取るべきタイルを取らない。
 
 ここで見ないもの:
 - 置き場のパスと印の形（`app/batch/dem_tile_store.py`）→ 置いたものを同じモジュールで読み戻すだけで、形は見ない
@@ -21,24 +22,34 @@ from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from scripts import fetch_dem_tiles
 
-#: 範囲に使うz15のタイル（東京）。
+#: 範囲の左上に使うz15のタイル（東京）。範囲はここから右と下へ1枚ずつ広げる。
 ZOOM, X, Y = 15, 29100, 12902
 
 #: 代役が200を返す製品。残りは404（その製品の区域外）を返す。
 SERVED = {"dem5a", "dem"}
+#: SERVEDの製品でも、代役が404を返すタイル（範囲の右下）。
+UNSERVED_TILE = (X + 1, Y + 1)
 
 #: 配信元のPNG形式のURLの道（https://maps.gsi.go.jp/development/ichiran.html）。製品名に`_png`が付く。
 PNG_PATH = re.compile(r"/xyz/(?P<product>\w+)_png/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png")
 
-#: 代役が返す本文。置き場は中身を読まないので、PNGである必要は無い。
-BODY = b"\x89PNG tile"
+
+
+def _body(product: str, x: int, y: int) -> bytes:
+    """代役が返す本文。置き場は中身を読まないので、PNGである必要は無く、タイルごとに違えばよい。"""
+    return f"{product}/{x}/{y}".encode()
+
+
+def _served(product: str, zoom: int, x: int, y: int) -> bool:
+    return product in SERVED and (zoom, x, y) != (ZOOM, *UNSERVED_TILE)
 
 
 def _profile():
-    bounds = tile_bounds_lonlat(ZOOM, X, Y)
+    top_left = tile_bounds_lonlat(ZOOM, X, Y)
+    bottom_right = tile_bounds_lonlat(ZOOM, X + 1, Y + 1)
     inset = 1e-6
-    bbox = (bounds.min_latitude + inset, bounds.min_longitude + inset,
-            bounds.max_latitude - inset, bounds.max_longitude - inset)
+    bbox = (bottom_right.min_latitude + inset, top_left.min_longitude + inset,
+            top_left.max_latitude - inset, bottom_right.max_longitude - inset)
     return replace(load_source_profile(None), target=Target(bbox=bbox))
 
 
@@ -62,10 +73,10 @@ class Origin:
         match = PNG_PATH.fullmatch(request.url.path)
         if match is None:
             return httpx.Response(400)
-        product = match["product"]
-        self.requests.append((product, int(match["z"]), int(match["x"]), int(match["y"])))
-        if product in SERVED:
-            return httpx.Response(200, content=BODY)
+        product, z, x, y = match["product"], int(match["z"]), int(match["x"]), int(match["y"])
+        self.requests.append((product, z, x, y))
+        if _served(product, z, x, y):
+            return httpx.Response(200, content=_body(product, x, y))
         return httpx.Response(404)
 
     def client(self) -> httpx.AsyncClient:
@@ -83,12 +94,15 @@ async def test_served_tiles_are_stored_and_the_rest_marked_absent_per_product(tm
     async with origin.client() as client:
         await fetch_dem_tiles.fetch(client, tmp_path, profile, attempts=1)
 
-    for product, zoom, x, y in _declared_requests(profile):
+    declared = _declared_requests(profile)
+    assert ("dem5a", ZOOM, *UNSERVED_TILE) in declared  # 範囲が2×2枚に掛かっている
+    for product, zoom, x, y in declared:
         stored = dem_tile_store.is_stored(tmp_path, product, zoom, x, y)
         absent = dem_tile_store.is_absent(tmp_path, product, zoom, x, y)
-        assert (stored, absent) == ((True, False) if product in SERVED else (False, True))
-    served = next(r for r in _declared_requests(profile) if r[0] in SERVED)
-    assert dem_tile_store.read_tile(tmp_path, *served) == BODY
+        served = _served(product, zoom, x, y)
+        assert (stored, absent) == (served, not served), (product, zoom, x, y)
+        if served:
+            assert dem_tile_store.read_tile(tmp_path, product, zoom, x, y) == _body(product, x, y)
 
 
 async def test_a_second_run_does_not_ask_the_origin_again(tmp_path, profile):
