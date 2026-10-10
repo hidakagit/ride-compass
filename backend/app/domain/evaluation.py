@@ -37,14 +37,21 @@ from app.domain.axis_definitions import (
     REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
     BreakpointLinearShape,
+    averages_density,
     axis_raw_value_array,
     copy_axis_definitions,
+    density_slope,
     evaluate_axes_array,
     published_axis_definitions,
     topological_axis_order,
 )
 from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
-from app.domain.difficulty import composite_difficulty_array, distance_weighted_difficulty_array
+from app.domain.difficulty import (
+    axis_weighted_sums,
+    composite_from_sums,
+    composite_weighted_sums,
+    distance_weighted_difficulty_array,
+)
 from app.domain.map_paint import SignedMaterialMapValue, map_paint
 from app.domain.material_catalog import (
     GRADIENT_PERCENT,
@@ -66,27 +73,6 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     if raw_value_unit(definition) is None:
         return False
     return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
-
-
-def averages_density(definition: AxisDefinition) -> bool:
-    """区間をまたいだ値（ビン・候補）を、点数の平均ではなく折れ線の横軸の値の距離平均から点数にする軸か。
-
-    横軸の値が1kmあたりの量（密度）の重み付き和なら、距離で平均した値がその範囲の密度（回数÷距離）になる。
-    折れ線は上に凸で上限で頭打ちになることが多く、短い区間に回数が集まる道（交差点の脇の信号）では、
-    区間ごとの点数の平均が回数どおりの点数よりずっと低く出る。そうした軸だけを、平均してから点数にする。
-
-    - 足せる材料（`MaterialSpec.additive`。どれも1kmあたりの密度）だけを項に持つ。他の軸を項に持つ軸は、
-      中の軸の点数が密度でないため外す。勾配（%）のような密度でない材料も、短い急坂を平均でならすと
-      坂のつらさが消えるため外す。
-    - 前処理が無い（`abs`は平均と絶対値の順を入れ替えると値が変わる）。
-    """
-    shape = definition.shape
-    if not isinstance(shape, BreakpointLinearShape) or shape.preprocess != "identity":
-        return False
-    terms = [term for term in shape.terms if term.weight != 0]
-    return bool(terms) and all(
-        (spec := MATERIAL_CATALOG.get(term.material)) is not None and spec.additive for term in terms
-    )
 
 
 def route_facing_raw_axis_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
@@ -234,12 +220,28 @@ def resolve_penalty_strength(requested: float | None) -> float:
 
 
 class AxisComposition(NamedTuple):
-    """`compose_costs_from_axis_matrix`の戻り値。"""
+    """`compose_costs_from_axis_matrix`の戻り値。費用は`cost`で、所要時間を渡して求める。"""
 
-    cost: np.ndarray
+    # 所要時間に掛ける割増の倍率`1 + P × difficulty/100`（difficultyは密度の軸の点数を除いた合成）。
+    multiplier: np.ndarray
+    # 所要時間に足す秒（密度の軸の分。区間の回数に比例する）。
+    added_seconds: np.ndarray
     difficulty: np.ndarray
     # 区間ごとの「データのある軸の重みの合計」。軸別寄与度（`axis_contributions_at_row`）の分母。
     weight_sums: np.ndarray
+
+    def cost(self, seconds: np.ndarray) -> np.ndarray:
+        """区間ごとの所要時間（秒）から、体感の所要時間（探索の費用）を求める。"""
+        return seconds * self.multiplier + self.added_seconds
+
+
+class DensityCost(NamedTuple):
+    """密度の軸1本の、探索の費用で回数の足し算として持つ分（`compose_costs_from_axis_matrix`の`density`）。"""
+
+    # 区間ごとの軸の点数（欠損=NaN）。合成の分母（重みの和）には入れ、割増の倍率からは外す。
+    scores: np.ndarray
+    # 区間ごとの、傾き × 回数 × 想定速度で1km走る秒（点数×秒）。`scores`と同じ区間が欠損になる。
+    score_seconds: np.ndarray
 
 
 def compose_costs_from_axis_matrix(
@@ -248,21 +250,25 @@ def compose_costs_from_axis_matrix(
     weights: Mapping[str, float | np.ndarray],
     penalty_strength: float,
     *,
-    base: np.ndarray,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
+    density: Mapping[str, DensityCost] | None = None,
 ) -> AxisComposition:
     """`build_static_edge_score_matrix`/`evaluate_dynamic_axis_arrays`が求めた軸別
     スコア配列群から、重み付き合成のcost・composite difficulty配列を求める。
 
-    `base`は割増を掛ける下地で、探索は区間ごとの所要時間（秒）を渡す——コストは
-    `所要時間 × (1 + P × difficulty/100)`＝**体感の所要時間**になり、`penalty_strength`は
-    「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する（逆算は
-    `difficulty_from_cost`）。difficultyの合成自体（`composite_difficulty_array`）は下地に依らない。
+    費用は**体感の所要時間**`所要時間 × (1 + P × difficulty/100) + 密度の軸の分`で、`penalty_strength`は
+    「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する（逆算は`difficulty_from_cost`）。
     costは丸めない——0.1秒は短い区間の所要時間の数%にあたり、逆算した値に丸めの差が現れる。
+
+    `density`は密度の軸（`axis_definitions.py: averages_density`）ぶんの点数と回数（`density_costs`）。密度の軸の
+    点数は割増の倍率から外し、代わりに`P × 重みの割合 × 傾き/100 × 回数 × 3600/想定速度`の秒を足す（理由は
+    docs/modules/backend/evaluation-scoring.md「ルート単位の集約」の密度の軸）。重みの割合の分母は表示の合成と同じ
+    （密度の軸の重みも入る）。表示の`difficulty`は密度の軸の点数を含めた合成のまま。
 
     `static_sums`は`axis_arrays`に**含めなかった**軸ぶんの`(重み付きスコアの和, 重みの和)`。
     時刻ビンごとに合成し直すとき、時刻で変わらない軸の和を1回だけ求めて使い回すために渡す
-    （合成の時間は軸数にほぼ比例するため、動的な軸だけを毎回足す形にすると大きく減る）。
+    （合成の時間は軸数にほぼ比例するため、動的な軸だけを毎回足す形にすると大きく減る）。密度の軸の点数は
+    `axis_arrays`と`static_sums`のどちらに入っていてもよい。
 
     0次フィルタによる除外（cost=inf/None）は呼び出し元の責務（`compute_hard_filter_excluded`
     参照、Edgeの通行可否そのものであり軸別スコアの合成とは独立した判定のため）。戻り値の
@@ -274,25 +280,40 @@ def compose_costs_from_axis_matrix(
     difficultyを代入する（呼び出し元のリクエストごとに実データから求まる値で、
     固定定数は使わない）。戻り値の`composite_difficulty`（表示用）はこの代入の影響を
     受けず、欠損なら常にNaNのまま返す。bbox内が全Edge欠損
-    （代入する平均値自体が無い）ならcost=下地（割増なし）。
+    （代入する平均値自体が無い）ならcost=所要時間（割増なし）。
     """
-    composite, weight_sums = composite_difficulty_array(axis_arrays, weights, len(distance_m), static_sums)
+    n = len(distance_m)
+    weighted_scores, weight_sums = composite_weighted_sums(axis_arrays, weights, n, static_sums)
+    composite = composite_from_sums(weighted_scores, weight_sums)
+    cost_composite = composite
+    added_seconds = np.zeros(n)
+    if density:
+        density_scores, _ = axis_weighted_sums({a: d.scores for a, d in density.items()}, weights, n)
+        density_score_seconds, _ = axis_weighted_sums({a: d.score_seconds for a, d in density.items()}, weights, n)
+        cost_composite = composite_from_sums(weighted_scores - density_scores, weight_sums)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            added_seconds = np.where(
+                weight_sums > 0, penalty_strength / 100 * density_score_seconds / weight_sums, 0.0)
 
     # costの算出にだけ、重み付き軸が全欠損のEdgeへbbox内平均difficultyを
     # 代入する（composite自体は表示用にNaNのまま返す、上のdocstring参照）。
     bbox_mean = distance_weighted_difficulty_array(composite, distance_m)
     if bbox_mean is None:
-        cost_difficulty = composite
+        cost_difficulty = cost_composite
     else:
-        cost_difficulty = np.where(np.isnan(composite), bbox_mean, composite)
-    # difficultyがNaN(None相当)ならcostは下地そのもの（割増なし）。
-    penalty_multiplier = np.where(np.isnan(cost_difficulty), 1.0, 1.0 + penalty_strength * (cost_difficulty / 100))
-    return AxisComposition(base * penalty_multiplier, composite, weight_sums)
+        cost_difficulty = np.where(np.isnan(cost_composite), bbox_mean, cost_composite)
+    # difficultyがNaN(None相当)なら割増なし。
+    multiplier = np.where(np.isnan(cost_difficulty), 1.0, 1.0 + penalty_strength * (cost_difficulty / 100))
+    return AxisComposition(multiplier, added_seconds, composite, weight_sums)
 
 
 def difficulty_from_cost(cost: np.ndarray, seconds: np.ndarray, penalty_strength: float) -> np.ndarray:
-    """コスト`所要時間 × (1 + P × difficulty/100)`（`compose_costs_from_axis_matrix`）から、
-    所要時間あたりのdifficultyを逆算する。求まらない要素（所要時間0・到達不能）は0。
+    """コスト（`compose_costs_from_axis_matrix`）から、所要時間あたりのdifficultyを逆算する。求まらない要素
+    （所要時間0・到達不能）は0。
+
+    密度の軸の分は、足した秒を所要時間で割った値として入る——回数 ÷ (所要時間 × 想定速度)の点数で、所要時間が
+    想定速度で走る時間に近いほど、範囲の平均の密度に傾きを掛けた点数（頭打ちの無い直線）に近い。停止の待ちや
+    上り坂で所要時間が延びた範囲ほど、平均の密度の点数より小さく入る。
 
     P<=0ではコストが所要時間そのもので難易度を含まないため、全要素0（全候補同点）。
     """
@@ -310,6 +331,25 @@ class DensityAxisColumn:
     shape: BreakpointLinearShape
     # 折れ点を通す前の重み付き和（切り出した区間の順、欠損=NaN）。点数（`axis_scores`）と同じ区間が欠損になる。
     inputs: np.ndarray
+
+
+def density_costs(
+    density_axes: Mapping[str, DensityAxisColumn],
+    axis_arrays: Mapping[str, np.ndarray],
+    distance_m: np.ndarray,
+    speed_kmh: float,
+) -> dict[str, DensityCost]:
+    """密度の軸ごとの、探索の費用で回数の足し算として持つ分。`axis_arrays`は軸id→区間ごとの点数（同じ行の順）。
+    区間の回数は横軸の値（1kmあたりの量）× 長さ（km）。`speed_kmh`は利用者の巡航速度（勾配や風で変わる走行の速さではない）。
+    """
+    hours_per_km = 1.0 / speed_kmh
+    return {
+        axis_id: DensityCost(
+            scores=axis_arrays[axis_id],
+            score_seconds=density_slope(column.shape) * column.inputs * (distance_m / 1000.0) * hours_per_km * 3600.0,
+        )
+        for axis_id, column in density_axes.items()
+    }
 
 
 @dataclass(frozen=True, slots=True)

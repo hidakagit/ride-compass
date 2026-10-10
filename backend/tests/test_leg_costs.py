@@ -21,7 +21,8 @@ import pytest
 
 from app.domain import leg_costs
 from app.domain.attributes import CategoricalColumn
-from app.domain.evaluation import StaticEdgeScoreMatrix
+from app.domain.axis_definitions import BreakpointLinearShape, MaterialTerm
+from app.domain.evaluation import DensityAxisColumn, StaticEdgeScoreMatrix
 from app.domain.leg_costs import LegCostComposer
 from app.domain.route import Coordinates
 from app.domain.wind import DepartureWind, WindForecastSeries, WindLattice
@@ -34,6 +35,9 @@ WIND_DRAG = next(iter(leg_costs.REQUEST_DYNAMIC_MATERIAL_IDS))
 STOP_DENSITY = dict(zip(leg_costs.POI_COUNT_KINDS, leg_costs.stop_count_material_ids(), strict=True))
 WIND_AXIS = "axis_wind"
 NIGHT_AXIS = "axis_night"
+STOP_AXIS = "axis_stops"
+#: 信号の1kmあたりの回数を、0から始まる直線（9.58回/kmで100点、その先は100点）で点数にする（本番の停止密度の軸の形）。
+STOP_LINE = BreakpointLinearShape(terms=[MaterialTerm(material=STOP_DENSITY["signal"])], breakpoints=[(0.0, 0.0), (9.58, 100.0)])
 NORTH, SOUTH = 0.0, 180.0
 #: 昼夜を決める地点。`START`の日の市民薄明の終わりは17時51分、翌朝の始まりは5時15分（JST）。
 PLACE = Coordinates(latitude=35.0, longitude=139.0)
@@ -52,9 +56,17 @@ def _column(values, n: int) -> np.ndarray:
 
 def _matrix(n: int, *, distance=1000.0, gradient=0.0, bearing=NORTH, surface="paved",
             axes: dict | None = None, raw_axes: dict | None = None, materials: dict | None = None,
-            categories: dict | None = None) -> StaticEdgeScoreMatrix:
-    """`n`区間の静的スコア行列。引数は全区間に同じ値か、区間ごとの並び。"""
-    axes, raw_axes, materials = axes or {}, raw_axes or {}, materials or {}
+            categories: dict | None = None, signals_per_km=None) -> StaticEdgeScoreMatrix:
+    """`n`区間の静的スコア行列。引数は全区間に同じ値か、区間ごとの並び。
+
+    `signals_per_km`を渡すと、その信号の密度で待ちが入り、密度の軸`STOP_AXIS`（折れ線は`STOP_LINE`）が点数を持つ。"""
+    axes, raw_axes, materials = dict(axes or {}), raw_axes or {}, dict(materials or {})
+    density_axes = {}
+    if signals_per_km is not None:
+        signals = _column(signals_per_km, n)
+        materials[STOP_DENSITY["signal"]] = signals
+        axes[STOP_AXIS] = STOP_LINE.scores_at(signals.tolist())
+        density_axes[STOP_AXIS] = DensityAxisColumn(shape=STOP_LINE, inputs=signals)
     categories = {SURFACE: [surface] * n if isinstance(surface, str) else surface, **(categories or {})}
 
     def stacked(columns: dict) -> np.ndarray:
@@ -68,7 +80,7 @@ def _matrix(n: int, *, distance=1000.0, gradient=0.0, bearing=NORTH, surface="pa
         material_ids=list(materials), material_values=stacked(materials),
         categorical_material_ids=list(categories),
         categorical_material_columns=[CategoricalColumn.encode(v) for v in categories.values()],
-        density_axes={},
+        density_axes=density_axes,
     )
 
 
@@ -161,8 +173,10 @@ def test_the_travel_time_is_marked_when_no_wind_was_available(departure_wind, se
 
 
 def test_without_weights_the_cost_is_the_travel_time():
-    """好みの重みをすべて0にすると素の所要時間になり、最速の基準線と同じ物差しになる。"""
-    leg = _snapshot(_matrix(2, axes={"axis_a": [100.0, 0.0]}), weights={"axis_a": 0.0}, penalty=0.7)
+    """好みの重みをすべて0にすると素の所要時間になり、最速の基準線と同じ物差しになる。重みの表に無い密度の軸も何も足さない。"""
+    matrix = _matrix(2, axes={"axis_a": [100.0, 0.0]}, signals_per_km=[2.0, 0.0])
+
+    leg = _snapshot(matrix, weights={"axis_a": 0.0}, penalty=0.7)
 
     assert leg.cost_lazy.tolist() == leg.travel_seconds_lazy.tolist()
 
@@ -180,6 +194,63 @@ def test_the_cost_is_the_travel_time_raised_by_the_weighted_difficulty(wind_axis
 
     assert leg.difficulty_array.tolist() == [difficulty, difficulty]
     assert leg.cost_lazy == pytest.approx(leg.travel_seconds_lazy * (1 + 0.5 * difficulty / 100))
+
+
+@pytest.mark.parametrize(
+    ("matrix", "axis"),
+    [(_matrix(2, axes={"axis_a": [40.0, np.nan]}), "axis_a"), (_matrix(2, signals_per_km=[2.0, np.nan]), STOP_AXIS)],
+    ids=["点数の軸", "密度の軸"],
+)
+def test_a_segment_without_data_on_the_weighted_axes_is_raised_by_the_mean_difficulty_around_it(matrix, axis):
+    """重みのある軸がどれも欠損の区間は、探索の範囲の距離平均のdifficultyで割増す（割増なしだとデータの無い道ほど
+    安く見えて選ばれる）。表示のdifficultyは欠損のまま。密度の軸も、回数の無い区間は足す秒を持たずに割増だけを受ける。"""
+    leg = _snapshot(matrix, weights={axis: 1.0}, penalty=0.5)
+
+    assert np.isnan(leg.difficulty_array[1])
+    assert leg.cost_lazy[1] == pytest.approx(leg.travel_seconds_lazy[1] * (1 + 0.5 * leg.difficulty_array[0] / 100))
+
+
+def test_a_density_axis_adds_seconds_in_proportion_to_the_count_and_its_share_of_the_weights():
+    """1kmに信号2回の区間。停止密度の軸（傾き 100/9.58 点/(回/km)）と軸a（30点）に同じ重みを置くと、費用は
+    所要時間 × (1 + P × 軸aの分15点/100) に、P × 重みの割合1/2 × 傾き/100 × 2回 × 想定速度で1km走る秒 を足したもの。
+    停止の待ちの秒は所要時間に入っていて、密度の軸の点数では割増さない。重みは割合だけが効き、和が1以下でも同じ。"""
+    leg = _snapshot(_matrix(1, signals_per_km=2.0, axes={"axis_a": 30.0}),
+                    weights={STOP_AXIS: 0.25, "axis_a": 0.25}, penalty=0.7)
+
+    cruise_seconds_per_km = 3600.0 / CRUISE_KMH
+    added = 0.7 * 0.5 * (100.0 / 9.58) / 100 * 2.0 * cruise_seconds_per_km
+    assert leg.cost_lazy[0] == pytest.approx(leg.travel_seconds_lazy[0] * (1 + 0.7 * 15.0 / 100) + added)
+
+
+@pytest.mark.parametrize("hourly", [False, True], ids=["時刻で変わらない合成", "時刻のビンごとの合成"])
+def test_a_density_axis_costs_the_same_along_a_route_however_its_road_is_cut(wind_axis, hourly):
+    """信号1つのある100mの区間と、それを信号の所で10mと90mに切った2区間（端の信号は両側が0.5回ずつ持つ）は、密度の
+    軸の費用の和が同じ。区間の点数で割増すと、回数の集まる10mの区間が頭打ちの点数になり、待ちの秒にも割増が掛かって、
+    切り方で探索の選ぶ道が変わる。ほかの軸（30点）の割増と、風の軸に重みを置いた時刻ごとの合成でも同じ。"""
+    weights = {STOP_AXIS: 1.0, "axis_a": 1.0, WIND_AXIS: 1.0 if hourly else 0.0}
+    kwargs = {"weights": weights, "penalty": 0.7, "series": _series([0.0, 0.0]) if hourly else None}
+    whole = _matrix(2, distance=[100.0, 400.0], signals_per_km=[10.0, 0.0], axes={"axis_a": 30.0, WIND_AXIS: np.nan})
+    cut = _matrix(3, distance=[10.0, 90.0, 400.0], signals_per_km=[50.0, 0.5 / 0.09, 0.0],
+                  axes={"axis_a": 30.0, WIND_AXIS: np.nan})
+
+    whole_leg = _composer(whole, **kwargs).compose("leg", None, 0.0, +1)
+    cut_leg = _composer(cut, **kwargs).compose("leg", None, 0.0, +1)
+
+    assert cut_leg.cost_lazy.sum() == pytest.approx(whole_leg.cost_lazy.sum(), rel=1e-9)
+    assert whole_leg.cost_lazy.sum() > whole_leg.travel_seconds_lazy.sum()
+
+
+def test_weight_on_a_density_axis_makes_the_search_prefer_fewer_stops_however_they_are_spread():
+    """2kmの2本の道。北は500mごとに交差点の脇の50mの区間に信号1つ（2回/km）、南は500mの区間4本に均して1.8回/km。
+    停止密度の軸だけに重みを置くと、回数の少ない南の費用が小さい（探索は経路の費用の和が小さい道を選ぶ）。"""
+    north = _matrix(8, distance=[50.0, 450.0] * 4, signals_per_km=[20.0, 0.0] * 4)
+    south = _matrix(4, distance=500.0, signals_per_km=1.8)
+
+    north_cost, south_cost = (
+        _snapshot(matrix, weights={STOP_AXIS: 1.0}, penalty=0.7).cost_lazy.sum() for matrix in (north, south)
+    )
+
+    assert south_cost < north_cost
 
 
 def test_an_axis_that_reads_the_wind_scores_a_headwind_above_a_tailwind(wind_axis):
