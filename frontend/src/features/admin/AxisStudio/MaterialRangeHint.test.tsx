@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import type { MaterialDistribution } from "@/features/admin/adminApi";
 import { settle } from "@/testing/settle";
 import { onSameOrigin } from "@/testing/backendServer";
-import { settle } from "@/testing/settle";
 
 import { MaterialRangeHint } from "./MaterialRangeHint";
 
