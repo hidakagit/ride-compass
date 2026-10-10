@@ -19,7 +19,7 @@ Redisへ置くもの・TTL・判断のキャッシュ・無効化の決まり。
 | JMAタイル本体（`jma:tile`） | **気象庁** | Redis |
 | 在否インデックス（`jma:tile-index`） | 同上（プリウォームが作る共有知識） | Redis |
 | アメダス観測値（`jma:amedas`） | **気象庁** | Redis |
-| アメダスの1時間雨量の履歴（`jma:amedas:rain-history`、正時ごと×観測所） | **気象庁** | Redis（読む側は求めた材料の値をプロセス内に5分持つ） |
+| アメダスの1時間雨量の履歴（`jma:amedas:rain-history`、正時ごと×観測所） | **気象庁** | Redis（読む側は求めた材料の値をプロセス内に短く持つ、`jma_amedas_service.py: _RAIN_MATERIALS_CACHE_TTL_SECONDS`） |
 | 取込範囲全体の道路網の配列（`road_network_store`） | 自前のPostGIS | ディスク（メモリマップで読む） |
 | way_id別の動的値（勾配） | 自前で再計算 | ディスク |
 | タイルのフィーチャーごとの材料（地図の配信が評価する） | 自前のPostGIS | ディスク |
@@ -35,15 +35,9 @@ Redisへ置くもの・TTL・判断のキャッシュ・無効化の決まり。
 
 ### ワーカー複数化に備えて注意すること
 
-backendは1プロセスでしか正しく動かず、ワーカーを増やすと起動を止める（`infrastructure/single_process.py: require_single_worker`。
-[cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)「1プロセスの境界」）。複数化するときは、キャッシュの
-ほかに次の2つが問題になる:
-
-- **APSchedulerのバッチ**（アメダス更新・JMAタイルのプリウォーム・MSM同期）は`main.py`のlifespanで登録されるため、
-  ワーカーごとに起動する。複数化するなら、バッチを1プロセスへ寄せる仕組み（専用ワーカー・Redisロック等）が要る
-- 上流への秒間上限（`jma_tile_upstream_max_requests_per_second`）は**プロセス内の状態**のため、実効値がN倍になる
-
-**キャッシュをRedisへ寄せてもこの2つは解決しない。** 複数化に着手するときは別途扱うこと。
+backendは1プロセスでしか正しく動かない（[cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)
+「1プロセスの境界（`single_process.py`）」）。プロセス内の状態はキャッシュのほかにもあるため、**キャッシュをRedisへ寄せても
+複数化はできるようにならない**。
 
 ## Redisへ持つときは`redis_json_cache`を使う
 
@@ -53,10 +47,8 @@ backendは1プロセスでしか正しく動かず、ワーカーを増やすと
 まとめて書くなら、Hashの`redis_json_cache.py: get_hash`/`redis_json_cache.py: set_hashes`（pipelineで1往復）を使う。**呼び出し元が持つのは
 キー設計・TTL・値の意味づけだけ**にする。
 
-**呼び出し元は`infrastructure/`のモジュールにする**。鍵・保存する形・TTL・保存した形の検査はそのモジュールが持ち、
-`services/`とは値でやり取りする（例: `infrastructure/jma_amedas_store.py`）。上の層がRedisの接続を直にimportすると
-`lint-imports`が落ちる（[directory-layout.md](../../docs/architecture/directory-layout.md)「backend」）。
-`services/`がプロセス内（`cachetools`）に持つ、自分で求めた値のキャッシュはこの規則の外にある。
+**呼び出し元は`infrastructure/`のモジュールにする**（例: `infrastructure/jma_amedas_store.py`。層の決まりは
+[directory-layout.md](../../docs/architecture/directory-layout.md)「backend（`backend/app/`）」で、`lint-imports`が見る）。
 
 ```python
 from app.infrastructure.redis_json_cache import get_json, set_json
@@ -65,12 +57,13 @@ value = await get_json(key, category="cache:xxx")            # ミスはNone・�
 await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 ```
 
-**自前で骨格を書いてよい例外**（該当する場合はその理由をモジュールのdocstringへ書く）:
+**自前で骨格を書いてよい例外**（該当する場合は、理由とともに`backend/tests/structure/test_redis_skeleton.py: ALLOWED`へ足す。
+[caching.md](caching.md)「直接使ってよい場所」）:
 
 - 骨格に無い一括読み書きが必要（`mget`で1リクエストに数百キーを引く等）
 - キーの生存期間を個別に操作する必要がある（TTLの付与以外のRedis機能を使う）
 
-例外に当たる場合も、原則3（失敗の記録）と原則2（fail-open）は必ず満たす。
+例外に当たる場合も、[caching.md](caching.md)「大原則」の2（fail-open）と3（失敗の記録）は必ず満たす。
 
 ## TTLの決め方
 
@@ -78,14 +71,11 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 
 | 類型 | 決め方 | 現在の例 |
 |---|---|---|
-| 上流の更新間隔に合わせる | 上流の更新周期 ＋ 取り込みの余裕 | アメダス観測15分（バッチ10分＋余裕） |
-| 内容が変わらない期間に合わせる | 内容が確定して以後変化しないなら、その識別子が有効な間 | JMAタイル本体20分（`basetime`が変わればキーも変わる） |
-| ほぼ不変なマスタ | 1日 | 地域マスタ・WBGT地点マスタ・観測所一覧（いずれも24時間）・地点の検索をブラウザが持つ時間（`api/cache_policy.py: MASTER_LOOKUP`） |
-| 共有率で決める | 短くしすぎるとヒットせず、長くすると鮮度を失う中間 | `targetTimes`2分 |
-| 再計算コストで決める | 失っても計算し直すだけなら長め | 道ごとの勾配の値（24時間） |
-
-**避けること**: 「なんとなく10分」。上のどれにも当てはまらない場合は、その値にした理由を1行で書けるかを先に確認する。
-書けないなら、まだ決め方が定まっていない。
+| 上流の更新間隔に合わせる | 上流の更新周期 ＋ 取り込みの余裕 | アメダス観測（`jma_amedas_store.py: _OBSERVATION_TTL_SECONDS`、取得のバッチの間隔＋余裕） |
+| 内容が変わらない期間に合わせる | 内容が確定して以後変化しないなら、その識別子が有効な間 | JMAタイル本体（`jma_tile_redis_cache.py: TTL_SECONDS`。`basetime`が変わればキーも変わる） |
+| ほぼ不変なマスタ | 1日 | 地域マスタ・WBGT地点マスタ（`wbgt_client.py: _POINT_MASTER_CACHE_TTL_SECONDS`）・観測所一覧・地点の検索をブラウザが持つ時間（`api/cache_policy.py: MASTER_LOOKUP`） |
+| 共有率で決める | 短くしすぎるとヒットせず、長くすると鮮度を失う中間 | `targetTimes`（`jma_tile_client.py: _TARGET_TIMES_TTL_SECONDS`） |
+| 再計算コストで決める | 失っても計算し直すだけなら長め | 道ごとの勾配の値（`dynamic_way_value_cache.py: _TTL_SECONDS`） |
 
 ## 判断をキャッシュしてよい条件
 
@@ -115,8 +105,6 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 | 空の実体 | 200で返るが中身が空（透明タイル等） | クライアント → サーバー |
 | 在否インデックス | 「その範囲のどこが空か」の一覧 | クライアントの要求自体を発生させない |
 
-新しく疎なデータを扱うときは、**どれが要るのかを先に決める**（3つとも要るとは限らない）。
-
 ## 無効化（キャッシュを捨てる）
 
 **既定は世代番号**。キー自体に世代を埋め、変わった瞬間から新旧が別物になる方式にする。
@@ -124,7 +112,8 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 **世代は手で書かず、`app/infrastructure/cache_identity.py`で組み立てる**。鍵は「手で書くリビジョン」と「形の署名」の合成で、
 形——MVTへ焼き込むSQL、そこへ**あらかじめ束ねた値**（分類タグ集合等）、pickleするdataclassの列構成——は機械的に署名する。
 **署名に入らないものを増やさないこと**（`str()`に現れない材料（バインドパラメータの値等）は、焼き込む値だけが変わって鍵が動かない）。
-手で上げるのは「形は変わらないが意味が変わった」ときだけ（同じSQL・同じ列のまま、読み先のテーブルの中身をバッチで作り直したとき）。
+手で上げるのは、「形は変わらないが意味が変わった」のに、形の署名にも下のDBの世代にも表れないときだけ（値を作る式を変えた・
+土地被覆の画素が変わった等。下の「値を作る関数のソースまではハッシュしない」と、末尾の`LANDCOVER_REVISION`）。
 
 **ただし、デプロイを伴わずに起きる変化は手で書くリビジョンでは表せない。** この種の変化は**DBを正にする**——書いた側が
 単調カウンタを進め、読み手はディスクへ最後に書いた時点の記録と突き合わせて、違えば捨てる（派生データは
@@ -144,9 +133,8 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 **ただし世代番号は"古い実体が消える"ことを意味しない。** TTLのある層（Redis・TTLCache）は古い世代が自然に失効するが、
 **ディスクは残り続ける**。ディスクへ世代番号を使うなら、世代を上げたときに古い世代を削除する手段を必ず用意し、どこで呼ぶかまで決めること。
 
-道路網の配列の置き場は、作ったときに同じ形の古い世代を消し（`road_network_store.prune`）、起動後に形の違う置き場を消す
-（`prune_other_shapes`、`main.py`の起動時ジョブ。入れ替わるまでは旧コンテナが読んでいるため起動後にだけ消す）。
-新しくディスクへ世代番号を使うキャッシュを作るときは、同じ掃除の導線を用意すること。
+道路網の配列の置き場は、作ったときに同じ形の古い世代を消し（`road_network_store.py: prune`）、起動後に形の違う置き場を消す
+（`road_network_store.py: prune_other_shapes`、`main.py`の起動時ジョブ。入れ替わるまでは旧コンテナが読んでいるため起動後にだけ消す）。
 
 地域タイル（路面・点・土地被覆）は、起動直後と24時間ごとに、今配っている世代の鍵でないものを消す
 （`region_tile_cache.py: prune_other_generations`、`main.py`の定期ジョブ）。世代を読めていない系統（DBの世代が読めない・
@@ -172,4 +160,4 @@ GeoTIFFが決まるため、ラスタ構成の指紋（`infrastructure/cache_ide
 焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えても、MVTの世代は手で上げない
 ——`infrastructure/cache_identity.py: tile_version`がDBの世代と焼き込みの形の署名から決める。
 同じコミットで揃えるのは生成物（[deployment-sync.md](deployment-sync.md)「コミットと同時に揃えるもの」）。
-手で上げる世代定数は、署名に表れない土地被覆の画素の変化を表す`LANDCOVER_REVISION`だけ。
+地図のタイルの世代で手で上げる定数は、署名に表れない土地被覆の画素の変化を表す`cache_identity.py: LANDCOVER_REVISION`だけ。
