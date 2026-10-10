@@ -1239,6 +1239,6 @@ async def test_route_generation_calls_from_python_only_the_jit_that_the_image_ba
         departure = datetime(2026, 9, 22, 8, tzinfo=timezone(timedelta(hours=9)))
         assert await generator.generate_loops(at(CENTER), 4.0, 1.5, max_routes=3, start_time=departure)
         assert await generator.generate_via_waypoints(
-            at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=departure)
+            at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=3, start_time=departure)
 
     assert called and called <= baked
