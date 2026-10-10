@@ -12,11 +12,8 @@ from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.cache_identity import cache_identity
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
-from app.infrastructure.road_graph_repository import (
-    FEATURE_GRADIENT_INPUTS_SHAPE,
-    ROAD_SURFACE_TILE_SHAPE,
-    RoadGraphRepository,
-)
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.road_tile_sql import FEATURE_GRADIENT_INPUTS_SHAPE, ROAD_SURFACE_TILE_SHAPE
 from app.services.feature_midpoints import tile_features
 from app.services.tile_version_service import served_tile_version
 

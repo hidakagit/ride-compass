@@ -32,7 +32,7 @@ from app.domain.registry import TileKind
 from app.infrastructure.cache_identity import DataRevisions, tile_version
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.region_tile_cache import prune_other_generations
-from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE
+from app.infrastructure.road_tile_sql import ROAD_SURFACE_TILE_SHAPE
 from app.services import derived_data_revision_service
 
 

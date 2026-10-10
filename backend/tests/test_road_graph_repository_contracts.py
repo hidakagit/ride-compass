@@ -35,15 +35,15 @@ from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import MATERIAL_CATALOG, material_array_columns, tile_column_sql
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
+from app.infrastructure.road_tile_sql import ROAD_SURFACE_TILE_MVT_SQL
 from app.infrastructure.derived_models import EdgeCountsRow, EdgeElevationRow, EdgeLandcoverRow, WayCountsRow
 from app.domain.graph import edge_key, node_key
 from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
+from app.infrastructure.material_joins import material_from_clause, reversed_material_expression
 from app.infrastructure.road_graph_repository import (
     ID_CHUNK_SIZE,
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
-    material_from_clause,
-    reversed_material_expression,
     way_from_clause,
 )
 
@@ -404,7 +404,7 @@ async def test_tile_inside_the_imported_area_is_bytes_even_without_features(tile
 def test_every_material_on_the_road_tile_is_baked_from_its_value_expression():
     """地図の色と評価は、同じ材料なら同じ求め方から出る。タイルの列を手で書くと、値式を直しても地図だけが
     古い求め方のまま残る。"""
-    sql = str(road_graph_repository.ROAD_SURFACE_TILE_MVT_SQL)
+    sql = str(ROAD_SURFACE_TILE_MVT_SQL)
     on_tile = [spec for spec in MATERIAL_CATALOG.values() if spec.tile_property is not None]
 
     assert on_tile

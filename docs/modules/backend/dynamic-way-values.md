@@ -133,7 +133,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
   スケールになる。
 - 段階の境界も`map_paint`が同じスケールへ揃えて返す（[axis-studio.md](axis-studio.md)「地図が塗るもの」）。
 - **フィーチャーの値は、属する区間の勾配の値式を長さで重み付けて平均したもの**
-  （`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`。集約の式は`domain/material_sql.py: length_weighted_mean_sql`）。区間単位のズームでは属する区間が1本なので
+  （`road_tile_sql.py: FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`。集約の式は`domain/material_sql.py: length_weighted_mean_sql`）。区間単位のズームでは属する区間が1本なので
   その区間の値そのもの、way単位のズームではwayの全区間をならした値になる。1区間の外れ値が
   way全体を染めることは無い（19mの区間の値で2kmの幹線が塗られていた）。符号付きで平均する
   ため、結果はwayの両端の標高差を全長で割った値と一致し、**崖を下って上り返す道は
@@ -190,7 +190,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 
 **材料単位の失効は鍵で表す**。`value_shape`は材料のサービスが必須キーワードで渡し、勾配は
 `services/gradient_way_service.py: GRADIENT_VALUE_SHAPE`（入力のSQLの署名
-`infrastructure/road_graph_repository.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近で値を決めない幅・丸めの桁を
+`infrastructure/road_tile_sql.py: FEATURE_GRADIENT_INPUTS_SHAPE`・直角付近で値を決めない幅・丸めの桁を
 機械で署名し、式を変えたときだけ手で上げるリビジョンを添えたもの）。材料の計算を変えたデプロイの直後から、その材料のエントリだけが読まれなくなり、
 他の材料のエントリは残る。タグで消す方式（起動時に材料ごと`evict`）にしないのは、デプロイで入れ替わるまで
 旧コンテナが同じ置き場へ古い計算の値を書き続け、消した直後に同じ鍵へ戻るため。読まれなくなったエントリは

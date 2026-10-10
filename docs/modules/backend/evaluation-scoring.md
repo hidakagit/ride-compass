@@ -34,7 +34,7 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 **タイルへ焼く列は、値式を載せ方で包むだけ**。`tile_property`を持つ全材料について、タイルの列を
 `domain/material_catalog.py: tile_column_sql`が値式から組み、路面タイルの文
-（`road_graph_repository.py: ROAD_SURFACE_TILE_MVT_SQL`）は`material_tile_columns`をそのまま並べる——材料を1つ足せば
+（`road_tile_sql.py: ROAD_SURFACE_TILE_MVT_SQL`）は`material_tile_columns`をそのまま並べる——材料を1つ足せば
 タイルにも列が増え、式を直せば地図と評価が一緒に変わる（タイルの形の署名も変わり、配信中のタイルは作り直しになる）。
 `tile_property`を持つ材料は値式を必ず持つ（宣言の検証が断る）。載せ方は型ごとに決まる:
 
@@ -391,7 +391,7 @@ MaterialSpec]`が単一ソース。
   `landcover.py: landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
   **材料の値式は`em.lc_*`だけを読み、区間の値が無いときに道1本の値へ落とさない**——区間の値は全区間ぶん
   計算されており、落とす先は同じ道の平均でしかない。道1本を単位に値を求める文脈
-  （`road_graph_repository.py: material_from_clause`が`em`を道1本の行へ読み替える）では道の値になる。
+  （`material_joins.py: material_from_clause`が`em`を道1本の行へ読み替える）では道の値になる。
   路面タイルと区間インスペクタ（`get_feature_landcover`）も、フィーチャーの単位（区間かway丸ごとか）で
   読む列を選ぶ——単位を揃えないと、同じ場所で地図の色と内訳の数字が食い違う。
 
@@ -416,10 +416,10 @@ MaterialSpec]`が単一ソース。
 | `em` | 区間に付く値（主キーが区間の鍵の派生の表） | 標高・件数の密度・区間単位の土地被覆 |
 | `wm` | 道1本に付く値（主キーが道の鍵の派生の表） | way単位の土地被覆・道の曲がり具合等 |
 
-`em`・`wm`を与えるJOINは、どの経路でも`road_graph_repository.py: material_from_clause`が組み立てる。式が読む列を
+`em`・`wm`を与えるJOINは、どの経路でも`material_joins.py: material_from_clause`が組み立てる。式が読む列を
 宣言（`derived_models.py`）から引き、その列を持つ表だけを主キーで外部結合する。宣言に無い列を読む式は組み立てる時点で
 送出し、区間の表どうし（道の表どうし）が同じ名前の列を持つとimportの時点で送出する（別名の列の出どころが決まらない）。
-区間へ結ばずに値のある区間だけを数える欠損割合は、式が読む区間の値の表を同じ宣言から引き（`road_graph_repository.py: edge_material_table`）、
+区間へ結ばずに値のある区間だけを数える欠損割合は、式が読む区間の値の表を同じ宣言から引き（`material_joins.py: edge_material_table`）、
 その表を直に`em`として走査する。
 
 way粒度で引くときは、同じ式のまま`w`の行から同じ名前の別名を組み立てる
@@ -464,7 +464,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 | 母集団 | 対象 | 判定 |
 |---|---|---|
 | `"way"` | 生の道の全行（`infrastructure/source_models.py: WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_condition`（区間の値（別名`em`）が値を持つときに真のSQL条件式）。区間の値の表は区間への外部キーと同じ主キーを持ち区間1本に行は0か1なので、値のある区間は区間へ結ばずにその表だけを走査して数え、総数は`road_edges`の件数とする。式が読む表は宣言から引き（`road_graph_repository.py: edge_material_table`）、edge材料を`count(*) FILTER`で表ごとに1回の走査にまとめる（`_edge_coverage_sql`）。判定式が区間の形（`re`）を読むなら区間へ結ぶ形に戻す |
+| `"edge"` | `road_edges`全行 | `present_condition`（区間の値（別名`em`）が値を持つときに真のSQL条件式）。区間の値の表は区間への外部キーと同じ主キーを持ち区間1本に行は0か1なので、値のある区間は区間へ結ばずにその表だけを走査して数え、総数は`road_edges`の件数とする。式が読む表は宣言から引き（`material_joins.py: edge_material_table`）、edge材料を`count(*) FILTER`で表ごとに1回の走査にまとめる（`_edge_coverage_sql`）。判定式が区間の形（`re`）を読むなら区間へ結ぶ形に戻す |
 
 - **「行がある」と「値がある」を混同しない**。派生の表は区間ごとに行を持ち、値を出せない列は
   NULLのまま残す（土地被覆の`lc_*`がそう。NULLの意味は[静的道路属性](static-road-attributes.md)「値が無ければNULL」）。
