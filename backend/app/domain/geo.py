@@ -142,8 +142,8 @@ def haversine_distance_km_array(lat: np.ndarray, lon: np.ndarray, target: LatLon
     `haversine_distance_km`もこれを通す。
 
     `lat`/`lon`は複数地点の緯度経度配列（同一形状）、`target`は単一の目的地。
-    A*ヒューリスティック（`node_heuristic`）が、レグごとに目的地が変わるたびグラフ上の
-    全Nodeとの距離を1回のnumpy演算で求め直すために使う。
+    A*ヒューリスティック（`domain/route_search.py: straight_distances_m`）が、向かう先ごとにグラフ上の
+    全Nodeとの距離を1回のnumpy演算で求めるために使う。
     """
     lat1 = np.radians(lat)
     lon1 = np.radians(lon)

@@ -23,10 +23,12 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 - **コミットの前に、frontendで変えたファイルへ整形をかける**: CIの`format:check`（`frontend/package.json`）が見る
   `src/**/*.{ts,tsx,css}`に当たる変えたファイルへ、`./node_modules/.bin/prettier --write <変えたファイル>`をかけてからコミットする。
 - 回すときは、どの場面でも次のとおりにする。
-  - **範囲の例**: backend `pytest backend/tests/<テストのファイル> -q`、frontend `./node_modules/.bin/vitest run <該当ファイル>`。
+  - **範囲の例**: backend `pytest backend/tests/<テストのファイル> -q`、frontend `./node_modules/.bin/vitest run <該当ファイル>`、
+    根の `scripts/` の道具は `scripts` で `pytest tests/<テストのファイル> -q`。
     **frontendのコマンドに`npx`を付けない**。**例外は`tsc --noEmit`**で、プロジェクト全体で1回通す（Next.jsの生成型が無い
     作業ツリーでは、`tsc`の前に`next typegen`を回す）。所要時間と生成型の前提は[setup.md](../../../docs/architecture/setup.md)「テスト」。
-  - **静的検査とテストの両方が落ちていれば、静的検査を先に全部直してからテストを回す**。
+  - **静的検査とテストの両方が落ちていれば、静的検査を先に全部直してからテストを回す**。静的検査も、1件直すたびに
+    回し直さず、出た指摘を全部直してから次の1回を回す。
   - backendに`ruff format`をかけない（CIは`ruff check`だけを回す）。
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった
@@ -40,9 +42,9 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 | 層 | 回すもの | 担うこと |
 |---|---|---|
 | 手元 | 上の「手元の検査の回し方」 | CIの失敗の再現・書いているテストの動作・怪しいところの念押し（どれも届く範囲だけ） |
-| 作業ブランチ（`orch/**`）のCI | 必須チェックのワークフロー（名前と、文書や運用の道具・タスク管理だけの変更で重い検査を飛ばす範囲は[tech-stack.md](../../../docs/architecture/tech-stack.md)「CIの実行枠（リポジトリがpublicである間の前提）」。Pull Requestで走り、作業ブランチへのpushでは走らない） | 静的検査とフルスイート（Linuxでの結果）。masterと合わせた版で、masterへ入れてよいかの判定 |
-| masterのCI | 同じワークフロー | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`のbackend〜e2e-scanが通るまでbackend・frontendのデプロイは起動しない（flow-gate・文書の検査は待たない） |
-| 本番 | `scripts/prod_route_check.py`（backendを出したあとと毎日1回。[tech-stack.md](../../../docs/architecture/tech-stack.md)「本番でルートを作る確かめ」） | 本物の応答で、ルートを作ってレンズを替える操作が壊れていないか。デプロイを伴わない本番の値の変化も拾う |
+| 作業ブランチ（`orch/**`）のCI | 必須チェックのワークフロー（名前と、変更ごとにどのジョブを走らせるかの決め方は[tech-stack.md](../../../docs/architecture/tech-stack.md)「CIの実行枠（リポジトリがpublicである間の前提）」。Pull Requestで走り、作業ブランチへのpushでは走らない） | 静的検査とフルスイート（Linuxでの結果）。masterと合わせた版で、masterへ入れてよいかの判定 |
+| masterのCI | 同じワークフロー | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`の`ci-ok`が通るまでbackend・frontendのデプロイは起動しない（flow-gate・文書の検査は待たない） |
+| 本番 | `backend/scripts/prod_route_check.py`（backendを出したあとと毎日1回。[tech-stack.md](../../../docs/architecture/tech-stack.md)「本番でルートを作る確かめ」） | 本物の応答で、ルートを作ってレンズを替える操作が壊れていないか。デプロイを伴わない本番の値の変化も拾う |
 
 - **コミット・pushの直前（gitのフック）には検査を置かない。** 何を見ているかの正本は`scripts/review_checks.py`と各CIの段で、ここへ写さない。
 

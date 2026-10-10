@@ -1,6 +1,6 @@
 """backendのデプロイ対象から外したファイルが、本番で読まれていないことの検査。
 
-`scripts/deploy_backend_gate.py`は、本番プロセスに届かない変更でコンテナを入れ替えないよう、
+`backend/scripts/deploy_backend_gate.py`は、本番プロセスに届かない変更でコンテナを入れ替えないよう、
 一部のファイルを`NOT_DEPLOYED`で外している。外したファイルを本番側のコードが
 importすると、**そのファイルの変更だけが本番へ届かなくなる**。エラーにはならず、古い値で
 動き続ける。
@@ -19,12 +19,12 @@ import ast
 import subprocess
 from pathlib import Path
 
-from tests.script_module import load_script
+from scripts import deploy_backend_gate
 
 BACKEND = Path(__file__).resolve().parents[2]
 REPO = BACKEND.parent
 
-_GATE = load_script("deploy_backend_gate")
+_GATE = deploy_backend_gate
 
 
 def _image_code_dirs() -> list[Path]:

@@ -12,9 +12,8 @@ import sys
 from pathlib import Path
 
 import pytest
-
-from tests.git_repo import git
-from tests.script_module import load_script
+from git_repo import git
+from script_module import load_script
 
 rc = load_script("review_checks")
 

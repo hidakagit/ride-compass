@@ -119,7 +119,7 @@ CI・フック・開発環境の用意のスクリプト）・`tools/`（アプ�
     読まず、要る関数は引数で受ける（読むと同じ入力で結果が変わり、テストも時計を差し替えることになる）。
   - 生成物へ出す表示の宣言（地図のレイヤー・凡例の語彙等）はここに置く。レジストリから導く
     （構造仕様17）ため、レジストリと同じ層に要る。本番のプロセスが読まないものは
-    `scripts/deploy_backend_gate.py: NOT_DEPLOYED`がデプロイの判定から外す。
+    `backend/scripts/deploy_backend_gate.py: NOT_DEPLOYED`がデプロイの判定から外す。
 
 **判断の線（`services/`・`batch/`・`infrastructure/`）**: この3層が持ってよいのは、I/O（DB・外部・キャッシュ・
 ファイル）、外部の書式を解く・組む（`infrastructure/`と`batch/source_adapters/`。上の`domain/`の項の「外部の書式」）、
@@ -151,8 +151,8 @@ webアプリと別のプロセスで、その辞書へは何も読み込まれ�
 運用・生成スクリプトで、`export_openapi.py`がfrontend向けの生成物を書き出し、
 `bootstrap_database.py`がまっさらなDBをスキーマ→取込→派生の順で立ち上げる。
 `backend/ops/`は本番VMのホストで動くもの（systemdのユニットとそれが打つシェル）で、イメージには入らない。
-VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をそのコミットへ揃えるので、ここの変更もデプロイで届く
-（ユニットの中身を変えたときだけは、VMで`systemctl daemon-reload`が要る）。
+VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をそのコミットへ揃えて`systemctl daemon-reload`を打つので、
+ユニットもシェルもここの変更はデプロイで届く。
 
 **評価軸の行データはコードに無い。** `axis_definitions`テーブルが唯一の
 正本で、変更は軸スタジオ（`/api/admin/axis-definitions`）経由のみ

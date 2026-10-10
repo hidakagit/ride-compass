@@ -51,8 +51,8 @@ def test_redis_skeleton_is_not_copied() -> None:
     assert unexpected == [], (
         "Redisキャッシュの骨格を自前で書いているファイルがある"
         "（`redis_json_cache.py: get_json`/`redis_json_cache.py: set_json`、生のバイト列なら"
-        "`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使うこと。寄せられない事情があるなら"
-        "このテストのALLOWEDへ理由とともに足す）:\n  " + "\n  ".join(unexpected)
+        "`redis_json_cache.py: get_bytes`/`redis_json_cache.py: set_bytes`を使うこと。骨格に無い操作が要るなら"
+        "骨格へ口を足す）:\n  " + "\n  ".join(unexpected)
     )
 
 

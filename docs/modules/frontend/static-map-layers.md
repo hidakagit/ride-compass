@@ -821,7 +821,7 @@ ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタ
 ポップアップの値はOSMの道・点のタグ由来＝**第三者が編集できるデータ**で、
 対訳表に載らない値は生のまま出る（`roadFacts.ts: valueLabel`の`?? value`）。停止要因/補給POIの
 `kind`はOSMの生値ではなくbackendの分類器が付ける内部名なので、対訳が無ければ生値ではなく
-「不明」を出す（[design-principles.md](../../architecture/design-principles.md)UI仕様「内部名を画面に出さない」）。
+「不明」を出す（[画面の作法](../../../.claude/rules/screen.md)「内部名を画面に出さない」）。
 行き先は2通りあり、**どちらも値をテキストノードとして入れる**。道路の詳細はReactで描く
 （`RoadInspectorPopup.tsx`）。点データ（事故・POI）は`pointPopup.ts`がDOMを組み、
 `Popup.setDOMContent()`へ渡す。
