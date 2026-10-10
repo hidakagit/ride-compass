@@ -61,7 +61,9 @@ SELECT count(*) AS total,
        coalesce(max(EXTRACT(EPOCH FROM (now() - xact_start)))
                 FILTER (WHERE state = 'idle in transaction'), 0)::float AS longest_idle_transaction_seconds,
        coalesce(max(EXTRACT(EPOCH FROM (now() - query_start)))
-                FILTER (WHERE state = 'active'), 0)::float AS longest_query_seconds
+                FILTER (WHERE state = 'active'), 0)::float AS longest_query_seconds,
+       current_setting('max_connections')::int AS max_connections,
+       pg_database_size(current_database()) AS database_bytes
 FROM pg_stat_activity
 WHERE datname = current_database() AND pid <> pg_backend_pid()
 """
@@ -121,17 +123,18 @@ class DbStatusCounts:
 #: ソースごとの最新run（成否を問わない）と、成功した最新run。取込の記録は`source_runs`
 #: 1つだけなので、ソースが増えても宣言は要らない。
 _IMPORT_RUNS_SQL = f"""
-SELECT DISTINCT ON (source)
-       source,
-       run_id AS latest_id,
-       status AS latest_status,
-       finished_at AS latest_finished_at,
-       counts AS latest_counts,
-       origin AS latest_origin,
-       (SELECT run_id FROM {latest_succeeded_run_by_column_sql("r.source")} s) AS latest_succeeded_id,
-       (SELECT finished_at FROM {latest_succeeded_run_by_column_sql("r.source")} s) AS latest_succeeded_finished_at
-FROM source_runs r
-ORDER BY source, run_id DESC
+SELECT r.*, s.run_id AS latest_succeeded_id, s.finished_at AS latest_succeeded_finished_at
+FROM (SELECT DISTINCT ON (source)
+             source,
+             run_id AS latest_id,
+             status AS latest_status,
+             finished_at AS latest_finished_at,
+             counts AS latest_counts,
+             origin AS latest_origin
+      FROM source_runs
+      ORDER BY source, run_id DESC) r
+LEFT JOIN LATERAL {latest_succeeded_run_by_column_sql("r.source")} s ON true
+ORDER BY r.source
 """
 
 
@@ -176,22 +179,16 @@ class DbStatusQuery:
         )
 
         connection_row = (await self._session.execute(text(_CONNECTION_SQL))).mappings().one()
-        max_connections = int(
-            (await self._session.execute(text("SELECT current_setting('max_connections')::int"))).scalar_one()
-        )
-        database_bytes = int(
-            (await self._session.execute(text("SELECT pg_database_size(current_database())"))).scalar_one()
-        )
 
         return DbStatusCounts(
             imports=imports,
             tables=tables,
             connections=ConnectionCounts(
                 total=int(connection_row["total"]),
-                max_connections=max_connections,
+                max_connections=int(connection_row["max_connections"]),
                 idle_in_transaction=int(connection_row["idle_in_transaction"]),
                 longest_idle_transaction_seconds=float(connection_row["longest_idle_transaction_seconds"]),
                 longest_query_seconds=float(connection_row["longest_query_seconds"]),
             ),
-            database_bytes=database_bytes,
+            database_bytes=int(connection_row["database_bytes"]),
         )

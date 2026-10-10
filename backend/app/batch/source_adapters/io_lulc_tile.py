@@ -15,7 +15,7 @@ from typing import Any
 from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
-from app.domain.region import BoundingBox, tiles_covering_bbox
+from app.domain.region import tiles_covering_bbox
 from app.infrastructure.source_models import SourceFeatureRow
 
 logger = logging.getLogger("ridecompass.ingest.io_lulc_tile")
@@ -53,12 +53,7 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
     zoom = int(spec.grid.zoom)
     origin.update({"zoom": zoom,
                    "rasters": [file_origin(Path(raster)) for raster in rasters]})
-    min_lat, min_lon, max_lat, max_lon = profile.target.bbox
-    tiles = tiles_covering_bbox(
-        BoundingBox(min_latitude=min_lat, min_longitude=min_lon,
-                    max_latitude=max_lat, max_longitude=max_lon),
-        zoom,
-    )
+    tiles = tiles_covering_bbox(profile.target.bounding_box(), zoom)
     logger.info("土地被覆タイル: zoom=%d 対象%d枚", zoom, len(tiles))
 
     uncovered = 0

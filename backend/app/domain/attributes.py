@@ -183,11 +183,9 @@ agg AS (
 raw AS (
     SELECT e.osm_way_id, e.segment_index, e.on_structure, e.start_e, e.end_e,
            a.gain, a.loss,
-           CASE WHEN a.total_d > 0
-                 AND abs((e.end_e - e.start_e) / a.total_d * 100)
-                     <= {MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT}
-                THEN (e.end_e - e.start_e) / a.total_d * 100 END AS avg_g
-    FROM ends e JOIN agg a USING (osm_way_id, segment_index)
+           CASE WHEN abs(s.g) <= {MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT} THEN s.g END AS avg_g
+    FROM ends e JOIN agg a USING (osm_way_id, segment_index),
+         LATERAL (SELECT CASE WHEN a.total_d > 0 THEN (e.end_e - e.start_e) / a.total_d * 100 END AS g) s
     WHERE e.n >= 2)
 SELECT osm_way_id, segment_index,
        round(start_e::numeric, 1) AS start_elevation_m,

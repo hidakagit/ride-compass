@@ -7,6 +7,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 """
 
 from app.domain.geo import degrees_covering_m
+from app.domain.material_sql import sql_literals
 from app.domain.traffic import DIRECTION_BACKWARD, one_way_sql
 
 #: 同じ路線番号/名前を持つ相方を探すときの横方向の距離（m）。名前が一致している時点で
@@ -56,7 +57,7 @@ def divided_sql(row: str, candidates: str) -> str:
     # 前置フィルタの箱は距離の判定より必ず広く取る——箱の方が狭いと、箱の大きさが距離の実効の上限になる。
     named_deg = degrees_covering_m(NAMED_GAP_M)
     geometric_deg = degrees_covering_m(GEOMETRIC_GAP_M)
-    tag_values = ", ".join(f"'{value}'" for value in TAG_VALUES)
+    tag_values = sql_literals(TAG_VALUES)
     antiparallel = _antiparallel_sql(row)
     return f"""{one_way_sql(f"{row}.direction")} AND {row}.travel_deg IS NOT NULL AND (
                -- 条件1: OSM自身の申告
