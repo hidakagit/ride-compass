@@ -18,7 +18,7 @@ import { registerJmaTileProtocol, withJmaTileProtocol } from "@/features/map/lay
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import { heldReplies, inTurn, onBackend, onSameOrigin } from "@/testing/backendServer";
 import { protocolHandler } from "@/testing/maplibre";
-import { jmaDeliveryOf } from "@/testing/jmaDeliveries";
+import { jmaDeliveryOf, jmaTileUrlAt } from "@/testing/jmaDeliveries";
 
 import { useDynamicWeatherLayers } from "./useDynamicWeatherLayers";
 
@@ -245,7 +245,7 @@ describe("useDynamicWeatherLayers", () => {
       abort: AbortController,
     ) => Promise<unknown>;
     const template = jmaTilePayload("rasterTile", jmaDeliveryOf("rain_mesh"), FRAME).tileUrlTemplate;
-    const tile = template.replace("{z}/{x}/{y}", "5/28/12");
+    const tile = jmaTileUrlAt(template, 5, 28, 12);
     const tilePath = new URL(tile).pathname;
 
     onSameOrigin("GET", tilePath, failure);

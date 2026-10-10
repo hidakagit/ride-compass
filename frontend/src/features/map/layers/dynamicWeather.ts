@@ -29,6 +29,9 @@ type DynamicWeatherSourceId = string;
 /** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;
 
+// 範囲の判定の許容幅（目盛りがコマの時刻そのものの境界で、丸めに揺られないように）。
+const FRAME_RANGE_EPSILON_MS = 1000;
+
 /** 対象の時刻が今から`windowMs`先までの窓に入るか（コマの列を持たない単発の配信用）。 */
 export function isWithinFutureWindow(target: Date, now: Date, windowMs: number): boolean {
   const diffMs = target.getTime() - now.getTime();
@@ -40,9 +43,6 @@ export interface DynamicWeatherFrame<TRef = unknown> {
   time: Date;
   ref: TRef;
 }
-
-// 範囲の判定の許容幅（目盛りがコマの時刻そのものの境界で、丸めに揺られないように）。
-const FRAME_RANGE_EPSILON_MS = 1000;
 
 /** 対象の時刻に最も近いコマ。データの範囲の外ならnull（描かない——範囲外で最後のコマを出し続けない）。 */
 export function frameIndexForTime(frames: readonly { time: Date }[], target: Date): number | null {
