@@ -354,22 +354,13 @@ def best_first(ranked: list[int], best: int) -> list[int]:
     return [best, *(node for node in ranked if node != best)]
 
 
-def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
-    """候補のsegmentsから距離加重平均の合成difficultyを求める。順方向と逆回りの比較に使う。
-
-    最終候補へ付ける`overall_difficulty`と同じ計算だが、あちらは採否が確定した後の
-    後処理で、こちらはその採否自体を決めるために呼ぶ。
-    """
-    return merge_difficulty(candidate.segments)
-
-
 def pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
-    """順方向・逆回り候補のうち、`_route_composite_difficulty`が小さい（走りやすい）方を
-    採用する。逆回り側が算出不能（segments欠損等）なら順方向を採用する
+    """順方向・逆回り候補のうち、区間の合成difficultyの距離加重平均（`merge_difficulty`）が小さい
+    （走りやすい）方を採用する。逆回り側が算出不能（segments欠損等）なら順方向を採用する
     （比較不能を「逆回りの方が良い」とは解釈しない、安全側）。
     """
-    forward_difficulty = _route_composite_difficulty(forward)
-    reverse_difficulty = _route_composite_difficulty(reverse)
+    forward_difficulty = merge_difficulty(forward.segments)
+    reverse_difficulty = merge_difficulty(reverse.segments)
     if reverse_difficulty is not None and (forward_difficulty is None or reverse_difficulty < forward_difficulty):
         return reverse
     return forward

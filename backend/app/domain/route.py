@@ -233,15 +233,18 @@ def _split_into_bins(items: list[_T], distance_km: Callable[[_T], float]) -> lis
     return bins
 
 
+def _append_continuing(coordinates: list[list[float]], points: list[list[float]]) -> None:
+    """`points`を`coordinates`へ継ぐ。先頭の点が前の終点と同じなら重ねない。"""
+    if coordinates and points and coordinates[-1] == points[0]:
+        points = points[1:]
+    coordinates.extend(points)
+
+
 def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | None:
     coordinates: list[list[float]] = []
     for segment in segments:
-        if segment.geometry is None:
-            continue
-        points = segment.geometry["coordinates"]
-        if coordinates and points and coordinates[-1] == points[0]:
-            points = points[1:]
-        coordinates.extend(points)
+        if segment.geometry is not None:
+            _append_continuing(coordinates, segment.geometry["coordinates"])
     if len(coordinates) < 2:
         return None
     return {"type": "LineString", "coordinates": coordinates}
@@ -394,9 +397,7 @@ def merge_overall_difficulty(segments: list[RouteSegmentDetail]) -> OverallDiffi
 
 
 def merge_material_values(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.material_values`を材料idごとに距離加重平均へ集約する。
-    `merge_axis_difficulties`と同じ集約方法（`_merge_axis_value_dict`共有実装）。
-    """
+    """`RouteSegmentDetail.material_values`を材料idごとに距離加重平均へ集約する。"""
     return _merge_axis_value_dict(segments, lambda s: s.material_values, _round_significant)
 
 
@@ -458,11 +459,11 @@ def _undeclared_fields() -> list[str]:
     return sorted(set(RouteSegmentDetail.model_fields) - set(BIN_FIELD_MERGERS))
 
 
-if _undeclared_fields():
+if undeclared := _undeclared_fields():
     # 宣言し忘れたフィールドはビンで既定値になるだけで、型でも例外でも現れない
     # （区間インスペクタから値が消える）。読み込みの時点で止める。
     raise RuntimeError(
-        f"RouteSegmentDetail のフィールド {_undeclared_fields()} は、BIN_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
+        f"RouteSegmentDetail のフィールド {undeclared} は、BIN_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
     )
 
 
@@ -486,11 +487,8 @@ def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     coordinates: list[list[float]] = []
     offsets: list[int] = []
     for edge in edges:
-        points = [[lon, lat] for lat, lon in edge.geometry]
-        if coordinates and points and coordinates[-1] == points[0]:
-            points = points[1:]
         offsets.append(max(len(coordinates) - 1, 0))
-        coordinates.extend(points)
+        _append_continuing(coordinates, [[lon, lat] for lat, lon in edge.geometry])
     offsets.append(max(len(coordinates) - 1, 0))
     return {"type": "LineString", "coordinates": coordinates}, offsets
 

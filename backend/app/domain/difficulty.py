@@ -71,14 +71,16 @@ def weight_share(weight: float, other_weights: Iterable[float]) -> float | None:
     return None if total <= 0 else weight / total
 
 
-def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
-    """`terms`を先頭から順に加算する（Neumaier補償加算、Kahan加算の改良版）。
+def _neumaier_accumulate(terms: list[np.ndarray], length: int) -> np.ndarray:
+    """`terms`を先頭から順に加算する（Neumaier補償加算、Kahan加算の改良版）。項が無ければ長さ`length`の0。
 
     丸め誤差を打ち消す補正項を別に積算し、最後に本体へ足し込む。単純な逐次`+=`では
     誤差が項の数だけ積み上がり、真の値がちょうど.X5境界にある合成値の最終丸めが、誤差の
     向きしだいで別の側へ倒れる。n件分をまとめて配列演算で行い、Edge数万件規模でも
     Pythonループを使わない。
     """
+    if not terms:
+        return np.zeros(length)
     total = np.zeros_like(terms[0], dtype=float)
     compensation = np.zeros_like(terms[0], dtype=float)
     for term in terms:
@@ -116,10 +118,8 @@ def axis_weighted_sums(
 
     データ欠損（NaN）の軸はその区間だけ和から外す（項の作り方は`_axis_terms`が単一の情報源）。
     """
-    if not axis_arrays:
-        return np.zeros(length), np.zeros(length)
     score_terms, weight_terms = _axis_terms(axis_arrays, weights)
-    return _neumaier_accumulate(score_terms), _neumaier_accumulate(weight_terms)
+    return _neumaier_accumulate(score_terms, length), _neumaier_accumulate(weight_terms, length)
 
 
 def composite_difficulty_array(
@@ -138,12 +138,8 @@ def composite_difficulty_array(
     dynamic_scores, dynamic_weights = _axis_terms(axis_arrays, weights)
     score_terms = ([] if static_sums is None else [static_sums[0]]) + dynamic_scores
     weight_terms = ([] if static_sums is None else [static_sums[1]]) + dynamic_weights
-    if score_terms:
-        weighted_scores = _neumaier_accumulate(score_terms)
-        weight_sums = _neumaier_accumulate(weight_terms)
-    else:
-        weighted_scores = np.zeros(length)
-        weight_sums = np.zeros(length)
+    weighted_scores = _neumaier_accumulate(score_terms, length)
+    weight_sums = _neumaier_accumulate(weight_terms, length)
     with np.errstate(invalid="ignore", divide="ignore"):
         composite = weighted_scores / weight_sums
     composite = np.where(weight_sums == 0, np.nan, composite)

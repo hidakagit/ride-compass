@@ -55,11 +55,16 @@ def effective_max_zoom(spec: JmaTileSpec) -> int:
     ズームのタイルは存在せず空タイルが返る。合う側へ1段下げた値が実際の上限になる。
     """
     z = spec.max_native_zoom
-    if spec.zoom_use == "even":
-        return z if z % 2 == 0 else z - 1
-    if spec.zoom_use == "odd":
-        return z if z % 2 == 1 else z - 1
-    return z
+    return z if _matches_zoom_use(spec, z) else z - 1
+
+
+#: `zoom_use`が限るズームの偶奇（2で割った余り）。限らない`all`は持たない。
+_ZOOM_USE_PARITY = {"even": 0, "odd": 1}
+
+
+def _matches_zoom_use(spec: JmaTileSpec, zoom: int) -> bool:
+    parity = _ZOOM_USE_PARITY.get(spec.zoom_use)
+    return parity is None or zoom % 2 == parity
 
 
 @dataclass(frozen=True)
@@ -278,13 +283,7 @@ def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:
 
     `zoom_use`の偶奇に合わないズームは、配信元が200を返しても中身は空タイルになる。
     """
-    if zoom < JMA_TILE_MIN_ZOOM or zoom > effective_max_zoom(spec):
-        return False
-    if spec.zoom_use == "even":
-        return zoom % 2 == 0
-    if spec.zoom_use == "odd":
-        return zoom % 2 == 1
-    return True
+    return JMA_TILE_MIN_ZOOM <= zoom <= effective_max_zoom(spec) and _matches_zoom_use(spec, zoom)
 
 
 def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
@@ -318,9 +317,10 @@ def with_interpolated_zooms(
         return zooms
     filled = dict(zooms)
     for zoom in range(min(zooms) + 1, effective_max_zoom(jma_tile_spec(element_id)) + 1):
-        if source_zoom_for_interpolation(element_id, zoom) is None:
+        parent = source_zoom_for_interpolation(element_id, zoom)
+        if parent is None:
             continue
-        parents = filled.get(zoom - 1)
+        parents = filled.get(parent)
         if not parents:
             continue
         filled[zoom] = [

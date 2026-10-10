@@ -58,12 +58,12 @@ def _drop_thresholds_that_share_a_score(
     得点で入る道が無い（凡例に「0点未満」のような届かない段が出る）。
     """
     kept: list[float] = []
-    seen: list[float] = [min(shape.score_at(x) for x, _ in shape.breakpoints)]
+    last_score = min(shape.score_at(x) for x, _ in shape.breakpoints)
     for threshold in thresholds:
         score = shape.score_at(threshold)
-        if score <= seen[-1]:
+        if score <= last_score:
             continue
-        seen.append(score)
+        last_score = score
         kept.append(threshold)
     return kept
 
@@ -174,9 +174,8 @@ def _derive_ramp_inputs(
         if set(shape.mapping.keys()) == {True, False}:
             true_score = shape.mapping[True]
             false_score = shape.mapping[False]
-            lower, upper = sorted([true_score, false_score])
             tile_input = _boolean_score_tile_input(spec, true_score, false_score)
-            return RampInputs(tile_inputs=[tile_input], thresholds=[(lower + upper) / 2])
+            return RampInputs(tile_inputs=[tile_input], thresholds=[(true_score + false_score) / 2])
         if any(isinstance(key, bool) for key in shape.mapping):
             return None
         str_mapping = cast(dict[str, float], dict(shape.mapping))

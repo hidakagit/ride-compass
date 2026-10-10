@@ -126,10 +126,8 @@ class SegmentSpeedModel:
             raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} crr={rolling_crr.shape}")
         self._shape = grade.shape
         self._power = climb_power_w(wheel_power_w(profile), grade).astype(np.float32)
-        self._constant_force = (
-            rolling_crr * np.float32(profile.mass_kg * GRAVITY_M_S2)
-            + np.float32(profile.mass_kg * GRAVITY_M_S2) * grade
-        )
+        weight_n = np.float32(profile.mass_kg * GRAVITY_M_S2)
+        self._constant_force = rolling_crr * weight_n + weight_n * grade
         self._drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
         self._lowest_ms = kmh_to_ms(tuning_value("speed.walking_kmh"))
         self._highest_ms = kmh_to_ms(top_speed_kmh(profile.cruise_speed_kmh))
@@ -180,7 +178,8 @@ class SegmentSpeedModel:
             # 必要な出力が持っている出力を超えるなら、その速度は出せない（上限を下げる）。
             np.greater(scratch, power, out=too_fast)
             np.copyto(high, middle, where=too_fast)
-            np.copyto(low, middle, where=~too_fast)
+            np.logical_not(too_fast, out=too_fast)
+            np.copyto(low, middle, where=too_fast)
         np.add(low, high, out=middle)
         np.multiply(middle, np.float32(0.5), out=middle)
         # 呼び出し側（コスト配列・所要時間）はfloat64で揃えてある。
