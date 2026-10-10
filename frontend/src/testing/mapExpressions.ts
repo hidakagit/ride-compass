@@ -4,13 +4,17 @@ import { createExpression, featureFilter, type FilterSpecification } from "@mapl
 
 const GLOBALS = { zoom: 14 } as never;
 
-/** 式を、地物のプロパティへ当てた値。式として読めなければ、評価器の指摘を並べて投げる。 */
-export function evaluateExpression(expression: unknown, properties: Record<string, unknown>): unknown {
+/** 式を、地物のプロパティ（と feature-state）へ当てた値。式として読めなければ、評価器の指摘を並べて投げる。 */
+export function evaluateExpression(
+  expression: unknown,
+  properties: Record<string, unknown>,
+  state: Record<string, unknown> = {},
+): unknown {
   const compiled = createExpression(expression, "paint");
   if (compiled.result !== "success") {
     throw new Error(compiled.value.map((error) => `${error.key}: ${error.message}`).join("; "));
   }
-  return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, {});
+  return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, state);
 }
 
 /** 絞り（凡例の行の述語・レイヤーの`filter`）が、そのプロパティの地物に当てはまるか。`geometry`は地物の形
