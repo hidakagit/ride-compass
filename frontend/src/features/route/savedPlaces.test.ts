@@ -26,6 +26,15 @@ const HOME: SavedPlace = {
   latitude: 35.75,
   longitude: 139.73,
 };
+// 番地まで当たった住所。
+const OFFICE: SavedPlace = {
+  kind: "address",
+  level: "block",
+  name: "東京都文京区本郷七丁目3番",
+  area: null,
+  latitude: 35.71,
+  longitude: 139.76,
+};
 
 describe("readSavedPlaces", () => {
   it("今の画面が受け付けない件だけを捨て、ほかの件は残す", () => {
@@ -33,13 +42,15 @@ describe("readSavedPlaces", () => {
       CAFE,
       { ...HOME, name: " " },
       { ...HOME, kind: "station" },
+      { ...HOME, level: "building" },
       { ...HOME, latitude: "35.75" },
       { ...HOME, area: 1 },
       null,
       HOME,
+      OFFICE,
     ]);
 
-    expect(readSavedPlaces(raw)).toEqual([CAFE, HOME]);
+    expect(readSavedPlaces(raw)).toEqual([CAFE, HOME, OFFICE]);
   });
 
   it.each([

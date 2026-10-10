@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import palette from "@/types/generated/palette.json";
 import type { RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
@@ -24,6 +24,11 @@ interface DifficultyProfileProps {
   scaleKm: number;
   selected: SelectedRouteSegment | null;
   onSelect: (selection: SelectedRouteSegment) => void;
+}
+
+/** 距離を描画の横座標へ。 */
+function xAt(km: number, widthKm: number): number {
+  return Math.round((km / widthKm) * VIEW_WIDTH * 100) / 100;
 }
 
 function boxesPath(boxes: readonly ProfileBox[], xOf: (km: number) => number): string {
@@ -70,13 +75,25 @@ export default function DifficultyProfile({
       window.removeEventListener("pointercancel", up, true);
     };
   }, []);
-  const columns = profileColumns(segments);
+  const columns = useMemo(() => profileColumns(segments), [segments]);
   const routeKm = columns.length === 0 ? 0 : columns[columns.length - 1].endKm;
   const widthKm = Math.max(scaleKm, routeKm);
-  if (routeKm <= 0 || widthKm <= 0) return null;
+  // 塗る形はルートと横軸が変わったときだけ組む（なぞる間に動くのは、カーソルの線と選んだ区間の帯だけ）。
+  const paths = useMemo(() => {
+    if (widthKm <= 0) return null;
+    const xOf = (km: number) => xAt(km, widthKm);
+    const { byAxis, missing } = profileBoxes(columns, axisOrder, overallDifficulty);
+    return {
+      missing: missing.length > 0 ? boxesPath(missing, xOf) : null,
+      byAxis: axisOrder.flatMap((axisId) => {
+        const boxes = byAxis.get(axisId) ?? [];
+        return boxes.length === 0 ? [] : [{ axisId, d: boxesPath(boxes, xOf) }];
+      }),
+    };
+  }, [columns, axisOrder, overallDifficulty, widthKm]);
+  if (routeKm <= 0 || paths === null) return null;
 
-  const xOf = (km: number) => Math.round((km / widthKm) * VIEW_WIDTH * 100) / 100;
-  const { byAxis, missing } = profileBoxes(columns, axisOrder, overallDifficulty);
+  const xOf = (km: number) => xAt(km, widthKm);
   const selectedColumn = selected === null ? undefined : columns.find((column) => column.segment === selected.segment);
   // 自分で動かした地点がいま選ばれている区間の中にあるときだけ線を引く（地図で区間を押したときは区間の帯だけ）。
   const cursorKm =
@@ -86,6 +103,7 @@ export default function DifficultyProfile({
     scrubKm <= selectedColumn.endKm
       ? scrubKm
       : null;
+  const positionKm = cursorKm ?? selectedColumn?.startKm ?? 0;
 
   function selectAt(km: number) {
     // 横軸が候補より長いとき、候補の終わりより右は終点として選び、線も終点に引く。
@@ -103,13 +121,12 @@ export default function DifficultyProfile({
   }
 
   function handleKeyDown(event: KeyboardEvent<SVGSVGElement>) {
-    const current = cursorKm ?? selectedColumn?.startKm ?? 0;
     const step = routeKm * KEY_STEP_RATIO;
     const next =
       event.key === "ArrowRight"
-        ? current + step
+        ? positionKm + step
         : event.key === "ArrowLeft"
-          ? current - step
+          ? positionKm - step
           : event.key === "Home"
             ? 0
             : event.key === "End"
@@ -118,6 +135,11 @@ export default function DifficultyProfile({
     if (next === null) return;
     event.preventDefault();
     selectAt(next);
+  }
+
+  function releasePointer(pointerId: number) {
+    gesture.current.pointers.delete(pointerId);
+    if (gesture.current.pointers.size === 0) gesture.current.multi = false;
   }
 
   return (
@@ -133,8 +155,8 @@ export default function DifficultyProfile({
         data-usage="横が道のり、縦がその区間の難易度で、塗った面積がルートの負荷です。なぞるか押して離すと、その地点を地図に印で出し、下にその区間の詳細を出します。"
         aria-valuemin={0}
         aria-valuemax={Math.round(routeKm * 10) / 10}
-        aria-valuenow={Math.round((cursorKm ?? selectedColumn?.startKm ?? 0) * 10) / 10}
-        aria-valuetext={`${(cursorKm ?? selectedColumn?.startKm ?? 0).toFixed(1)} km地点`}
+        aria-valuenow={Math.round(positionKm * 10) / 10}
+        aria-valuetext={`${positionKm.toFixed(1)} km地点`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId);
           gesture.current.pointers.add(event.pointerId);
@@ -146,14 +168,9 @@ export default function DifficultyProfile({
         }}
         onPointerUp={(event) => {
           if (!gesture.current.multi && gesture.current.pointers.has(event.pointerId)) selectAt(kmAtPointer(event));
-          gesture.current.pointers.delete(event.pointerId);
-          if (gesture.current.pointers.size === 0) gesture.current.multi = false;
+          releasePointer(event.pointerId);
         }}
-        onPointerCancel={(event) => {
-          gesture.current.pointers.delete(event.pointerId);
-          if (gesture.current.pointers.size === 0) gesture.current.multi = false;
-        }}
-
+        onPointerCancel={(event) => releasePointer(event.pointerId)}
         onKeyDown={handleKeyDown}
       >
         {selectedColumn !== undefined && (
@@ -166,12 +183,10 @@ export default function DifficultyProfile({
             opacity={0.25}
           />
         )}
-        {missing.length > 0 && <path d={boxesPath(missing, xOf)} fill={palette.semantic.no_data} opacity={0.6} />}
-        {axisOrder.map((axisId) => {
-          const boxes = byAxis.get(axisId) ?? [];
-          if (boxes.length === 0) return null;
-          return <path key={axisId} d={boxesPath(boxes, xOf)} fill={axisColors[axisId] ?? palette.semantic.no_data} />;
-        })}
+        {paths.missing !== null && <path d={paths.missing} fill={palette.semantic.no_data} opacity={0.6} />}
+        {paths.byAxis.map(({ axisId, d }) => (
+          <path key={axisId} d={d} fill={axisColors[axisId] ?? palette.semantic.no_data} />
+        ))}
         {cursorKm !== null && (
           <line
             x1={xOf(cursorKm)}
