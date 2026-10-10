@@ -157,14 +157,14 @@ logger = logging.getLogger("ridecompass.graph")
 
 @dataclass
 class _RoadGraphContext:
-    """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
+    """prepareで構築し、1回の生成の前段・仕上げ・評価（`evaluate_loops`）で共有するリクエスト単位の状態。"""
 
     # 探索範囲の切り出し。ノードの番号・区間の元の行はこれが決める。
     road: RoadSlice
     # 起点のノード番号（`road`の切り出しの番号）。
     origin_node: int
-    # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
-    # 各経由地と目的地）を都度線形探索せず使い回すための索引
+    # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・前段の
+    # 各経由地・仕上げの目的地）を都度線形探索せず使い回すための索引
     # （domain/routing.py参照）。
     node_index: NodeSpatialIndex
     # 探索用グラフ（区間は番号、domain/routing.py: LazyRoadGraph参照）。
@@ -240,6 +240,21 @@ class _TurnaroundData:
     node: int
     outbound_edge_indices: list[int]
     outbound_length_m: float
+
+
+@dataclass(frozen=True)
+class FixedLegs:
+    """前段（`RoadGraphEngine.trace_fixed_points`）の結果: 出発地から置いた経由地を置いた順に、区間ごとの最短でつないだ道。
+
+    仕上げの戦略はここから続ける。戦略層は中身を読まず、受け取ったまま仕上げへ渡す。
+    """
+
+    # 区間（出発地→1つ目の経由地、…）ごとの、探索用グラフの区間の番号列。添字が`_RoadGraphContext.legs`の添字になる。
+    segments: list[list[int]]
+    # 最後の固定点（経由地が無ければ出発地）のノード番号。
+    last_node: int
+    # 前段の道の実距離（m）。
+    length_m: float
 
 
 class RoadGraphEngine:
@@ -443,80 +458,89 @@ class RoadGraphEngine:
             tile_set=search.tile_set,
         )
 
-    async def trace_loop(
-        self,
-        context: _RoadGraphContext,
-        waypoints: list[Coordinates],
-    ) -> TracedLoop:
-        """指定地点列を順にA*で結ぶ（経由地・目的地指定ルート）。
+    def _trace_leg(
+        self, context: _RoadGraphContext, leg_index: int, from_node: int, to_node: int, cumulative_m: float,
+    ) -> list[int] | None:
+        """置いた点どうしを結ぶ区間を1本、A*で探す。区間0は`prepare`が合成済みの往路レグそのもので、
+        ほかは区間の起点を基準点に、それまでの実距離ぶんの経過時間に置いて合成し`context.legs`へ足す。
 
-        `waypoints`は[起点, 中間経由地..., 終点]。起点は`prepare`がスナップ済みのNodeを
-        そのまま使い、中間経由地はここでスナップする。戻り値の`data`は経路上の区間の番号列で、
-        実ジオメトリはまだ持たない。
+        A*のヒューリスティックは区間ごとに目的地が変わるため、区間ごとにnumpyで1回だけ計算し直す。
         """
-        interior_nodes = []
-        for point in waypoints[1:-1]:
+        if leg_index == 0:
+            leg = context.legs[0]
+        else:
+            leg = context.composer.compose(
+                f"leg{leg_index}", _node_coordinates(context, from_node),
+                cruise_hours(cumulative_m / 1000, context.composer.speed_kmh), +1,
+            )
+            context.legs.append(leg)
+        return turn_expanded_shortest_path(
+            context.turn_structure, leg.cost_bins_lazy,
+            heuristic_seconds(
+                straight_distances_m(context.node_lat, context.node_lon, to_node), context.composer.speed_kmh,
+            ),
+            _origin_states(context.statics, from_node),
+            to_node,
+            leg.travel_bins_lazy, leg.bin_seconds,
+        )
+
+    async def trace_fixed_points(self, context: _RoadGraphContext, waypoints: list[Coordinates]) -> FixedLegs:
+        """前段: 出発地から、置いた経由地を置いた順に区間ごとのA*で結ぶ。経由地が無ければ出発地で止まる（区間は無い）。
+
+        起点は`prepare`がスナップ済みのNodeをそのまま使い、経由地はここでスナップする。
+        """
+        if not waypoints:
+            return FixedLegs(segments=[], last_node=context.origin_node, length_m=0.0)
+        node_sequence = [context.origin_node]
+        for point in waypoints:
             node = find_nearest_node_indexed(context.node_index, point)
             if node is None:
                 raise RoutingError("could not snap waypoints to road graph")
-            interior_nodes.append(node)
-        # 終点が起点と同一座標（周回）ならprepareで特別扱い済みの
-        # context.origin_nodeをそのまま再利用する（起終点を同じNodeに揃えないと周回が
-        # 閉じない）。終点が起点と異なる座標（目的地ルート）の場合のみ
-        # find_nearest_node_indexedで独立にスナップする。
-        end_point = waypoints[-1]
-        if end_point.latitude == waypoints[0].latitude and end_point.longitude == waypoints[0].longitude:
+            node_sequence.append(node)
+
+        trace_started = time.monotonic()
+        context.legs = context.legs[:1]
+        segments: list[list[int]] = []
+        cumulative_m = 0.0
+        for leg_index, (from_node, to_node) in enumerate(zip(node_sequence, node_sequence[1:])):
+            segment = self._trace_leg(context, leg_index, from_node, to_node, cumulative_m)
+            if segment is None:
+                raise RoutingError("no path found between waypoints")
+            segments.append(segment)
+            cumulative_m += float(context.statics.edge_length_m[segment].sum())
+        logger.info("trace_fixed_points legs=%d wall_ms=%d", len(segments), round((time.monotonic() - trace_started) * 1000))
+        return FixedLegs(segments=segments, last_node=node_sequence[-1], length_m=cumulative_m)
+
+    async def trace_to_end(
+        self, context: _RoadGraphContext, fixed: FixedLegs, destination: Coordinates | None,
+    ) -> TracedLoop:
+        """仕上げを素のA*で行う: 前段の最後の固定点から終点（`destination`、Noneなら出発地）まで1区間を結び、
+        前段と合わせた1本にする。戻り値の`data`は経路上の区間の番号列で、実ジオメトリはまだ持たない。
+
+        終点が出発地なら`prepare`がスナップ済みの`context.origin_node`をそのまま使う（起終点を同じNodeに
+        揃えないと周回が閉じない）。
+        """
+        if destination is None:
             end_node = context.origin_node
         else:
-            snapped = find_nearest_node_indexed(context.node_index, end_point)
+            snapped = find_nearest_node_indexed(context.node_index, destination)
             if snapped is None:
                 raise RoutingError("could not snap destination to road graph")
             end_node = snapped
-        node_sequence = [context.origin_node, *interior_nodes, end_node]
-
-        # A*ヒューリスティックはレグごとに目的地が変わるため、レグごとにnumpyで1回だけ
-        # 計算し直す。レグ0は`prepare`が合成済みの往路レグそのもの。
-        def _trace_segments() -> list[list[int]] | None:
-            segment_paths: list[list[int]] = []
-            context.legs = context.legs[:1]
-            cumulative_m = 0.0
-            for leg_index, (from_node, to_node) in enumerate(zip(node_sequence, node_sequence[1:])):
-                if leg_index == 0:
-                    leg = context.legs[0]
-                else:
-                    leg = context.composer.compose(
-                        f"leg{leg_index}", _node_coordinates(context, from_node),
-                        cruise_hours(cumulative_m / 1000, context.composer.speed_kmh), +1,
-                    )
-                    context.legs.append(leg)
-                segment_path = turn_expanded_shortest_path(
-                    context.turn_structure, leg.cost_bins_lazy,
-                    heuristic_seconds(
-                        straight_distances_m(context.node_lat, context.node_lon, to_node), context.composer.speed_kmh,
-                    ),
-                    _origin_states(context.statics, from_node),
-                    to_node,
-                    leg.travel_bins_lazy, leg.bin_seconds,
-                )
-                if segment_path is None:
-                    return None
-                segment_paths.append(segment_path)
-                cumulative_m += float(context.statics.edge_length_m[segment_path].sum())
-            return segment_paths
 
         trace_started = time.monotonic()
-        segment_paths = _trace_segments()
-        trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
-        logger.info("trace_loop wall_ms=%d", trace_wall_ms)
-        if segment_paths is None:
+        if not fixed.segments:
+            context.legs = context.legs[:1]
+        last = self._trace_leg(context, len(fixed.segments), fixed.last_node, end_node, fixed.length_m)
+        logger.info("trace_to_end wall_ms=%d", round((time.monotonic() - trace_started) * 1000))
+        if last is None:
             raise RoutingError("no path found between waypoints")
 
-        path = [index for segment in segment_paths for index in segment]
+        segments = [*fixed.segments, last]
+        path = [index for segment in segments for index in segment]
         if not path:
             raise RoutingError("resulting path has no edges")
-        leg_of_edge = [
-            leg_index for leg_index, segment_path in enumerate(segment_paths) for _ in segment_path
-        ]
+        leg_of_edge = [leg_index for leg_index, segment in enumerate(segments) for _ in segment]
         return TracedLoop(bearing=None, distance_km=_path_km(context, path), data=path, leg_of_edge=leg_of_edge)
 
     async def select_loop_turnarounds(
@@ -1061,7 +1085,7 @@ class RoadGraphEngine:
         `LOOP_MAX_OVERLAP_RATIO`を超えて重複するか。進行方向を無視して
         比較するため、「同じ周回の逆回り」（往路と復路が入れ替わっただけ）や「往路は違うが
         復路が同じ裏道へ収束する」周回のどちらも同じ判定で弾ける。`TracedLoop.data`は
-        区間の番号列（往路＋復路、`trace_loop_from_turnaround`/`trace_loop`参照）。
+        区間の番号列（往路＋復路、`trace_loop_from_turnaround`/`trace_to_end`参照）。
         """
         candidate_lengths = _physical_segments(context, candidate.data)
         for other in accepted:
