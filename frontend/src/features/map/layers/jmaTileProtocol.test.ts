@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { jmaDeliveryOf } from "@/testing/jmaDeliveries";
+import { jmaDeliveryOf, jmaTileUrlAt } from "@/testing/jmaDeliveries";
 
 import { jmaTilePayload } from "./jmaDelivery";
 
@@ -16,8 +16,7 @@ const VALIDTIME = "20260924010000";
 const FRAME = { basetime: BASETIME, member: "none", validtime: VALIDTIME };
 /** そのコマのタイルのテンプレート（描画ペイロードが持つもの）と、地図ライブラリが座標を埋めたURL。 */
 const TEMPLATE = jmaTilePayload("rasterTile", jmaDeliveryOf("inund"), FRAME).tileUrlTemplate;
-const at = (template: string, x: number, y: number) =>
-  template.replace("{z}", "5").replace("{x}", String(x)).replace("{y}", String(y));
+const at = (template: string, x: number, y: number) => jmaTileUrlAt(template, 5, x, y);
 const EMPTY_PNG_URL = at(TEMPLATE, 28, 12);
 const PRESENT_PNG_URL = at(TEMPLATE, 28, 13);
 const EMPTY_PBF_URL = at(jmaTilePayload("vectorTile", jmaDeliveryOf("flood"), FRAME).tileUrlTemplate, 28, 12);

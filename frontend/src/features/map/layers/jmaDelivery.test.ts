@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { JMA_DELIVERIES, jmaTileUrlAt } from "@/testing/jmaDeliveries";
 import jmaExpectations from "@/types/generated/jma-expectations.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
@@ -20,7 +21,6 @@ import {
 // 配信のオリジンは`@/lib/tileBaseUrl`が決める（`src/lib/tileBaseUrl.test.ts`）。ここでは固定する。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" }));
 const PROXY = "https://tiles.test/api/jma-tile/";
-const DELIVERIES = mapDisplay.weatherElements.flatMap((element): readonly JmaDelivery[] => element.jmaElements);
 const isTileElement = (element: (typeof mapDisplay.weatherElements)[number]) =>
   isJmaTileKind(element.kind) && element.jmaElements.length > 0;
 const TILE_ELEMENTS = mapDisplay.weatherElements.filter(isTileElement);
@@ -30,9 +30,6 @@ const FEATURE_ELEMENT = mapDisplay.weatherElements.find(
 )!;
 const FEATURE_DELIVERY: JmaDelivery = FEATURE_ELEMENT.jmaElements[0]!;
 const fileOf = (delivery: JmaDelivery, index = 0) => `${PROXY}${delivery.targetTimesPaths[index]}`;
-/** 地図ライブラリがタイル座標を埋めたURL。 */
-const tileAt = (template: string, z: number, x: number, y: number) =>
-  template.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
 
 /** 時刻一覧のファイルごとの応答。`undefined`のファイルは500を返す。 */
 function stubFiles(files: Record<string, unknown>) {
@@ -61,7 +58,7 @@ describe("時刻一覧の読み方", () => {
     const rows = jmaExpectations.read_target_times;
     expect(rows.length).toBeGreaterThan(0);
     for (const { scene, reader, element_id, rows: listing, frames } of rows) {
-      const delivery = { ...DELIVERIES[0]!, id: element_id, reader, dataDelayMinutes: 0 } as JmaDelivery;
+      const delivery = { ...JMA_DELIVERIES[0]!, id: element_id, reader, dataDelayMinutes: 0 } as JmaDelivery;
       expect(jmaFramesOf(delivery, listing), `${reader}: ${scene}`).toEqual(frames);
     }
   });
@@ -69,7 +66,7 @@ describe("時刻一覧の読み方", () => {
 
 describe("配信の遅れ", () => {
   const withDelay = (minutes: number) =>
-    ({ ...DELIVERIES.find((each) => each.dataDelayMinutes > 0)!, dataDelayMinutes: minutes }) as JmaDelivery;
+    ({ ...JMA_DELIVERIES.find((each) => each.dataDelayMinutes > 0)!, dataDelayMinutes: minutes }) as JmaDelivery;
   const delivery = withDelay(10);
   const read = (entries: ReturnType<typeof row>[]) => jmaFramesOf(delivery, entries);
   // 時刻一覧は最新の0:10の実況と20分先までを載せ、前のbasetimeは実況の行だけを残す。
@@ -92,7 +89,7 @@ describe("配信の遅れ", () => {
 
 describe("時刻一覧のファイル", () => {
   it("配列でない応答は形式の誤りとして失敗に数える", async () => {
-    const delivery = DELIVERIES[0];
+    const delivery = JMA_DELIVERIES[0];
     stubFiles({ [fileOf(delivery)]: {} });
     await expect(fetchJmaTargetTimesFile(delivery.targetTimesPaths[0], "要素")).rejects.toThrow(
       "要素の時刻一覧の形式が想定と異なります",
@@ -111,7 +108,7 @@ describe("コマのURL", () => {
       const tile = TILE_DELIVERIES.find((delivery) => delivery.id === element_id);
       if (tile === undefined) throw new Error(`タイルで描く配信要素に${element_id}が無い`);
       const { tileUrlTemplate } = jmaTilePayload("rasterTile", tile, tileFrame);
-      const url = tileAt(tileUrlTemplate, z, x, y);
+      const url = jmaTileUrlAt(tileUrlTemplate, z, x, y);
       expect(url).toBe(`${PROXY}${path}`);
       expect(readJmaTileUrl(url), element_id).toEqual({
         delivery: tile,
@@ -131,7 +128,7 @@ describe("コマのURL", () => {
 
   it("中身が届く前の仮のURLは、タイルで描く要素の最初の段の実在しない時刻を指す", () => {
     const element = TILE_ELEMENTS.find((each) => each.jmaElements.length > 1)!;
-    const ref = readJmaTileUrl(tileAt(jmaPlaceholderTileUrl(element), 4, 14, 6));
+    const ref = readJmaTileUrl(jmaTileUrlAt(jmaPlaceholderTileUrl(element), 4, 14, 6));
     expect(ref?.delivery).toBe(element.jmaElements[0]);
     expect(ref?.frame).toEqual({ basetime: "00000000000000", member: "none", validtime: "00000000000000" });
   });

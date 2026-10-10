@@ -6,8 +6,7 @@
 // （配信元のタイル・配信元の地物・自前の格子）ごとに1つずつの実装で描画内容を作る。
 import { useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import { deriveFetchLayerStatus, type LayerDataStatus } from "@/features/map/layers/mapLayers";
+import { deriveFetchLayerStatus, type LayerDataStatus, type MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import {
   fetchJmaGeojson,
   fetchJmaTargetTimesFile,
@@ -52,7 +51,12 @@ const GRID_PAYLOAD: Record<
 };
 
 /** 配信要素ごとの時刻一覧の読み取り結果。 */
-type DeliveryResult = { frames: readonly JmaFrame[]; error: null } | { frames: readonly JmaFrame[]; error: string };
+interface DeliveryResult {
+  frames: readonly JmaFrame[];
+  error: string | null;
+}
+
+const WEATHER_GROUPS: ReadonlySet<DynamicWeatherLayerId> = new Set(WEATHER_SOURCES.map((source) => source.group));
 
 /** 時刻一覧のファイル1つの取り方。間隔はそのファイルを読む表示中の要素のうち最も更新の速い系統に合わせる（遅い系統を
  * 早めに取り直すぶんには古い表示にならない）。失敗の文言に載る呼び名は最初に読む要素のもの（同じURLの同じ失敗を指す）。 */
@@ -317,8 +321,7 @@ export function useDynamicWeatherLayers({
   // 描けていれば空とせず、どれかの取得が失敗していれば失敗、どれかがまだ取れていなければ読み込み中。
   const dynamicWeatherDataStatus = useMemo(() => {
     const status: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>> = {};
-    const groups = new Set(WEATHER_SOURCES.map((source) => source.group));
-    for (const group of groups) {
+    for (const group of WEATHER_GROUPS) {
       const sources = shownSources.filter((source) => source.group === group);
       const results = deliveriesOf(sources).map(({ delivery }) => deliveryResults.get(delivery.id));
       const groupGeojsons = geojsonStates.filter((_, index) => geojsonRequests[index]?.group === group);

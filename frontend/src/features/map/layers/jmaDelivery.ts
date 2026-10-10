@@ -9,13 +9,11 @@ import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicWeather";
 
-// JMA bosaiタイル系（時刻一覧JSON・ラスタタイルPNG）の共通ベースURL。
-// バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
-// `GET /api/jma-tile/{path}`）経由にすることで、JMAの非公式内部APIへの直接アクセスを
-// 避けつつ配信する。
-
 /**
  * JMAプロキシ配下のパスを、タイル本体と同じ配信オリジンの絶対URLにする。
+ *
+ * 配信元の時刻一覧・タイル・地点は、バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
+ * `GET /api/jma-tile/{path}`）経由で取り、JMAの非公式内部APIへ直接は当たらない。
  *
  * 時刻一覧（`targetTimes*.json`）・地点のGeoJSONは、タイル本体と違ってアプリ自身の`fetch()`で
  * 読む。**タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると

@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { jmaDeliveryOf } from "@/testing/jmaDeliveries";
+import { jmaDeliveryOf, jmaTileUrlAt } from "@/testing/jmaDeliveries";
+import type { JmaTileIndexResponse } from "@/types/route";
 
-import { jmaTilePayload } from "./jmaDelivery";
-import type { JmaTileIndexResponse } from "./jmaTileIndex";
+import { jmaTilePayload, readJmaTileUrl } from "./jmaDelivery";
 import { buildJmaTileIndexLookup, isKnownEmptyTile } from "./jmaTileIndex";
 
 const BASETIME = "20260924000000";
@@ -19,10 +19,12 @@ const tileUrl = ({
   x = 28,
   y = 12,
 } = {}) =>
-  jmaTilePayload("rasterTile", jmaDeliveryOf(element), { basetime, member, validtime })
-    .tileUrlTemplate.replace("{z}", String(z))
-    .replace("{x}", String(x))
-    .replace("{y}", String(y));
+  jmaTileUrlAt(
+    jmaTilePayload("rasterTile", jmaDeliveryOf(element), { basetime, member, validtime }).tileUrlTemplate,
+    z,
+    x,
+    y,
+  );
 
 const JAPAN = { min_longitude: 122, min_latitude: 24, max_longitude: 146, max_latitude: 46 };
 
@@ -68,6 +70,6 @@ describe("isKnownEmptyTile（取得を省いてよいか）", () => {
     // 東経146.25度から先（網羅範囲の東端146度の外）
     ["網羅範囲の東端の外も取りに行く", lookup, tileUrl({ x: 29 }), false],
   ])("%s", (_scene, given, url, expected) => {
-    expect(isKnownEmptyTile(given, url)).toBe(expected);
+    expect(isKnownEmptyTile(given, readJmaTileUrl(url))).toBe(expected);
   });
 });

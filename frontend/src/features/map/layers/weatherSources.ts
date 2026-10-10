@@ -25,8 +25,7 @@ export type GridValue = NonNullable<DeclaredElement["gridValue"]>;
 
 /** 時刻の段1つ。配信元から取る段と、自前の格子から描く段がある。 */
 type WeatherStage =
-  | { origin: "jma"; kind: DeclaredElement["kind"]; delivery: JmaDelivery }
-  | { origin: "grid"; kind: DeclaredElement["kind"]; value: GridValue };
+  { origin: "jma"; kind: DeclaredElement["kind"]; delivery: JmaDelivery } | { origin: "grid"; value: GridValue };
 
 /** 名前付きソース1つ。同じ名前を名乗る要素の段を、宣言の順（近い時刻から）に持つ。 */
 export interface WeatherSource {
@@ -42,7 +41,7 @@ function stagesOf(element: DeclaredElement): WeatherStage[] {
     return element.jmaElements.map((delivery) => ({ origin: "jma", kind: element.kind, delivery }));
   }
   // 配信元から取らない要素は必ず読む格子の値を持つ（backendのtest_map_display.pyが全要素で確かめる）。
-  return [{ origin: "grid", kind: element.kind, value: element.gridValue! }];
+  return [{ origin: "grid", value: element.gridValue! }];
 }
 
 function buildWeatherSources(): readonly WeatherSource[] {

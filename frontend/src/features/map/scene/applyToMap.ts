@@ -56,7 +56,7 @@ import {
 } from "./groups/axisLines";
 import { POINT_ICONS, POINT_TILE_LAYERS } from "./groups/points";
 import type { RouteState } from "./groups/routes";
-import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "./groups/weather";
+import { WEATHER_ICONS, weatherElementKey, type WeatherPayload, type WeatherState } from "./groups/weather";
 import { buildLegendFilterExpression } from "./sceneBuilders";
 import type { SceneInputs } from "./buildScene";
 import { EMPTY_MAP_SCENE, hiddenBasemapPois, type MapScene } from "./mapScene";
@@ -231,14 +231,14 @@ function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): Axi
   return { axes: [...ramp, ...dedicated], sourceLayer };
 }
 
-/** 届いている中身を、要素の鍵（`${チップid}/${ソース}`）で引ける形へ移す。 */
+/** 届いている中身を、要素の鍵（`groups/weather.ts: weatherElementKey`）で引ける形へ移す。 */
 function weatherStateFrom(props: SceneWiringProps): WeatherState {
   const shown = new Map<string, { visible: boolean; payload?: WeatherPayload }>();
   for (const [groupId, group] of Object.entries(props.look.dynamicWeather)) {
     if (group === undefined) continue;
     for (const [sourceId, source] of Object.entries(group)) {
       if (source === undefined) continue;
-      shown.set(`${groupId}/${sourceId}`, {
+      shown.set(weatherElementKey({ group: groupId, source: sourceId }), {
         visible: source.visible,
         ...(source.payload === undefined ? {} : { payload: weatherPayloadFrom(source.payload) }),
       });

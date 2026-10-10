@@ -247,7 +247,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("配られた値は、道路のソースの地物へ載り、塗っている軸の線が見える", () => {
       const { map, handle } = createRecordingMap();
       rebuild(
-        map as never,
+        map,
         shown(
           { surface: true },
           { paintedAxisId: "ded1", dedicatedWayValues: delivered({ ded1: { w1: 3 }, ded2: { w1: 7 } }) },
@@ -264,7 +264,7 @@ describe("状態を地図へ伝えた結果", () => {
       const opacityWith = (surface: boolean) => {
         const { map, handle } = createRecordingMap();
         rebuild(
-          map as never,
+          map,
           sceneState({ catalog: { rampAxes }, look: { paintedAxisId: "paved", layerVisibility: { surface } } }),
         );
         return handle.layer(roadLayerId("paved"))?.paint["line-opacity"];
@@ -278,6 +278,10 @@ describe("状態を地図へ伝えた結果", () => {
 
 describe("レイヤーを横断する要求", () => {
   const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+
+  /** 地図へ足したレイヤーの宣言（足した順）。 */
+  const addedLayers = (handle: ReturnType<typeof createRecordingMap>["handle"]) =>
+    handle.trace.filter((entry) => entry.call === "addLayer").map((entry) => entry.args[2]);
 
   /** 宣言された描き方に合う中身を、全要素ぶん作る。**名指ししない**——母集団は源泉の
    * 宣言（生成物）なので、backendが要素を増やせばそのまま対象になる。 */
@@ -303,29 +307,18 @@ describe("レイヤーを横断する要求", () => {
     for (const role of Object.keys(AREA_SOURCE_ID)) visibility[role] = true;
     visibility.route = true;
     const mode = { id: "difficulty", label: "難易度", colorExpression: ["literal", "#16a34a"], legend: [] };
+    const line = {
+      type: "LineString",
+      coordinates: [
+        [139.7, 35.6],
+        [139.71, 35.61],
+      ],
+    };
     const candidate = {
       id: "a",
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [139.7, 35.6],
-          [139.71, 35.61],
-        ],
-      },
+      geometry: line,
       segments: [
-        {
-          start_longitude: 139.7,
-          start_latitude: 35.6,
-          end_longitude: 139.71,
-          end_latitude: 35.61,
-          geometry: {
-            type: "LineString",
-            coordinates: [
-              [139.7, 35.6],
-              [139.71, 35.61],
-            ],
-          },
-        },
+        { start_longitude: 139.7, start_latitude: 35.6, end_longitude: 139.71, end_latitude: 35.61, geometry: line },
       ],
     };
     // 絞り込みの式も検証の対象にするため、凡例の先頭の行と「値なし」を隠しておく。
@@ -378,7 +371,7 @@ describe("レイヤーを横断する要求", () => {
     const sources = Object.fromEntries(
       handle.trace.filter((entry) => entry.call === "addSource").map((entry) => [entry.args[0], entry.args[1]]),
     );
-    const layers = handle.trace.filter((entry) => entry.call === "addLayer").map((entry) => entry.args[2]);
+    const layers = addedLayers(handle);
     // 空振りしていないこと（載っていなければ検証は常に通る）。
     expect(layers.length).toBeGreaterThan(mapDisplay.weatherElements.length);
 
@@ -398,9 +391,7 @@ describe("レイヤーを横断する要求", () => {
   it("feature-stateを読む式は、feature-stateを読めるプロパティにだけ置かれる", () => {
     const { map, handle } = createRecordingMap();
     rebuild(map, everythingVisible());
-    const layers = handle.trace
-      .filter((entry) => entry.call === "addLayer")
-      .map((entry) => entry.args[2] as Record<string, unknown> & { id: string; type: string });
+    const layers = addedLayers(handle) as (Record<string, unknown> & { id: string; type: string })[];
     const readsState = (expression: unknown): boolean =>
       Array.isArray(expression) && (expression[0] === "feature-state" || expression.some(readsState));
     const spec = latest as unknown as Record<string, Record<string, { expression?: { parameters?: string[] } }>>;

@@ -8,12 +8,8 @@
 // 網羅範囲外・URLを解釈できない）は必ず「取りに行く」へ倒す。誤って省くと危険情報が
 // 地図から消えるため、省けるのは「空だと確認済み」の場合だけに限る。
 
-/** backendの応答そのまま（`api/routers/jma_tile.py: JmaTileIndexResponse`の生成型）。
- * `available: false`ならインデックス無し（従来どおり全取得）。 */
 import type { JmaTileIndexResponse } from "@/types/route";
-import { jmaFrameKey, readJmaTileUrl, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
-
-export type { JmaTileIndexResponse };
+import { jmaFrameKey, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
 
 type AvailableIndex = Extract<JmaTileIndexResponse, { available: true }>;
 
@@ -24,9 +20,10 @@ export interface JmaTileIndexLookup {
   elements: Map<string, { frame: string; present: Set<string> }>;
 }
 
+/** backendの応答（`available: false`ならインデックス無し＝全取得）を判定用の形にする。 */
 export function buildJmaTileIndexLookup(response: JmaTileIndexResponse | null): JmaTileIndexLookup | null {
   if (!response?.available) return null;
-  const elements = new Map<string, { frame: string; present: Set<string> }>();
+  const elements: JmaTileIndexLookup["elements"] = new Map();
   for (const [elementId, entry] of Object.entries(response.elements)) {
     // basetime・validtimeが無い要素はフレームを照合できない＝インデックスを信用できないので載せない
     // （その要素は従来どおり全タイルを取りに行く）。
@@ -66,13 +63,11 @@ function intersectsCoverage(ref: Pick<JmaTileRef, "z" | "x" | "y">, coverage: Jm
  * そのタイルが「空だと確認済み」か。trueのときだけ取得を省いてよい。
  *
  * 次のいずれかに当てはまる場合はfalse（＝取りに行く）:
- * インデックス未取得／URLを解釈できない／その要素がインデックスに無い／
+ * インデックス未取得／URLを読み戻せない（`ref`がnull）／その要素がインデックスに無い／
  * インデックスのフレーム（basetime・validtime・member）が要求と違う／インデックスの網羅範囲外。
  */
-export function isKnownEmptyTile(lookup: JmaTileIndexLookup | null, url: string): boolean {
-  if (!lookup) return false;
-  const ref = readJmaTileUrl(url);
-  if (!ref) return false;
+export function isKnownEmptyTile(lookup: JmaTileIndexLookup | null, ref: JmaTileRef | null): boolean {
+  if (!lookup || !ref) return false;
   const entry = lookup.elements.get(ref.delivery.id);
   if (!entry) return false;
   if (entry.frame !== jmaFrameKey(ref.frame)) return false;

@@ -194,7 +194,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・ベクタのレイヤー名は�
 専用way値配信軸が担う。
 
 `disaster`（災害）は源泉がチップ`disaster`として宣言したソースを1チップへまとめたグループで、全ソースがそのチップ1つの入/切に
-連動する（凡例で個別に隠したソースだけは描かない。`useDynamicWeatherLayers.ts: isShown`）。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: TIER_OF`）の中では源泉の宣言
+連動する（凡例で個別に隠したソースだけは描かない。`useDynamicWeatherLayers.ts: isShown`）。同じ段（描き方ごとに決まる。`scene/groups/weather.ts: LAYER_OF_KIND`）の中では源泉の宣言
 （backendの`domain/weather_elements.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
 ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。**この並び順が

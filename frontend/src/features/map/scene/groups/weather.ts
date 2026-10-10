@@ -37,13 +37,14 @@ type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
 
 type WeatherRenderKind = DeclaredElement["kind"];
 
-const TIER_OF = {
-  rasterTile: "area",
-  gridFill: "area",
-  vectorTile: "observedLine",
-  outline: "observedLine",
-  gridMark: "point",
-} as const satisfies Record<WeatherRenderKind, string>;
+/** 描き方ごとの、重なりの段とレイヤーの型。 */
+const LAYER_OF_KIND = {
+  rasterTile: { tier: "area", type: "raster" },
+  gridFill: { tier: "area", type: "fill" },
+  vectorTile: { tier: "observedLine", type: "line" },
+  outline: { tier: "observedLine", type: "line" },
+  gridMark: { tier: "point", type: "symbol" },
+} as const satisfies Record<WeatherRenderKind, Pick<SceneLayerEntry, "tier" | "type">>;
 
 /** いま届いている中身。種類が宣言と合うときだけ描く。 */
 export type WeatherPayload =
@@ -258,7 +259,7 @@ function sourceOf(
   }
 }
 
-/** 並びは源泉の宣言のまま。同じ段（`TIER_OF`）の中ではこの並びが重なり順になる。 */
+/** 並びは源泉の宣言のまま。同じ段（`LAYER_OF_KIND`）の中ではこの並びが重なり順になる。 */
 const WEATHER_ELEMENTS: readonly WeatherElement[] = mapDisplay.weatherElements.map((element) => ({
   group: element.group,
   source: element.source,
@@ -268,11 +269,11 @@ const WEATHER_ELEMENTS: readonly WeatherElement[] = mapDisplay.weatherElements.m
 }));
 
 export type WeatherState = {
-  /** 表示ON/OFFと中身。鍵は `${group}/${source}`。 */
+  /** 表示ON/OFFと中身。鍵は`weatherElementKey`が作る。 */
   readonly shown: ReadonlyMap<string, { readonly visible: boolean; readonly payload?: WeatherPayload }>;
 };
 
-function weatherElementKey(element: Pick<WeatherElement, "group" | "source">): string {
+export function weatherElementKey(element: Pick<WeatherElement, "group" | "source">): string {
   return `${element.group}/${element.source}`;
 }
 
@@ -316,10 +317,9 @@ export const weatherGroup = declareGroup<WeatherState>((state) => {
     const visible = (shown?.visible ?? false) && matches;
     const layerOf = (role: string, paint: SceneLayerEntry["paint"]): SceneLayerEntry => ({
       role,
-      tier: TIER_OF[element.kind],
+      ...LAYER_OF_KIND[element.kind],
       source: id,
       ...sourceLayer,
-      type: layerTypeOf(element.kind),
       paint,
       ...(drawing.layout === undefined ? {} : { layout: drawing.layout }),
       visible,
@@ -332,17 +332,3 @@ export const weatherGroup = declareGroup<WeatherState>((state) => {
 
   return { sources, layers };
 });
-
-function layerTypeOf(kind: WeatherRenderKind): SceneLayerEntry["type"] {
-  switch (kind) {
-    case "rasterTile":
-      return "raster";
-    case "gridFill":
-      return "fill";
-    case "vectorTile":
-    case "outline":
-      return "line";
-    case "gridMark":
-      return "symbol";
-  }
-}
