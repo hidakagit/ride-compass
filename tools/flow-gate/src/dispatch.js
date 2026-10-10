@@ -180,6 +180,8 @@ export function summary(config, { watcher, tasks, working, expected, runs, start
   // 1つのタスクは1行にする: 担当の無い進行中のタスクが想定も超えていれば、その行に添える。
   const over = new Map(working.filter((t) => t.workHours > (expected[t.size] ?? Infinity))
     .map((t) => [t.number, `作業時間 ${t.workHours.toFixed(1)}時間 ／ 想定 ${expected[t.size].toFixed(1)}時間`]));
+  // 枠の行に添えるボードのステータス。tasks は開いたものだけなので、無ければ閉じている。
+  const statusOf = (number) => tasks.find((t) => t.number === number)?.status ?? "閉じた";
   const dev = tasks.filter((t) => t.held && !runUrlOf(config, t.held));
   const stuck = new Set(tasks.filter((t) => t.status === config.working && !dev.includes(t) && !runs.some((r) => r.number === t.number && !r.conclusion)).map((t) => t.number));
   const notes = [
@@ -190,7 +192,8 @@ export function summary(config, { watcher, tasks, working, expected, runs, start
   ];
   const lines = [`${STATUS_HEAD}（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
   for (const [kind, n] of Object.entries(config.coordinator.slots)) {
-    const rows = [...runs.filter((r) => r.kind === kind && !r.conclusion).map((r) => `- #${r.number} [実行](${r.url})`), ...started.filter((t) => t.kind === kind).map((t) => `- #${t.number}（いま起こした）`)];
+    const rows = [...runs.filter((r) => r.kind === kind && !r.conclusion).map((r) => `- #${r.number}（${statusOf(r.number)}） [実行](${r.url})`),
+      ...started.filter((t) => t.kind === kind).map((t) => `- #${t.number}（${statusOf(t.number)}・いま起こした）`)];
     lines.push("", `### ${kind}担当（${rows.length}/${n}）`, ...(rows.length ? rows : ["無し"]));
   }
   lines.push("", `### 開発機が持つ（${dev.length}）`, ...(dev.length ? dev.map((t) => `- #${t.number}`) : ["無し"]));

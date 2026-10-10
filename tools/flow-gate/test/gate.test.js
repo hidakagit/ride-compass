@@ -79,10 +79,13 @@ test("5 本文の先頭には、回答待ちの間だけ回答フォームへの
 });
 
 const pr = (action, extra) => deliver("pull_request", { repository: { full_name: config.code.repository }, action, pull_request: { number: 3, title: "題名", head: { ref: `${config.code.branchPrefix}8` }, html_url: "u", merged: false, ...extra } });
-test("6 Pull Request: 開くと進行中は検証中へ。閉じたら検証中だけを、マージされずなら未着手、マージされたら残りが無ければ完了・あれば未着手へ", async () => {
-  let gh = fakeGitHub({ issue: { number: 8, status: "中" } });
-  await pr("opened");
-  assert.equal(gh.issue.status, "検");
+test("6 Pull Request: 開くと進行中は検証中へ（下書きは準備ができたときに）。閉じたら検証中だけを、マージされずなら未着手、マージされたら残りが無ければ完了・あれば未着手へ", async () => {
+  let gh;
+  for (const [action, extra, want] of [["opened", {}, "検"], ["opened", { draft: true }, "中"], ["reopened", { draft: true }, "中"], ["ready_for_review", {}, "検"]]) {
+    gh = fakeGitHub({ issue: { number: 8, status: "中" } });
+    await pr(action, extra);
+    assert.equal(gh.issue.status, want, `${action} ${JSON.stringify(extra)}`);
+  }
   for (const [status, extra, body, want] of [["検", {}, "本文", "前"], ["検", { merged: true }, "本文", "済"], ["検", { merged: true }, left, "前"], ["答え待ち", { merged: true }, "本文", "答え待ち"]]) {
     gh = fakeGitHub({ issue: { number: 8, status, body } });
     await pr("closed", extra);

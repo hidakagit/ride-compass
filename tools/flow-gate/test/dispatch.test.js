@@ -1,4 +1,4 @@
-// 約束 19・20・23・25・35（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
+// 約束 19・20・23・25・35・37（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
 // GitHub（網）だけ。確かめるのは約束の結果（振り出す番号・At risk かどうか・書いたかどうか）。
 // ここで見ないもの: 状況の更新の文言・見回りのワークフローの止める（無効・止める時刻。bin/dispatch.js が読む値で決まる）・
 // 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）・持つ印を読む・消す git の呼び出し（tools.test.js が見る）。
@@ -116,4 +116,11 @@ test("23 状況の更新: 想定を超えた作業中のタスク・進行中な
   const bot = new GitHub("bot-token");
   assert.deepEqual([await putStatus(bot, config, calm), await putStatus(bot, config, calm), await putStatus(bot, config, summary(config, { ...base, idle: "止めている" }))], [true, false, true]);
   assert.equal(gh.updates[0].status, "AT_RISK");
+});
+
+test("37 状況の更新: 枠を使っている担当の行は、番号とそのタスクのボードのステータスを持つ（ボードの列と見比べられる）", () => {
+  const runs = [{ number: 3, kind: "作る", conclusion: null, url: "u0" }, { number: 4, kind: "作る", conclusion: null, url: "u1" }, { number: 5, kind: "確かめる", conclusion: "success", url: "u2" }];
+  const body = summary(config, { watcher: "w", tasks: [task(3, config.working), task(4, config.review)], working: [], expected: {}, runs, started: [], waiting: 0, idle: null }).body;
+  const section = body.slice(body.indexOf("### 作る担当")).split("\n\n")[0].split("\n").slice(1);
+  assert.deepEqual(section.map((l) => /^- #(\d+)（(\S+?)）/.exec(l)?.slice(1)), [["3", config.working], ["4", config.review]]);
 });

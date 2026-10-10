@@ -86,14 +86,15 @@ export class Gate {
     await this.write(issue, { status: from, ...back, comments: [notes.back(verdict.reason, from)] });
   }
 
-  // 作業ブランチの Pull Request: 開くと検証中へ（表で行けるのは進行中からだけ）。閉じたら、検証中のタスクだけを動かす: マージされずに
+  // 作業ブランチの Pull Request: 開くと検証中へ（表で行けるのは進行中からだけ）。下書きは、作る担当が CI を待って直している間なので
+  // 進行中のまま置き、準備ができた（ready_for_review）ときに検証中へ。閉じたら、検証中のタスクだけを動かす: マージされずに
   // 閉じた → 未着手、マージされた → 完了の条件が全部チェック済みなら完了（完成）、残りがあれば残りを書いて未着手。
   async pullRequest(action, pr) {
     const { branchPrefix } = this.config.code;
     const number = pr.head.ref.startsWith(branchPrefix) && Number(pr.head.ref.slice(branchPrefix.length));
     const issue = number && (await this.read({ number }));
     if (!issue?.item || issue.state !== "OPEN") return;
-    if (action !== "closed") return this.apply(issue, this.config.review);
+    if (action !== "closed") return pr.draft ? undefined : this.apply(issue, this.config.review);
     if (issue.status !== this.config.review) return;
     const said = (rest) => ({ comments: [notes.pullRequest(pr, rest)] });
     if (!pr.merged) return this.apply(issue, this.config.todo, said("がマージされずに閉じられました。コメントを読んでやり直してください。"));
@@ -106,7 +107,7 @@ export async function handleEvent(env, config, name, payload) {
   if (payload.sender?.login === config.gate) return;
   const gate = () => Gate.open(env, config);
   if (payload.repository?.full_name === config.code.repository)
-    return name === "pull_request" && ["opened", "reopened", "closed"].includes(payload.action) ? (await gate()).pullRequest(payload.action, payload.pull_request) : undefined;
+    return name === "pull_request" && ["opened", "reopened", "ready_for_review", "closed"].includes(payload.action) ? (await gate()).pullRequest(payload.action, payload.pull_request) : undefined;
   if (name === "projects_v2_item" && payload.projects_v2_item.content_type === "Issue") {
     const item = payload.projects_v2_item;
     const change = payload.changes?.field_value;

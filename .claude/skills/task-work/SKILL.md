@@ -84,7 +84,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは .claude/skills/run-checks/SKILL.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
 5. マージの前に済ませる本番への書き込みが要り、まだ済んでいなければ、出さずに `docs/conventions/flow.md`「担当」の「自動で進めないもの」のとおり返す。
-   コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
+   コードのリポジトリに Pull Request を下書きで出す（`gh pr create --draft --base master --head orch/tasks-<番号>`。下書きの間はゲートが
+   進行中のまま置き、6 で下書きを解くと検証中へ動かす（`tools/flow-gate/src/gate.js: Gate.pullRequest`）。CI は下書きでも走る。
    hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （`docs/conventions/flow.md`「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
    題名と本文は、そのまま master のコミットになる（`docs/conventions/flow.md`「コミット」）。本文は `.github/pull_request_template.md`
@@ -114,7 +115,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    Pull Request の題名・本文・コメントには、打ったコマンドを写すときも本番の宛先の値を書かず、
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
    `[Excess Sensitive Detail]` で断られうる。`--attach` の付いた書き込みそのものは断られない）。
-   前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `attach.js` で足す。
+   前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `attach.js` で足す（下書きのままなら、
+   下の待ちと直しを済ませて 6 で解く）。
    本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（直すと CI が形を照らし直す。`gh pr edit` と、欄を選ばない
    `gh pr view` は、組織を読む権限の無いトークンでは断られる）。
    出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml`・Docs Consistency・Claude Gate のどれも）の id を
@@ -137,7 +139,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    （足すかの判断は .claude/rules/testing.md「そのテストは要るか」）。足さないもの（振る舞いが変わらない書き換え・テストで確かめない
    約束）と、変わったのにどのテストも通らない関数は、Pull Request の本文の検証に1件1行で理由を書く。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
-   Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
+   Pull Request へのリンクをコメントに書いて報告する。最後に `gh pr ready <番号> -R hidakagit/ride-compass` で下書きを解いて検証へ渡す
+   （ゲートが検証中へ動かし、確かめる担当に渡る）。5 の待ちと直しが済む前に解かない（解くと、作る担当の枠を使ったままボードが検証中に見える）。
 
 **Pull Request のあと**（ゲートが、コードのリポジトリの Webhook から届く Pull Request の出来事で動かす）
 - コードのリポジトリは、master に入れる前に必須チェック（名前は docs/architecture/tech-stack.md「CIの実行枠（リポジトリがpublicである間の前提）」）が Pull Request で通ることを
@@ -151,8 +154,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
   `CLOSED`・`MERGED` なのにステータスが動かないときは、ゲートが出来事を受け損ねたので、Claude がゲートの行き先へ動かす（閉じたなら
   `move.js <番号> 未着手 <理由>`、マージなら残りが無ければ `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed`、
   あれば `move.js <番号> 未着手 <理由>`）。検証中のまま残ったタスクは確かめる担当へ振り出されるので、確かめる担当が1でこれに当たる。
-- Pull Request を開いたのに検証中へ入らなかったら（ゲートが開いた出来事を受け損ねた）、作る担当の実行が終わるときに後始末が
-  未着手へ戻す（`docs/conventions/flow.md`「担当」の「担当のワークフローの1回」の4）。次の作る担当が開いたままの Pull Request を見つけたら、引き受けたあとに
+- 作る担当が下書きのまま終えた（持ち時間を超えた等）か、下書きでない Pull Request を開いた・下書きを解いたのに検証中へ入らなかったら
+  （ゲートが出来事を受け損ねた）、作る担当の実行が終わるときに後始末が未着手へ戻す（`docs/conventions/flow.md`「担当」の「担当のワークフローの1回」の4）。
+  次の作る担当が開いたままの Pull Request を見つけたら、下書きなら作る担当の5の待ちから続けて6で解き、下書きでなければ引き受けたあとに
   `move.js <番号> 検証中 <理由>` で入れる（開発機の対話のセッションが出したときも同じ）。
 
 **確かめる担当**（検証中。作った担当とは別）
@@ -163,7 +167,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    貼った画像は、`gh api repos/hidakagit/ride-compass/issues/<Pull Request の番号>/comments --jq '.[].body'` で添付の URL
    （`https://github.com/user-attachments/assets/…`）を拾い、`curl -sSL -o <作業ツリーの外のファイル> <URL>` で取り出して Read で見る。
    添付は認証なしで取れるので、トークンを付けない。Pull Request が無ければ（ボードで
-   検証中へ動かした等）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
+   検証中へ動かした等）、作る担当の5のとおりに、ただし下書きにせずに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
    `ci.yml` の外の Docs Consistency・Claude Gate のジョブも）が通っていることを、作る担当の5と同じく実行を待ってから必須のチェックをルールセットと
    突き合わせて見る。落ちていれば満たしていないとして 4 のとおり落ちたテストを書いて
    閉じる（落ちたのが作業ブランチの変更か master との意味の競合かは見分けない）。
