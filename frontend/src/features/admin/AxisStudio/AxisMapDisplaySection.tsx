@@ -58,11 +58,11 @@ export function AxisMapDisplaySection({
 }: AxisMapDisplaySectionProps) {
   const thresholdsDroppedOnMap = mapBands.droppedOnMap;
   const [thresholdText, setThresholdText] = useState(() => formatThresholdList(draft.displayThresholdsOverride ?? []));
-  const [thresholdError, setThresholdErrorState] = useState<string | null>(null);
+  const thresholdError = parseThresholdList(thresholdText).error;
 
-  function setThresholdError(next: string | null) {
-    setThresholdErrorState(next);
-    onThresholdErrorChange(next);
+  function setThresholdTextAndReport(text: string) {
+    setThresholdText(text);
+    onThresholdErrorChange(parseThresholdList(text).error);
   }
 
   // 色分けのしきい値（display_thresholds_override）は境界値の並びをまとめて入力する。
@@ -70,9 +70,8 @@ export function AxisMapDisplaySection({
   // 途中の状態でdraftを書き換えると、直前に入っていた並びが消えてしまう。読めないまま
   // 保存しようとした場合はフォームの検証が止める（下書きの値で黙って保存させない）。
   function applyThresholdText(text: string) {
-    setThresholdText(text);
+    setThresholdTextAndReport(text);
     const { values, error } = parseThresholdList(text);
-    setThresholdError(error);
     if (error) return;
     setDraft((d) => ({
       ...d,
@@ -85,14 +84,12 @@ export function AxisMapDisplaySection({
   }
 
   function enableThresholdOverride() {
-    setThresholdText("");
-    setThresholdError(null);
+    setThresholdTextAndReport("");
     setDraft((d) => ({ ...d, displayThresholdsOverride: [] }));
   }
 
   function disableThresholdOverride() {
-    setThresholdText("");
-    setThresholdError(null);
+    setThresholdTextAndReport("");
     // 体感ラベルはしきい値が決める段階数と対応するため、しきい値の上書き自体をやめるときは
     // 体感ラベルの上書きも一緒に解除する（残すとbackend側の「体感ラベルはしきい値の
     // 上書きが設定済みでなければならない」に反する）。

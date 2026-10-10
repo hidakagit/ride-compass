@@ -93,8 +93,7 @@ type _PayloadKeyCoverage = [
   AssertNever<Exclude<EditedPayloadKey, keyof AxisDefinitionPayload>>,
 ];
 
-/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。 */
-/** 値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を
+/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を
  * 素通しする——この画面が編集欄を持たない以上、既定値で上書きしてよい理由が無い（「観測」の公開済み
  * 軸は、表示専用の編集でもcategoryが書き換わるぶん見た目だけの更新と見なされずbackendに拒否される）。 */
 const DEFAULT_PASSTHROUGH_FIELDS = Object.fromEntries(
@@ -144,6 +143,14 @@ export interface Draft {
   passthrough: PassthroughFields;
 }
 
+/** 数値の材料で点数を付け始めるときの折れ点。 */
+export function initialNumericBreakpoints(): [number, number][] {
+  return [
+    [0, 0],
+    [10, 100],
+  ];
+}
+
 export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
   const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0]?.id ?? "";
   return {
@@ -154,10 +161,7 @@ export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draf
     shapeKind: "breakpoint_linear",
     terms: [{ material: materialOptions[0]?.id ?? "", weight: 1.0, required: true }],
     preprocess: "identity",
-    breakpoints: [
-      [0, 0],
-      [10, 100],
-    ],
+    breakpoints: initialNumericBreakpoints(),
     categoricalMaterial: firstBoolean,
     trueScore: 0,
     falseScore: 80,
@@ -216,22 +220,18 @@ export function draftFromExisting(
   }
   // 保存済みのkindは材料を直接使う軸とほかの軸を組み合わせる軸で同じなので、項が軸の一覧の軸を指すかで決める。
   // 材料カタログに無いかでは決めない——backendが先に新しい材料を足した窓では、その材料が軸に見える。
-  if (shape.terms.length > 0 && shape.terms.every((t) => axisIds.has(t.material))) {
-    return {
-      ...common,
-      shapeKind: "recipe_then_breakpoint_linear",
-      terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
-      preprocess: shape.preprocess,
-      breakpoints: shape.breakpoints,
-    };
-  }
+  const combinesAxes = shape.terms.length > 0 && shape.terms.every((t) => axisIds.has(t.material));
   return {
     ...common,
-    shapeKind: "breakpoint_linear",
-    terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
+    shapeKind: combinesAxes ? "recipe_then_breakpoint_linear" : "breakpoint_linear",
+    terms: copyTerms(shape.terms),
     preprocess: shape.preprocess,
     breakpoints: shape.breakpoints,
   };
+}
+
+function copyTerms(terms: readonly TermDraft[]): TermDraft[] {
+  return terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required }));
 }
 
 /** 複製（公開済み軸を「改良」する唯一の経路）。既存の内容を丸ごと写すが、axis_idは
@@ -263,7 +263,7 @@ export function buildShape(draft: Draft, materialOptions: readonly AxisMaterialO
   if (draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") {
     return {
       kind: "breakpoint_linear",
-      terms: draft.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
+      terms: copyTerms(draft.terms),
       preprocess: draft.preprocess,
       breakpoints: draft.breakpoints,
     };

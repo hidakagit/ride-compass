@@ -1,7 +1,7 @@
 "use client";
 
 // 折れ点をドラッグ・矢印キーで調整できる曲線エディタ。数値入力行（正確な値の入力・行の
-// 追加削除）はAxisComposer側に残り、この曲線はその可視化＋補助的な操作手段として上に
+// 追加削除）はAxisScoringSection側に残り、この曲線はその可視化＋補助的な操作手段として上に
 // 添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
 //
 // 背景には実データの分布（生値のヒストグラムと分位）を薄く重ねる。折れ点だけを見ても
@@ -32,10 +32,7 @@ function niceTicks(min: number, max: number): number[] {
   return ticks;
 }
 
-/** 折れ点(breakpoints)をドラッグ・矢印キーで調整できる曲線エディタ。既存の数値入力行
- * （正確な値の入力・行の追加削除）はそのまま残し、この曲線はその可視化＋補助的な操作手段
- * として上に添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
- * `referenceRange`（材料の参考点の値域）があれば横軸をその範囲に固定し、ドラッグ中に
+/** `referenceRange`（材料の参考点の値域）があれば横軸をその範囲に固定し、ドラッグ中に
  * 見た目のスケールが動かないようにする（材料の参考点が無い場合は現在のbreakpointsの
  * 値から自動スケールする）。 */
 export function BreakpointCurveEditor({
@@ -58,8 +55,9 @@ export function BreakpointCurveEditor({
   const ys = breakpoints.map((bp) => bp[1]);
   // referenceRangeがあれば10%の余白を持たせて横軸を固定し、無ければ現在のbreakpoints
   // から自動スケールする。
-  const xMin = referenceRange ? referenceRange.min - (referenceRange.max - referenceRange.min) * 0.1 : Math.min(...xs);
-  const xMax = referenceRange ? referenceRange.max + (referenceRange.max - referenceRange.min) * 0.1 : Math.max(...xs);
+  const referenceMargin = referenceRange ? (referenceRange.max - referenceRange.min) * 0.1 : 0;
+  const xMin = referenceRange ? referenceRange.min - referenceMargin : Math.min(...xs);
+  const xMax = referenceRange ? referenceRange.max + referenceMargin : Math.max(...xs);
   const yMin = Math.min(0, ...ys);
   const yMax = Math.max(100, ...ys);
   const xSpan = xMax - xMin || 1;

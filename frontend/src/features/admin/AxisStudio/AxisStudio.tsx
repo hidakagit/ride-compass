@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
@@ -23,6 +23,7 @@ import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { getQueryClient } from "@/lib/queryClient";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
+import { errorMessage } from "@/lib/apiError";
 
 // shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。この中には
 // 材料カタログの材料idだけでなく、他axis_idを指すもの（他axis_idを材料として参照する
@@ -42,6 +43,15 @@ function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinition
   return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, MATERIAL_CATALOG);
 }
 
+// 開いているフォーム。複製は新規作成として複製元の内容で初期化する（axis_idは新しく振り、公開済み軸を複製しても
+// 下書きから始まる）。`republish`は「調整する」で一時的に下書きへ戻した軸の編集で、保存時に公開へ戻す——編集を
+// 中断した場合は下書きのまま残るため、その事実を必ず知らせる（黙って非公開になると一般ユーザー向けの軸カタログから
+// 消えたことに気づけない）。
+type ComposerTarget =
+  | { mode: "edit"; axisId: string; republish: boolean }
+  | { mode: "duplicate"; from: AxisDefinitionResponse }
+  | { mode: "new" };
+
 // 軸スタジオのトップレベルコンポーネント。一覧取得・作成・更新・削除の状態管理をここに
 // 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
 // docs/modules/frontend/axis-studio.md「AxisStudio.tsx（一覧・状態管理）」節参照。
@@ -50,34 +60,27 @@ export default function AxisStudio() {
   const definitions = definitionsQuery.data ?? null;
   // 作成・更新以外の操作（下書きへ戻す・削除）の失敗。一覧を読み直すと消える。
   const [actionError, setActionError] = useState<string | null>(null);
-  const listError =
-    actionError ??
-    (definitionsQuery.error
-      ? definitionsQuery.error instanceof Error
-        ? definitionsQuery.error.message
-        : String(definitionsQuery.error)
-      : null);
-  const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
+  const listError = actionError ?? (definitionsQuery.error && errorMessage(definitionsQuery.error));
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
   // 「削除」を押した軸。確認で「削除する」を押すまで消さない（消した軸を戻す手段が無いため）。
   const [confirmingDelete, setConfirmingDelete] = useState<AxisDefinitionResponse | null>(null);
   const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
-  // 「調整する」で一時的に下書きへ戻した軸。保存時に公開へ戻す。編集を中断した場合は
-  // 下書きのまま残るため、その事実を`notice`で必ず知らせる（黙って非公開になると
-  // 一般ユーザー向けの軸カタログから消えたことに気づけない）。
-  const [republishAxisId, setRepublishAxisId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // 複製元。nullでなければAxisComposerを「新規作成」モードのままduplicateFromの内容で
-  // 初期化する（axis_idは空のまま、is_publishedは常にfalseへ落とす——公開済み軸を
-  // 複製しても複製先は下書きから始まる）。
-  const [duplicateFrom, setDuplicateFrom] = useState<AxisDefinitionResponse | null>(null);
-  // 「新しい軸を作る」ボタンを押したときだけtrueになる。編集・複製・新規作成のいずれかを
-  // 選んだときだけモーダル（components/ui/Dialog）でAxisComposerを開く（一覧を隠さない・
-  // 目的の操作を選んでから開く導線）。
-  const [creatingNew, setCreatingNew] = useState(false);
-  // 開いているフォーム（閉じていればnull）。AxisComposerのkeyでもあり、別のフォームを開くと中身を作り直す。
+  // モーダル（components/ui/Dialog）で開いているフォーム。編集・複製・新規作成のいずれかを選んだときだけ開く
+  // （一覧を隠さない・目的の操作を選んでから開く導線）。
+  const [composer, setComposer] = useState<ComposerTarget | null>(null);
+  const editingAxisId = composer?.mode === "edit" ? composer.axisId : null;
+  const duplicateFrom = composer?.mode === "duplicate" ? composer.from : null;
+  const republishing = composer?.mode === "edit" && composer.republish;
+  // AxisComposerのkey。別のフォームを開くと中身を作り直す。
   const composerKey =
-    editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : creatingNew ? "new" : null);
+    composer === null
+      ? null
+      : composer.mode === "edit"
+        ? composer.axisId
+        : composer.mode === "duplicate"
+          ? `duplicate-${composer.from.axis_id}`
+          : "new";
   // いま開いているフォーム。待った後は、押した時点に閉じ込めた値ではなくこれを見る（待つ間に閉じる・別のフォームを
   // 開くと、押した時点のフォームはもう開いていない）。
   const liveComposerKey = useRef(composerKey);
@@ -91,15 +94,11 @@ export default function AxisStudio() {
   }
 
   /** モーダルを閉じる。`republished`は「保存で公開へ戻したか」で、**呼び出し側が渡す**
-   * ——`setRepublishAxisId(null)`の直後に呼んでも、この関数が読む`republishAxisId`は
-   * そのレンダーのクロージャのままで、再公開に成功した直後に「下書きのまま残った」と
-   * 通知してしまう（Reactのstate更新は次のレンダーまで反映されない）。 */
+   * ——保存を待った後に呼んでも、この関数が読む`republishing`は保存を押したレンダーの
+   * クロージャのままで、再公開に成功した直後に「下書きのまま残った」と通知してしまう。 */
   function closeComposer(republished = false) {
-    if (republishAxisId !== null && !republished) setNotice(LEFT_AS_DRAFT_NOTICE);
-    setRepublishAxisId(null);
-    setEditingAxisId(null);
-    setDuplicateFrom(null);
-    setCreatingNew(false);
+    if (republishing && !republished) setNotice(LEFT_AS_DRAFT_NOTICE);
+    setComposer(null);
   }
 
   async function handleSave(payload: AxisDefinitionPayload, isNew: boolean) {
@@ -111,7 +110,7 @@ export default function AxisStudio() {
       // 「調整する」で一時的に下書きへ戻した軸は、保存と同時に公開へ戻す
       // （公開済み軸は不変という原則は保ったまま、unpublish→更新→再公開という
       // 正規の手順をボタン1つに畳んだもの）。
-      republished = republishAxisId === payload.axis_id;
+      republished = republishing;
       await updateAxisDefinition(payload.axis_id, republished ? { ...payload, is_published: true } : payload);
     }
     await reload();
@@ -138,19 +137,12 @@ export default function AxisStudio() {
         setNotice(LEFT_AS_DRAFT_NOTICE);
         return;
       }
-      setRepublishAxisId(def.axis_id);
-      setEditingAxisId(def.axis_id);
+      setComposer({ mode: "edit", axisId: def.axis_id, republish: true });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err));
     } finally {
       clearUnpublishing(def.axis_id);
     }
-  }
-
-  function handleDuplicate(def: AxisDefinitionResponse) {
-    setEditingAxisId(null);
-    setCreatingNew(false);
-    setDuplicateFrom(def);
   }
 
   async function handleUnpublish(axisId: string) {
@@ -161,7 +153,7 @@ export default function AxisStudio() {
       await unpublishAxisDefinition(axisId);
       await reload();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err));
     } finally {
       clearUnpublishing(axisId);
     }
@@ -174,7 +166,7 @@ export default function AxisStudio() {
       await deleteAxisDefinition(axisId);
       await reload();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err));
     } finally {
       setDeletingAxisId((current) => (current === axisId ? null : current));
     }
@@ -206,16 +198,22 @@ export default function AxisStudio() {
   const draftDefs = definitions?.filter((d) => !d.is_published) ?? [];
   const publishedDefs = definitions?.filter((d) => d.is_published) ?? [];
 
-  function renderRowMain(def: AxisDefinitionResponse) {
+  function renderRow(def: AxisDefinitionResponse, actions: ReactNode) {
     return (
-      <div className="flex min-w-0 flex-col">
-        <span className={textVariants({ variant: "heading" })}>{def.label}</span>
-        <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
-          {def.axis_id} ・ {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
-          {materialIdsOf(def.shape)
-            .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
-            .join("・")}
-        </span>
+      <div
+        key={def.axis_id}
+        className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
+      >
+        <div className="flex min-w-0 flex-col">
+          <span className={textVariants({ variant: "heading" })}>{def.label}</span>
+          <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
+            {def.axis_id} ・ {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
+            {materialIdsOf(def.shape)
+              .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
+              .join("・")}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1">{actions}</div>
       </div>
     );
   }
@@ -239,17 +237,14 @@ export default function AxisStudio() {
 
         <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="draft">
           {draftDefs.length === 0 && <p className={textVariants({ variant: "hint" })}>下書きの軸はありません。</p>}
-          {draftDefs.map((def) => (
-            <div
-              key={def.axis_id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
-            >
-              {renderRowMain(def)}
-              <div className="flex flex-wrap gap-1">
-                <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
+          {draftDefs.map((def) =>
+            renderRow(
+              def,
+              <>
+                <Button size="sm" onClick={() => setComposer({ mode: "edit", axisId: def.axis_id, republish: false })}>
                   編集
                 </Button>
-                <Button size="sm" onClick={() => handleDuplicate(def)}>
+                <Button size="sm" onClick={() => setComposer({ mode: "duplicate", from: def })}>
                   複製して新規作成
                 </Button>
                 <Button
@@ -260,9 +255,9 @@ export default function AxisStudio() {
                 >
                   削除
                 </Button>
-              </div>
-            </div>
-          ))}
+              </>,
+            ),
+          )}
         </TabsContent>
 
         <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="published">
@@ -280,14 +275,11 @@ export default function AxisStudio() {
               </li>
             </ul>
           )}
-          {publishedDefs.map((def) => (
-            <div
-              key={def.axis_id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
-            >
-              {renderRowMain(def)}
-              <div className="flex flex-wrap gap-1">
-                <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
+          {publishedDefs.map((def) =>
+            renderRow(
+              def,
+              <>
+                <Button size="sm" onClick={() => setComposer({ mode: "edit", axisId: def.axis_id, republish: false })}>
                   表示だけ編集
                 </Button>
                 <Button
@@ -297,7 +289,7 @@ export default function AxisStudio() {
                 >
                   調整する
                 </Button>
-                <Button size="sm" onClick={() => handleDuplicate(def)}>
+                <Button size="sm" onClick={() => setComposer({ mode: "duplicate", from: def })}>
                   複製して新規作成
                 </Button>
                 <Button
@@ -307,20 +299,16 @@ export default function AxisStudio() {
                 >
                   非公開に戻す
                 </Button>
-              </div>
-            </div>
-          ))}
+              </>,
+            ),
+          )}
         </TabsContent>
       </Tabs>
 
       <Button
         size="sm"
         className="self-start font-bold"
-        onClick={() => {
-          setEditingAxisId(null);
-          setDuplicateFrom(null);
-          setCreatingNew(true);
-        }}
+        onClick={() => setComposer({ mode: "new" })}
       >
         + 新しい軸を作る
       </Button>
@@ -342,7 +330,7 @@ export default function AxisStudio() {
             otherAxes={definitions ?? []}
             mapBandColors={mapBandColors}
             mapValueUnit={mapValueUnit}
-            republishing={republishAxisId !== null && republishAxisId === editingAxisId}
+            republishing={republishing}
             onCancelEdit={() => closeComposer()}
             onSave={handleSave}
           />
