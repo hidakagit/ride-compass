@@ -29,7 +29,7 @@
 | `features/map/scene/groups/weather.ts` | 動的気象の描き方。何を描くか（チップid・名前付きソース・描き方の種類・配信元）は源泉の`mapDisplay.weatherElements`をループして受け取り、ここは要素ごとの見た目（`paint`・`layout`・`filter`・記号の絵）だけを持つ。ソース名（`weatherSourceId`）・ソースの宣言・レイヤー・記号の絵の登録（`WEATHER_ICONS`）はこの2つから導かれる |
 | `features/map/scene/applyToMap.ts`（`weatherStateFrom`・`weatherPayloadFrom`） | `dynamicWeather`（チップid→名前付きソース→表示・中身）を宣言の入力へ移す。JMAタイルのURLへ`jmatile://`スキームを付ける |
 | `features/map/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`features/conditions/useWeatherConditions.ts` | 状態管理・フェッチ。動的気象は要素を名指さず、表示中の名前付きソースをループして段の種類（配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。取得の骨格（重複排除・定期の取り直し・読み込み中と失敗の状態）はTanStack Queryが持ち（[ページ全体構成](page-composition.md)「データ取得の骨格」）、配信元の時刻一覧・風格子（粗い格子と詳細格子）・在否インデックスは`refetchInterval`で、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`（キーに位置を持つ）で取り直す。取り直す間隔（アメダス・在否インデックス・風格子）はbackendの宣言が生成物`refresh-intervals.json`で配る（新しい値が出る間隔そのもの。配信元の時刻一覧の間隔は`jmaElements[].refreshIntervalMs`）。「降っていない」「無風」の境も生成物`weather-scales.json`から読み、画面は持たない |
-| `features/conditions/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`features/conditions/TodayOutlook/TodayOutlook.tsx`・`features/conditions/WarningBadge/WarningBadge.tsx` | UI（警報バッジの出所ごとの段階の呼び名と色は、backendの宣言`domain/warning_display.py`が生成物`vocabulary.ts`で配る） |
+| `features/conditions/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`features/conditions/TodayOutlook/TodayOutlook.tsx`・`features/conditions/WarningBadge/WarningBadge.tsx` | UI（警報バッジの出所ごとの段階の呼び名と色は、backendの宣言`domain/warning_display.py`が生成物`vocabulary.ts`で配る） |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
 ## 共通契約
@@ -401,9 +401,8 @@ basetime・validtimeを含む）で持つため、フレームが進んで取得
 ## 常設ヘッダーの天候表示（`WeatherPanel`）との違い
 
 `WeatherPanel`（常設ヘッダー）は**観測**（アメダス実測値。天気の晴れ・くもりだけは地点の推計気象分布）のみで構成し（天気はbackendが観測から導いたWMOコードで届き、
-`weatherCode.ts`がコードを分類し——分類と名前はbackendの宣言〔`domain/weather_display.py: WEATHER_CATEGORIES`〕が
-生成物`vocabulary.ts`で配り、画面が持つのは分類ごとのアイコンだけ——`amedasWeatherIcon.ts`は「晴れ」を昼夜で
-描き分けるだけ）、MSMとは独立にフェッチする。観測であること・観測所名・観測の時刻（応答の`station_name`・`observed_at`）と、バーのアイコンと数値だけでは
+`amedasWeatherIcon.ts`がコードを分類してアイコンを選ぶ——分類と名前はbackendの宣言〔`domain/weather_display.py: WEATHER_CATEGORIES`〕が
+生成物`vocabulary.ts`で配り、画面が持つのは分類ごとのアイコン〔夜に絵を変える分類は夜のアイコンも〕だけ）、MSMとは独立にフェッチする。観測であること・観測所名・観測の時刻（応答の`station_name`・`observed_at`）と、バーのアイコンと数値だけでは
 分からない意味（体感温度・風向・直近10分間の降水量であること・天気の名前）は、バーを押すと開くパネルに出す（390pxの幅ではバーへ並べる余地が無く、並べると警報のバッジが画面の外へ押し出される）。`TodayOutlook`（「今日」のパネル）は**MSMの計算値**（今日の最大降水量・
 最大風速・気温レンジと一定間隔のコマの気温・降水量。間隔は応答の`today_period_interval_hours`）と日の出日没を扱い、見出しの下に計算値であって予報ではない旨を出す。
 日の出日没は天文計算の値のため、その見出しの外（上）に置く。

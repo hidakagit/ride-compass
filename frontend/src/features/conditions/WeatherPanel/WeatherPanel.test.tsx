@@ -2,12 +2,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { jst } from "@/testing/jst";
+import { vocabulary } from "@/types/generated/vocabulary";
 import type { AmedasObservation } from "@/types/weather";
 
 import WeatherPanel from "./WeatherPanel";
-import { WEATHER_CATEGORY_LABEL } from "./weatherCode";
 
-const NOW = new Date("2026-09-24T12:00:00+09:00");
+const NOW = jst("2026-09-24T12:00");
 
 const observation = (overrides: Partial<AmedasObservation> = {}) =>
   ({
@@ -86,13 +87,13 @@ describe("WeatherPanel 観測値", () => {
     const { unmount } = render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
     const dayIcon = screen.getByText(/^天気:/).parentElement!.innerHTML;
     unmount();
-    vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
+    vi.setSystemTime(jst("2026-09-24T20:00"));
     render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
     expect(screen.getByText(/^天気:/).parentElement!.innerHTML).not.toBe(dayIcon);
   });
 
   it("日の出・日の入りが分からなければ昼として扱う", () => {
-    vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
+    vi.setSystemTime(jst("2026-09-24T20:00"));
     const { unmount } = render(<WeatherPanel amedas={observation({ twilight: null })} loading={false} error={null} />);
     const unknown = screen.getByText(/^天気:/).parentElement!.innerHTML;
     unmount();
@@ -136,7 +137,8 @@ describe("WeatherPanel 観測の出所", () => {
     expect(panel).toHaveTextContent("気温21.4℃（体感 20.0℃）");
     expect(panel).toHaveTextContent("風東の風 3.3m/s");
     expect(panel).toHaveTextContent("降水量1.3mm（直近10分間）");
-    expect(panel).toHaveTextContent(`天気${WEATHER_CATEGORY_LABEL.clear}`);
+    const clear = vocabulary.weatherCategories.find((category) => category.key === "clear")!;
+    expect(panel).toHaveTextContent(`天気${clear.label}`);
   });
 
   it("体感温度・風・降水量・天気が無ければ、パネルにもその行を出さない", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { Button } from "@/components/ui/Button/Button";
@@ -75,20 +75,20 @@ export default function DynamicLayerTimeSlider({
 
   // 選んだコマが変わるたびに報告する。`settle`は速いドラッグの後に来ないことがあるので、コマをまたいだときだけ
   // 来る`select`を使う。
+  const reportSelected = useEffectEvent((next: number) => {
+    if (next !== syncedIndexRef.current) {
+      syncedIndexRef.current = next;
+      onIndexChange(next);
+    }
+  });
   useEffect(() => {
     if (!emblaApi) return;
-    const handleSelect = () => {
-      const next = emblaApi.selectedScrollSnap();
-      if (next !== syncedIndexRef.current) {
-        syncedIndexRef.current = next;
-        onIndexChange(next);
-      }
-    };
-    emblaApi.on("select", handleSelect);
+    const listener = () => reportSelected(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", listener);
     return () => {
-      emblaApi.off("select", handleSelect);
+      emblaApi.off("select", listener);
     };
-  }, [emblaApi, onIndexChange]);
+  }, [emblaApi]);
 
   // スクロールの追従は外からの変化としてuseEffectが受ける。
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
