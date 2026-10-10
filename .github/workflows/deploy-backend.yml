@@ -205,3 +205,10 @@ jobs:
               --env-file /home/ubuntu/ridecompass-backend.env \
               ridecompass-backend:latest \
               python scripts/schema_gap.py
+      # 出したbackendで、利用者と同じ操作（ルートを作ってレンズを替える）が壊れていないかを外から見る。
+      # 落ちたらジョブが失敗し、GitHub Actionsの失敗の知らせが届く（出したものは戻さない）。
+      # 何を見るか・上限の根拠は docs/architecture/tech-stack.md「本番でルートを作る確かめ」。
+      - name: 本番でルートを作って区間の値を見る
+        if: steps.gate.outputs.deploy == 'true'
+        timeout-minutes: 3
+        run: python3 scripts/prod_route_check.py

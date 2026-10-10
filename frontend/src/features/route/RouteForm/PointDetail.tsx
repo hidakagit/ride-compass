@@ -230,7 +230,8 @@ export default function PointDetail({
               id={inputId}
               type="search"
               aria-label={`${title}を住所・施設で探す`}
-              placeholder={armed ? armedHint : placed ? "住所・施設で置き直す" : "住所・施設で探す"}
+              // 上側に出している間は地図が隠れていて、地図で置く案内のとおりに操作できない。
+              placeholder={armed && !raised ? armedHint : placed ? "住所・施設で置き直す" : "住所・施設で探す"}
               disabled={full}
               enterKeyHint="search"
               className={cn(

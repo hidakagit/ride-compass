@@ -1,16 +1,30 @@
 import { expect, test } from "@playwright/test";
 import { openMobileSheet } from "../e2e/fixtures";
-import { branch, expectNoOwnFailures, externalErrors, openLive, reportExternal, settleMap } from "./live";
+import {
+  branch,
+  chooseLens,
+  currentLensLabel,
+  expectNoOwnFailures,
+  externalErrors,
+  fetchCatalog,
+  openLive,
+  reportExternal,
+  routeSegmentsPainted,
+  settleMap,
+} from "./live";
 
 // S2 ルート生成（生成後）。実グラフでしか出ない探索の欠陥（並行する道・取込範囲の端で生成が落ちる）と、
-// 実データの区間を押したときの例外、実際の軸名での比較表の横はみ出しを見る。
-// 幹: S1と同じ地点で開き、距離を指定して生成を1回。枝: 下のC〜E→F。
+// 実データの区間を押したときの例外、作ったあとにレンズを替えるとルートの区間が全部「データなし」になる欠陥（実際の応答が
+// 区間に載せる値と、レンズが塗る値の食い違い）、実際の軸名での比較表の横はみ出しを見る。
+// 幹: S1と同じ地点で開き、距離を指定して生成を1回。枝: 下のC〜G。
 
 interface Segment {
   geometry: { coordinates: [number, number][] } | null;
 }
 
 test("S2 ルート生成（生成後）", async ({ page }) => {
+  const catalog = await fetchCatalog();
+  expect(catalog.axes.length, "公開軸が1件も無い").toBeGreaterThan(0);
   const statsBefore = await externalErrors();
   // 比較タブは研究モードで、生成を2回したときに出る。
   const watch = await openLive(page, {
@@ -79,7 +93,25 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
     );
   }
 
-  // E→F: 比較タブを開く → 実際の軸名の行見出しでページもシートも横にはみ出さない。
+  // E: 公開軸のレンズを1つずつ選ぶ → ルートの区間のうち、その軸の値で塗られた（「データなし」でない）ものが1つ以上。
+  // 区間ごとの値の有無は実データで変わるので、全区間が欠けたときだけ落とす。
+  const originalLens = await currentLensLabel(page);
+  for (const axis of catalog.axes) {
+    await branch(
+      page,
+      `ルートをレンズ「${axis.label}」で塗る`,
+      async () => {
+        await chooseLens(page, axis.label);
+        await settleMap(page);
+        const { drawn, withValue } = await routeSegmentsPainted(page);
+        expect.soft(drawn, `「${axis.label}」: ルートの区間が描かれていない`).toBeGreaterThan(0);
+        expect.soft(withValue, `「${axis.label}」: ルートの区間が全部「データなし」`).toBeGreaterThan(0);
+      },
+      () => chooseLens(page, originalLens),
+    );
+  }
+
+  // F→G: 比較タブを開く → 実際の軸名の行見出しでページもシートも横にはみ出さない。
   await branch(
     page,
     "比較タブ",

@@ -1,8 +1,10 @@
 import { expect, type Page, type Response } from "@playwright/test";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
+import { featureFilter } from "@maplibre/maplibre-gl-style-spec";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { ROUTE_HIT_TARGET_SEGMENT } from "@/features/map/scene/groups/routes";
 import { installMapFinder } from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
 
@@ -280,4 +282,41 @@ export async function chooseLens(page: Page, label: string): Promise<void> {
 export async function currentLensLabel(page: Page): Promise<string> {
   const name = await page.getByRole("button", { name: /^地図の色分け: / }).getAttribute("aria-label");
   return /^地図の色分け: (.*)（タップで変更）$/.exec(name ?? "")?.[1] ?? "";
+}
+
+/**
+ * 選んでいる候補のルートの区間のうち、描かれている数と、そのうち「データなし」でない（いまのレンズの値で塗られた）数。
+ * 区間は scene が区間の当たり判定（`ROUTE_HIT_TARGET_SEGMENT`）を宣言したソースで引き、「データなし」かは、いまの地図が
+ * 区間の線に当てている「値が無ければ破線にする」式の条件を、MapLibre の式の評価器で区間のデータに当てて決める（塗り方の規則を
+ * ここで書き直さない）。区間のデータは地図への問い合わせ（`queryRenderedFeatures`）ではなくソースから取る——問い合わせが返す地物は
+ * 入れ子のプロパティ（`axis_difficulties` 等）を文字列にしていて、式の条件がどの区間にも当たらない。
+ */
+export async function routeSegmentsPainted(page: Page): Promise<{ drawn: number; withValue: number }> {
+  const { missing, drawn, segments } = await page.evaluate(async (target) => {
+    const map = window.__liveMap();
+    const layers = window.__liveScene().layers.map((layer) => ({
+      ...layer,
+      spec: layer.spec as { id: string; source?: string; paint?: Record<string, unknown> },
+    }));
+    const sources = new Set(
+      layers.filter((layer) => layer.hitTargets.includes(target)).map((layer) => layer.spec.source),
+    );
+    const dashOf = (layer: (typeof layers)[number]) => layer.spec.paint?.["line-dasharray"];
+    const line = layers.find((layer) => {
+      const dash = dashOf(layer);
+      return sources.has(layer.spec.source) && Array.isArray(dash) && dash[0] === "case";
+    });
+    if (!line) throw new Error("ルートの区間の線に「データなし」の式が無い（いまのレンズが値という考えを持たない）");
+    const source = map.getSource(line.spec.source!) as unknown as { getData(): Promise<GeoJSON.FeatureCollection> };
+    return {
+      missing: (dashOf(line) as unknown[])[1],
+      drawn: map.queryRenderedFeatures({ layers: [line.spec.id] }).length,
+      segments: (await source.getData()).features.map((feature) => feature.properties ?? {}),
+    };
+  }, ROUTE_HIT_TARGET_SEGMENT);
+  const hasValue = featureFilter(["!", missing] as never, "ルートの区間の値あり");
+  const withValue = segments.filter((properties) =>
+    hasValue.filter({ zoom: 0 }, { type: 2, properties } as never),
+  ).length;
+  return { drawn, withValue };
 }
