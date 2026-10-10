@@ -194,6 +194,27 @@ def test_the_cost_is_the_travel_time_raised_by_the_weighted_difficulty(wind_axis
     assert leg.cost_lazy == pytest.approx(leg.travel_seconds_lazy * (1 + 0.5 * difficulty / 100))
 
 
+def test_a_segment_without_data_on_the_weighted_axes_is_raised_by_the_mean_difficulty_around_it():
+    """重みのある軸がどれも欠損の区間は、探索の範囲の距離平均のdifficultyで割増す（割増なしだとデータの無い道ほど
+    安く見えて選ばれる）。表示のdifficultyは欠損のまま。"""
+    leg = _snapshot(_matrix(2, axes={"axis_a": [40.0, np.nan]}), weights={"axis_a": 1.0}, penalty=0.5)
+
+    assert np.isnan(leg.difficulty_array[1])
+    assert leg.cost_lazy[1] == pytest.approx(leg.travel_seconds_lazy[1] * (1 + 0.5 * 40.0 / 100))
+
+
+def test_a_density_axis_adds_seconds_in_proportion_to_the_count_and_its_share_of_the_weights():
+    """1kmに信号2回の区間。停止密度の軸（傾き 100/9.58 点/(回/km)）と軸a（30点）に同じ重みを置くと、費用は
+    所要時間 × (1 + P × 軸aの分15点/100) に、P × 重みの割合1/2 × 傾き/100 × 2回 × 想定速度で1km走る秒 を足したもの。
+    停止の待ちの秒は所要時間に入っていて、密度の軸の点数では割増さない。"""
+    leg = _snapshot(_matrix(1, signals_per_km=2.0, axes={"axis_a": 30.0}),
+                    weights={STOP_AXIS: 1.0, "axis_a": 1.0}, penalty=0.7)
+
+    cruise_seconds_per_km = 3600.0 / CRUISE_KMH
+    added = 0.7 * 0.5 * (100.0 / 9.58) / 100 * 2.0 * cruise_seconds_per_km
+    assert leg.cost_lazy[0] == pytest.approx(leg.travel_seconds_lazy[0] * (1 + 0.7 * 15.0 / 100) + added)
+
+
 @pytest.mark.parametrize("hourly", [False, True], ids=["時刻で変わらない合成", "時刻のビンごとの合成"])
 def test_a_density_axis_costs_the_same_along_a_route_however_its_road_is_cut(wind_axis, hourly):
     """信号1つのある100mの区間と、それを信号の所で10mと90mに切った2区間（端の信号は両側が0.5回ずつ持つ）は、密度の
