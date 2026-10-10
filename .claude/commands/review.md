@@ -192,7 +192,8 @@ python scripts/review_checks.py docs
   DI・抽象化（利用者が1つしかないinterface/Protocol）・素通しの委譲
 - **規模ウォッチ**: `review_checks.py size` の表をそのまま出力へ含める。発火したファイルは
   (a)理由つきで現状維持、(b)抽出・分割の提案、(c)個別閾値の設定、のいずれかへ必ず分類する。
-  **次の閾値を決めずに発火させたままにしない**。
+  **次の閾値を決めずに発火させたままにしない**。指示の文書（`size_thresholds.json`の`instruction_limits`に当たるもの）は
+  (b)だけで、上限を上げず、ファイルごとの閾値も置かない。
   「閾値の見直し」に出たエントリ（縮んだ・消えたファイル）は、下げるか外すかを決める。
   分割先を先に決めておけるファイルは、閾値と並べて`scripts/size_thresholds.json`の`on_fire`へ
   既定の対応を書く（発火したとき`size`が一覧の下に出し、それが(b)の既定になる）
@@ -276,7 +277,7 @@ python scripts/review_checks.py docs
 - **実装↔テスト**: 変更に対応するテストがあるか。実装詳細への依存（privateメソッド直叩き）、
   不要になったテスト、過剰なmock、**実質的に意味のないテスト**（実装をなぞるだけで
   壊れ方を検証しない、常にpassする）、DBを使うテストに`postgis`の印が付け忘れられていないか
-  （`.claude/rules/testing.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
+  （`.claude/rules/testing-scaffold.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
   ヘルパー）が複数のテストファイルに写されていないか
 
 #### 文書とコメントが名指しするもの

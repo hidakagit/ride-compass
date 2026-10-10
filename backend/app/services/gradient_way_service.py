@@ -22,7 +22,7 @@ from app.services.tile_version_service import served_tile_version
 
 #: 勾配の値の作り方の署名。キャッシュの鍵に入り、変われば勾配のタイル値だけを作り直す。
 #: 入力のSQL・落とす幅・丸めは機械で署名する。式（`domain/gradient.py: GradientCalculator.effective_gradient`）を
-#: 変えたときは先頭のリビジョンを上げる——関数のソースは署名しない（.claude/rules/caching.md「無効化」）。
+#: 変えたときは先頭のリビジョンを上げる——関数のソースは署名しない（.claude/rules/caching-retention.md「無効化」）。
 GRADIENT_VALUE_SHAPE = cache_identity(
     "2", FEATURE_GRADIENT_INPUTS_SHAPE, LENS_PERPENDICULAR_BAND_DEG, GRADIENT_VALUE_DECIMALS
 )

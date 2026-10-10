@@ -51,11 +51,13 @@ docs/conventions/ にある（.claude/rules/・.claude/skills/ のものはパ�
 | backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／.claude/rules/comments.md: ルール・判定基準（新しくコメントを書く/既存コメントを見直す/コードを撤去するとき）・残すと決めたものの行き先／.claude/rules/logging.md: 基本原則・使う仕組み（新規実装はこれらを使うこと） |
 | APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | .claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
 | 依存の版・デプロイ・実行環境に触る | docs/modules/README.md: このディレクトリが扱わない領域（正本は別にある）と、そこが指す docs/architecture/ の節 |
-| キャッシュを足す・変える | .claude/rules/caching.md（全文） |
+| キャッシュを足す・変える | .claude/rules/caching.md（全文）／.claude/rules/caching-retention.md（全文） |
 | 外部データソースを使う・使い方を変える | docs/architecture/data-sources.md: 使い方 |
 | 評価軸を足す・消す・調整する | .claude/rules/deployment-sync.md: コミットと同時に揃えるもの／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる |
 | 指摘・不具合を直す | .claude/rules/fixing.md（全文） |
-| テストを書く | .claude/rules/testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・テストの足場で、本来のNGを覆わない・挙動を変えるなら、テストを先に書く・当たるパターン（パターン1〜）・消すべきテストの型・テストを変異テストで見直す（効き・重なり・隔離・書き方） |
+| テストを書く | .claude/rules/testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・挙動を変えるなら、テストを先に書く（書く場所・足場に固有の決まりは、その場所の `.claude/rules/testing-*.md` が `paths` で読まれる） |
+| テストを消す・まとめる・変異テストで見直す | .claude/rules/testing-review.md（全文） |
+| テストを実装から起こし直す | .claude/rules/testing-rewrite.md（全文） |
 | テストや検査を回す | .claude/skills/run-checks/SKILL.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／.claude/rules/testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
 | 画面を撮る | .claude/skills/task-work/SKILL.md: 作る担当（5 の画面に届く変更のキャプチャ） |
 | コミットする | flow.md: コミット／.github/pull_request_template.md（増減）／.claude/rules/deployment-sync.md: コミットと同時に揃えるもの |

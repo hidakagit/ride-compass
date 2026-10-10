@@ -35,7 +35,7 @@ export default defineConfig({
     // 使わない純ロジック）はファイルの先頭の`// @vitest-environment node`docblockでnode環境に倒す。
     // 設定での一括の振り分け（`environmentMatchGlobs`）はVitest 4に無く、代わりの`test.projects`は
     // 対象のパターンに入らないテストファイルを黙って外しうるため使わない。docblockの無いファイルは既定の
-    // happy-domで動くので、DOMを後から使い始めても黙って壊れない（.claude/rules/testing.md「パターン3」）。
+    // happy-domで動くので、DOMを後から使い始めても黙って壊れない（.claude/rules/testing-frontend.md「パターン3」）。
     setupFiles: ["./vitest.setup.ts"],
     css: true,
     // frontend/e2e/・frontend/e2e-live/・frontend/capture/はPlaywright（別ランナー）専用のため、

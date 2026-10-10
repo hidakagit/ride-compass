@@ -3,7 +3,8 @@
 履歴は一時的なgitリポジトリで作る。
 
 ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`と、`size`の表・発火は
-周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」は、緩んだ閾値に誰も気づかなくなるので通す。
+周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」と、指示の文書へ置いたファイルごとの閾値を
+無視することは、緩んだ閾値に誰も気づかなくなるので通す。
 """
 
 import argparse
@@ -130,3 +131,20 @@ def test_size_lists_thresholds_looser_than_the_growth_from_the_current_lines(rep
     out = capsys.readouterr().out
 
     assert "閾値の見直し（今の行数+15%を100行に切り上げた値より緩い・削除済み） 1件: app/shrunk.py（800→500）" in out
+
+
+def test_size_holds_instruction_docs_to_the_kind_limit_and_ignores_per_file_thresholds(repo, monkeypatch, capsys):
+    # 指示の文書は種類ごとの上限だけで発火し、ファイルごとに置いた緩い閾値は効かずに名指しされる。
+    _commit(repo, {".claude/rules/long.md": "a\n" * 250, ".claude/commands/review.md": "b\n" * 300})
+    thresholds = repo / "size_thresholds.json"
+    thresholds.write_text('{"instruction_limits": {".claude/rules/*.md": 200, ".claude/commands/*.md": 500},'
+                          ' "thresholds": {".claude/rules/long.md": 400}}', encoding="utf-8")
+    monkeypatch.setattr(rc, "SIZE_THRESHOLDS", thresholds)
+
+    assert rc.cmd_size(argparse.Namespace(top=5)) == 0
+    out = capsys.readouterr().out
+
+    assert "| .claude/rules/long.md | 250 | - | 新規 | 200 | 125% | 閾値200超過 |" in out
+    assert "| .claude/commands/review.md | 300 | - | 新規 | 500 | 60% |  |" in out
+    assert "指示の文書のファイルごとの閾値（無視した。上限は instruction_limits だけ） 1件: .claude/rules/long.md" in out
+    assert "閾値の見直し（今の行数+15%を100行に切り上げた値より緩い・削除済み） 0件" in out

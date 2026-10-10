@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
 import json
 import re
 import subprocess
@@ -85,6 +86,11 @@ def fitted_threshold(lines: int) -> int:
     緩くなったら（縮んだ）見直しに出し、下げるか外すかを判断する。"""
     step = THRESHOLD_STEP_LINES
     return -(-lines * (100 + GROWTH_PERCENT) // (100 * step)) * step
+
+
+def instruction_limit(path: str, limits: dict[str, int]) -> int | None:
+    """指示の文書の種類ごとの上限（size_thresholds.json の instruction_limits）。当たらなければ None。"""
+    return next((limit for pattern, limit in limits.items() if fnmatch.fnmatchcase(path, pattern)), None)
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -267,7 +273,11 @@ def volume_totals(counts: dict[str, int]) -> dict[str, int]:
 def cmd_size(args: argparse.Namespace) -> int:
     counts = volume_counts(tracked_files())
     decided = json.loads(read(SIZE_THRESHOLDS)) if SIZE_THRESHOLDS.exists() else {}
-    thresholds = decided.get("thresholds", {})
+    limits = decided.get("instruction_limits", {})
+    # 指示の文書は種類ごとの上限だけで見て、ファイルごとに置いた閾値は上書きする。
+    exceptions = sorted(f for f in decided.get("thresholds", {}) if instruction_limit(f, limits) is not None)
+    thresholds = dict(decided.get("thresholds", {}))
+    thresholds.update({f: limit for f in counts if (limit := instruction_limit(f, limits)) is not None})
     on_fire = decided.get("on_fire", {})
     groups: dict[str, list[str]] = defaultdict(list)
     for f in counts:
@@ -306,7 +316,7 @@ def cmd_size(args: argparse.Namespace) -> int:
             reasons.append(f"閾値{th:,}超過")
         if reasons:
             fired.append(f)
-        if th and th > fitted_threshold(cur):
+        if th and instruction_limit(f, limits) is None and th > fitted_threshold(cur):
             slack.append(f"{f}（{th}→{fitted_threshold(cur)}）")
         delta = f"{cur - p:+d}" if p is not None else "新規"
         rate = f"{cur / th:.0%}" if th else "-"
@@ -320,6 +330,9 @@ def cmd_size(args: argparse.Namespace) -> int:
     print(f"閾値の見直し（今の行数+{GROWTH_PERCENT}%を{THRESHOLD_STEP_LINES}行に切り上げた値より緩い・削除済み） "
           f"{len(slack)}件: "
           + (", ".join(slack) if slack else "なし"))
+    if exceptions:
+        print(f"指示の文書のファイルごとの閾値（無視した。上限は instruction_limits だけ） {len(exceptions)}件: "
+              + ", ".join(exceptions))
     if not base_sha:
         print("（周期レビューのタグが無いため前回比は出していない）")
     return 0

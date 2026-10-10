@@ -6,7 +6,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 # テストと検査の回し方
 
 手元とCIで、検査とテストをどこでどう回すかを持つ。何を確かめるか・テストが要るか・書き方は
-[testing.md](../../rules/testing.md)が持つ。
+[testing.md](../../rules/testing.md)と、そこから分けた`testing-*.md`が持つ。
 
 ## 手元の検査の回し方
 
@@ -36,7 +36,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった
     ファイルだけを実行する。フルスイートを影響範囲の調査に使わない。
-  - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing.md](../../rules/testing.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**
+  - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing-structure.md](../../rules/testing-structure.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**
     （backend: `python -m pytest backend/tests/structure -q`、frontend: `./node_modules/.bin/vitest run src/structure`）。
 - **同じ作業ツリーで並行して複数のテストプロセスを走らせない**（下の「テストDBは作業ツリーごとに分かれる」）。
 
@@ -134,7 +134,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 
 入っているだけで働き、モジュールの並びと、モジュールの中の並びを混ぜる（違うモジュールのテストを交ぜ合わせはしない）。
 **並びが変わった回にだけ落ちる失敗は、実装の欠陥ではなく、テストの隠れた順序依存として直す**（直す向きは
-[testing.md](../../rules/testing.md)「テストを変異テストで見直す」の隔離）。
+[testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」の隔離）。
 
 - CIで落ちた並びは、手元で`--randomly-seed=<runのID>`を付けると同じ並びになる（CIはrunのIDを種に渡す。
   `.github/workflows/ci.yml`）。`-n`を付けずに流すと、ワーカーの中の順まではCIと揃わない。
@@ -169,7 +169,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 `tests/conftest.py: postgis_database_url`が、チェックアウトの場所からDB名を導き
 （`ridecompass_test_<ディレクトリ名>_<パスのダイジェスト>`）、無ければ作る。表が宣言と違う形になっていれば、
 ファイルごとのエンジンの準備（`tests/conftest.py: road_graph_engine`）が`scripts/schema_gap.py`で差を測って作り直すので、
-壊れ方の確かめ（[testing.md](../../rules/testing.md)「そのテストは要るか（3問を順に）」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
+壊れ方の確かめ（[testing-review.md](../../rules/testing-review.md)「消す・まとめる前に、残す側が落ちるかを見る」）で実装や宣言を戻したあとに、テストDBを手で戻さなくてよい。
 
 環境ごとに必要な作業（開発機で一度だけ付ける権限・拡張）と、作業ツリーを消したあとの残骸の片付けは付録にある。
 
@@ -182,7 +182,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 ## 変異テストでテストの効きを測る
 
 今のテストが、実装の1か所の書き換え（`<` を `<=` に・`+` を `-` に等）を見つけられるかを測り、テストを消す・足す判断の
-材料にする（結果から何を足す・消す・直すかは [testing.md](../../rules/testing.md)「テストを変異テストで見直す」）。台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）、回すのは
+材料にする（結果から何を足す・消す・直すかは [testing-review.md](../../rules/testing-review.md)「テストを変異テストで見直す」）。台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）、回すのは
 `.github/workflows/mutation.yml`（手で起こす）。
 
 ```bash
@@ -213,7 +213,7 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
 
 ## E2E・画面の撮影の走らせ方
 
-何をE2Eで見るか・書き方は[testing.md](../../rules/testing.md)パターン4が持つ。
+何をE2Eで見るか・書き方は[testing-e2e.md](../../rules/testing-e2e.md)パターン4が持つ。
 
 - **`npm run test:e2e`**（`npm run build:e2e`→`playwright test`）。CIのe2eジョブも同じコマンドを使う。`build:e2e`は型の検査を
   外した本番ビルドで（`next.config.ts`の`typescript.ignoreBuildErrors`）、型はCIの`frontend`ジョブの`tsc --noEmit`が見る。
