@@ -279,9 +279,9 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 送られたEdge id列が**実在し・順につながり・起点から始まり・目的地へ着く**ことは
 `engine.build_traced_from_edge_ids`が確かめ（鍵は`_lazy_index_of`で区間の番号へ戻す。探索範囲に無い・
 探索用グラフに載らない区間は実在しない扱い）、成立しなければ`RoutingError`で落とす
-（グラフを知るのはエンジンのため戦略層には置けない）。終点は起点と同じ
-`find_nearest_node_indexed`で解くため、比べる相手は元の候補が実際に終わったNodeになる
-——目的地が孤立していて補正した場合、補正後の地点を条件として返す。
+（グラフを知るのはエンジンのため戦略層には置けない）。終点は生成と同じく出て戻れるNodeへ寄せて解く
+（下の「地点をNodeへ寄せる範囲」）ため、比べる相手は元の候補が実際に終わったNodeになる
+——目的地を寄せ直した場合、寄せ直した後の地点を条件として返す。
 **同じ地点を2度通る列はここでは落とさない**。走れはするので「経路として成立しない」形では
 なく、選択肢として出さない側（フロント）で止める。レグは合成経路自身の距離の半分で
 切る（`domain/route_search.py: leg_of_edge_by_half`）——via-nodeが無く前向き木・後ろ向き木の境目が存在しないため。
@@ -354,18 +354,24 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 ものだけで、範囲の外は422、宣言に無いidは404で断る。応答は各項目の「変えたとき効くまでに
 何が要るか」も返し、画面が「変えたのに効かない」を出せるようにする。
 
-### 地点をNodeへ寄せる範囲（`find_nearest_node_indexed`）
+### 地点をNodeへ寄せる範囲（`domain/routing.py: snap_to_accessible_node`）
+
+置いた点（出発地・経由地・目的地）は、どれも**出て戻れるNode**——0次フィルタの後に通れる区間だけで互いに行き来できる
+一番大きな集まり（`domain/routing.py: largest_strongly_connected_nodes`）のNode——へ寄せる。一番近いNodeが孤立した
+小さな塊（歩道橋・私有地内通路等）や一方通行の袋にあると、そこへ寄せた点からは経路が出ない（出発地なら走り出せず、
+経由地・目的地なら着いても出られない）。置いた点がどれも同じ集まりにあるので、置いた点どうしは必ず行き来できる。
 
 寄せてよい範囲には限度がある。**無いと、利用者が指した地点とは別の場所を指定したことに
 なる**（呼び出し側は返ったNodeを「指した地点」として扱う）。
 
 - 読み込んだグラフが覆う範囲の外を指した点は寄せない（索引のセル境界＋1セルの余裕で
   判定する。範囲の縁をわずかに外した点は、すぐ隣の道へ寄せる）。
-- 目的地が起点から到達できないときの補正（`MAX_DESTINATION_CORRECTION_KM`）は、
-  そこから一定距離の中に到達できるNodeが無ければ補正せず、候補なしとして
-  `no_candidates_side="destination"`を立てる。
+- 一番近いNodeが出て戻れなければ、`MAX_SNAP_CORRECTION_KM`の中で一番近い出て戻れるNodeへ寄せ直し、
+  無ければ寄せない（出発地は`prepare`の`RoutingError`から「起点から走り出せる道が見つかりませんでした」、
+  経由地・目的地は候補なし）。目的地を寄せ直したときだけ、その座標を`corrected_destination`で返す
+  （目的地には画面のピンがあり、動いたことを見せる）。
 
-**暗黙の前提**: 述語（起点から到達できるか等）を渡した探索は、それが1つも真にならないと
+**暗黙の前提**: 述語（出て戻れるか等）を渡した探索は、それが1つも真にならないと
 「見つかった最近傍より外側は必ず遠い」という打ち切り条件が成立しない。索引が占める範囲の
 外へ出た時点でも打ち切るのはこのため（実測: 打ち切りが無いと30km規模の索引で16.9分、
 その間イベントループを握るためbackend全体が止まる）。
@@ -450,7 +456,7 @@ idの文字列や要求の形から決め直さない。
 
 `GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）を受け取り、
 `_build_search_graph`がその材料から「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`、行は切り出した
-区間の順）・探索用グラフ（`domain/routing.py: LazyRoadGraph`）・bbox全体ぶんのコスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・CSR・ターン構造を
+区間の順）・探索用グラフ（`domain/routing.py: LazyRoadGraph`）・bbox全体ぶんのコスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・置いた点を寄せてよいNode・CSR・ターン構造を
 リクエストごとに組む。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
 （`RouteGenerator`）が候補0件として扱う。
 
@@ -580,22 +586,9 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
 追加探索が発生しない。前段で走った道には、両方の木で帰りと同じ罰を置く:
 
 1. 最後の固定点からの前向き木（`select_loop_turnarounds`と同じ`build_turn_expanded_tree`）を求める。終点が起点なら
-   `prepare`がスナップ済みのNodeを使い、下の補正をしない。
-   目的地に一番近いNode（`find_nearest_node_indexed`、次数1以上のみが候補）が
-   この前向き木で到達不能な場合（歩道橋・私有地内通路等、メインの道路網から孤立した
-   小さな塊へスナップされたケース）、`find_nearest_node_indexed`へ「前向き木が届くNode」
-   だけを候補にする`allowed`と、補正の上限`MAX_DESTINATION_CORRECTION_KM`を渡して再スナップする（実際の座標は
-   `_RoadGraphContext.destination_correction`に残り
-   `RouteGenerator.last_destination_correction`→`GenerationConditions.
-   corrected_destination`経由でレスポンスへエコーされる）。再スナップも失敗した場合は
-   候補0件として扱う。**このとき壊れているのが目的地側とは限らない**——
-   `find_nearest_node_indexed`は`allowed`が真のNodeが上限の距離の中に1つも無ければ
-   Noneを返すため、候補が1つも見つからないのは
-   「前向き木がどのNodeへも届かなかった」ときにも起きる（起点が孤立している・合成コストが
-   全Edgeで非有限、等）。到達Node数を見てどちら側かを判定し、警告と
-   `_RoadGraphContext.no_candidates_side`（`RouteGenerator`が利用者向けの文面を選ぶ）で
-   区別する。
-2. （補正後の）目的地からの後ろ向き木（遷移の向きを反転した辺基準の木）を求める。
+   `prepare`がスナップ済みのNodeを使う。目的地は上の「地点をNodeへ寄せる範囲」のとおり出て戻れるNodeへ寄せてあるので、
+   前向き木は終点へ必ず届く。
+2. 目的地からの後ろ向き木（遷移の向きを反転した辺基準の木）を求める。
 3. 全Nodeについて経由路長と合成コストを`combine_forward_backward_at_nodes`で求め
    （そのNodeで曲がる費用を含む）、
    合成コスト最小のNode（＝経由地無しの従来の単一生成が返す経路、"最良路"）の長さの
@@ -633,7 +626,7 @@ A*のヒューリスティックも秒の下界にする（直線距離÷出せ�
 表現する（軸コスト経路で`cost_lazy`が`inf`になっているのと同じ意味）。
 
 置いた経由地を置いた順に通り、置いた点どうしの区間も時間最短で結び直す（候補の前段の道は軸の重みで選んでいる）。
-`select_via_nodes`の後に呼ぶ前提で、目的地の再スナップ結果（`destination_correction`）と最後の区間のレグを
+`select_via_nodes`の後に呼ぶ前提で、最後の区間のレグを
 引き継ぐ。置いた点どうしの区間は候補と同じ前段のレグで測り、最後の区間は経路の所要時間が半分になる位置で割る
 （合成経路と同じ`leg_of_edge_by_half`へ走行秒を渡す）——他の候補と同じく前向き・後ろ向きのレグへ概ね半分ずつ割れ、
 レグごとに時刻の異なる風の評価が候補間で揃う。

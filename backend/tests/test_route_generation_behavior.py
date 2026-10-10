@@ -41,12 +41,15 @@ from tests.route_world import (
     BASE_LAT,
     BASE_LON,
     CENTER,
+    COORDINATES,
+    ISLAND_WAY,
     LAT_STEP,
     LON_STEP,
     NODE_OF,
     NORTH_EAST,
     SOUTH_EAST,
     SOUTH_WEST,
+    WAYS,
     at,
     avoid_axis_declared,
     generator_for,
@@ -435,6 +438,63 @@ async def test_a_destination_on_an_isolated_road_is_moved_to_the_nearest_reachab
     for candidate in candidates:
         assert_connected(candidate, SOUTH_WEST, NORTH_EAST)
     assert generator.last_destination_correction == at(NORTH_EAST)
+
+
+def _stuck_by_north_east(stuck: str, east_deg: float) -> tuple[RoadNetwork, Coordinates]:
+    """格子と、北東の角から`east_deg`だけ東の点。その点の一番近い道は、格子へ出入りできない——`island`は格子と
+    つながらない道、`one_way_spur`は北東の角から入るだけの一方通行の行き止まり（入れるが出られない）。"""
+    end = (COORDINATES[NORTH_EAST][0], COORDINATES[NORTH_EAST][1] + east_deg)
+    if stuck == "island":
+        ways = {**WAYS, ISLAND_WAY: (90, 91)}
+        coordinates = {**COORDINATES, 90: (end[0], end[1] - 0.004), 91: end}
+        oneway: set[int] = set()
+    else:
+        ways = {**WAYS, ISLAND_WAY: (NORTH_EAST, 92)}
+        coordinates = {**COORDINATES, 92: end}
+        oneway = {ISLAND_WAY}
+    return road_network(ways, coordinates, oneway_ways=oneway), Coordinates(latitude=end[0], longitude=end[1])
+
+
+@pytest.mark.parametrize("stuck", ["island", "one_way_spur"])
+@pytest.mark.parametrize("placed", ["origin_of_distance_loop", "origin_of_waypoint_loop", "waypoint"])
+async def test_a_point_whose_nearest_road_cannot_be_left_is_moved_to_the_nearest_road_that_can(engine_over, stuck, placed):
+    """出発地・経由地の一番近い道から格子へ出入りできないと、そこを通る経路は無い。すぐ近くの出入りできる道へ寄せて出す。"""
+    network, point = _stuck_by_north_east(stuck, 0.008)
+    generator = engine_over(network)
+
+    if placed == "origin_of_distance_loop":
+        candidates = await generator.generate_loops(point, 6.0, 1.5, max_routes=3, start_time=DEPARTURE)  # 角から回れる長さ
+    elif placed == "origin_of_waypoint_loop":
+        candidates = await generator.generate_via_waypoints(
+            point, [at(SOUTH_WEST)], destination=None, max_routes=3, start_time=DEPARTURE)
+    else:
+        candidates = await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [point], destination=None, max_routes=3, start_time=DEPARTURE)
+
+    assert candidates
+    start = SOUTH_WEST if placed == "waypoint" else NORTH_EAST
+    for candidate in candidates:
+        assert_connected(candidate, start, start)
+        assert node_key(NORTH_EAST) in candidate.node_ids
+
+
+@pytest.mark.parametrize("placed", ["origin", "waypoint", "destination"])
+async def test_a_point_whose_only_nearby_road_cannot_be_left_is_refused(engine_over, placed):
+    """出入りできる道が近くに無いなら、指した覚えのない遠くの道へ黙って寄せない。"""
+    network, point = _stuck_by_north_east("island", 0.03)  # 北東の角から約2.7km
+    generator = engine_over(network)
+
+    if placed == "origin":
+        candidates = await generator.generate_loops(point, 4.0, 1.5, max_routes=3, start_time=DEPARTURE)
+    elif placed == "waypoint":
+        candidates = await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [point], destination=None, max_routes=3, start_time=DEPARTURE)
+    else:
+        candidates = await generator.generate_via_waypoints(
+            at(SOUTH_WEST), [], destination=point, max_routes=3, start_time=DEPARTURE)
+
+    assert candidates == []
+    assert generator.last_no_candidates_reason
 
 
 # --- 区間の表示 ---

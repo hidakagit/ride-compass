@@ -73,7 +73,7 @@ from app.domain.route import (
 from app.domain.route_search import (
     DETOUR_RATIO_MIN_ROAD_M,
     LOOP_MAX_OVERLAP_RATIO,
-    MAX_DESTINATION_CORRECTION_KM,
+    MAX_SNAP_CORRECTION_KM,
     TURNAROUND_MAX_OVERLAP_RATIO,
     TURNAROUND_RELAXED_OVERLAP_RATIO,
     VIA_NODE_MAX_OVERLAP_RATIO,
@@ -112,11 +112,12 @@ from app.domain.routing import (
     combine_forward_backward_at_nodes,
     edge_bearings,
     edge_index_between,
-    find_nearest_node_indexed,
+    largest_strongly_connected_nodes,
     lengths_by_physical_segment,
     overlap_ratio,
     physical_overlap_ratio,
     select_diverse_by_overlap,
+    snap_to_accessible_node,
     turn_expanded_path_edge_indices,
     turn_expanded_path_from_state,
     turn_expanded_path_from_state_to_source,
@@ -167,6 +168,9 @@ class _RoadGraphContext:
     # 各経由地・仕上げの目的地）を都度線形探索せず使い回すための索引
     # （domain/routing.py参照）。
     node_index: NodeSpatialIndex
+    # 置いた点を寄せてよいNode（ノード番号順の真偽。`domain/routing.py: largest_strongly_connected_nodes`）。
+    # 起点・経由地・目的地をどれもこの中へ寄せるので、置いた点どうしは互いに行き来できる。
+    accessible: np.ndarray
     # 探索用グラフ（区間は番号、domain/routing.py: LazyRoadGraph参照）。
     lazy_graph: LazyRoadGraph
     # レグごとのコスト配列を合成する部品と、合成済みのレグ配列（前段の区間ごとのレグのあとに、仕上げの往路[最後の
@@ -190,15 +194,11 @@ class _RoadGraphContext:
     # 帰りの探索（中継点→終点）のA*ヒューリスティック配列（終点のノード番号→配列）。終点は1回の生成で
     # 固定のため、終点ごとに1回だけ計算し全候補で共有する（初回の帰りの探索時に遅延構築）。
     end_estimates: dict[int, list[float]] = field(default_factory=dict)
-    # select_via_nodesが目的地を最寄りのアクセス可能なNodeへ補正した場合の
-    # 実際の座標（補正が無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
+    # 仕上げが目的地を一番近いNodeでなく出て戻れる最寄りNodeへ寄せた場合の
+    # 実際の座標（寄せ直しが無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
     # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
     # 伝える。
     destination_correction: Coordinates | None = None
-    # 候補0件になった原因がどちら側にあるか（"origin"＝起点から1Nodeも到達できない、
-    # "destination"＝到達はできるが目的地の近くに届くNodeが無い）。
-    # destination_correctionと同じside channelで、利用者へ出す文面を分けるために使う。
-    no_candidates_side: str | None = None
 
 
 def _static_score_matrix(road: RoadSlice, rain: StationRainMaterials | None) -> tuple[StaticEdgeScoreMatrix, int]:
@@ -402,20 +402,25 @@ class RoadGraphEngine:
 
     async def _build_search_structures(
         self, search: _SearchGraph
-    ) -> tuple[NodeSpatialIndex, SearchGraphStatics, TurnExpandedStructure]:
-        """最寄りNodeの索引・CSR・ターン構造を組む。
+    ) -> tuple[NodeSpatialIndex, np.ndarray, SearchGraphStatics, TurnExpandedStructure]:
+        """最寄りNodeの索引・置いた点を寄せてよいNode・CSR・ターン構造を組む。
 
         索引の候補は実際に経路探索可能な（Hard Constraint通過後も区間が1本以上残る）Nodeに
         絞る。絞らないと、幹線道路（highway=trunk等）にしか接続していない地理的最近傍Node
         （駅前が国道の交差点に直接面する場所が実例）が選ばれ、そこがHard Constraint除外後の
         グラフ上では孤立点になるため、すべての折返し点・経由地への探索が"no path found"で失敗する。
+        区間が残っていても出て戻れないNode（孤立した小さな塊・一方通行の袋）は、置いた点を寄せるときに
+        外す（`domain/routing.py: snap_to_accessible_node`）。
         """
         started = time.monotonic()
         road = search.road
         routable = compute_routable_nodes(road.edge_from, road.edge_to, search.hard_filter_excluded, road.node_count)
         node_index = await asyncio.to_thread(build_node_spatial_index, search.node_lat, search.node_lon, routable)
-        index_ms = round((time.monotonic() - started) * 1000)
         statics = build_search_graph_statics(search.lazy_graph, search.composer.distance_m)
+        accessible = await asyncio.to_thread(
+            largest_strongly_connected_nodes, statics.csr, ~search.hard_filter_excluded[search.lazy_graph.edge_rows],
+        )
+        index_ms = round((time.monotonic() - started) * 1000)
         turn_started = time.monotonic()
         turn_structure = await asyncio.to_thread(self._build_turn_structure, search, statics)
         logger.info(
@@ -423,7 +428,7 @@ class RoadGraphEngine:
             road.edge_count, turn_structure.state_count, len(turn_structure.target_state),
             index_ms, round((time.monotonic() - turn_started) * 1000),
         )
-        return node_index, statics, turn_structure
+        return node_index, accessible, statics, turn_structure
 
     def _build_turn_structure(self, search: _SearchGraph, statics: SearchGraphStatics) -> TurnExpandedStructure:
         """状態＝有向区間の遷移構造。信号の有無・集まる道の最大階級はノードの事前集計列、
@@ -449,7 +454,9 @@ class RoadGraphEngine:
     ) -> _RoadGraphContext | None:
         """`points`は置いた点（経由地・目的地）、`radius_km`は自由に選ぶ部分が届く見込みの半径（置いた点だけを
         つなぐなら0）。出発地と置いた点を覆う矩形をこの半径とマージンだけ広げるので、中継点がどの方位に選ばれても
-        この1回の取得で足りる。"""
+        この1回の取得で足りる。
+
+        起点は出て戻れるNodeへ寄せ（`domain/routing.py: snap_to_accessible_node`）、寄せられなければ`RoutingError`。"""
         # nowは出発時刻。区間ごとの通過時刻（風・昼夜）はここからの経過で決まる。
         margin_km = max(_BBOX_MARGIN_MIN_KM, radius_km * _BBOX_MARGIN_RATIO)
         bbox = bbox_covering_points([origin, *points], radius_km + margin_km)
@@ -457,15 +464,22 @@ class RoadGraphEngine:
         search = await self._build_search_graph(bbox, origin, now)
         if search is None:
             return None
-        node_index, statics, turn_structure = await self._build_search_structures(search)
-        origin_node = find_nearest_node_indexed(node_index, origin)
-        if origin_node is None:
-            return None
+        node_index, accessible, statics, turn_structure = await self._build_search_structures(search)
+        snapped = snap_to_accessible_node(node_index, accessible, origin, MAX_SNAP_CORRECTION_KM)
+        if snapped is None:
+            raise RoutingError("no accessible node near origin")
+        origin_node, moved = snapped
+        if moved:
+            logger.warning(
+                "prepare moved origin to nearest accessible node lat=%.2f lon=%.2f",
+                float(search.node_lat[origin_node]), float(search.node_lon[origin_node]),
+            )
 
         return _RoadGraphContext(
             road=search.road,
             origin_node=origin_node,
             node_index=node_index,
+            accessible=accessible,
             lazy_graph=search.lazy_graph,
             composer=search.composer,
             legs=[search.outbound],
@@ -506,16 +520,16 @@ class RoadGraphEngine:
     async def trace_fixed_points(self, context: _RoadGraphContext, waypoints: list[Coordinates]) -> FixedLegs:
         """前段: 出発地から、置いた経由地を置いた順に区間ごとのA*で結ぶ。経由地が無ければ出発地で止まる（区間は無い）。
 
-        起点は`prepare`がスナップ済みのNodeをそのまま使い、経由地はここでスナップする。
+        起点は`prepare`がスナップ済みのNodeをそのまま使い、経由地はここで起点と同じく出て戻れるNodeへスナップする。
         """
         if not waypoints:
             return FixedLegs(segments=[], nodes=[context.origin_node], length_m=0.0)
         node_sequence = [context.origin_node]
         for point in waypoints:
-            node = find_nearest_node_indexed(context.node_index, point)
-            if node is None:
+            snapped = _snap(context, point)
+            if snapped is None:
                 raise RoutingError("could not snap waypoints to road graph")
-            node_sequence.append(node)
+            node_sequence.append(snapped[0])
 
         trace_started = time.monotonic()
         context.legs = context.legs[:1]
@@ -567,12 +581,11 @@ class RoadGraphEngine:
             end_node = context.origin_node
             end_point = context.origin
         else:
-            snapped = find_nearest_node_indexed(context.node_index, destination)
+            snapped = _snap_destination(context, destination)
             if snapped is None:
-                logger.warning("select_turnarounds destination_node=None (not snapped to routable graph)")
                 return []
             end_node = snapped
-            end_point = destination
+            end_point = context.destination_correction or destination
         # 往路レグを、見込み所要時間（残りの距離の半分÷巡航速度）ぶんの時刻ビンで組み直す。
         # 木は出発からの経過時間を持ち回れるため、風を推定ではなく実際の経過時間で引ける。
         outbound = context.composer.compose(
@@ -756,12 +769,8 @@ class RoadGraphEngine:
            Node（行って戻る形になり経路として成立しない）を除外しつつ、採用済み候補との
            重複率（最後の区間どうし）が閾値超のものを飛ばして`max_routes`件採る。
 
-        目的地に一番近いNodeが、メインの道路網から孤立した小さな塊
-        （歩道橋・私有地内通路等、次数1以上ではあるが起点からは実質到達できない場所）に
-        スナップされていると、後ろ向き木が起点側とほぼ重ならず毎回0件になる。前向き木で
-        実際に届くかをここで確認し、届かなければ「前向き木が届くNode」だけに絞って
-        最寄りへ再スナップする（`context.destination_correction`に実際の座標を残す）。終点が出発地なら
-        `prepare`がスナップ済みのNodeをそのまま使う（起終点を同じNodeに揃えないと周回が閉じない）。
+        目的地は起点・経由地と同じく出て戻れるNodeへスナップするので、走り出す点からの前向き木は必ず届く。
+        終点が出発地なら`prepare`がスナップ済みのNodeをそのまま使う（起終点を同じNodeに揃えないと周回が閉じない）。
         """
         leg_index = len(fixed.segments)
         start_node = fixed.last_node
@@ -772,11 +781,11 @@ class RoadGraphEngine:
             destination_index = context.origin_node
             destination = context.origin
         else:
-            snapped = find_nearest_node_indexed(context.node_index, destination)
+            snapped = _snap_destination(context, destination)
             if snapped is None:
-                logger.warning("select_via_nodes destination_node=None (not snapped to routable graph)")
                 return []
             destination_index = snapped
+            destination = context.destination_correction or destination
         traveled = _traveled_columns(context, fixed.edges)
 
         tree_started = time.monotonic()
@@ -794,50 +803,6 @@ class RoadGraphEngine:
             _origin_states(context.statics, start_node), context.statics.csr.node_count,
             edge_seconds=outbound.travel_bins_lazy, bin_seconds=outbound.bin_seconds,
         )
-
-        if not np.isfinite(forward_tree.node_cost[destination_index]):
-            corrected_node = (
-                find_nearest_node_indexed(
-                    context.node_index, destination,
-                    allowed=np.isfinite(forward_tree.node_cost),
-                    max_distance_km=MAX_DESTINATION_CORRECTION_KM,
-                )
-                if not closes else None
-            )
-            if corrected_node is None:
-                # Noneは「この距離の中にアクセス可能なNodeが無い」。到達Node数が0なら壊れて
-                # いるのは目的地ではなく走り出す側（またはコスト配列）であり、そちらを名指ししないと
-                # 調査が空振りする。
-                reached_nodes = int(np.count_nonzero(np.isfinite(forward_tree.node_cost)))
-                if reached_nodes == 0:
-                    finite_cost_ratio = float(np.mean(np.isfinite(outbound.cost_bins_lazy)))
-                    context.no_candidates_side = "origin"
-                    logger.debug("select_via_nodes start_node=%s", _node_key_of(context.road, start_node))
-                    logger.warning(
-                        "select_via_nodes start reaches no node start_node=%s out_edges=%d "
-                        "finite_cost_ratio=%.3f nodes=%d",
-                        _node_label(context, start_node),
-                        int(_origin_states(context.statics, start_node).size),
-                        finite_cost_ratio,
-                        int(forward_tree.node_cost.size),
-                    )
-                else:
-                    context.no_candidates_side = "destination"
-                    logger.debug("select_via_nodes destination_node=%s", _node_key_of(context.road, destination_index))
-                    logger.warning(
-                        "select_via_nodes no accessible node near destination destination_node=%s "
-                        "reached_nodes=%d/%d",
-                        _node_label(context, destination_index), reached_nodes,
-                        int(forward_tree.node_cost.size),
-                    )
-                return []
-            destination_index = corrected_node
-            destination = _node_coordinates(context, destination_index)
-            context.destination_correction = destination
-            logger.warning(
-                "select_via_nodes corrected destination to nearest accessible node lat=%.2f lon=%.2f",
-                destination.latitude, destination.longitude,
-            )
 
         # 迂回率は前向き木（走り出す点から`DETOUR_RATIO_MIN_ROAD_M`以上先の到達Node）の実測中央値を使い、学習値として保存する。
         reached = np.flatnonzero(
@@ -995,15 +960,15 @@ class RoadGraphEngine:
         表明で、所要時間を優先する経路でも越えてよいものではない。除外Edgeの所要時間を
         `inf`にすることで表現する。
 
-        `select_via_nodes`の後に呼ぶこと。目的地の再スナップ結果と、最後の区間のレグを引き継ぐ。
+        `select_via_nodes`の後に呼ぶこと。最後の区間のレグを引き継ぐ。
 
         置いた点どうしの区間は候補と同じレグで測り、最後の区間は経路の所要時間が半分になる位置で前向き・後ろ向きの
         レグへ割る——他の候補と同じく概ね半分ずつ割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
         """
-        destination = context.destination_correction or destination
-        destination_index = find_nearest_node_indexed(context.node_index, destination)
-        if destination_index is None:
+        snapped = _snap(context, destination)
+        if snapped is None:
             return None
+        destination_index = snapped[0]
 
         started = time.monotonic()
         stops = [*fixed.nodes, destination_index]
@@ -1111,9 +1076,9 @@ class RoadGraphEngine:
         起点から始まり・目的地へ着く**ことをここで確かめる（送られた列をそのまま信じると、
         評価は成功するのに経路として成立しないルートが候補一覧へ並ぶ）。
 
-        終点は起点と同じ`find_nearest_node_indexed`で解くため、比べる相手は元の候補が
-        実際に終わったNodeになる——目的地がメインの道路網から孤立していて補正した場合も、
-        補正後の地点が条件として返っており、合成もその地点で送られてくる。
+        終点は生成と同じく出て戻れるNodeへ寄せて解くため、比べる相手は元の候補が
+        実際に終わったNodeになる——目的地を寄せ直した場合も、
+        寄せ直した後の地点が条件として返っており、合成もその地点で送られてくる。
 
         合成経路はvia-nodeを持たないため、レグはこの経路自身の距離で`leg_of_edge_by_half`が
         切る。**レグ番号を振る側が、その番号のレグを
@@ -1137,9 +1102,9 @@ class RoadGraphEngine:
                 _refuse_at_nodes(
                     context, f"経路がつながっていません index={index}", to_node=head, next_from_node=following_tail,
                 )
-        destination_node = find_nearest_node_indexed(context.node_index, destination)
-        if destination_node is not None and heads[-1] != destination_node:
-            _refuse_at_nodes(context, "経路が目的地に着いていません", expected=destination_node, actual=heads[-1])
+        snapped = _snap(context, destination)
+        if snapped is not None and heads[-1] != snapped[0]:
+            _refuse_at_nodes(context, "経路が目的地に着いていません", expected=snapped[0], actual=heads[-1])
 
         lengths = context.statics.edge_length_m[path].tolist()
         total_m = sum(lengths)
@@ -1507,6 +1472,27 @@ def _refuse_at_nodes(context: _RoadGraphContext, message: str, **nodes: int) -> 
 
 def _node_coordinates(context: _RoadGraphContext, node: int) -> Coordinates:
     return Coordinates(latitude=float(context.node_lat[node]), longitude=float(context.node_lon[node]))
+
+
+def _snap(context: _RoadGraphContext, point: Coordinates) -> tuple[int, bool] | None:
+    """置いた点を、起点と同じく出て戻れるNodeへ寄せる（`domain/routing.py: snap_to_accessible_node`）。"""
+    return snap_to_accessible_node(context.node_index, context.accessible, point, MAX_SNAP_CORRECTION_KM)
+
+
+def _snap_destination(context: _RoadGraphContext, destination: Coordinates) -> int | None:
+    """目的地を寄せたNode。寄せ直したら、その座標を`context.destination_correction`に残す（利用者のピンを動かす）。"""
+    snapped = _snap(context, destination)
+    if snapped is None:
+        logger.warning("destination has no accessible node nearby")
+        return None
+    node, moved = snapped
+    if moved:
+        context.destination_correction = _node_coordinates(context, node)
+        logger.warning(
+            "corrected destination to nearest accessible node lat=%.2f lon=%.2f",
+            context.destination_correction.latitude, context.destination_correction.longitude,
+        )
+    return node
 
 
 def _path_km(context: _RoadGraphContext, path: list[int]) -> float:
