@@ -2,7 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
 
 // 状態を示す小さな丸。色だけで伝えるため、呼び出し側が同じ事実を文字（aria-label・title・隣の文）でも持つ
-// （docs/modules/frontend/frontend-design-system.md「状態の伝え方」）。
+// （.claude/rules/screen.md「状態の伝え方」）。
 export const dotVariants = cva("inline-block size-2 shrink-0 rounded-full", {
   variants: {
     tone: {

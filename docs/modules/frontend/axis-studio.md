@@ -120,7 +120,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 調整中は`公開する`チェックボックスを出さず、「保存すると公開へ戻ります」という事実だけを
 示す（`AxisMapDisplaySection`の`republishing`）。保存が無条件に公開へ戻すため、操作できる
 チェックボックスを置くと、外して保存しても公開へ戻り**画面の操作結果が無言で反転する**
-（design-principles.md「1つの状態は1つの場所でだけ操作する」）。
+（[画面の作法](../../../.claude/rules/screen.md)「1つの状態は1つの場所でだけ操作する」）。
 
 - 削除できるか（ほかの軸が参照している軸・最後の1軸は消せない）は画面で判定しない。backendが
   起動時の読み込みと同じ判定で断り（[軸スタジオ（backend）](../backend/axis-studio.md)「書き込み時のガード」）、
@@ -326,7 +326,7 @@ backend `GET /api/admin/material-catalog/coverage`の
 時刻）を`ReportCard`が1つで持ち、各パネルは取得の関数と中身の描画だけを渡す。認証情報の入力欄は持たない
 （`/admin`のBasic認証セッションを転送の口経由で再利用する）。時点は日本時間で出す（`lib/time.ts`）。
 
-**画面の説明はⓘ（`InfoPopover`）の奥に置き、ベタ書きしない**（design-principles.md
+**画面の説明はⓘ（`InfoPopover`）の奥に置き、ベタ書きしない**（[画面の作法](../../../.claude/rules/screen.md)
 「冗長なものは削る」。読むのは1度きりなのに場所は常に取り続ける）。集計前はボタンだけを出す
 ——押すまで一覧は無いため、そこに無いものの説明を先に読ませない。
 
