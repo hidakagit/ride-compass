@@ -74,8 +74,9 @@ def _point(node_id: int) -> tuple[float, float]:
 RESHAPED_WAYS = ((100, [1, 5, 3]), (200, [3, 4]), (300, [4, 6]))
 
 
-async def _ingest_ways(conn: asyncpg.Connection, ways=WAYS) -> None:
-    await ingest_records("osm_way", [way_record(way_id, [_point(n) for n in nodes], nodes, {"highway": "residential"})
+async def _ingest_ways(conn: asyncpg.Connection, ways=WAYS, bridges: frozenset[int] = frozenset()) -> None:
+    await ingest_records("osm_way", [way_record(way_id, [_point(n) for n in nodes], nodes,
+                                                {"highway": "residential", **({"bridge": "yes"} if way_id in bridges else {})})
                                      for way_id, nodes in ways], conn=conn)
 
 
@@ -451,18 +452,35 @@ async def test_the_network_reads_no_table_beyond_those_its_inputs_are_derived_fr
 class EdgeChange:
     name: str
     apply: Callable[[asyncpg.Connection, pytest.MonkeyPatch, Path], Awaitable[None]]
-    #: 土地被覆の段が (前回の値を写す区間, 数える区間) の本数。
-    counts: tuple[int, int]
+    #: 区間ごとに写す段の名前 → (前回の値を写す区間, 計算する区間) の本数。
+    counts: dict[str, tuple[int, int]]
 
 
-#: どれも道を取り直すので、区間を切る段が流れ、土地被覆の段も流れる。
+#: 区間ごとに写す段が、写した区間と計算する区間の本数を出すログ。
+EDGE_COUNT_LOGS = {
+    "土地被覆: 形の変わらない区間 %d本へ前回の値を写し、%d本を数える": "landcover",
+    "標高: 形と橋・トンネルの変わらない区間 %d本へ前回の値を写し、%d本を計算する": "elevation",
+}
+
+
+def _edit_stage_code(stage: str):
+    return _edit_code(f"batch/derive_{stage}.py", lambda text: text + "\n_EDITED = 1\n")
+
+
+#: どれも道を取り直すので、区間を切る段が流れ、区間ごとに写す段も流れる。
 EDGE_CHANGES = [
-    EdgeChange("道を同じ形で取り直した", _reingest(_ingest_ways), (2, 0)),
-    EdgeChange("道の形を一部変え、道を足した", _reingest(lambda conn: _ingest_ways(conn, RESHAPED_WAYS)), (1, 2)),
-    EdgeChange("道と土地被覆を取り直した", _together(_reingest(_ingest_ways), _reingest(_ingest_landcover)), (0, 2)),
-    EdgeChange("道を取り直し、土地被覆の段のコードを変えた",
-               _together(_reingest(_ingest_ways),
-                         _edit_code("batch/derive_landcover.py", lambda text: text + "\n_EDITED = 1\n")), (0, 2)),
+    EdgeChange("道を同じ形で取り直した", _reingest(_ingest_ways), {"landcover": (2, 0), "elevation": (2, 0)}),
+    EdgeChange("道の形を一部変え、道を足した", _reingest(lambda conn: _ingest_ways(conn, RESHAPED_WAYS)),
+               {"landcover": (1, 2), "elevation": (1, 2)}),
+    # 橋かトンネルかは標高の値だけが読む。
+    EdgeChange("道を同じ形で取り直し、道を1本橋にした", _reingest(lambda conn: _ingest_ways(conn, bridges=frozenset({200}))),
+               {"landcover": (2, 0), "elevation": (1, 1)}),
+    EdgeChange("道と土地被覆を取り直し、標高の段のコードを変えた",
+               _together(_reingest(_ingest_ways), _reingest(_ingest_landcover), _edit_stage_code("elevation")),
+               {"landcover": (0, 2), "elevation": (0, 2)}),
+    EdgeChange("道と標高を取り直し、土地被覆の段のコードを変えた",
+               _together(_reingest(_ingest_ways), _reingest(_ingest_elevations), _edit_stage_code("landcover")),
+               {"landcover": (0, 2), "elevation": (0, 2)}),
 ]
 
 
@@ -475,20 +493,20 @@ async def built_from_ways(world):
 
 
 @pytest.mark.parametrize("change", EDGE_CHANGES, ids=[change.name for change in EDGE_CHANGES])
-async def test_landcover_counts_only_edges_whose_shape_or_outside_inputs_changed_and_matches_a_full_rebuild(
+async def test_per_edge_stages_compute_only_edges_whose_inputs_changed_and_match_a_full_rebuild(
         built_from_ways, caplog, monkeypatch, tmp_path, change):
-    """土地被覆の取込とコードが前回と同じなら、形の同じ区間は前回の値を写し、形を変えた区間・新しい区間だけを数える。
-    取込かコードが変われば全区間を数える。区間と道の値は、同じ入力で全区間を数えた作り直しと同じ。"""
+    """区間ごとに写す段（土地被覆・標高）は、段の取込とコードが前回と同じなら、形の同じ区間（標高は橋かトンネルかも同じ
+    区間）は前回の値を写し、残りの区間だけを計算する。取込かコードが変われば全区間を計算する。区間と道の値は、同じ入力で
+    全区間を計算した作り直しと同じ。"""
     conn = built_from_ways
-    caplog.set_level(logging.INFO, logger="ridecompass.derive_landcover")
+    caplog.set_level(logging.INFO, logger="ridecompass")
     await change.apply(conn, monkeypatch, tmp_path)
 
     assert await derive_cli.run(postgis_database_url()) == 0
-    counts = [record.args for record in caplog.records
-              if record.msg == "土地被覆: 形の変わらない区間 %d本へ前回の値を写し、%d本を数える"]
+    counts = [(EDGE_COUNT_LOGS[record.msg], record.args) for record in caplog.records if record.msg in EDGE_COUNT_LOGS]
     values = await _values(conn)
 
-    assert counts == [change.counts]
+    assert sorted(counts) == sorted(change.counts.items())
 
     await conn.execute("DELETE FROM derived_stages")
     assert await derive_cli.run(postgis_database_url()) == 0
