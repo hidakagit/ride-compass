@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import config from "../flow.config.json" with { type: "json" };
 import { decide, dispatchable } from "../src/decide.js";
+import { taskOf } from "../src/facts.js";
 import { withButton } from "../src/questions.js";
 
 // 担当が手放した直後の、どの行にも当たらないタスク。各行はここから違う事実だけを変える。
@@ -84,6 +85,15 @@ test("決め方: 事実の組ごとの行き先と、保つ値", () => {
 test("形に合わない問いには、合わない所を返す（最新のコメントがその問いのときだけ facts が渡す）", () => {
   assert.match(decide(f({ badQuestion: ["判断材料の節が足りない"] }), config).notice, /判断材料の節が足りない/);
   assert.equal(decide(f({}), config).notice, null);
+});
+
+test("着手可能日時: 読めない値はまだ先と読む（待つと決めた意図を守る）", () => {
+  const item = (text) => [{ id: "I", project: { number: config.boards.actions }, status: null, priority: null, start: text === null ? null : { text } }];
+  const now = new Date("2026-10-11T00:00:00+09:00");
+  assert.equal(taskOf(config, {}, item("2026-10-12"), now).future, true);
+  assert.equal(taskOf(config, {}, item("2026-10-10 09:00"), now).future, false);
+  assert.equal(taskOf(config, {}, item("10月12日"), now).future, true);
+  assert.equal(taskOf(config, {}, item(null), now).future, false);
 });
 
 test("振り出す担当の種類（R14・R17: CI待ちは枠を使わず振り出さない）", () => {

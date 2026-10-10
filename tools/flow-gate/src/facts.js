@@ -5,13 +5,13 @@ import { checkQuestion, latestQuestion, norm, remaining } from "./questions.js";
 // ボードの欄（ステータス・優先度・着手可能日時）の読み方。欄の名前は設定が持つ。
 export const fieldsOf = ({ fields: f }) => `status:fieldValueByName(name:"${f.status}"){...on ProjectV2ItemFieldSingleSelectValue{name}}
  priority:fieldValueByName(name:"${f.priority}"){...on ProjectV2ItemFieldSingleSelectValue{name}} start:fieldValueByName(name:"${f.start}"){...on ProjectV2ItemFieldTextValue{text}}`;
-// 着手可能日時は「YYYY-MM-DD」か「YYYY-MM-DD HH:MM」で、日本時間として読む。
+// 着手可能日時は「YYYY-MM-DD」か「YYYY-MM-DD HH:MM」で、日本時間として読む。読めない値は、待つと決めた意図を守ってまだ先と読む。
 const jst = (text) => (text ? new Date(`${text.trim().replace(" ", "T")}${text.includes(":") ? "" : "T00:00"}:00+09:00`) : null);
 // ボードの項目から、ボードの世界・欄・前提と日時の待ちを組む（1件を決め直すときも、振り出しの一覧も同じ）。
 export function taskOf(config, issue, items, now = new Date()) {
   const [world, item] = Object.entries(config.boards).map(([w, n]) => [w, items.find((i) => i.project.number === n)]).find(([, i]) => i) ?? [null, null];
   return { board: world, item: item?.id ?? null, status: item?.status?.name ?? null, priority: item?.priority?.name ?? null, type: issue.issueType?.name ?? null,
-    open: issue.state === "OPEN", blocked: (issue.blockedBy?.nodes ?? []).some((b) => b.state === "OPEN"), future: Boolean(jst(item?.start?.text) > now) };
+    open: issue.state === "OPEN", blocked: (issue.blockedBy?.nodes ?? []).some((b) => b.state === "OPEN"), future: Boolean(item?.start?.text) && !(jst(item.start.text) <= now) };
 }
 // 担当の実行の名前「#<番号> <種類>」（claude-task.yml の run-name）。
 export function runOf(title) {
