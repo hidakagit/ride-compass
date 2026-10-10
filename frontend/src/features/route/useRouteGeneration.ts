@@ -72,17 +72,16 @@ export function useRouteGeneration({
   const [generatedConditions, setGeneratedConditions] = useState<GeneratedConditions | null>(null);
 
   const { routePreferenceToSend } = conditions;
-  const { routeMode, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
+  const { routeMode, distance, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
   // いまの条件から生成の入力を組み立てる。`destinationOverride`はbackendが補正した目的地。
   const buildCurrentGenerationInput = useCallback(
-    (distanceKm: number, destinationOverride?: Coordinates): GenerationInput => {
+    (destinationOverride?: Coordinates): GenerationInput => {
       const effectiveDestination = destinationOverride ?? destination;
-      const destinationModePoints =
-        routeMode === "destination" ? [...waypoints, ...(effectiveDestination ? [effectiveDestination] : [])] : [];
+      const pointsPlaced = waypoints.length > 0 || effectiveDestination !== null;
       return {
         origin,
         // 点を置いたときの探索の範囲はbackendが点から決めるため、距離は送らない。
-        distanceKm: routeMode === "destination" && destinationModePoints.length > 0 ? null : distanceKm,
+        distanceKm: routeMode === "destination" && pointsPlaced ? null : Number(distance),
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
         maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutes),
         assumedSpeedKmh,
@@ -96,6 +95,7 @@ export function useRouteGeneration({
     },
     [
       routeMode,
+      distance,
       waypoints,
       destination,
       origin,
@@ -112,14 +112,13 @@ export function useRouteGeneration({
   const conditionsDirty =
     generatedConditions != null &&
     hasRoutes &&
-    generationConditionsKey(buildCurrentGenerationInput(Number(conditions.snapshot.distance))) !==
-      generatedConditions.key;
+    generationConditionsKey(buildCurrentGenerationInput()) !== generatedConditions.key;
 
-  async function generate(distanceKm: number) {
+  async function generate() {
     setGeneration({ status: "running", progress: null });
     let notice: GenerationNotice | null = null;
     try {
-      const generationInput = buildCurrentGenerationInput(distanceKm);
+      const generationInput = buildCurrentGenerationInput();
       const {
         routes: candidates,
         conditions: used,
@@ -136,12 +135,10 @@ export function useRouteGeneration({
       // 一覧は最速の1本を先頭に、残りは所要時間の短い順。
       onGenerated(orderGenerated(candidates), used.route_preference);
       // 補正があったら補正後の地点で入力を組み直す（ピンも動かしたので、直後に「条件が変わった」にならない）。
-      const generatedInput = used.corrected_destination
-        ? buildCurrentGenerationInput(distanceKm, used.corrected_destination)
-        : generationInput;
+      const generatedInput = corrected ? buildCurrentGenerationInput(corrected) : generationInput;
       setGeneratedConditions({
         key: generationConditionsKey(generatedInput),
-        destinationCorrected: Boolean(used.corrected_destination),
+        destinationCorrected: Boolean(corrected),
         weightsNotApplied: conditions.weightOverrideEnabled && generatedInput.routePreference === null,
         input: generatedInput,
       });
@@ -164,7 +161,6 @@ export function useRouteGeneration({
   }
 
   const routeFormSubmit = useRouteFormSubmit({
-    distance: conditions.snapshot.distance,
     routeMode,
     waypointCount: waypoints.length,
     destinationSet: destination !== null,
@@ -173,9 +169,8 @@ export function useRouteGeneration({
 
   /** 検証して生成する。入力の誤りも押した結果として知らせる。 */
   async function submit() {
-    const distanceKm = routeFormSubmit.check();
-    if (distanceKm === null) onOutcome("failed");
-    else await generate(distanceKm);
+    if (routeFormSubmit.check()) await generate();
+    else onOutcome("failed");
   }
 
   /** 直近の案内を消す（実行中なら何もしない）。 */

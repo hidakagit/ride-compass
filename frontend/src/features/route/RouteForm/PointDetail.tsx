@@ -345,7 +345,7 @@ export default function PointDetail({
               {listing && (
                 <PlaceCandidates
                   lookup={lookup}
-                  renderCandidate={(candidate, _index, candidateLabel) => (
+                  renderCandidate={(candidate, candidateLabel) => (
                     <Button
                       variant="menu"
                       size="sm"
