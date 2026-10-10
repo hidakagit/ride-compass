@@ -72,11 +72,6 @@ function stableStringify(value: unknown): string {
  * していないのに「生成条件が変更されています」が点くと、印そのものが合図として機能しなくなる。
  */
 export function generationConditionsKey(input: GenerationInput): string {
-  const request = buildGenerateRequest(input) as Record<string, unknown>;
-  const comparable: Record<string, unknown> = {};
-  for (const key of Object.keys(request)) {
-    if (key === "start_time" && !input.startTimePinned) continue;
-    comparable[key] = request[key];
-  }
-  return stableStringify(comparable);
+  const { start_time: startTime, ...rest } = buildGenerateRequest(input);
+  return stableStringify(input.startTimePinned ? { ...rest, start_time: startTime } : rest);
 }
