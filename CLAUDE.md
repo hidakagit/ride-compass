@@ -65,7 +65,7 @@ docs/conventions/ にある（.claude/rules/・.claude/skills/ のものはパ�
 | PR を確かめてマージする | .claude/skills/task-work/SKILL.md: 確かめる担当・Pull Request のあと・競合を解く |
 | 本番へ書く | flow.md: 自動で進めないもの／.claude/skills/dev-session/SKILL.md: 本番へ書く／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
-| 起票する | .claude/skills/file-issue/SKILL.md: 改善を起票する・issue の形・ラベルと種類と欄（規模の札・優先度の見積もり）・前後関係と組 |
+| 起票する・流れ（手順・道具・ゲート・検査）で困った | .claude/skills/file-issue/SKILL.md: 流れの摩擦を記録する・起票する・issue の形・ラベルと種類と欄（規模の札・優先度の見積もり）・前後関係と組 |
 | 問う・保留する | .claude/skills/ask/SKILL.md: 問い・答え・保留と棚卸 |
 | 文書を書く | 上の「ドキュメント階層」／.claude/rules/documentation.md（全文）／.claude/rules/comments.md: 残すと決めたものの行き先 |
 | 流れの道具（`tools/flow-gate`・担当のワークフロー）を変える | flow.md: ゲートを変える・公開する・担当の権限・担当が書けないファイル／.claude/skills/task-work/SKILL.md: 確かめる担当（1 の書き込みのある道具を流す） |

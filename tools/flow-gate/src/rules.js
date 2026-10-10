@@ -27,16 +27,49 @@ export const remaining = (body) => [...bodyRest(body).matchAll(/^\s*- \[ \] (.+)
 export const checkAll = (body) => normalize(body).replace(/^(\s*- )\[ \] /gm, "$1[x] ");
 
 // from から to への遷移を照らす。誰が・どの経路で動かしても、ここだけで決める。表（transitions）に無ければ断る。
-// 表のほかのルールは1つだけで、完了へ完成（close が COMPLETED）で入るとき、body に完了の条件の残りがあれば断る。
-export function judge(config, from, to, { close, body } = {}) {
+// 表のほかのルールは2つ: 完了へ完成（close が COMPLETED）で入るとき、body に完了の条件の残りがあれば断る。回答待ちへ入るとき、
+// comments（古い順の本文。同じ要求で書くコメントも含める）の最新の問いか答えが、形に合う問いでなければ断る。
+export function judge(config, from, to, { close, body, comments = [] } = {}) {
   if (!(config.transitions[from] ?? []).includes(to)) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to}」へは動かせません（遷移の表に無い）。` };
   const left = to === config.done && close === "COMPLETED" ? remaining(body) : [];
   if (left.length) return { ok: false, reason: `完成にするには次が残っています。\n\n${left.map((l) => `- ${l}`).join("\n")}\n\n` };
-  return { ok: true };
+  const asked = to === config.waiting ? checkQuestion(config.questionTemplate, comments.findLast((b) => /^## (問い|回答)\n/.test(normalize(b)))) : [];
+  return asked.length ? { ok: false, reason: `回答待ちには、答えていない問いが形（tools/flow-gate/question_template.md）のとおりに要ります: ${asked.join("・")}。` } : { ok: true };
 }
 
-// 答えていない問いがあるか: 問いと答えのコメント（古い順の本文）のうち、最新が問い。
-export const unanswered = (bodies) => /^## 問い\n/.test(bodies.map(normalize).findLast((b) => /^## (問い|回答)\n/.test(b)) ?? "");
+// 節の形（Pull Request の本文・問いの判断材料）: 節は、行の頭の「<名前>:」（「**<名前>**:」も）から次の節の頭の前まで。名前は
+// テンプレートの節の頭の行から取り、ほかの「名前: 」の行は節の中身とする。
+const HEAD = /^(?:\*\*)?([^\s:*<>`]+)(?:\*\*)?:(.*)$/;
+const split = (text, names) => {
+  const out = [];
+  for (const line of normalize(text).split("\n")) {
+    const m = HEAD.exec(line);
+    if (m && (!names || names.includes(m[1]))) out.push({ name: m[1], lines: [m[2]] });
+    else if (out.length) out.at(-1).lines.push(line);
+    else if (line.trim()) out.push({ name: null, lines: [line] });
+  }
+  return out.map(({ name, lines }) => ({ name, text: lines.join("\n").trim() }));
+};
+
+// 本文の形の誤りを1件1行で返す（無ければ空）: テンプレートの節を、この順に1つずつ、埋めて持つ。
+export function checkBody(template, body) {
+  const want = split(template).filter((s) => s.name);
+  const names = want.map((s) => s.name);
+  const got = split(body, names);
+  const problems = [];
+  if (got[0]?.name === null) problems.push(`最初の節「${names[0]}:」より前に行がある: ${got[0].text.split("\n")[0]}`);
+  const order = got.filter((s) => s.name).map((s) => s.name);
+  if (order.join("・") !== names.join("・")) problems.push(`節は「${names.join("・")}」をこの順に1つずつ置く（本文の節: 「${order.join("・")}」）`);
+  for (const s of got.filter((s) => s.name)) {
+    if (!s.text) problems.push(`節「${s.name}:」が空`);
+    else if (s.text === want.find((w) => w.name === s.name).text) problems.push(`節「${s.name}:」がテンプレートのまま`);
+  }
+  return problems;
+}
+
+// 問いの誤り（無ければ空）: 行の並びは parseQuestion、判断材料は形（tools/flow-gate/question_template.md。設定の questionTemplate）の節。
+export const checkQuestion = (template, text) =>
+  parseQuestion(text) ? checkBody(parseQuestion(template).material, parseQuestion(text).material) : ["「## 問い」・問いの文（1行）・「### 案」と1行1案・<details> の判断材料のほかに行がある（か、問いでない）"];
 
 // 問い（.claude/skills/ask/SKILL.md「問い」）: 「## 問い」の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の
 // 判断材料だけ。ほかの行があれば形に合わないので null。

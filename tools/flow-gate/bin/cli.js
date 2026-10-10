@@ -1,13 +1,13 @@
 // 道具（bin/*.js）の共通部分: master の版で打つこと・設定・トークン・引数。
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import config from "../flow.config.json" with { type: "json" };
+import base from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
 
-export { config };
+export const config = { ...base, questionTemplate: readFileSync(new URL("../question_template.md", import.meta.url), "utf8") };
 
 // 道具は master の版で書く。作業ブランチの道具は master で道具が変わる前の写しのことがあり、古い形のまま書き込む。
 // この作業ツリーの tools/flow-gate が origin/master と違えば、master の版を一時の場所へ取り出し、同じ引数でそちらを打って、

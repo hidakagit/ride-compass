@@ -1,6 +1,6 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
-// 27（問いの打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
-// src/attach.js: attach）・31（Pull Request の本文の形。src/pullrequest.js: checkBody）・32（試しを持たない道具は --dry-run を断る。
+// 27（問いの形と打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
+// src/attach.js: attach）・31（Pull Request の本文の形。src/rules.js: checkBody）・32（試しを持たない道具は --dry-run を断る。
 // bin/cli.js: args）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
 // 打つ口だけを差し替える。31 の2つ目だけは、本物のテンプレート（.github/pull_request_template.md）を読む。32 は本物の道具を
 // 別のプロセスで打つ（断るのは引数を読む所で、GitHub に触れる前）。
@@ -17,7 +17,7 @@ import { GitHub } from "../src/github.js";
 import { hold, release } from "../src/hold.js";
 import { askTask, moveTask } from "../src/move.js";
 import { attach } from "../src/attach.js";
-import { checkBody } from "../src/pullrequest.js";
+import { checkBody } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
 test("18 後始末: 上限・認証は戻して振り出しを止め、一時の失敗と起きる前の落ちは戻すだけ、開いた Pull Request・待つ理由があれば戻し、それ以外（持ち時間を超えた・Cancel されたも）は保留", () => {
@@ -77,14 +77,16 @@ test("26 GitHub の一時的な失敗（5xx・接続の失敗・GraphQL の「So
   assert.deepEqual(await at(bad, { writes: true }), [false, config.todo, 0]);
 });
 
-test("27 問いは、答えの無い最新の問いが同じ文なら書き直さずに回答待ちへ動かす: 書いたあとに落ちた打ちを打ち直しても問いは1つ", async () => {
-  const question = "## 問い\nどちらにするか";
+test("27 問いは、形に合わなければ何も書かずに断り、答えの無い最新の問いが同じ文なら書き直さずに回答待ちへ動かす: 書いたあとに落ちた打ちを打ち直しても問いは1つ", async () => {
+  const question = "## 問い\nどちらにするか\n\n<details><summary>判断材料</summary>\n\n**約束**: 約束\n**案ごと**: 案なし\n**推奨**: こうする\n</details>";
   const answer = "## 回答\n**どちらにするか**\n\n次のステータス: 前";
-  const at = async (status, comments) => {
+  const at = async (status, comments, asked = question) => {
     const gh = fakeGitHub({ issue: { number: 7, status, comments: comments.map((body) => ({ author: "c", body })) } });
-    await askTask(new GitHub("bot-token"), config, 7, question);
-    return [gh.issue.status, gh.issue.comments.filter((c) => c.body === question).length];
+    const done = await askTask(new GitHub("bot-token"), config, 7, asked).then(() => true, () => false);
+    return done ? [gh.issue.status, gh.issue.comments.filter((c) => c.body === question).length] : [false, gh.writes.length];
   };
+  assert.deepEqual(await at(config.working, [], "## 問い\nどちらにするか"), [false, 0]);
+  assert.deepEqual(await at(config.waiting, [], "## 問い\nどちらにするか"), [false, 0]);
   assert.deepEqual(await at(config.working, []), [config.waiting, 1]);
   assert.deepEqual(await at(config.working, [question]), [config.waiting, 1]);
   assert.deepEqual(await at(config.waiting, [question]), [config.waiting, 1]);

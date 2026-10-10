@@ -1,8 +1,8 @@
-// Pull Request の本文が .github/pull_request_template.md の形に沿うかを照らし、沿わなければ誤りを出して落ちる（src/pullrequest.js）。
+// Pull Request の本文が .github/pull_request_template.md の形に沿うかを照らし、沿わなければ誤りを出して落ちる（src/rules.js: checkBody）。
 // 担当が Pull Request を出す前と、claude-gate.yml の flow-gate が Pull Request の本文に打つ。GitHub に触れないので、master の版で
 // 打ち直さず（bin/cli.js を読まない）、この作業ツリーのテンプレートで照らす。
 import { readFileSync } from "node:fs";
-import { checkBody } from "../src/pullrequest.js";
+import { checkBody } from "../src/rules.js";
 
 const [file] = process.argv.slice(2);
 if (!file) {
