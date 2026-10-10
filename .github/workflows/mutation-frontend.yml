@@ -1,0 +1,57 @@
+# frontend の変異テスト（tasks#661）。Stryker 10.0.0 を依存に足さずここで一時に入れ、vitest の口に Vitest 5 の名前の区切りの
+# 直し（stryker-mutator/stryker-js#6214 と同じ置き換え）を当てる。試しでは同じ範囲を command の口（書き換えごとにテスト全体）でも回し、
+# 直した口の判定が合うかを比べる。結果は Stryker の標準の JSON（書き換えごとの killedBy・coveredBy）。
+name: Mutation frontend
+
+on:
+  push:
+    branches: ["mutation/fe-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MUTATE: src/features/conditions/RideConditionBar/departureTimeline.ts
+
+jobs:
+  stryker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [vitest, command]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm i --no-save @stryker-mutator/core@10.0.0 @stryker-mutator/vitest-runner@10.0.0
+      - name: 名前の区切りの直しを当てる
+        run: |
+          for f in node_modules/@stryker-mutator/vitest-runner/dist/src/{stryker-setup,test-helpers}.js; do
+            sed -i "s/nameParts.join(' ')/nameParts.join(' > ')/" "$f"
+            grep -q "nameParts.join(' > ')" "$f"
+          done
+      - name: 回す
+        run: |
+          cat > stryker.json <<EOF
+          {"mutate": ["$MUTATE"], "testRunner": "${{ matrix.runner }}", "commandRunner": {"command": "npx vitest run"},
+           "disableBail": true, "reporters": ["json", "clear-text"], "concurrency": 4}
+          EOF
+          npx stryker run stryker.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stryker-${{ matrix.runner }}
+          path: frontend/reports/mutation/
