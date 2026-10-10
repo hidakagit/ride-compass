@@ -63,6 +63,9 @@ jobs:
             # CIを通ったそのコミットを出す（masterの先端はCIを通っていないことがある）。
             git fetch --depth 1 origin ${{ github.sha }}
             git reset --hard FETCH_HEAD
+            # backend/ops/のユニットは`systemctl link`でこの作業コピーを指すので、揃えた中身を
+            # systemdに読み直させる（変わっていなくても害は無い）。
+            sudo systemctl daemon-reload
 
             cd backend
             # GIT_COMMIT: VM上のDockerにはデプロイしたコミットを注入する仕組みが無い。

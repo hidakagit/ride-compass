@@ -17,7 +17,9 @@
 - 絞り込みが名前の代入にある: 反復対象が名前なら、同じテスト関数（無ければモジュール）での
   その名前の代入を見る。`.items()`・`.values()`・`.keys()`は件数を変えないので剥がして読む。
   同じテスト関数に、その名前が空でないことの主張
-  （`assert xs`・`assert len(xs) > 0`・`>= 1`・`== 3`・`!= 0`）が無ければ違反
+  （`assert xs`・`assert len(xs) > 0`・`>= 1`・`== 3`・`!= 0`、空でないリテラルとの等値
+  `assert xs == [...]`・`assert set(xs) == {...}`。等値の側の`set`・`sorted`・`list`等と
+  `.items()`等は空かどうかを変えないので剥がして読む）が無ければ違反
 
 ここで見ないもの:
 - 反復対象が関数の引数のループ（parametrize の空の組は`backend/pytest.ini`の`empty_parameter_set_mark`が止める）
@@ -31,6 +33,7 @@ from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parent.parent
 _SIZE_PRESERVING = {"items", "values", "keys"}
+_EMPTINESS_PRESERVING = {"set", "frozenset", "sorted", "list", "tuple", "dict"}
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
 
 _ASSERTS, _EXITS, _FALLS = "asserts", "exits", "falls"
@@ -115,6 +118,31 @@ def _parameters(func: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
     return {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
 
 
+def _is_nonempty_literal(node: ast.expr) -> bool:
+    if isinstance(node, (ast.List, ast.Set, ast.Tuple)):
+        return any(not isinstance(element, ast.Starred) for element in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(key is not None for key in node.keys)  # `**xs`の鍵はNone
+    return False
+
+
+def _strip_emptiness_preserving(node: ast.expr) -> ast.expr:
+    while True:
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in _EMPTINESS_PRESERVING
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            node = node.args[0]
+            continue
+        stripped = _strip_size_preserving(node)
+        if stripped is node:
+            return node
+        node = stripped
+
+
 def _asserts_nonempty(func: ast.AST, name: str) -> bool:
     def is_name(node: ast.expr) -> bool:
         return isinstance(node, ast.Name) and node.id == name
@@ -125,6 +153,13 @@ def _asserts_nonempty(func: ast.AST, name: str) -> bool:
         test = node.test
         if is_name(test):
             return True
+        if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq):
+            left, right = test.left, test.comparators[0]
+            if any(
+                _is_nonempty_literal(literal) and is_name(_strip_emptiness_preserving(subject))
+                for subject, literal in ((left, right), (right, left))
+            ):
+                return True
         if (
             isinstance(test, ast.Compare)
             and isinstance(test.left, ast.Call)
@@ -304,3 +339,32 @@ def test_detects_filtered_populations_without_a_nonempty_check(tmp_path: Path) -
         "tests/test_sample.py:31: その場で絞り込んだ母集団を検査している（名前へ束ねて空でないことを確かめる）",
         "tests/test_sample.py:36: 絞り込んだ母集団 `picked` が空でも通る（空でないことを同じテストで確かめる）",
     ]
+
+
+def test_reads_equality_with_a_nonempty_literal_as_a_nonempty_check(tmp_path: Path) -> None:
+    """空でないリテラルとの等値は、空でないことの主張として読む。空のリテラル・`*`で広げただけのリテラル・
+    別の名前との等値は、空でも真になりうるので読まない。"""
+    passing = [
+        "picked == [1]",
+        "[1] == picked",
+        "set(picked) == {1}",
+        "sorted(picked) == [1, 2]",
+        "tuple(picked) == (1,)",
+        "dict(picked) == {'a': 1}",
+        "set(picked.keys()) == {'a'}",
+    ]
+    failing = ["picked == []", "set(picked) == set()", "picked == [*others]", "picked == {**others}", "others == [1]"]
+    source, loop_lines = "SPECS = {'a': 1}\n", {}
+    for index, assertion in enumerate(passing + failing):
+        source += (
+            f"\n\ndef test_{index}():\n"
+            "    picked = [v for v in SPECS.values() if v > 5]\n"
+            f"    assert {assertion}\n"
+        )
+        loop_lines[assertion] = source.count("\n") + 1
+        source += "    for value in picked:\n        assert value > 0\n"
+    root = _write(tmp_path, source)
+
+    flagged = {int(line.split(":")[1]) for line in vacuous_loops(root)}
+
+    assert flagged == {loop_lines[assertion] for assertion in failing}

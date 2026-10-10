@@ -166,7 +166,9 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
 
 振り分けの一覧（`deploy_backend_gate.py: DEPLOY_PATHS`と`deploy_backend_gate.py: NOT_DEPLOYED`。gitのpathspecとして
 `git diff --name-only`に当てさせる）は`backend/**`から、イメージに入らないもの（テスト・lint設定等）と、イメージには入るが本番
-プロセスが読まないもの（`export_openapi.py`とそれだけが読む表示値の宣言）を外している。
+プロセスが読まないもの（`export_openapi.py`とそれだけが読む表示値の宣言）を外している。`backend/ops/`（VMのホストで動く
+systemdのユニットとシェル）はイメージに入らないが外さない——デプロイがVMの作業コピーをそのコミットへ揃えて
+`systemctl daemon-reload`を打つことでだけ届く。
 表示値の変更は生成物（`frontend/src/types/generated/`）を経由してfrontendのデプロイで
 画面へ届くため、backendのコンテナを入れ替える理由にならない。**外したモジュールを本番側が
 importすると、その変更だけが本番へ届かなくなる**（エラーにならず古い値で動き続ける）。

@@ -34,7 +34,11 @@ SAMPLE_LIMIT = 20_000
 # サンプルの保持時間。編集中は同じサンプルを使い回して即応させ、取込・集計バッチの後は
 # 自然に入れ替わる程度の長さにする。
 _SAMPLE_TTL_SECONDS = 15 * 60
-_sample_cache: TTLCache = TTLCache(maxsize=1, ttl=_SAMPLE_TTL_SECONDS)
+
+
+def new_sample_cache() -> TTLCache:
+    """`AxisPreviewService`へ渡す標本の置き場。リクエストをまたいで持つのは組み立てる側（`api/dependencies.py`）。"""
+    return TTLCache(maxsize=1, ttl=_SAMPLE_TTL_SECONDS)
 
 
 async def load_way_sample(
@@ -54,12 +58,14 @@ async def load_way_sample(
     )
 
 
-async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dict[str, object]]]:
-    cached = _sample_cache.get("sample")
+async def _load_sample(
+    repository: RoadGraphRepository, sample_cache: TTLCache
+) -> list[tuple[float, dict[str, object]]]:
+    cached = sample_cache.get("sample")
     if cached is not None:
         return cached
     sample = await load_way_sample(repository, SAMPLE_PERCENT, SAMPLE_LIMIT)
-    _sample_cache["sample"] = sample
+    sample_cache["sample"] = sample
     logger.info("軸プレビューのサンプルを取得 ways=%d", len(sample))
     return sample
 
@@ -71,18 +77,19 @@ class AxisPreviewService:
     get_axis_preview_service`）——標本の抽選も値の一覧も全表走査寄りで、タイル配信の短い方だと最後まで走らない。
     """
 
-    def __init__(self, repository: RoadGraphRepository):
+    def __init__(self, repository: RoadGraphRepository, sample_cache: TTLCache):
         self._repository = repository
+        self._sample_cache = sample_cache
 
     async def raw_value_distribution(self, shape: AxisShape) -> ValueDistribution:
         """候補の`shape`の生値（折れ点を通す前）の分布。"""
-        return raw_value_distribution(shape, await _load_sample(self._repository))
+        return raw_value_distribution(shape, await _load_sample(self._repository, self._sample_cache))
 
     async def material_value_distribution(self, material_id: str) -> ValueSpread | None:
         """1材料の値の分位点とゼロの割合。数値材料のみ（真偽・カテゴリは分位に意味が無いためNone）。"""
         if material_dtype(material_id) != "numeric":
             return None
-        sample = await _load_sample(self._repository)
+        sample = await _load_sample(self._repository, self._sample_cache)
         pairs = [
             (length_m, float(cast(SupportsFloat, materials[material_id])))
             for length_m, materials in sample

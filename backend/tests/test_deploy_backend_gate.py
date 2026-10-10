@@ -62,16 +62,19 @@ def test_relation_reads_ancestry(tmp_path, monkeypatch):
     assert gate.commit_relation(second, side) == "diverged"
 
 
-def test_only_changes_that_reach_the_image_deploy(tmp_path, monkeypatch):
+def test_only_changes_that_reach_production_deploy(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     deployed = _commit(tmp_path, "README.md")
     # 外したもの（`**`は下の階層を跨ぐ）と対象の外（根から当てるので、下の階層にある同じ名前のディレクトリも外）だけが変わった。
     unchanged_image = _commit(tmp_path, "backend/benchmarks/deep/bench.py", "frontend/backend/app.py")
     changed_image = _commit(tmp_path, "backend/app/main.py")
+    # イメージに入らないが、デプロイが揃える作業コピーからVMのsystemdが読むもの。
+    changed_host = _commit(tmp_path, "backend/ops/unit.service")
     output = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.chdir(tmp_path / "backend")  # 当てる先は作業ディレクトリによらずリポジトリの根から
 
     assert gate.main(["gate", deployed, unchanged_image]) == 0
     assert gate.main(["gate", deployed, changed_image]) == 0
-    assert output.read_text(encoding="utf-8").splitlines() == ["deploy=false", "deploy=true"]
+    assert gate.main(["gate", changed_image, changed_host]) == 0
+    assert output.read_text(encoding="utf-8").splitlines() == ["deploy=false", "deploy=true", "deploy=true"]

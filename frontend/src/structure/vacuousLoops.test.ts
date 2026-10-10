@@ -19,15 +19,15 @@
  *    件数を変えずにそれを写した名前が空でないことの主張が無い。主張として読む形:
  *    `expect(xs).toHaveLength(n)`（n>0）・`expect(xs).not.toHaveLength(0)`・
  *    `expect(xs.length).toBeGreaterThan(n)`（n>=0）・`toBeGreaterThanOrEqual(n)`（n>=1）・`toBe(n)`（n>0）・
- *    `.not.toBe(0)`
+ *    `.not.toBe(0)`・空でない配列のリテラルとの等値`expect(xs).toEqual([...])`（`toStrictEqual`も。
+ *    等値の側の件数を変えない写しは剥がして読む）
  *
  * 件数を変えない写し（`.map`・`.sort`・`.toSorted`・`.reverse`・`.entries()`等・`Object.entries/values/keys`・
  * `Array.from`・`[...xs]`）は剥がして読み、名前は引数の無い呼び出し（`xs()`）も含めて、外側の
  * スコープの`const`/`let`/`function`宣言へ辿る。
  *
  * 見ないもの: 反復対象が関数の引数のループ（母集団は呼び出し側が決める）。量化のコールバックの中の
- * 条件（`xs.every((x) => !cond || ok)`）。上に無い形の空でないことの主張（`expect(xs).toEqual([...])`等）は
- * 読まないので、そのときは上の形の主張を1行足す。
+ * 条件（`xs.every((x) => !cond || ok)`）。
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -212,16 +212,28 @@ function matcherCall(
   };
 }
 
+function isNonEmptyArrayLiteral(node: ts.Expression | undefined): boolean {
+  return (
+    node !== undefined &&
+    ts.isArrayLiteralExpression(unwrap(node)) &&
+    (unwrap(node) as ts.ArrayLiteralExpression).elements.some((element) => !ts.isSpreadElement(element))
+  );
+}
+
 function assertsNonEmpty(node: ts.Node, names: readonly string[]): boolean {
   const call = matcherCall(node);
   if (!call) return false;
   const { subject, negated, matcher } = call;
-  const n = numberLiteral(call.argument);
-  if (n === undefined) return false;
   const named = (expression: ts.Expression) => {
     const name = referencedName(unwrap(expression));
     return name !== undefined && names.includes(name);
   };
+  if (!negated && (matcher === "toEqual" || matcher === "toStrictEqual") && isNonEmptyArrayLiteral(call.argument)) {
+    const { base, filtered } = strip(subject);
+    return !filtered && named(base);
+  }
+  const n = numberLiteral(call.argument);
+  if (n === undefined) return false;
   if (named(subject) && matcher === "toHaveLength") return negated ? n === 0 : n > 0;
   if (!ts.isPropertyAccessExpression(subject) || subject.name.text !== "length" || !named(subject.expression))
     return false;
@@ -449,6 +461,10 @@ describe("要素ごとの確かめが空の母集団で素通りしない", () =
         `expect(zs.length).toBeGreaterThanOrEqual(1);`,
         `expect(ys.length).toBe(3);`,
         `expect(ys.length).not.toBe(0);`,
+        `expect(ys).toEqual([1]);`,
+        `expect(zs).toStrictEqual([{ a: 1 }, ...rest]);`,
+        `expect([...ys].sort()).toEqual([1, 2]);`,
+        `expect(Object.keys(zs)).toEqual(["0"]);`,
       ]) {
         expect(reasons(`${declared}\n${assertion}\n${loop}`)).toEqual([]);
       }
@@ -460,7 +476,10 @@ describe("要素ごとの確かめが空の母集団で素通りしない", () =
       for (const assertion of [
         `expect(ys).toHaveLength(0);`,
         `expect(ys.length).toBeGreaterThanOrEqual(0);`,
-        `expect(ys).toEqual([1]);`,
+        `expect(ys).toEqual([]);`,
+        `expect(ys).toEqual([...rest]);`,
+        `expect(ys).not.toEqual([1]);`,
+        `expect(others).toEqual([1]);`,
       ]) {
         expect(reasons(`${declared}\n${assertion}\n${loop}`)).toEqual([NOT_ASSERTED]);
       }

@@ -12,7 +12,14 @@ import { MATERIAL_CATALOG, type AxisMaterialOption } from "@/lib/axisMaterialsCa
 
 import { AxisMapDisplaySection } from "./AxisMapDisplaySection";
 import { AxisScoringSection } from "./AxisScoringSection";
-import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, type Draft } from "./axisDraft";
+import {
+  buildShape,
+  draftFromDuplicate,
+  draftFromExisting,
+  emptyDraft,
+  unknownMaterialIds,
+  type Draft,
+} from "./axisDraft";
 import { Button } from "@/components/ui/Button/Button";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { fieldClass, Input, Textarea } from "@/components/ui/Input/Input";
@@ -58,8 +65,8 @@ export default function AxisComposer({
   onCancelEdit,
   onSave,
 }: AxisComposerProps) {
+  const axisIds = new Set(otherAxes.map((axis) => axis.axis_id));
   const [draft, setDraft] = useState<Draft>(() => {
-    const axisIds = new Set(otherAxes.map((axis) => axis.axis_id));
     if (editing) return draftFromExisting(editing, MATERIAL_CATALOG, axisIds);
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, MATERIAL_CATALOG, axisIds);
     return emptyDraft(MATERIAL_CATALOG);
@@ -73,6 +80,7 @@ export default function AxisComposer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
+  const unknownMaterials = unknownMaterialIds(buildShape(draft, MATERIAL_CATALOG), MATERIAL_CATALOG, axisIds);
   const thresholds = draft.displayThresholdsOverride;
   const mapBands = useMapBandsOfThresholds(
     thresholds && thresholds.length > 0
@@ -235,6 +243,13 @@ export default function AxisComposer({
         </p>
       )}
 
+      {unknownMaterials.length > 0 && (
+        <p className={textVariants({ variant: "error" })}>
+          {`この軸は、この画面がまだ知らない材料（${unknownMaterials.join("、")}）を使っているため保存できません。` +
+            "画面が中身を読めないまま保存すると、軸が変わってしまいます。材料を足した版の画面が出てから開き直してください。"}
+        </p>
+      )}
+
       {!restrictedDisplayOnly && renderBasicFields()}
       {!restrictedDisplayOnly && (
         <AxisScoringSection
@@ -260,7 +275,7 @@ export default function AxisComposer({
       {error && <p className={textVariants({ variant: "error" })}>{error}</p>}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="primary" size="sm" type="submit" disabled={saving}>
+        <Button variant="primary" size="sm" type="submit" disabled={saving || unknownMaterials.length > 0}>
           {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
         </Button>
         {!isNew && (
