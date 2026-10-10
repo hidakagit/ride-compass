@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import jmaExpectations from "@/types/generated/jma-expectations.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
@@ -44,9 +44,6 @@ function stubFiles(files: Record<string, unknown>) {
   return fetchMock;
 }
 
-beforeEach(() => {
-  vi.unstubAllGlobals();
-});
 afterEach(() => {
   vi.unstubAllGlobals();
 });

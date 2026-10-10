@@ -13,12 +13,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { jmaTilePayload, type JmaDelivery } from "@/features/map/layers/jmaDelivery";
+import { jmaTilePayload } from "@/features/map/layers/jmaDelivery";
 import { registerJmaTileProtocol, withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import { heldReplies, inTurn, onBackend, onSameOrigin } from "@/testing/backendServer";
 import { protocolHandler } from "@/testing/maplibre";
-import { mapDisplay } from "@/types/generated/mapDisplay";
+import { jmaDeliveryOf } from "@/testing/jmaDeliveries";
 
 import { useDynamicWeatherLayers } from "./useDynamicWeatherLayers";
 
@@ -29,10 +29,6 @@ const DISASTER_RISK = ["heavyRain", "landslide", "inundation", "flood"];
 const DISASTER_NOWCAST = ["thunder", "tornado", "liden"];
 const PRECIPITATION_EXCEPT_MAIN = ["linearRainband", "linearRainbandArea", "linearRainbandAreaForecast"];
 
-const deliveryOf = (id: string) =>
-  mapDisplay.weatherElements
-    .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
-    .find((delivery) => delivery.id === id)!;
 const timesPath = (file: string) => `/api/jma-tile/bosai/jmatile/data/${file}`;
 const rows = (...elements: string[]) => [{ ...FRAME, elements }];
 const failure = () => new HttpResponse(null, { status: 500 });
@@ -82,7 +78,7 @@ describe("useDynamicWeatherLayers", () => {
     await waitFor(() =>
       expect(result.current.dynamicWeather.disaster?.heavyRain).toEqual({
         visible: true,
-        payload: jmaTilePayload("rasterTile", deliveryOf("rain_mesh"), FRAME),
+        payload: jmaTilePayload("rasterTile", jmaDeliveryOf("rain_mesh"), FRAME),
       }),
     );
     expect(result.current.dynamicWeather.disaster?.landslide).toEqual({ visible: false, payload: undefined });
@@ -121,7 +117,7 @@ describe("useDynamicWeatherLayers", () => {
     await waitFor(() => expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).not.toBe("loading"));
     expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe(status);
     expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toEqual(
-      drawn ? jmaTilePayload("rasterTile", deliveryOf("hrpns"), FRAME) : undefined,
+      drawn ? jmaTilePayload("rasterTile", jmaDeliveryOf("hrpns"), FRAME) : undefined,
     );
   });
 
@@ -131,7 +127,7 @@ describe("useDynamicWeatherLayers", () => {
     const { result } = render({ disaster: true }, { disaster: DISASTER_NOWCAST });
     await waitFor(() => expect(result.current.dynamicWeather.disaster?.heavyRain?.payload).toBeDefined());
 
-    act(() => vi.advanceTimersByTime(deliveryOf("rain_mesh").refreshIntervalMs));
+    act(() => vi.advanceTimersByTime(jmaDeliveryOf("rain_mesh").refreshIntervalMs));
 
     await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
     expect(result.current.dynamicWeather.disaster?.heavyRain?.payload).toBeUndefined();
@@ -248,7 +244,7 @@ describe("useDynamicWeatherLayers", () => {
       params: { url: string },
       abort: AbortController,
     ) => Promise<unknown>;
-    const template = jmaTilePayload("rasterTile", deliveryOf("rain_mesh"), FRAME).tileUrlTemplate;
+    const template = jmaTilePayload("rasterTile", jmaDeliveryOf("rain_mesh"), FRAME).tileUrlTemplate;
     const tile = template.replace("{z}/{x}/{y}", "5/28/12");
     const tilePath = new URL(tile).pathname;
 

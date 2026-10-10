@@ -110,7 +110,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
         >
           {/* 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
               （はみ出した分は横へ流し、ヘッダーを2行にしない）。ボタンの中に置くのでdivでなくspan。 */}
-          <span className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_svg]:shrink-0">
+          <span className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <Stat>
               <ThermometerIcon size={16} />
               <span className="sr-only">気温: </span>

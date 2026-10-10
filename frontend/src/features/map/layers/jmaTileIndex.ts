@@ -10,11 +10,12 @@
 
 /** backendの応答そのまま（`api/routers/jma_tile.py: JmaTileIndexResponse`の生成型）。
  * `available: false`ならインデックス無し（従来どおり全取得）。 */
-export type { JmaTileIndexResponse } from "@/types/route";
-import type { JmaTileIndexResponse as JmaTileIndexResponseType } from "@/types/route";
+import type { JmaTileIndexResponse } from "@/types/route";
+import { jmaFrameKey, readJmaTileUrl, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
 
-type AvailableIndex = Extract<JmaTileIndexResponseType, { available: true }>;
-import { readJmaTileUrl, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
+export type { JmaTileIndexResponse };
+
+type AvailableIndex = Extract<JmaTileIndexResponse, { available: true }>;
 
 /** 判定用に前処理した形。座標の線形探索を避けるためSetへ展開しておく。 */
 export interface JmaTileIndexLookup {
@@ -23,13 +24,7 @@ export interface JmaTileIndexLookup {
   elements: Map<string, { frame: string; present: Set<string> }>;
 }
 
-/** インデックスの要素ごとのフレームの鍵。1つのbasetimeに実況と複数の予測のvalidtimeが載るため、
- * 3つが揃って初めて同じ画像を指す。 */
-function frameKey(frame: { basetime: string; member: string; validtime: string }): string {
-  return `${frame.basetime}/${frame.member}/${frame.validtime}`;
-}
-
-export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | null): JmaTileIndexLookup | null {
+export function buildJmaTileIndexLookup(response: JmaTileIndexResponse | null): JmaTileIndexLookup | null {
   if (!response?.available) return null;
   const elements = new Map<string, { frame: string; present: Set<string> }>();
   for (const [elementId, entry] of Object.entries(response.elements)) {
@@ -41,7 +36,7 @@ export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | nul
       for (const [x, y] of coords) present.add(`${zoom}/${x}/${y}`);
     }
     elements.set(elementId, {
-      frame: frameKey({ basetime: entry.basetime, member: entry.member, validtime: entry.validtime }),
+      frame: jmaFrameKey({ basetime: entry.basetime, member: entry.member, validtime: entry.validtime }),
       present,
     });
   }
@@ -80,7 +75,7 @@ export function isKnownEmptyTile(lookup: JmaTileIndexLookup | null, url: string)
   if (!ref) return false;
   const entry = lookup.elements.get(ref.delivery.id);
   if (!entry) return false;
-  if (entry.frame !== frameKey(ref.frame)) return false;
+  if (entry.frame !== jmaFrameKey(ref.frame)) return false;
   if (!intersectsCoverage(ref, lookup.coverage)) return false;
   return !entry.present.has(`${ref.z}/${ref.x}/${ref.y}`);
 }

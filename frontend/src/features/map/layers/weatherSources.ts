@@ -68,6 +68,11 @@ function buildWeatherSources(): readonly WeatherSource[] {
 /** 名前付きソースの一覧（源泉の宣言の順）。 */
 export const WEATHER_SOURCES: readonly WeatherSource[] = buildWeatherSources();
 
+/** 自前の格子を読む段を持つソースか。 */
+export function readsGrid(source: WeatherSource): boolean {
+  return source.stages.some((stage) => stage.origin === "grid");
+}
+
 /** 段のコマ。配信元の段は時刻一覧から読んだコマ、格子の段は格子の時刻の値
  * （描くときの格子はズーム依存の詳細格子になりうるため、コマを作った格子の点そのものは指さない。
  * `windLayer.ts: gridAtTime`）。 */

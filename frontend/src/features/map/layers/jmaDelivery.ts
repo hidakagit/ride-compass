@@ -51,6 +51,11 @@ export interface JmaFrame {
   validtime: string;
 }
 
+/** コマを一意に指す鍵。1つのbasetimeに実況と複数の予測のvalidtimeが載るため、3つが揃って初めて同じ画像を指す。 */
+export function jmaFrameKey(frame: JmaFrame): string {
+  return `${frame.basetime}/${frame.member}/${frame.validtime}`;
+}
+
 const PLACEHOLDER = /\{([^}]+)\}/g;
 
 /** 源泉のテンプレート（`urlTemplate`）の、コマの項目を埋める。タイル座標の`{z}/{x}/{y}`は地図ライブラリが埋めるので残す。 */
@@ -202,25 +207,22 @@ function byValidtime(a: JmaFrame, b: JmaFrame): number {
 /** 実況＋予測。その要素の行を時刻順に並べ、最新の実況（validtime===basetime）より前を捨てる
  * ——過去を振り返る用途は無く、左端が「今」になる。実況が1つも無ければ何も捨てない（最も未来の
  * 1コマだけを残すと、実況が欠けた回に要素が実質空になる）。 */
-function readNowcast(rows: readonly RawTargetTime[], elementId: string): JmaFrame[] {
-  const frames = rows
-    .filter((row) => row.elements.includes(elementId))
-    .map(toFrame)
-    .sort(byValidtime);
-  let latestObserved = 0;
-  frames.forEach((frame, index) => {
-    if (frame.validtime === frame.basetime) latestObserved = index;
-  });
-  return frames.slice(latestObserved);
+function readNowcast(rows: readonly RawTargetTime[]): JmaFrame[] {
+  const frames = rows.map(toFrame).sort(byValidtime);
+  return frames.slice(
+    Math.max(
+      frames.findLastIndex((frame) => frame.validtime === frame.basetime),
+      0,
+    ),
+  );
 }
 
 /** 数値予報のラン。系列（`member`）ごとに、有効時刻を複数持つ最新のラン（完全な予報）だけを使う
  * ——同じ系列の中にも、10分おきの中間ランが返す単発の有効時刻（basetime===validtime）が混ざり、
- * それを最新として拾うと1コマしか得られない。同じファイルに別の要素（線状降水帯予測）の行も混ざる
- * ため、数える前にその要素の行へ絞る。系列どうしは有効時刻の範囲が重ならない設計だが、重なれば
+ * それを最新として拾うと1コマしか得られない。系列どうしは有効時刻の範囲が重ならない設計だが、重なれば
  * 新しいランを採る。 */
-function readLatestFullRun(rows: readonly RawTargetTime[], elementId: string): JmaFrame[] {
-  const entries = rows.filter((row) => row.elements.includes(elementId)).map(toFrame);
+function readLatestFullRun(rows: readonly RawTargetTime[]): JmaFrame[] {
+  const entries = rows.map(toFrame);
   const byTime = new Map<string, JmaFrame>();
   for (const member of new Set(entries.map((frame) => frame.member))) {
     const ofMember = entries.filter((frame) => frame.member === member);
@@ -244,9 +246,8 @@ function readLatestFullRun(rows: readonly RawTargetTime[], elementId: string): J
 }
 
 /** 配信元が統合済みの「現在」の単一値。その要素の最新の行だけを1コマにする。 */
-function readLatest(rows: readonly RawTargetTime[], elementId: string): JmaFrame[] {
-  const entries = rows.filter((row) => row.elements.includes(elementId));
-  const latest = [...entries].sort((a, b) => b.basetime.localeCompare(a.basetime))[0];
+function readLatest(rows: readonly RawTargetTime[]): JmaFrame[] {
+  const latest = [...rows].sort((a, b) => b.basetime.localeCompare(a.basetime))[0];
   return latest ? [toFrame(latest)] : [];
 }
 
@@ -254,32 +255,31 @@ function readLatest(rows: readonly RawTargetTime[], elementId: string): JmaFrame
 // 片方だけ変えると在否インデックスのフレームが画面と一致せず、画面は全タイルを取りに行く。同じコマになることは、
 // backendが出す表（生成物`jma-expectations.json`）をテストが通して確かめる。配信の遅れのずらし
 // （`delayed`）はプリウォームが持たず、タイルの要素には宣言できない（`domain/jma_tile_specs.py: JmaElement`）。
-const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[], elementId: string) => JmaFrame[]> = {
+const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[]) => JmaFrame[]> = {
   nowcast: readNowcast,
   latestFullRun: readLatestFullRun,
   latest: readLatest,
 };
 
 /** 時刻一覧の行（読めたファイルの行を宣言の順につないだもの）から、その配信要素の段のコマ（時刻順）を読む。
- * 読み方と配信の遅れは源泉の宣言が決める。 */
+ * 読み方と配信の遅れは源泉の宣言が決める。同じファイルにほかの要素の行も混ざるので、読む前にその要素の行へ絞る。 */
 export function jmaFramesOf(delivery: JmaDelivery, rows: readonly unknown[]): JmaFrame[] {
-  const frames = READERS[delivery.reader](rows as readonly RawTargetTime[], delivery.id);
-  return delayed(frames, rows as readonly RawTargetTime[], delivery);
+  const own = (rows as readonly RawTargetTime[]).filter((row) => row.elements.includes(delivery.id));
+  return delayed(READERS[delivery.reader](own), own, delivery);
 }
 
 /** 配信の遅れ（`dataDelayMinutes`）を持つ要素は、時刻一覧に載せたコマをまだ配信していないことがある。公式の画面と
  * 同じく、その要素の最新の`basetime`から遅れの幅に入るコマを、幅の端まで前の`basetime`へずらす（実況のコマは
  * `validtime`も同じだけ戻し、ずらした先の実況にする）。 */
-function delayed(frames: JmaFrame[], rows: readonly RawTargetTime[], delivery: JmaDelivery): JmaFrame[] {
+function delayed(frames: JmaFrame[], ownRows: readonly RawTargetTime[], delivery: JmaDelivery): JmaFrame[] {
   const delayMs = delivery.dataDelayMinutes * 60_000;
   if (delayMs === 0) return frames;
-  const latest = Math.max(
-    ...rows.filter((row) => row.elements.includes(delivery.id)).map((row) => parseValidtime(row.basetime).getTime()),
-  );
+  const latest = Math.max(...ownRows.map((row) => parseValidtime(row.basetime).getTime()));
   return frames.map((frame) => {
-    const behindMs = latest - parseValidtime(frame.basetime).getTime();
+    const baseMs = parseValidtime(frame.basetime).getTime();
+    const behindMs = latest - baseMs;
     if (behindMs >= delayMs) return frame;
-    const basetime = formatValidtime(new Date(parseValidtime(frame.basetime).getTime() - (delayMs - behindMs)));
+    const basetime = formatValidtime(new Date(baseMs - (delayMs - behindMs)));
     return { ...frame, basetime, validtime: frame.validtime === frame.basetime ? basetime : frame.validtime };
   });
 }

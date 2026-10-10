@@ -1,18 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { mapDisplay } from "@/types/generated/mapDisplay";
+import { jmaDeliveryOf } from "@/testing/jmaDeliveries";
 
-import { jmaTilePayload, type JmaDelivery } from "./jmaDelivery";
+import { jmaTilePayload } from "./jmaDelivery";
 import type { JmaTileIndexResponse } from "./jmaTileIndex";
 import { buildJmaTileIndexLookup, isKnownEmptyTile } from "./jmaTileIndex";
 
 const BASETIME = "20260924000000";
 const VALIDTIME = "20260924010000";
-const delivery = (id: string) =>
-  mapDisplay.weatherElements
-    .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
-    .find((candidate) => candidate.id === id)!;
 // 5/28/12 は東経135〜146度・北緯32〜41度あたり（関東を含む）。
 const tileUrl = ({
   element = "inund",
@@ -23,7 +19,7 @@ const tileUrl = ({
   x = 28,
   y = 12,
 } = {}) =>
-  jmaTilePayload("rasterTile", delivery(element), { basetime, member, validtime })
+  jmaTilePayload("rasterTile", jmaDeliveryOf(element), { basetime, member, validtime })
     .tileUrlTemplate.replace("{z}", String(z))
     .replace("{x}", String(x))
     .replace("{y}", String(y));

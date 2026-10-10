@@ -1,6 +1,7 @@
 """派生の作り直し（`batch/derive_cli.py`）が、入力（読むソースの取込・前の段・較正値・書く表の列・段のコード）が前回と
-同じ段を流さないことと、区間ごとに写す段が前の段の外の入力が前回と同じとき形の同じ区間を数えないことと、段の宣言（`STAGES`）が
-段の読むもの・書くものを漏らしていないこと。
+同じ段を流さず、流す段の表だけを作業用のスキーマに作ることと、道路網の配列を入力が前回と同じなら作らずに使い回すことと、
+区間ごとに写す段が前の段の外の入力が前回と同じとき形の同じ区間を数えないことと、段の宣言（`STAGES`）が
+段の読むもの・書くものを漏らしていないことと、配列の入力が配列の読む表を漏らしていないこと。
 
 流した段は段の関数が呼ばれたかで見る。飛ばした段のある作り直しの表の値は、同じ入力で全部の段を流した作り直しと比べる。
 どの生データにも行があり、どの段も値を書く小さな世界（道2本・信号・事故・標高と土地被覆のタイル・住所・小地域の境界・
@@ -13,12 +14,14 @@
 import logging
 import shutil
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import asyncpg
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch import code_fingerprint, derive_cli
 from app.batch.dem_tile_store import PRODUCT_PRIORITY
@@ -27,7 +30,9 @@ from app.batch.source_adapters.raster_wkb import tile_raster_wkb
 from app.domain.accident import PartyType
 from app.domain.landcover import PERCENT_CLASSES
 from app.domain.region import BoundingBox
+from app.infrastructure import derived_data_meta, road_network_store
 from app.infrastructure.derived_data_freshness import declared_columns, derived_tables
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.source_models import PARTY_TYPE_CODES, Source
 from tests.conftest import empty_ingested_tables, postgis_database_url, raw_connection
 from tests.source_ingest import (
@@ -149,17 +154,27 @@ async def world(road_graph_engine, road_network_root):
             await conn.execute("TRUNCATE derived_data_meta")
 
 
+@dataclass
+class Ran:
+    """`world`を作った後の作り直しで、関数が呼ばれた段の名前（呼ばれた順）と、そのとき作業用のスキーマにあった表。"""
+
+    stages: list[str] = field(default_factory=list)
+    work_tables: set[str] = field(default_factory=set)
+
+
 @pytest.fixture
-def ran(world, monkeypatch) -> list[str]:
-    """`world`を作った後に、関数が呼ばれた段の名前（呼ばれた順）。段そのものは本物を通す。"""
-    names: list[str] = []
+def ran(world, monkeypatch) -> Ran:
+    """段の関数が呼ばれるたびに`Ran`へ書く。段そのものは本物を通す。"""
+    seen = Ran()
     for stage in derive_cli.STAGES:
         async def derive(conn, *, _real=stage.module.derive, _name=stage.name, **tuning):
-            names.append(_name)
+            seen.stages.append(_name)
+            seen.work_tables.update(row["table_name"] for row in await conn.fetch(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = $1", derive_cli._WORK_SCHEMA))
             return await _real(conn, **tuning)
 
         monkeypatch.setattr(stage.module, "derive", derive)
-    return names
+    return seen
 
 
 async def _values(conn: asyncpg.Connection) -> dict[str, str]:
@@ -186,7 +201,7 @@ async def test_rebuilding_with_the_same_inputs_runs_no_stage_and_changes_nothing
 
     assert await derive_cli.run(postgis_database_url()) == 0
 
-    assert ran == []
+    assert ran.stages == []
     assert await _values(world) == values
     assert await _revision(world) == revision
     assert "どの段も入力が前回と同じ" in caplog.text
@@ -222,54 +237,87 @@ def _reingest(ingest: Callable[[asyncpg.Connection], Awaitable[None]]):
     return change
 
 
+def _together(*changes):
+    async def change(conn: asyncpg.Connection, monkeypatch, tmp_path: Path) -> None:
+        for apply in changes:
+            await apply(conn, monkeypatch, tmp_path)
+    return change
+
+
 @dataclass(frozen=True)
 class Change:
     name: str
     apply: Callable[[asyncpg.Connection, pytest.MonkeyPatch, Path], Awaitable[None]]
     #: 流れるはずの段（段の順）。
     runs: tuple[str, ...]
+    #: 道路網の配列を作り直すか（作り直さなければ、前回の配列を新しい世代の名前で出し直す）。
+    rebuilds_network: bool
 
 
 ROAD_STAGES = ("topology", "nodes", "counts", "elevation", "landcover", "directions")
 CHANGES = [
-    Change("事故を取り直した", _reingest(_ingest_accidents), ("counts",)),
-    Change("ノードを取り直した", _reingest(_ingest_nodes), ("nodes", "counts")),
-    Change("標高を取り直した", _reingest(_ingest_elevations), ("elevation",)),
-    Change("土地被覆を取り直した", _reingest(_ingest_landcover), ("landcover",)),
+    Change("事故を取り直した", _reingest(_ingest_accidents), ("counts",), True),
+    Change("ノードを取り直した", _reingest(_ingest_nodes), ("nodes", "counts"), True),
+    Change("標高を取り直した", _reingest(_ingest_elevations), ("elevation",), True),
+    Change("土地被覆を取り直した", _reingest(_ingest_landcover), ("landcover",), True),
     # 住所の段は道路の取込の範囲を読む。立ち寄り先の段は道路を読まない。
-    Change("道を取り直した", _reingest(_ingest_ways), (*ROAD_STAGES, "addresses")),
-    Change("住所を取り直した", _reingest(_ingest_addresses), ("addresses",)),
-    Change("地点を取り直した", _reingest(_ingest_places), ("stop_places",)),
-    Change("信号とみなす半径を変えた", _set_signal_radius, ("nodes", "counts")),
+    Change("道を取り直した", _reingest(_ingest_ways), (*ROAD_STAGES, "addresses"), True),
+    Change("住所を取り直した", _reingest(_ingest_addresses), ("addresses",), False),
+    Change("地点を取り直した", _reingest(_ingest_places), ("stop_places",), False),
+    Change("信号とみなす半径を変えた", _set_signal_radius, ("nodes", "counts"), True),
     # 表を書く段は1つなので、列を足した表を書く段とその後ろの段だけが流れる。区間を切る段の後ろには道路の段が全部並ぶ。
-    Change("区間の表に列を足した", _add_column("road_edges"), ROAD_STAGES),
-    Change("ノードの種別の表に列を足した", _add_column("node_kinds"), ("nodes", "counts")),
-    Change("道の土地被覆の表に列を足した", _add_column("way_landcover"), ("landcover",)),
-    Change("立ち寄り先の表に列を足した", _add_column("stop_places"), ("stop_places",)),
+    Change("区間の表に列を足した", _add_column("road_edges"), ROAD_STAGES, True),
+    Change("ノードの種別の表に列を足した", _add_column("node_kinds"), ("nodes", "counts"), True),
+    Change("道の土地被覆の表に列を足した", _add_column("way_landcover"), ("landcover",), True),
+    Change("立ち寄り先の表に列を足した", _add_column("stop_places"), ("stop_places",), False),
     # 標高のタイルの置き場は標高の段だけが読み込む。
     Change("標高の段が読み込むモジュールを変えた", _edit_code("batch/dem_tile_store.py", lambda text: text + "\n_EDITED = 1\n"),
-           ("elevation",)),
+           ("elevation",), True),
+    # 配列を組むコードは配列の入力に入る。
+    Change("住所を取り直し、道路網の配列を組むコードを変えた",
+           _together(_reingest(_ingest_addresses),
+                     _edit_code("infrastructure/road_network_store.py", lambda text: text + "\n_EDITED = 1\n")),
+           ("addresses",), True),
 ]
+
+#: 派生の表と一緒に作業用のスキーマで書き、入れ替える記録の表。
+RECORDS = {derived_data_meta.DerivedSourceRunRow.__tablename__, derived_data_meta.DerivedColumnRow.__tablename__,
+           derived_data_meta.DerivedStageRow.__tablename__}
+
+
+def _network_arrays() -> dict[str, bytes]:
+    """置き場にただ1つある道路網の、配列のファイルの名前 → 中身。"""
+    (directory,) = road_network_store.ROOT.iterdir()
+    return {path.name: path.read_bytes() for path in directory.glob("*.npy")}
 
 
 @pytest.mark.parametrize("change", CHANGES, ids=[change.name for change in CHANGES])
 async def test_only_the_stages_whose_inputs_changed_run_and_the_values_match_a_full_rebuild(
         world, ran, caplog, monkeypatch, tmp_path, change):
-    """入力を変えると、それを読む段とその後ろの段だけが流れ、ほかの段は飛ばしたとログに出る。できた表の値は、同じ入力で
-    全部の段を流した作り直しと同じ。"""
+    """入力を変えると、それを読む段とその後ろの段だけが流れ、ほかの段は飛ばしたとログに出る。作業用のスキーマに作るのは
+    流れる段の表と記録だけ。道路網の配列は、配列が読む表を書く段が流れたか配列を組むコードが変わったときだけ作り直し、
+    ほかは前回の配列を中身のまま新しい世代の名前で出し直す。できた表の値は、同じ入力で全部の段を流した作り直しと同じ。"""
     caplog.set_level(logging.INFO, logger="ridecompass.derive_cli")
+    arrays = _network_arrays()
     await change.apply(world, monkeypatch, tmp_path)
 
     assert await derive_cli.run(postgis_database_url()) == 0
     skipped = {record.args[0] for record in caplog.records if record.msg == "段 %s を飛ばした（入力が前回と同じ）"}
+    built = any(record.msg.startswith("道路網の配列を作った") for record in caplog.records)
     values = await _values(world)
 
-    assert (ran, skipped) == (list(change.runs), set(STAGE_NAMES) - set(change.runs) if change.runs else set())
+    assert (ran.stages, skipped) == (list(change.runs), set(STAGE_NAMES) - set(change.runs))
+    assert ran.work_tables == {table for stage in derive_cli.STAGES if stage.name in change.runs
+                               for table in stage.tables} | RECORDS
+    assert built == change.rebuilds_network
+    assert road_network_store.current().revision == await _revision(world)
+    if not change.rebuilds_network:
+        assert _network_arrays() == arrays
 
     await world.execute("DELETE FROM derived_stages")
-    ran.clear()
+    ran.stages.clear()
     assert await derive_cli.run(postgis_database_url()) == 0
-    assert ran == STAGE_NAMES
+    assert ran.stages == STAGE_NAMES
     assert await _values(world) == values
 
 
@@ -361,11 +409,42 @@ async def test_each_stage_declares_what_it_reads_and_writes(world, monkeypatch):
     assert missing == {}
 
 
-def _together(*changes):
-    async def change(conn: asyncpg.Connection, monkeypatch, tmp_path: Path) -> None:
-        for apply in changes:
-            await apply(conn, monkeypatch, tmp_path)
-    return change
+async def test_the_network_inputs_refuse_a_table_no_stage_writes():
+    """配列がどの段も書かず生データでもない表を読む形にすると、配列の入力を導くところで断る——その表が変わっても入力の指紋が
+    変わらず、前回の配列を使い回してしまう。"""
+    with pytest.raises(RuntimeError, match="tuning_overrides"):
+        derive_cli.network_inputs(["road_edges", "source_features_osm_way", "tuning_overrides"])
+
+
+#: この接続のトランザクションで表を読んだ数（`_TOUCHED_SQL`と同じ統計）。
+_SCANS_SQL = text("SELECT relname, coalesce(seq_scan, 0) + coalesce(idx_scan, 0) AS scans"
+                  " FROM pg_stat_xact_user_tables WHERE schemaname = 'public'")
+
+
+async def _scans(session: AsyncSession) -> dict[str, int]:
+    return {row.relname: row.scans for row in await session.execute(_SCANS_SQL)}
+
+
+def _read_between(before: dict[str, int], after: dict[str, int]) -> set[str]:
+    return {name for name, scans in after.items() if scans > before.get(name, 0)}
+
+
+async def test_the_network_reads_no_table_beyond_those_its_inputs_are_derived_from(world, road_graph_engine):
+    """配列を組むときに実際に読んだ表は、配列の入力を導く表（読み出しの文の計画が読む表）と、値で入力に入れる事故の収録年数を
+    読む表だけ。計画から導いた表が漏れていれば、漏れた表が変わっても配列を使い回してしまう。"""
+    async with AsyncSession(road_graph_engine) as session:
+        repository = RoadGraphRepository(session)
+        relations = await repository.network_relations()
+        start = await _scans(session)
+        await repository.get_accident_years_covered()
+        after_years = await _scans(session)
+        await road_network_store.build(repository, None)
+        end = await _scans(session)
+
+    read = _read_between(after_years, end) - _read_between(start, after_years)
+    # 前提: 配列を組むと区間の表を読む（何も読まずに素通りしていない）。
+    assert "road_edges" in read
+    assert read <= relations
 
 
 @dataclass(frozen=True)
