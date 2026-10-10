@@ -182,19 +182,21 @@ class RouteGenerateRequest(StrictModel):
     def _resolve_target(self) -> "RouteGenerateRequest":
         # 仕上げの戦略（距離あり・距離なし）を選ぶのはここだけ。経由地・目的地を置いたときは距離なしで、距離は
         # 探索の範囲として置いた点から決める（`search_distance_km`）。周回では距離が目標そのものなので送られた値が要る。
-        if self.spliced_edge_ids and self.destination is None:
-            # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
-            # 乗り換えると戻れる保証が無くなる）。
-            raise ValueError("spliced_edge_ids requires destination")
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
+            if self.spliced_edge_ids:
+                raise ValueError("spliced_edge_ids requires destination")
             if self.distance_km is None:
                 raise ValueError("distance_km is required without waypoints/destination")
             self._target = DistanceTarget(distance_km=self.distance_km)
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
         distance_km = search_distance_km(max(haversine_distance_km(origin, point) for point in points))
-        if self.spliced_edge_ids and self.destination is not None:
+        if self.spliced_edge_ids:
+            # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
+            # 乗り換えると戻れる保証が無くなる）。
+            if self.destination is None:
+                raise ValueError("spliced_edge_ids requires destination")
             first, *rest = self.spliced_edge_ids
             self._target = SplicedTarget(
                 distance_km=distance_km, destination=self.destination, edge_ids=(first, *rest)
