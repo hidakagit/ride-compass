@@ -7,9 +7,8 @@ frontend の文∩宣言の名前は `frontend/scripts/structure-population.mjs`
 どれを直すかは読む人が決める。
 
 backend の文は宣言（`backend/app/domain`）の文字列の字句（f 文字列の地の部分を含む。docstring・コメントは除く）のうち日本語を含むもの。
-  (1) 文∩宣言の名前: 生成物（`frontend/src/types/generated/`。API の型の2本を除く）の、鍵が `label`・`chipLabel`・
-      `chip_label` の日本語の値で3字以上のものを含む文。その名前そのものを宣言する字句（値が名前と同じもの・
-      `label=`・`chip_label=` の値）は除く。
+  (1) 文∩宣言の名前: 生成物（`frontend/src/types/generated/`。API の型の2本を除く）の、鍵が `label` の日本語の値で
+      3字以上のものを含む文。その名前そのものを宣言する字句（値が名前と同じもの・`label=` の値）は除く。
   (2) 文∩色・寸法・時間幅の語: 色の名前・線の描き方・大小の語、数字と単位（分・時間・日・px・m・km・%）を含む文。
   (3) 説明∩同じ行の値: 1つの呼び出しの中で、説明の文が、同じ呼び出しのほかの文字列（`values` の並び・位置で
       渡した値を含む）のうち英数字の3字以上のものを含む。
@@ -41,7 +40,7 @@ FRONTEND_SRC = ROOT / "frontend" / "src"
 GENERATED = FRONTEND_SRC / "types" / "generated"
 
 JAPANESE = re.compile(r"[぀-ヿ㐀-鿿]")
-NAME_KEYS = {"label", "chipLabel", "chip_label"}
+NAME_KEYS = {"label"}
 LOOK = re.compile(
     r"(?:濃い|薄い|明るい|暗い)?(?:紫|水色|灰色|赤|青|緑|黄色|橙|黒|白)|破線|実線|点線|太く|細く|大きく|小さく"
     r"|\d+(?:\.\d+)?\s*(?:分|時間|日|px|m|km|%)"
@@ -77,7 +76,7 @@ def generated_names() -> list[str]:
         if path.suffix == ".ts":
             text = text[text.index("= ") + 2 : text.rindex(" as const;")]
         visit(json.loads(text), None)
-    return sorted(names, key=len, reverse=True)
+    return sorted(names, key=lambda name: (-len(name), name))
 
 
 def docstring_nodes(tree: ast.AST) -> set[int]:
@@ -100,7 +99,7 @@ def phrase(node: ast.AST) -> str | None:
 
 
 def name_declarations(tree: ast.AST) -> set[int]:
-    """名前そのものを宣言する字句（`label=`・`chip_label=` の値）。"""
+    """名前そのものを宣言する字句（`label=` の値）。"""
     return {
         id(keyword.value)
         for node in ast.walk(tree)
