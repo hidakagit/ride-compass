@@ -215,7 +215,7 @@ def test_a_density_axis_adds_seconds_in_proportion_to_the_count_and_its_share_of
     所要時間 × (1 + P × 軸aの分15点/100) に、P × 重みの割合1/2 × 傾き/100 × 2回 × 想定速度で1km走る秒 を足したもの。
     停止の待ちの秒は所要時間に入っていて、密度の軸の点数では割増さない。重みは割合だけが効き、和が1以下でも同じ。"""
     leg = _snapshot(_matrix(1, signals_per_km=2.0, axes={"axis_a": 30.0}),
-                    weights={STOP_AXIS: 0.5, "axis_a": 0.5}, penalty=0.7)
+                    weights={STOP_AXIS: 0.25, "axis_a": 0.25}, penalty=0.7)
 
     cruise_seconds_per_km = 3600.0 / CRUISE_KMH
     added = 0.7 * 0.5 * (100.0 / 9.58) / 100 * 2.0 * cruise_seconds_per_km
