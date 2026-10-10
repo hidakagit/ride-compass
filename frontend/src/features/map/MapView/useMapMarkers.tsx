@@ -17,6 +17,9 @@ import { SelectedSpotIcon } from "@/components/ui/icons/icons";
 import palette from "@/types/generated/palette.json";
 import { runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 
+/** 出発地点を見せる倍率（地図を作ったとき・出発地点が変わったとき）。 */
+export const ORIGIN_ZOOM = 13;
+
 // 出発地点は現在地の記号（十字線と中心の点）を面の色（テーマに従う）の円に乗せる。左右対称なので、アンカーは地点＝中心（"center"）。
 // 中身の印はReactでportalして描く。
 function createOriginMarkerElement(): HTMLDivElement {
@@ -41,6 +44,27 @@ function createPointMarkerElement(role: Exclude<PinRole, "origin">, label?: stri
     "font-size:13px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
     "border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4); touch-action:none; cursor:grab;";
   return el;
+}
+
+/** 経由地・目的地の印を地図へ置く。動かせる間だけ、つかんで動かす・押す操作を結ぶ。 */
+function addPointMarker(
+  map: MapLibreMap,
+  point: Coordinates,
+  element: HTMLDivElement,
+  editable: boolean,
+  handlers: { onMove: (coordinates: Coordinates) => void; onClick: () => void },
+): Marker {
+  const marker = new maplibregl.Marker({ element, draggable: editable })
+    .setLngLat([point.longitude, point.latitude])
+    .addTo(map);
+  if (editable) {
+    marker.on("dragend", () => {
+      const lngLat = marker.getLngLat();
+      handlers.onMove({ latitude: lngLat.lat, longitude: lngLat.lng });
+    });
+    bindDragAwareClick(marker, element, handlers.onClick);
+  }
+  return marker;
 }
 
 // マーカーをドラッグした直後は、同じ操作の終わりにclickも飛ぶ。つかんで動かしただけで
@@ -132,7 +156,7 @@ export function useMapMarkers(
       if (skipNextFlyToRef.current) {
         skipNextFlyToRef.current = false;
       } else {
-        map.flyTo({ center: [location.longitude, location.latitude], zoom: 13 });
+        map.flyTo({ center: [location.longitude, location.latitude], zoom: ORIGIN_ZOOM });
       }
 
       if (markerRef.current && appliedMarkerSourceRef.current === locationSource) {
@@ -168,20 +192,12 @@ export function useMapMarkers(
 
     const applyWaypointMarkers = () => {
       waypointMarkersRef.current.forEach((marker) => marker.remove());
-      waypointMarkersRef.current = waypoints.map((point, index) => {
-        const el = createPointMarkerElement("waypoint", String(index + 1));
-        const marker = new maplibregl.Marker({ element: el, draggable: pointEditingEnabled })
-          .setLngLat([point.longitude, point.latitude])
-          .addTo(map);
-        if (pointEditingEnabled) {
-          marker.on("dragend", () => {
-            const lngLat = marker.getLngLat();
-            latest.current.onWaypointMove(index, { latitude: lngLat.lat, longitude: lngLat.lng });
-          });
-          bindDragAwareClick(marker, el, () => latest.current.onWaypointRemove(index));
-        }
-        return marker;
-      });
+      waypointMarkersRef.current = waypoints.map((point, index) =>
+        addPointMarker(map, point, createPointMarkerElement("waypoint", String(index + 1)), pointEditingEnabled, {
+          onMove: (coordinates) => latest.current.onWaypointMove(index, coordinates),
+          onClick: () => latest.current.onWaypointRemove(index),
+        }),
+      );
     };
 
     runWhenStyleReady(map, applyWaypointMarkers);
@@ -203,18 +219,16 @@ export function useMapMarkers(
       destinationMarkerRef.current = null;
       if (!destination) return;
 
-      const el = createPointMarkerElement("destination");
-      const marker = new maplibregl.Marker({ element: el, draggable: pointEditingEnabled })
-        .setLngLat([destination.longitude, destination.latitude])
-        .addTo(map);
-      if (pointEditingEnabled) {
-        marker.on("dragend", () => {
-          const lngLat = marker.getLngLat();
-          latest.current.onPinPlace("destination", { latitude: lngLat.lat, longitude: lngLat.lng });
-        });
-        bindDragAwareClick(marker, el, () => latest.current.onDestinationClear());
-      }
-      destinationMarkerRef.current = marker;
+      destinationMarkerRef.current = addPointMarker(
+        map,
+        destination,
+        createPointMarkerElement("destination"),
+        pointEditingEnabled,
+        {
+          onMove: (coordinates) => latest.current.onPinPlace("destination", coordinates),
+          onClick: () => latest.current.onDestinationClear(),
+        },
+      );
     };
 
     runWhenStyleReady(map, applyDestinationMarker);
@@ -232,7 +246,7 @@ export function useMapMarkers(
       if (!selectedRouteSegment) return;
 
       const el = document.createElement("div");
-      // touch-action:noneの理由は経由地マーカーと同じ。
+      // touch-action:noneで、指の起点が印に乗ってもパンとして確定させる。
       el.style.cssText = `display:flex; color:${palette.semantic.inspected}; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;`;
       setSelectedSegmentMark(el);
       el.setAttribute("aria-label", "選択中の区間");

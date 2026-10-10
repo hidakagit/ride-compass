@@ -17,7 +17,7 @@ import { onBackend, onSameOrigin } from "@/testing/backendServer";
 import { catalogEntry, catalogResponse, dedicatedEntry, rampEntry } from "@/testing/catalogAxes";
 import type { AxisCatalogEntry } from "@/types/route";
 
-import { useMapView } from "./useMapView";
+import { LEGEND_FILTER_DEBOUNCE_MS, useMapView } from "./useMapView";
 
 const NOW = new Date("2026-10-07T03:00:00Z");
 const TILE_VERSIONS = { accident: "a1", poi: "p1", road_surface: "r1" };
@@ -138,7 +138,7 @@ describe("useMapView", () => {
 
     expect(result.current.lensControl.hiddenLegendKeys).toEqual([key]);
     expect(result.current.overlayControls.anyLegendHidden).toBe(true);
-    act(() => vi.advanceTimersByTime(399));
+    act(() => vi.advanceTimersByTime(LEGEND_FILTER_DEBOUNCE_MS - 1));
     expect(result.current.look.hiddenLegendKeys.axis_ramp).toBeUndefined();
     act(() => vi.advanceTimersByTime(1));
     expect(result.current.look.hiddenLegendKeys.axis_ramp).toEqual([key]);
@@ -147,7 +147,7 @@ describe("useMapView", () => {
     expect(result.current.lensControl.hiddenLegendKeys).toEqual(allKeys);
 
     act(() => result.current.overlayControls.onShowAllLegendRows());
-    act(() => vi.advanceTimersByTime(400));
+    act(() => vi.advanceTimersByTime(LEGEND_FILTER_DEBOUNCE_MS));
     expect(result.current.lensControl.hiddenLegendKeys).toEqual([]);
     expect(Object.values(result.current.look.hiddenLegendKeys).flat()).toEqual([]);
   });

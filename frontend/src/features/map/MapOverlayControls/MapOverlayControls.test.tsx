@@ -35,6 +35,7 @@ function categoriesOf(group: MapOverlayGroup): MapLayerCategory[] {
 }
 const [ROAD] = MAP_OVERLAY_GROUP_ORDER;
 const ROAD_LABEL = MAP_OVERLAY_GROUP_LABELS[ROAD];
+const chooser = () => screen.getByRole("button", { name: `${ROAD_LABEL}の表示項目を選ぶ` });
 
 /** 1件のレイヤー。既定では道路の群の1件目のカテゴリに属する。 */
 function chip(id: string, overrides: Partial<OverlayLayerChip> = {}): OverlayLayerChip {
@@ -253,7 +254,6 @@ describe("群", () => {
 
   it("「表示する項目を選ぶ」で外した項目は一覧に並べず（地図に出していればOFFにする）、次の訪問でも保ち、並べ直してもONにはしない", async () => {
     const first = await setup([chip("kept"), chip("dropped", { on: true })]);
-    const chooser = () => screen.getByRole("button", { name: `${ROAD_LABEL}の表示項目を選ぶ` });
 
     await first.user.click(chooser());
     await first.user.click(screen.getByRole("checkbox", { name: "droppedを一覧に並べる" }));
@@ -275,7 +275,6 @@ describe("群", () => {
 
   it("「表示する項目を選ぶ」の「すべて」は、1つでも外れていれば全部並べ、全部並んでいれば全部外す（外す項目のONはOFFにする）", async () => {
     const { user, props, list } = await setup([chip("shown", { on: true }), chip("off"), chip("dropped")]);
-    const chooser = () => screen.getByRole("button", { name: `${ROAD_LABEL}の表示項目を選ぶ` });
     const all = () => screen.getByRole("checkbox", { name: `${ROAD_LABEL}の項目をすべて選ぶ/外す` });
 
     await user.click(chooser());

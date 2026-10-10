@@ -4,7 +4,6 @@
  * 誰と共有するか」だけ。同居させると、導出を確かめたい側がストアごと引き回すことになる。
  */
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
-import { axisLabelsFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
 import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
 
 /** 軸カタログ。`GET /api/axis-catalog`の応答から導いた、機能をまたいで読む形。地図だけが読む形（地図の表示・
@@ -15,8 +14,6 @@ export interface AxisCatalog {
   axes: readonly CatalogAxis[];
   /** axis_idから既定重みを引く。未知のaxis_idには0を返す。 */
   defaultWeights: RoutePreferenceWeights;
-  /** axis_id→表示名の辞書。 */
-  axisLabels: Record<string, string>;
   /** axis_id→識別色。どの画面でも同じ軸は同じ色になるよう、ここで1回だけ決める。 */
   axisColors: Readonly<Record<string, string>>;
   /** フロントが使う較正値（id → いま効いている値）。backendの`domain/tuning.py`が宣言し、
@@ -72,21 +69,17 @@ export const EMPTY_CATALOG: AxisCatalog = {
   clientTuning: {},
   axes: [],
   defaultWeights: {},
-  axisLabels: {},
   axisColors: {},
   loaded: false,
   failed: false,
 };
 
 export function axisCatalogFromResponse(response: AxisCatalogResponse): AxisCatalog {
-  const defaultWeights: RoutePreferenceWeights = {};
-  for (const entry of response.axes) defaultWeights[entry.axis_id] = entry.default_weight;
   const axes = response.axes.map(catalogAxisFromEntry);
   return {
     clientTuning: response.client_tuning,
     axes,
-    defaultWeights,
-    axisLabels: axisLabelsFromCatalogAxes(response.axes),
+    defaultWeights: Object.fromEntries(response.axes.map((entry) => [entry.axis_id, entry.default_weight])),
     axisColors: axisColorsOf(axes),
     loaded: true,
     failed: false,

@@ -45,26 +45,17 @@ export default function RoadInspectorPopup({
   // 評価は道・走行の条件・重みごとに持つ。重みを変えたら、古い重みの評価を見せずに取り直しへ戻す。条件は押したときの
   // ものに留める——出発時刻は「今」へ5分刻みで進むので、今の条件で引き直すと開いている間に評価が消える。
   const weightsKey = JSON.stringify(routePreference);
-  const conditionsKey = JSON.stringify(conditions);
-  const [pressed, setPressed] = useState<{
-    weightsKey: string;
-    conditionsKey: string;
-    conditions: AxisInspectorConditions;
-  } | null>(null);
+  const [pressed, setPressed] = useState<{ weightsKey: string; conditions: AxisInspectorConditions } | null>(null);
   const pinned = pressed !== null && pressed.weightsKey === weightsKey ? pressed : null;
   const name = roadDisplayName(properties);
   const wayId = roadWayId(properties);
   const featureKey = roadFeatureKey(properties);
   const inspector = useQuery(
     {
-      queryKey: ["axis-inspector", wayId, featureKey, pinned?.conditionsKey ?? conditionsKey, weightsKey],
+      queryKey: ["axis-inspector", wayId, featureKey, JSON.stringify(pinned?.conditions ?? conditions), weightsKey],
+      // 取りに行くのは押したあと（`pinned`がある間）だけ。
       queryFn: async () => {
-        const value = await fetchAxisInspector(
-          wayId!,
-          featureKey,
-          pinned !== null ? pinned.conditions : conditions,
-          routePreference,
-        );
+        const value = await fetchAxisInspector(wayId!, featureKey, pinned!.conditions, routePreference);
         if (value === null) throw new Error("評価が返りませんでした");
         return value;
       },
@@ -78,7 +69,7 @@ export default function RoadInspectorPopup({
 
   const load = () => {
     if (pinned !== null) void inspector.refetch();
-    else setPressed({ weightsKey, conditionsKey, conditions });
+    else setPressed({ weightsKey, conditions });
   };
 
   // 寄与度はbackendが返す（軸ごとの重み付き寄与、合計が合成スコアと一致する）。

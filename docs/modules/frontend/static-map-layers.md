@@ -232,7 +232,7 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 式の形であること（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。
 
 重なり順は**宣言だけ**が決める（段の並びは`scene/mapScene.ts: MAP_SCENE_TIERS`）。
-宣言が自分の段を持ち、`composeScene`が段の順に並べてから`applyMapScene`が当てる——**作る側の配列の並びは順序に関係せず、レイヤーを
+宣言が自分の段を持ち、`applyMapScene`が段の順に並べて当てる——**作る側の配列の並びは順序に関係せず、レイヤーを
 足す人が挿す位置を選ばない**。同じ段の中はカタログに現れる順を保つ。
 
 段は背面から順に、面で塗るもの・推定指標の線・観測した事実の線・レンズの線・点データ・
@@ -506,8 +506,8 @@ backendが200で応答する窓では、カタログは取得済みなのに世�
 `mapLayers.ts: mapOverlayGroupFor(layer)`がチップを`category`からグループへ分類する。
 **どのレイヤーがどの`category`かは源泉が宣言する**（`domain/map_display.py`。`category`→
 グループの対応と同じ場所）——画面が持つのは描画の都合だけで、束ね方の所属はそこに入らない。
-軸スタジオ由来のレイヤー（`isAxisStudioLayer`: `dedicated_way_value_layer`軸[記述子の`axisStudioLayer`が立つ]・
-ramp軸[`dataNature==="composite"`]）は一覧の行の組み立て（`features/map/view/overlayChips.ts: overlayChips`）が
+軸スタジオ由来のレイヤー（`isAxisStudioLayer`: `dedicated_way_value_layer`軸・ramp軸。どちらも記述子の`axisStudioLayer`が立つ）は
+一覧の行の組み立て（`features/map/view/overlayChips.ts: overlayChips`）が
 **束ねる前に1か所で**除く（一覧のどこにも出さない。表示はレンズが持つ）。
 
 **暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーは中分類を

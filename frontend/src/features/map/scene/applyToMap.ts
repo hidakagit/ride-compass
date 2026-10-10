@@ -14,7 +14,7 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import type { DedicatedWayValueAxis, RampAxis } from "@/lib/mapDisplay/axisLayers";
+import { axisMapLayerId, type DedicatedWayValueAxis, type RampAxis } from "@/lib/mapDisplay/axisLayers";
 import { debugLog } from "@/lib/debugLog";
 import type {
   DynamicWeatherGroupState,
@@ -111,6 +111,22 @@ type SceneWiringProps = {
 
 const NO_KEYS: readonly string[] = [];
 
+/** 道の線を塗る評価軸は、レンズが塗っている1本だけ。 */
+function isAxisShown(look: Pick<SceneLook, "paintedAxisId">, axisId: string): boolean {
+  return axisId === look.paintedAxisId;
+}
+
+/** レイヤーごとの実際の表示。ramp軸のレイヤーは表示の状態に無く、塗っている軸かで決まる。 */
+export function effectiveLayerVisibility(
+  look: Pick<SceneLook, "layerVisibility" | "paintedAxisId">,
+  rampAxes: readonly RampAxis[],
+): MapLayerVisibility {
+  return {
+    ...look.layerVisibility,
+    ...Object.fromEntries(rampAxes.map((axis) => [axisMapLayerId(axis.axisId), isAxisShown(look, axis.axisId)])),
+  };
+}
+
 function routeStateFrom(props: SceneWiringProps): RouteState {
   const { look } = props;
   const visible = look.layerVisibility.route === true;
@@ -181,7 +197,7 @@ function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): Axi
     underlay: boolean,
   ): AxisLineState["axes"][number] => ({
     axisId,
-    visible: axisId === look.paintedAxisId,
+    visible: isAxisShown(look, axisId),
     bands: axisLineBands(bands),
     value,
     hiddenBandKeys: look.hiddenLegendKeys[axisId] ?? NO_KEYS,

@@ -102,16 +102,34 @@ function colorExpression(axis: AxisLineState["axes"][number], missing: unknown, 
   return ["case", ...undetermined, missing, missingColor, ...cases, palette.semantic.no_data];
 }
 
+type SplitDelivered = {
+  readonly values: ReadonlyMap<string, number>;
+  readonly undetermined: ReadonlyMap<string, true>;
+};
+
+const splitByDelivered = new WeakMap<ReadonlyMap<string, number | null>, SplitDelivered>();
+
+/** 配信の値を、値のある道と向きで決まらない道へ分ける。同じ配信の結果からは同じ参照を返す——当てる側は
+ * 参照が同じなら道ごとに比べ直さない。 */
+function splitDelivered(delivered: ReadonlyMap<string, number | null>): SplitDelivered {
+  const cached = splitByDelivered.get(delivered);
+  if (cached !== undefined) return cached;
+  const values = new Map<string, number>();
+  const undetermined = new Map<string, true>();
+  for (const [featureId, value] of delivered) {
+    if (value === null) undetermined.set(featureId, true);
+    else values.set(featureId, value);
+  }
+  const split = { values, undetermined };
+  splitByDelivered.set(delivered, split);
+  return split;
+}
+
 function featureStatesFor(state: AxisLineState): MapSceneFeatureStates {
   const states = new Map<string, ReadonlyMap<string, MapSceneFeatureStateValue>>();
   for (const axis of state.axes) {
     if (axis.value.kind !== "delivered") continue;
-    const values = new Map<string, number>();
-    const undetermined = new Map<string, true>();
-    for (const [featureId, value] of axis.value.values) {
-      if (value === null) undetermined.set(featureId, true);
-      else values.set(featureId, value);
-    }
+    const { values, undetermined } = splitDelivered(axis.value.values);
     states.set(axisFeatureStateKey(axis.axisId), values);
     states.set(axisUndeterminedStateKey(axis.axisId), undetermined);
   }

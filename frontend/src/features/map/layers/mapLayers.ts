@@ -125,7 +125,6 @@ const STATIC_LAYER_ICONS: Record<StaticMapLayerId, MapIconComponent> = {
   route: RouteIcon,
 };
 
-/** ▶を開いたときの表示専用の凡例。無いレイヤーは絞り込める凡例か、画面の状態から組む凡例を持つ。 */
 const READ_ONLY_LEGENDS: Partial<Record<StaticMapLayerId, readonly ReadOnlyLegendBlock[]>> = {
   landcover: [
     {
@@ -198,7 +197,7 @@ const GROUP_BY_CATEGORY: Readonly<Record<string, MapOverlayGroup>> = Object.from
 
 /** 軸スタジオ由来のレイヤー（ramp軸・専用配信の軸）か。地図のチップに出さない。idの集合でなく記述子の印で決める。 */
 export function isAxisStudioLayer(layer: MapLayerDescriptor): layer is AxisStudioLayerDescriptor {
-  return layer.axisStudioLayer === true || layer.dataNature === "composite";
+  return layer.axisStudioLayer === true;
 }
 
 /** チップが属するグループ。中分類だけで決めるので、軸スタジオ由来のレイヤーは渡さない——チップの一覧
@@ -213,7 +212,6 @@ export interface ChipLayerDescriptor {
   id: MapLayerId;
   label: string;
   kind: MapLayerKind;
-  /** 省略できない（描く側の対応表で引く形だと、書き忘れても汎用のアイコンで見分けの付かないまま出続ける）。 */
   icon: MapIconComponent;
   /** 省略できない（書き忘れたレイヤーは取得状態を持たず、チップの状態の印が出ない）。 */
   dataSource: MapLayerDataSource;
@@ -241,8 +239,7 @@ type LayerDeclaration = Pick<
  * 地図の組み立てが情報源を引くためのidと源泉の宣言だけを持つ。 */
 export interface AxisStudioLayerDescriptor extends LayerDeclaration {
   id: MapLayerId;
-  /** 専用配信の軸から作ったレイヤーか（ramp軸は`dataNature`の合成で同じ判定を受ける）。 */
-  axisStudioLayer?: true;
+  axisStudioLayer: true;
 }
 
 export type MapLayerDescriptor = ChipLayerDescriptor | AxisStudioLayerDescriptor;
@@ -337,6 +334,7 @@ export function buildMapLayers({
     ...rampAxes.map((axis): AxisStudioLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       ...declaredLayer(mapDisplay.axisLayers.ramp),
+      axisStudioLayer: true,
     })),
     // 専用配信の軸。チップには出ないが、地図の組み立てが情報源をここから引く（無いと描く時点で落ちる）。
     ...dedicatedAxes.map((axis): AxisStudioLayerDescriptor => ({
