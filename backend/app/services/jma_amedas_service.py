@@ -22,7 +22,7 @@ import numpy as np
 from cachetools import TTLCache
 
 from app.domain.rain import RAIN_HISTORY_HOURS, StationRainMaterials, is_rain_history_current, rain_material_values
-from app.domain.time_zone import JST
+from app.domain.time_zone import JST, as_jst
 from app.domain.geo import nearest_point_index
 from app.domain.jma_amedas import AmedasObservation, apparent_temperature_from_amedas
 from app.domain.route import Coordinates
@@ -70,11 +70,7 @@ class JmaAmedasService:
         if not stations:
             return None
         station_ids = list(stations)
-        nearest_index = nearest_point_index(
-            point.latitude, point.longitude,
-            np.array([stations[station_id].latitude for station_id in station_ids]),
-            np.array([stations[station_id].longitude for station_id in station_ids]),
-        )
+        nearest_index = nearest_point_index(point, list(stations.values()))
         if nearest_index is None:
             return None
         station_id = station_ids[nearest_index]
@@ -137,7 +133,7 @@ class JmaAmedasService:
         値を持つ観測所が1つも無ければ取れなかったとする——取れたとして残すと二度と取り直さず、その正時を
         含む窓が全国で値を持たないまま、窓から外れるまで戻らない。
         """
-        latest_hour = latest_time.astimezone(JST).replace(minute=0, second=0, microsecond=0)
+        latest_hour = as_jst(latest_time).replace(minute=0, second=0, microsecond=0)
         hours = [latest_hour - timedelta(hours=back) for back in range(RAIN_HISTORY_HOURS)]
         stored = await jma_amedas_store.read_rain_history()
         if stored is jma_amedas_store.UNAVAILABLE:

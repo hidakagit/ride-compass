@@ -6,6 +6,8 @@
 
 from enum import StrEnum
 
+from app.domain.material_sql import sql_literals
+
 # 事故地点を道路へスナップする際の探索半径。事故点はOSMの要素ではないため、信号・交差点の
 # ように「wayの構成ノードか」で帰属を決められず、距離で最も近い道路を選ぶしかない。
 # 緯度経度は本票の度分秒表記からの変換値でOSM nodeよりジオコーディング精度が粗いため、
@@ -41,6 +43,6 @@ BICYCLE_PARTY_TYPES: frozenset[PartyType] = frozenset({PartyType.BICYCLE, PartyT
 
 FATAL_SQL = "coalesce(a.deaths, 0) > 0"
 
-_BICYCLE_PARTY_LIST = ", ".join(f"'{party}'" for party in sorted(BICYCLE_PARTY_TYPES))
+_BICYCLE_PARTY_LIST = sql_literals(sorted(BICYCLE_PARTY_TYPES))
 #: 当事者のどちらかが自転車なら自転車関連事故とみなす式。
 BICYCLE_SQL = f"(a.party_type_a IN ({_BICYCLE_PARTY_LIST}) OR a.party_type_b IN ({_BICYCLE_PARTY_LIST}))"

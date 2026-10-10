@@ -61,9 +61,8 @@ class _RasterSource:
 
 _opened_sources: list[_RasterSource] | None = None
 _sources_lock = threading.Lock()
-#: 1枚も開けなかったときに、次に開き直すまで待つ秒数。**失敗を記憶し続けない**——デプロイは
-#: ラスタの取得とコンテナ入れ替えを別のステップで行うため、起動時に無くても後から現れる。
-#: 毎回開き直すとタイル1枚ごとにI/Oとログが出るので、間隔を空けて試す。
+#: 1枚も開けなかったときに、次に開き直すまで待つ秒数。毎回開き直すとタイル1枚ごとにI/Oとログが
+#: 出るので、間隔を空けて試す。
 _RETRY_OPEN_AFTER_SECONDS = 60.0
 _last_open_attempt = 0.0
 

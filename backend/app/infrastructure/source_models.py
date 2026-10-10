@@ -30,6 +30,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.accident import PartyType
+from app.domain.material_sql import sql_literals
 from app.infrastructure.orm_base import Base
 
 
@@ -90,7 +91,7 @@ class SourceRunRow(Base):
     __tablename__ = "source_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN (" + ", ".join(f"'{s}'" for s in SourceRunStatus) + ")",
+            f"status IN ({sql_literals(SourceRunStatus)})",
             name="source_runs_status_known"),
         # 閉じたrunだけが終わった時刻を持つ。読み手は成功のrunの時刻を必ずあるものとして読む。
         CheckConstraint(

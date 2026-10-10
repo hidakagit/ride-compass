@@ -21,6 +21,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows, copy_reused_sql, reused_edges_sql
 from app.domain.landcover import (
     LANDCOVER_RING_INNER_M,
     LANDCOVER_RING_OUTER_M,
@@ -59,32 +60,7 @@ GROUP BY r.osm_way_id, r.segment_index, (vc).value
 
 #: (割合の項目名, 表の列名) の対応。
 _LANDCOVER_COLUMNS = [(name, "lc_" + landcover_key(name)) for name, _ in PERCENT_CLASSES]
-
 _VALUE_COLUMNS = ["lc_valid_pixels", *(column for _, column in _LANDCOVER_COLUMNS)]
-
-
-def _reused_edges_sql(previous: str | None) -> str:
-    """前回の値を写す区間。同じ形とみなすのは、鍵が同じで座標とその並びも同じ区間だけ（`=`。`ST_Equals`のように
-    形を幾何として比べる計算をしない）。"""
-    if previous is None:
-        return "CREATE TEMP TABLE _reused ON COMMIT DROP AS SELECT osm_way_id, segment_index FROM road_edges WHERE false"
-    return f"""
-CREATE TEMP TABLE _reused ON COMMIT DROP AS
-SELECT e.osm_way_id, e.segment_index
-FROM road_edges e JOIN {previous}.road_edges p
-  ON p.osm_way_id = e.osm_way_id AND p.segment_index = e.segment_index AND p.geom = e.geom
-"""
-
-
-def _copy_reused_sql(previous: str) -> str:
-    """前回の値を写す。前回に値の無かった区間は前回の表に行が無く、今回も行を持たない。"""
-    return f"""
-INSERT INTO edge_landcover (osm_way_id, segment_index, {", ".join(_VALUE_COLUMNS)})
-SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in _VALUE_COLUMNS)}
-FROM _reused r JOIN {previous}.edge_landcover p
-  ON p.osm_way_id = r.osm_way_id AND p.segment_index = r.segment_index
-"""
-
 
 _INSERT_LANDCOVER = f"""
 INSERT INTO edge_landcover (osm_way_id, segment_index, {", ".join(_VALUE_COLUMNS)})
@@ -101,17 +77,17 @@ async def _derive_edges(conn: asyncpg.Connection, previous: str | None) -> None:
         return
 
     edges = await conn.fetchval("SELECT count(*) FROM road_edges")
-    await conn.execute(_reused_edges_sql(previous))
+    await conn.execute(reused_edges_sql(previous))
     reused = await conn.fetchval("SELECT count(*) FROM _reused")
     if previous is not None:
-        await conn.execute(_copy_reused_sql(previous))
+        await conn.execute(copy_reused_sql("edge_landcover", _VALUE_COLUMNS, previous))
     logger.info("土地被覆: 形の変わらない区間 %d本へ前回の値を写し、%d本を数える", reused, edges - reused)
     await conn.execute(_BUILD_RINGS, LANDCOVER_RING_OUTER_M, LANDCOVER_RING_INNER_M)
     await conn.execute("CREATE INDEX ON _rings USING GIST (ring4326)")
     await conn.execute("ANALYZE _rings")
     logger.info("土地被覆: 帯 %d本を作った。重なる画素を数える",
                 await conn.fetchval("SELECT count(*) FROM _rings"))
-    updated = int((await conn.execute(_INSERT_LANDCOVER)).split()[-1])
+    updated = affected_rows(await conn.execute(_INSERT_LANDCOVER))
 
     logger.info("土地被覆: 数えた区間 %d/%d本に値が付いた / タイル %d枚 / %.1f秒",
                 updated, edges - reused, tiles, time.perf_counter() - started)
@@ -120,17 +96,14 @@ async def _derive_edges(conn: asyncpg.Connection, previous: str | None) -> None:
 # --- 道への集約 -------------------------------------------------------------
 
 
-def _way_rollup_sql() -> str:
-    """道の値は区間から導く。長さで重み付けた平均にするのは、どちらも割合のため。"""
-    columns = [column for _, column in _LANDCOVER_COLUMNS]
-    # 割合を持つ区間が1本も無い道は集約に出ず、行を持たない。倍精度で平均してからREALの列へ入れる——REALのまま足すと
-    # 丸めで100をわずかに超え、表の制約に断られる。
-    averaged = ", ".join(
-        f"sum(m.{c}::double precision * e.distance_m) / sum(e.distance_m::double precision) AS {c}"
-        for c in columns)
-    return f"""
-INSERT INTO way_landcover (osm_way_id, lc_valid_pixels, {", ".join(columns)})
-SELECT m.osm_way_id, sum(m.lc_valid_pixels), {averaged}
+#: 道の値は区間から導く。長さで重み付けた平均にするのは、どちらも割合のため。割合を持つ区間が1本も無い道は
+#: 集約に出ず、行を持たない。倍精度で平均してからREALの列へ入れる——REALのまま足すと丸めで100をわずかに
+#: 超え、表の制約に断られる。
+_WAY_ROLLUP = f"""
+INSERT INTO way_landcover (osm_way_id, {", ".join(_VALUE_COLUMNS)})
+SELECT m.osm_way_id, sum(m.lc_valid_pixels), {", ".join(
+    f"sum(m.{c}::double precision * e.distance_m) / sum(e.distance_m::double precision) AS {c}"
+    for _, c in _LANDCOVER_COLUMNS)}
 FROM edge_landcover m JOIN road_edges e
   ON e.osm_way_id = m.osm_way_id AND e.segment_index = m.segment_index
 GROUP BY m.osm_way_id
@@ -143,5 +116,5 @@ async def derive(conn: asyncpg.Connection, *, previous: str | None) -> None:
         await conn.execute("TRUNCATE edge_landcover, way_landcover")
         await _derive_edges(conn, previous)
         await conn.execute("ANALYZE edge_landcover")
-        await conn.execute(_way_rollup_sql())
+        await conn.execute(_WAY_ROLLUP)
         await conn.execute("ANALYZE way_landcover")

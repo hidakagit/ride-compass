@@ -20,6 +20,8 @@ from typing import Any
 
 import yaml
 
+from app.domain.region import BoundingBox
+
 _SUPPORTED_VERSION = 1
 
 _PROFILE_PATH = Path(__file__).resolve().parent / "source_profile.yaml"
@@ -48,6 +50,10 @@ class Target:
         """点が範囲に入るか（境界を含む）。"""
         min_lat, min_lon, max_lat, max_lon = self.bbox
         return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+
+    def bounding_box(self) -> BoundingBox:
+        min_lat, min_lon, max_lat, max_lon = self.bbox
+        return BoundingBox(min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon)
 
 
 @dataclass(frozen=True)

@@ -17,11 +17,10 @@ from shapely.geometry import box
 
 from app.domain.region import tile_bounds_3857, tile_bounds_lonlat
 
-#: 取込が`attrs`へ書く型 → PostGISのバンド種別と、欠測値の詰め方。種別の番号はPostGISが決めたもので、
+#: `tile_raster_wkb`の`dtype` → PostGISのバンド種別と、欠測値の詰め方。種別の番号はPostGISが決めたもので、
 #: 出典はWKBの仕様（https://github.com/postgis/postgis/blob/master/raster/doc/RFC2-WellKnownBinaryFormat の pixtype）。
 _BAND_TYPE: dict[str, tuple[int, str]] = {
     "uint8": (4, "<B"),      # 8BUI
-    "int16_le": (5, "<h"),   # 16BSI
     "int32_le": (7, "<i"),   # 32BSI
 }
 

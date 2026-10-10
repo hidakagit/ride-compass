@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 
 import httpx
 from cachetools import TTLCache
-import numpy as np
 
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.route import Coordinates
@@ -63,10 +62,7 @@ class WbgtService:
         if not points:
             return None
 
-        nearest_index = nearest_point_index(
-            point.latitude, point.longitude,
-            np.array([p.latitude for p in points]), np.array([p.longitude for p in points]),
-        )
+        nearest_index = nearest_point_index(point, points)
         if nearest_index is None:
             return None
         nearest = points[nearest_index]

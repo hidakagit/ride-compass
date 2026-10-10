@@ -1,6 +1,7 @@
-"""タイル内のフィーチャーの中ほどを、鍵と緯度・経度の配列で引く（地点の値を引く配信サービスが共有する）。"""
+"""タイル内のフィーチャーの値をDBから引く（鍵ごとの値を配る配信サービスが共有する）。"""
 
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -8,6 +9,25 @@ from app.domain.region import BoundingBox
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+
+T = TypeVar("T")
+
+
+async def tile_features(read: Awaitable[dict[str, T] | None], fields: dict[str, Any]) -> dict[str, T] | None:
+    """タイル内のフィーチャーの鍵→値を読む。
+
+    DB障害・取込範囲外・フィーチャーが無いタイルは None（どれだったかは`fields`へ記録する）。
+    """
+    try:
+        features = await read
+    except DB_UNAVAILABLE_ERRORS as exc:
+        mark_failed(fields, exc)
+        return None
+    if not features:
+        fields["postgis"] = "uncovered" if features is None else "empty"
+        return None
+    fields["feature_count"] = len(features)
+    return features
 
 
 async def feature_midpoint_arrays(
@@ -17,15 +37,9 @@ async def feature_midpoint_arrays(
 
     DB障害・取込範囲外・フィーチャーが無いタイルは None（どれだったかは`fields`へ記録する）。
     """
-    try:
-        midpoints = await repository.get_feature_midpoints_in_tile(z, x, y, bbox)
-    except DB_UNAVAILABLE_ERRORS as exc:
-        mark_failed(fields, exc)
+    midpoints = await tile_features(repository.get_feature_midpoints_in_tile(z, x, y, bbox), fields)
+    if midpoints is None:
         return None
-    if not midpoints:
-        fields["postgis"] = "uncovered" if midpoints is None else "empty"
-        return None
-    fields["feature_count"] = len(midpoints)
     keys = list(midpoints)
     latitudes = np.array([midpoints[key][0] for key in keys], dtype=float)
     longitudes = np.array([midpoints[key][1] for key in keys], dtype=float)

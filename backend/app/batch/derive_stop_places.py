@@ -29,6 +29,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows
 from app.domain.geo import ground_m_sql
 from app.domain.stop_place import (
     CONTACT_MERGE_RADIUS_M,
@@ -165,11 +166,11 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_GROUPED)
         grouped = await conn.fetchval("SELECT count(*) FROM _grouped_places")
         await conn.execute(_CONTACTS)
-        merged_by_contact = int((await conn.execute(_MERGE_BY_CONTACT)).split()[-1])
-        inserted = int((await conn.execute(_INSERT, MERGE_RADIUS_M)).split()[-1])
+        merged_by_contact = affected_rows(await conn.execute(_MERGE_BY_CONTACT))
+        inserted = affected_rows(await conn.execute(_INSERT, MERGE_RADIUS_M))
         await conn.execute(_TEMPLE_BUILDINGS)
         temple_buildings = await conn.fetchval("SELECT count(*) FROM _temple_buildings")
-        temples = int((await conn.execute(_INSERT_TEMPLES, HERITAGE_MERGE_RADIUS_M)).split()[-1])
+        temples = affected_rows(await conn.execute(_INSERT_TEMPLES, HERITAGE_MERGE_RADIUS_M))
         await conn.execute(_SET_AREAS)
         located = await conn.fetchval("SELECT count(*) FROM stop_places WHERE area IS NOT NULL")
     await conn.execute("ANALYZE stop_places")

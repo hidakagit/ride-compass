@@ -11,7 +11,7 @@
 - 前の生成の理由・目的地の補正を持ち越さないこと → 本番は生成ごとに`RouteGenerator`を作るので、持ち越す状態が起こらない
 
 エンジンの代役は、各メソッドを`RoadGraphEngine`の同名メソッドの署名へ当ててから呼ぶ（`bound`）。応答を返すだけで、呼ばれ方を記録しない。
-代役が返す探索結果・候補は本物の型（`TracedLoop`・`LoopTurnaround`・`RouteCandidate`・`FixedLegs`）で作る。
+代役が返す探索結果・経路は本物の型（`TracedLoop`・`LoopTurnaround`・`RouteDraft`・`FixedLegs`）で作る。
 探索の文脈（`context`）は戦略層にとって中身を読まない値で、読むのは`destination_correction`の
 1属性だけのため、その属性だけを持つ器で渡す。
 """
@@ -25,7 +25,7 @@ import pytest
 from app.domain.difficulty import OverallDifficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
-from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.route import Coordinates, RouteCandidate, RouteDraft, RouteSegmentDetail
 from app.domain.route_request import DEFAULT_MAX_ROUTES, MAX_ROUTES, FixedPoints
 from app.domain.time_zone import JST
 from app.services import route_generator
@@ -49,11 +49,11 @@ def _segment(difficulty: float | None, **fields) -> RouteSegmentDetail:
     )
 
 
-def _candidate(key: str, difficulty: float | None = 10.0, **fields) -> RouteCandidate:
-    """区間1本（1km・難易度`difficulty`）を持つ候補。戦略層はidと名前を付け替えるので、どの候補かは`edge_ids`で見分ける。"""
+def _candidate(key: str, difficulty: float | None = 10.0, **fields) -> RouteDraft:
+    """区間1本（1km・難易度`difficulty`）を持つ経路。戦略層は名前を付け替えうるので、どの候補かは`edge_ids`で見分ける。"""
     fields.setdefault("segments", [_segment(difficulty)])
-    return RouteCandidate(
-        id=f"engine-{key}", direction_label=f"方位-{key}", distance_km=1.0,
+    return RouteDraft(
+        direction_label=f"方位-{key}", distance_km=1.0,
         geometry={"type": "LineString", "coordinates": []}, edge_ids=[key], **fields,
     )
 

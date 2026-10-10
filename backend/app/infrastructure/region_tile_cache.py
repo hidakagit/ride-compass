@@ -72,7 +72,6 @@ async def serve_region_tile(
     external_call_name: str,
     fetch_tile: Callable[[dict], Awaitable[bytes | None]],
     source_label: str = "postgis",
-    persist: bool = True,
 ) -> TileResponse:
     """キャッシュにあればそれを、無ければ`fetch_tile`で作ったものを返す。
 
@@ -80,8 +79,8 @@ async def serve_region_tile(
     だったときは`cacheable=False`で返す。呼び出し元のルーターはこれを見て
     `Cache-Control: no-store`を明示する（`TileResponse`のdocstring参照）。
 
-    `persist=False`はディスクへ書かずに返す。**どの世代の中身か分からないまま焼いたタイルを
-    残さない**ため——残すと後で世代が判明しても正しいものと区別できない
+    世代を読めていない（`cache_identity.py: is_known_tile_version`が偽）ときはディスクへ書かずに返す。
+    **どの世代の中身か分からないまま焼いたタイルを残さない**ため——残すと後で世代が判明しても正しいものと区別できない
     （`infrastructure/cache_identity.py: UNKNOWN_REVISION`）。
     """
     key = region_tile_key(kind, generation, z, x, y, extension)
@@ -102,7 +101,7 @@ async def serve_region_tile(
         # 実際の取得元と食い違わないよう、呼び出し元が名乗る。
         fields["source"] = source_label
         fields["tile_bytes"] = len(tile_bytes)
-        fields["persisted"] = persist
+        persist = fields["persisted"] = is_known_tile_version(generation)
         if persist:
             await asyncio.to_thread(tile_cache.set, key, tile_bytes, content_type)
         return TileResponse(tile_bytes)
