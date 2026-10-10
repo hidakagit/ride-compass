@@ -16,7 +16,7 @@ paths:
 | 対象 | 入力 | 確かめる出力 |
 |---|---|---|
 | 部品（`*.tsx`） | props・利用者の操作（`userEvent`） | 描いたもの（role・名前・表示文言・`aria-*`の状態）と、呼ばれたコールバックの引数 |
-| フック（`use*.ts`） | 引数（`renderHook`の`rerender`で変える）・戻り値の関数を呼ぶこと | 戻り値と、backendへ送ったもの（状態を変える要求だけ。読むだけの要求は応答を与えるだけで、送ったかを見ない） |
+| フック（`use*.ts`） | 引数（`renderHook`の`rerender`で変える）・戻り値の関数を呼ぶこと | 戻り値と、backendへ送ったもの |
 | ページ（`app/**/page.tsx`） | 部品と同じ | 部品と同じ。ある機能の変化が別の機能の振る舞いを変える受け渡しを見る（[page-composition.md](../../docs/modules/frontend/page-composition.md)） |
 | 純関数（`lib/`等） | 引数 | 戻り値 |
 
