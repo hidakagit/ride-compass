@@ -98,7 +98,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
         await panel.getByRole("button", { name: "説明を閉じる" }).click();
         await expect(panel).toBeHidden();
       }
-      await page.getByRole("button", { name: "やめる" }).click();
+      await page.getByRole("button", { name: "やめる", exact: true }).click();
       await expect(opened).toHaveCount(1);
       await page.keyboard.press("Escape");
       await expect(opened).toHaveCount(0);
