@@ -100,12 +100,9 @@ def current_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForeca
     latest_reference_time = max(forecast.reference_time for forecast in forecasts)
 
     now_naive = as_series_time(now)
-    best: WbgtForecast | None = None
-    best_diff: float | None = None
-    for forecast in forecasts:
-        if forecast.reference_time != latest_reference_time or forecast.forecast_time is None:
-            continue
-        diff = abs((forecast.forecast_time - now_naive).total_seconds())
-        if best_diff is None or diff < best_diff:
-            best, best_diff = forecast, diff
-    return best
+    candidates = [
+        (abs((forecast.forecast_time - now_naive).total_seconds()), forecast)
+        for forecast in forecasts
+        if forecast.reference_time == latest_reference_time and forecast.forecast_time is not None
+    ]
+    return min(candidates, key=lambda candidate: candidate[0], default=(None, None))[1]

@@ -15,7 +15,7 @@ from cachetools import TTLCache
 
 from app.domain.flood_forecast import FloodBulletin
 from app.domain.warning_levels import WarningBadgeLevel
-from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
+from app.infrastructure.simple_api_client import cached_fetch, get_json
 
 FLOOD_API_URL = "https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json"
 
@@ -70,11 +70,7 @@ async def fetch_flood_documents(client: httpx.AsyncClient, cache: TTLCache) -> l
     いずれか）で、解除された河川も解除のコードのまま残り続ける。"""
 
     async def fetch() -> list[FloodBulletin]:
-        response = await client.get(FLOOD_API_URL, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, list):
-            raise UnexpectedShapeError(f"flood bulletins are {type(payload).__name__}")
+        payload = await get_json(client, FLOOD_API_URL, list, "flood bulletins are", timeout=REQUEST_TIMEOUT)
         return [
             _parse_bulletin(entry)
             for entry in payload

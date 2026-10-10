@@ -14,6 +14,7 @@ from cachetools import TTLCache
 from app.infrastructure.debug_log import log_external_call, mark_failed
 
 T = TypeVar("T")
+J = TypeVar("J", dict, list)
 
 #: 「まだ引いていない」を表す番兵。`None`は上流が返す正常な答え（該当なし）であり、
 #: 未取得と同じ値にすると該当なしがTTLの間ずっとキャッシュされず、毎回上流を叩く。
@@ -25,6 +26,19 @@ class UnexpectedShapeError(ValueError):
 
     `catch`の指定に関わらず、常にNoneへ倒して失敗として記録する。
     """
+
+
+async def get_json(
+    client: httpx.AsyncClient, url: str, expected: type[J], shape_error_prefix: str, *, timeout: httpx.Timeout
+) -> J:
+    """`url`をGETしてJSONを読む。`expected`の型でなければ`UnexpectedShapeError`
+    （文は`<shape_error_prefix> <届いた型の名前>`）。"""
+    response = await client.get(url, timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, expected):
+        raise UnexpectedShapeError(f"{shape_error_prefix} {type(payload).__name__}")
+    return payload
 
 
 async def cached_fetch(
