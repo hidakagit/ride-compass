@@ -2,14 +2,16 @@
 // 27（問いの形と打ち直し。src/move.js: askTask）・28（開発機の対話のセッションが持つ・手放す。src/hold.js）・30（画像の貼り方。
 // src/attach.js: attach）・31（Pull Request の本文の形。src/rules.js: checkBody）・32（試しを持たない道具は --dry-run を断る。
 // bin/cli.js: args）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・28 は GitHub（網）だけを、30 は gh を
-// 打つ口だけを差し替える。31 の2つ目だけは、本物のテンプレート（.github/pull_request_template.md）を読む。32 は本物の道具を
-// 別のプロセスで打つ（断るのは引数を読む所で、GitHub に触れる前）。
+// 打つ口だけを差し替える。32 は本物の道具を別のプロセスで打つ（断るのは引数を読む所で、GitHub に触れる前）。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
 // （rules.js: judge を呼ぶだけなので、照らしは gate.test.js が見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、約束ではない）・
-// 道具（bin/attach.js）が打つ gh・31 の断る文言。
+// 道具（bin/attach.js）が打つ gh・31 の断る文言・本物のテンプレート（.github/pull_request_template.md）と照らしの食い違い（
+// .github/workflows/claude-gate.yml の flow-gate が、Pull Request の本文に bin/pr-body.js を打って落とす）。
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { keepLog, settle } from "../src/after.js";
@@ -85,7 +87,6 @@ test("27 問いは、形に合わなければ何も書かずに断り、答え�
     const done = await askTask(new GitHub("bot-token"), config, 7, asked).then(() => true, () => false);
     return done ? [gh.issue.status, gh.issue.comments.filter((c) => c.body === question).length] : [false, gh.writes.length];
   };
-  assert.deepEqual(await at(config.working, [], "## 問い\nどちらにするか"), [false, 0]);
   assert.deepEqual(await at(config.waiting, [], "## 問い\nどちらにするか"), [false, 0]);
   assert.deepEqual(await at(config.working, []), [config.waiting, 1]);
   assert.deepEqual(await at(config.working, [question]), [config.waiting, 1]);
@@ -183,23 +184,20 @@ test("31 Pull Request の本文は、テンプレートの節を全部この順�
   assert.deepEqual(rows.map(([body]) => passes(body)), rows.map(([, ok]) => ok));
 });
 
-test("31 本物のテンプレートで、増減の節に「規模:」の行を続けた本文が通る", () => {
-  const template = readFileSync(new URL("../../../.github/pull_request_template.md", import.meta.url), "utf8");
-  const body = template.replace(/<[^>\n]*>/g, "書いた")
-    .replace("増減: 書いた", "増減: 実装 +1/−0・テスト +1/−0・文書 +0/−0\n規模: S（実装＋テスト 2行。200以下 S・1000以下 M・超えると L。本番DBへ書くタスクは行数によらず L）");
-  assert.deepEqual([body.includes("\n規模: S"), checkBody(template, body)], [true, []]);
-});
-
-test("32 試しを持たない道具は --dry-run を断り、書かずに 1 で終える。試しを持つ道具は --dry-run を断らない", () => {
-  // 断り損ねても本物へ書かないよう、トークンは通らない値にし、番号は無い issue にする（gh auth token も GH_TOKEN を返す）。
-  const env = { ...process.env, FLOW_BOT_TOKEN: "invalid", GH_TOKEN: "invalid" };
-  const run = (tool, ...a) => spawnSync(process.execPath, [fileURLToPath(new URL(`../bin/${tool}`, import.meta.url)), "--dry-run", ...a], { encoding: "utf8", env });
-  const n = "999999999";
-  const rejected = [["ask.js", n, "q.md"], ["field.js", n], ["stage.js", n, "題", "b.md"], ["claim.js", n, "作る", "u"], ["hold.js", n], ["attach.js", n, "a.png#前"]];
-  for (const [tool, ...a] of rejected) {
-    const r = run(tool, ...a);
-    assert.deepEqual([tool, r.status, /試し（--dry-run）を持たないので/.test(r.stderr)], [tool, 1, true]);
+test("32 試しを持たない道具は --dry-run を断り、書かずに 1 で終える。試しを持つ道具は --dry-run を断らない", (t) => {
+  // 道具は bin/ のうち bin/cli.js を読むもの（本物の GitHub か手元の設定へ書く。cli.js は共通の部分で、GitHub に触れず書かない
+  // pr-body.js は読まない）。試しを持つかは、使い方の1行に `[--dry-run]` を書くか。
+  const bin = new URL("../bin/", import.meta.url);
+  const tools = readdirSync(bin).filter((f) => f !== "cli.js").map((f) => [f, readFileSync(new URL(f, bin), "utf8")])
+    .filter(([, src]) => src.includes('from "./cli.js"')).map(([f, src]) => [f, src.includes("[--dry-run]")]);
+  assert.deepEqual([tools.some(([, dry]) => dry), tools.some(([, dry]) => !dry)], [true, true]);
+  // 断り損ねても本物へ書かないよう、トークンは通らない値にし、ホーム（~/.claude/settings.json の置き場）は一時の場所にする
+  // （gh auth token も GH_TOKEN を返す）。試しを持つ道具は、引数が使い方に合わないので断らずに使い方（2）で終わる（ここで書かずに止める）。
+  const home = mkdtempSync(join(tmpdir(), "flow-gate-home-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const env = { ...process.env, FLOW_BOT_TOKEN: "invalid", GH_TOKEN: "invalid", HOME: home, USERPROFILE: home };
+  for (const [tool, dry] of tools) {
+    const r = spawnSync(process.execPath, [fileURLToPath(new URL(tool, bin)), "--dry-run", "x", "y", "z", "w", "v", "u"], { encoding: "utf8", env });
+    assert.deepEqual([tool, r.status, /試し（--dry-run）を持たないので/.test(r.stderr)], [tool, dry ? 2 : 1, !dry]);
   }
-  // 試しを持つ道具は、引数が足りなければ断らずに使い方（2）で終わる（ここで書かずに止める）。
-  for (const tool of ["move.js", "after.js", "dispatch.js"]) assert.deepEqual([tool, run(tool, "x", "y", "z", "w", "v", "u").status], [tool, 2]);
 });

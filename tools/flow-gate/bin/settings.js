@@ -5,8 +5,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { config, git } from "./cli.js";
+import { args, config, git } from "./cli.js";
 
+args("node tools/flow-gate/bin/settings.js", (a) => !a.length);
 const source = JSON.parse(git("show", `origin/${config.code.base}:tools/flow-gate/settings.json`));
 const path = join(homedir(), ".claude", "settings.json");
 const user = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
