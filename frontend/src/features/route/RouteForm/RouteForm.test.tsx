@@ -207,26 +207,11 @@ describe("RouteForm 候補数", () => {
     expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeDisabled();
   });
 
-  it.each([
-    ["周回", { routeMode: "loop" }, "8件", false],
-    [
-      "経由地を置いた目的地",
-      { routeMode: "destination", waypoints: waypointsOf(2) },
-      `${routeGenerateConfig.routes_with_waypoints}件`,
-      true,
-    ],
-  ] as const)(
-    "%sでは件数を出し、決まった件数なら増減できなくして変えられない理由の(i)を置く",
-    (_mode, props, count, fixed) => {
-      renderForm({ maxRoutesInput: "8", ...props });
+  it("入力の件数を出す", () => {
+    renderForm({ maxRoutesInput: "8" });
 
-      expect(screen.getByText(count)).toBeInTheDocument();
-      for (const name of ["候補数を減らす", "候補数を増やす"]) {
-        expect(screen.getByRole("button", { name })).toHaveProperty("disabled", fixed);
-      }
-      expect(screen.queryByRole("button", { name: "候補数を変えられない理由を表示" }) !== null).toBe(fixed);
-    },
-  );
+    expect(screen.getByText("8件")).toBeInTheDocument();
+  });
 });
 
 describe("RouteForm モードごとの入力", () => {

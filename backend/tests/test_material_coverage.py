@@ -103,7 +103,7 @@ async def test_the_report_counts_missing_values_per_population_on_the_database(r
         PRODUCT_PRIORITY[0], 15, area, lambda lon, lat: 50.0 if lat < 35.6815 else None))
     async with raw_connection() as conn:
         await derive_topology.derive(conn)
-        await derive_elevation.derive(conn)
+        await derive_elevation.derive(conn, previous=None)
 
     report = await MaterialCoverageService(MaterialCoverageQuery(road_graph_session)).get_material_coverage()
     by_id = {e.material_id: e for e in report.materials}

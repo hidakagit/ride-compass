@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * `lib/mapDisplay/axisLayers.ts`——軸カタログの行を、地図が読む形（ramp軸・専用配信の軸・軸の名前の辞書）へ移すこと。
- * 入口は`rampAxesFromCatalogAxes`・`dedicatedWayValueAxesFromCatalogAxes`・`axisLabelsFromCatalogAxes`で、確かめるのは
+ * `lib/mapDisplay/axisLayers.ts`——軸カタログの行を、地図が読む形（ramp軸・専用配信の軸）へ移すこと。
+ * 入口は`rampAxesFromCatalogAxes`・`dedicatedWayValueAxesFromCatalogAxes`で、確かめるのは
  * 戻り値のうち地図の表示の項目。軸は`testing/catalogAxes.ts`の雛形で組む（実際の公開軸を使わない）。
  *
  * ここで見ないもの:
@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { catalogEntry, dedicatedEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 
-import { axisLabelsFromCatalogAxes, dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "./axisLayers";
+import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "./axisLayers";
 
 describe("rampAxesFromCatalogAxes", () => {
   it("地図の表示がrampの軸だけを、カタログの順に残す", () => {
@@ -69,16 +69,5 @@ describe("dedicatedWayValueAxesFromCatalogAxes", () => {
 
     expect(timeOnly).toMatchObject({ needsTime: true, needsBearing: false, needsSpeed: false });
     expect(bearingAndSpeed).toMatchObject({ needsTime: false, needsBearing: true, needsSpeed: true });
-  });
-});
-
-describe("axisLabelsFromCatalogAxes", () => {
-  it("地図に出ない軸も含めた全軸を、地図の表示名ではなく軸の名前で引ける", () => {
-    const labels = axisLabelsFromCatalogAxes([
-      rampEntry("on_map", [1], { label: "地図に出る軸" }),
-      catalogEntry({ axis_id: "off_map", label: "地図に出ない軸" }),
-    ]);
-
-    expect(labels).toEqual({ on_map: "地図に出る軸", off_map: "地図に出ない軸" });
   });
 });

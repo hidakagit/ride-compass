@@ -3,7 +3,6 @@
   "min_routes": 1,
   "max_routes": 15,
   "default_max_routes": 8,
-  "routes_with_waypoints": 1,
   "default_assumed_speed_kmh": 20.0,
   "default_distance_tolerance_km": 5.0,
   "max_waypoints": 8,

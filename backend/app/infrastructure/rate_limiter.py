@@ -1,4 +1,5 @@
 import time
+from collections import deque
 
 from cachetools import TTLCache
 
@@ -13,15 +14,21 @@ _MAX_CLIENTS = 100_000
 
 # 期限は最後に通した1回から窓の長さなので、記録は中身が窓を出たときにちょうど消える。
 # TTLCacheはスレッド安全でないが、呼び出し元はすべてイベントループ上のasyncハンドラである。
-_hits: TTLCache[str, list[float]] = TTLCache(maxsize=_MAX_CLIENTS, ttl=WINDOW_SECONDS)
+# 時刻は古い順に並ぶので、窓を出たものは先頭から落とせる。
+_hits: TTLCache[str, deque[float]] = TTLCache(maxsize=_MAX_CLIENTS, ttl=WINDOW_SECONDS)
 
 
 def check_rate_limit(client_id: str, max_requests: int) -> bool:
     """client_idからの直近1窓のリクエスト数がmax_requests未満なら、1回を数えてTrue（許可）。"""
     now = time.monotonic()
-    hits = [hit for hit in _hits.get(client_id, ()) if hit > now - WINDOW_SECONDS]
+    hits = _hits.get(client_id)
+    if hits is None:
+        hits = deque()
+    while hits and hits[0] <= now - WINDOW_SECONDS:
+        hits.popleft()
     if len(hits) >= max_requests:
         return False
     hits.append(now)
+    # 入れ直して、期限を最後に通した1回から数え直す。
     _hits[client_id] = hits
     return True

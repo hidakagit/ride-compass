@@ -1,6 +1,6 @@
 """`infrastructure/road_network_store.py`——取込範囲全体の道路網をDBから組み、ディスクの置き場へ置き、読む。
 
-入口は`ensure_current`（DBから組んで置く）・`write_pending`と`publish`（派生の作り直しが置く2段）・`save`・
+入口は`ensure_current`（DBから組んで置く）・`write_pending`か`reuse_pending`と`publish`（派生の作り直しが置く2段）・`save`・
 `current`（読む）・`prune_other_shapes`（起動後の片付け）。置き場（`ROOT`）はテストごとの一時ディレクトリ（`tests/conftest.py: road_network_root`）。
 
 DBから組むテストは、道とノードを取込の入口から入れ、派生の作り直し（`batch/derive_cli.py: run`）で区間と材料まで
@@ -9,7 +9,7 @@ DBから組むテストは、道とノードを取込の入口から入れ、派
 
 ここで見ないもの:
 - 区間の切り方・通行方向・信号の導出（派生の段） → `test_derive_topology.py`・`test_resolve_direction.py`・
-  `test_derive_node_materials.py`
+  `test_derive_nodes.py`
 - 材料の値そのもの → `test_material_values.py`
 - 置いた道路網から探索範囲を切り出すこと → `test_road_network.py`
 - 形の署名の組み立て → `test_cache_identity.py`
@@ -160,6 +160,30 @@ def test_saving_a_revision_that_is_already_placed_writes_nothing():
 
     assert again == first
     assert road_network_store.current().distance_m[0] == 100.0
+
+
+@pytest.mark.parametrize(("written", "asked", "reused"), [
+    ("a", "a", True),
+    ("a", "b", False),
+    (None, "a", False),
+], ids=["同じ入力", "違う入力", "入力を持たない置き場"])
+def test_a_network_built_from_the_same_inputs_is_placed_again_under_the_new_revision(store, written, asked, reused):
+    """今の形で最も新しい置き場が同じ入力から作ったものなら、その配列を新しい世代の名前で出し直し、前の世代を消す。
+    入力が違う・入力を持たない（デプロイの前処理が作った）置き場は出し直さない。"""
+    road_network_store.publish(road_network_store.write_pending(_network(revision=3), written))
+
+    pending = road_network_store.reuse_pending(asked, 4)
+
+    assert (pending is not None) == reused
+    if pending is None:
+        return
+    road_network_store.publish(pending)
+    _assert_same(road_network_store.current(), _network(revision=4))
+    assert [path.name for path in store.iterdir()] == [road_network_store.directory_name(4)]
+
+
+def test_nothing_is_placed_again_when_no_network_is_placed():
+    assert road_network_store.reuse_pending("a", 4) is None
 
 
 def test_the_newest_revision_of_the_current_shape_is_read(store):

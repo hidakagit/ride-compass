@@ -178,22 +178,28 @@ MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | Coverage
 def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
-    **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
+    **値を読む列そのものを数える**（`landcover_value_sql`が読む`em.lc_*`）。
     別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなら値が無い
     （NULLの意味は`docs/modules/backend/static-road-attributes.md`「値が無ければNULL」）。
     """
     return EdgeMaterialCoverageSpec(
         present_condition=f"{landcover_value_sql(key)} IS NOT NULL",
-        source=f"edge_materials.lc_{key}（derive_landcoverの計算済み値）の有無",
+        source=f"edge_landcover.lc_{key}（derive_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     )
 
-_CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
-_CYCLEWAY_SOURCE = "OSM wayのタグ cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
+_CYCLEWAY_TAGS_COVERAGE = WayMaterialCoverageSpec(
+    missing_condition=" AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES),
+    source=f"OSM wayのタグ {' / '.join(CYCLEWAY_TAG_NAMES)}（いずれも無い場合に欠損）",
+    missing_semantics="definite",
+)
 #: 生データの道は親の表のCHECK（`infrastructure/source_models.py: source_features_way_has_kind`）でhighwayを必ず持つ。
 _HIGHWAY_ALWAYS_PRESENT = "生データの道はDBの制約でhighwayタグを必ず持ち、欠損が無い"
-_EDGE_COUNTS_PRESENT_CONDITION = "em.intersection_count IS NOT NULL"
-_EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
+_EDGE_COUNTS_COVERAGE = EdgeMaterialCoverageSpec(
+    present_condition="em.intersection_count IS NOT NULL",
+    source="区間の数の表（edge_counts）に行があるか",
+    missing_semantics="unknown",
+)
 
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
@@ -524,7 +530,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         value_sql="em.average_grade",
         coverage=EdgeMaterialCoverageSpec(
                 present_condition="em.average_grade IS NOT NULL",
-                source="edge_materials.average_grade の有無",
+                source="edge_elevation.average_grade の有無",
                 missing_semantics="unknown",
             ),
     ),
@@ -617,11 +623,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=ATTR_INTERSECTION,
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
         value_sql=per_km_value_sql("em.intersection_count"),
-        coverage=EdgeMaterialCoverageSpec(
-                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
-                source=_EDGE_COUNTS_SOURCE,
-                missing_semantics="unknown",
-            ),
+        coverage=_EDGE_COUNTS_COVERAGE,
     ),
     ACCIDENT_COUNT_PER_KM_YEAR: MaterialSpec(
         material_id=ACCIDENT_COUNT_PER_KM_YEAR,
@@ -637,11 +639,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
         value_sql=f"CASE WHEN :accident_years > 0 THEN {per_km_value_sql('em.accident_count')} / :accident_years END",
-        coverage=EdgeMaterialCoverageSpec(
-                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
-                source=_EDGE_COUNTS_SOURCE,
-                missing_semantics="unknown",
-            ),
+        coverage=_EDGE_COUNTS_COVERAGE,
     ),
     "lit": MaterialSpec(
         material_id="lit",
@@ -711,7 +709,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute=ATTR_ONEWAY,
         value_sql=oneway_material_sql("wm.direction", "wm.divided"),
         coverage=CoverageExcluded(
-            reason="way_materials.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
+            reason="way_directions.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
             missing_semantics="definite",
         ),
     ),
@@ -841,11 +839,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="cycleway_has_track",
         primary_attribute=ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("track"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
-                source=_CYCLEWAY_SOURCE,
-                missing_semantics="definite",
-            ),
+        coverage=_CYCLEWAY_TAGS_COVERAGE,
     ),
     "cycleway_has_lane": MaterialSpec(
         material_id="cycleway_has_lane",
@@ -855,11 +849,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="cycleway_has_lane",
         primary_attribute=ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("lane"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
-                source=_CYCLEWAY_SOURCE,
-                missing_semantics="definite",
-            ),
+        coverage=_CYCLEWAY_TAGS_COVERAGE,
     ),
     "cycleway_has_shared": MaterialSpec(
         material_id="cycleway_has_shared",
@@ -869,11 +859,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="cycleway_has_shared",
         primary_attribute=ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("share_busway", "shared_lane"),
-        coverage=WayMaterialCoverageSpec(
-                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
-                source=_CYCLEWAY_SOURCE,
-                missing_semantics="definite",
-            ),
+        coverage=_CYCLEWAY_TAGS_COVERAGE,
     ),
     "shared_pedestrian_path": MaterialSpec(
         material_id="shared_pedestrian_path",
@@ -959,11 +945,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             tile_encoding=_DENSITY_TILE_ENCODING,
             value_sql=poi_density_value_sql(kind),
             # 行があれば載っていないキーは0件と確定できる（欠損は行そのものの不在だけ）。
-            coverage=EdgeMaterialCoverageSpec(
-                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
-                source=_EDGE_COUNTS_SOURCE,
-                missing_semantics="unknown",
-            ),
+            coverage=_EDGE_COUNTS_COVERAGE,
             primary_attribute=ATTR_STOP_POI,
             reference_points=_POI_COUNT_PER_KM_REFERENCE_POINTS,
         )

@@ -1,5 +1,5 @@
 // ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
-import { GitHub, readTask, setField } from "./github.js";
+import { addComment, GitHub, labelNames, readTask, setField } from "./github.js";
 import { bodyRest, judge, normalize, notes, ownerOf, SCAN, withButton } from "./rules.js";
 
 export class Gate {
@@ -11,9 +11,9 @@ export class Gate {
     return gate;
   }
 
-  // 答えていない問いを見分けるため、コメントは回答フォームが今の問いを探すのと同じ件数を読む。
-  async read(ref, options) {
-    const r = await readTask(this.gh, this.config, ref, { comments: SCAN, ...options });
+  // 答えていない問いを見分けるため、コメントを SCAN 件読む。
+  async read(ref) {
+    const r = await readTask(this.gh, this.config, ref, { comments: SCAN });
     this.project = r.project;
     this.labelIds = r.labels;
     return r.issue;
@@ -33,12 +33,12 @@ export class Gate {
     const ops = [];
     if (next.status !== issue.status) ops.push(setField(this.project, issue.item, this.config.project.statusField, next.status));
     for (const [name, value] of Object.entries(want.fields ?? {})) ops.push(setField(this.project, issue.item, name, value));
-    for (const body of want.comments ?? []) ops.push(["addComment", { subjectId: issue.id, body }]);
+    for (const body of want.comments ?? []) ops.push(addComment(issue.id, body));
     if (want.reopen) ops.push(["reopenIssue", { issueId: issue.id }]);
     const update = {};
     const owner = ownerOf(this.config, next);
     if (owner && (issue.assignees.nodes.length !== 1 || issue.assignees.nodes[0].login !== owner)) update.assigneeIds = [this.config.people[owner].node];
-    const have = issue.labels.nodes.map((l) => l.name);
+    const have = labelNames(issue);
     const labels = [...new Set([...have.filter((n) => !want.unlabels?.includes(n)), ...(want.labels ?? [])])].filter((n) => this.labelIds[n]);
     if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
     const body = this.bodyFor(next);
@@ -66,7 +66,7 @@ export class Gate {
     const byUser = issue.author?.databaseId === this.config.people[this.config.user].id;
     const priority = this.config.project.priorityField;
     const inherited = issue.parent && !issue.fields[priority] ? (await readTask(this.gh, this.config, { number: issue.parent.number })).issue?.fields[priority] : null;
-    await this.write(issue, { status: !byUser && !issue.parent && !this.config.todoTypes.includes(issue.issueType?.name) ?this.config.hold : this.config.todo, fields: inherited ? { [priority]: inherited } : {} });
+    await this.write(issue, { status: !byUser && !issue.parent && !this.config.todoTypes.includes(issue.issueType?.name) ? this.config.hold : this.config.todo, fields: inherited ? { [priority]: inherited } : {} });
   }
 
   // ステータスか開き閉じが変わった（ボードの移動・Claude の道具・閉じる・開き直す）。同じ照らしで、通れば開き閉じとステータスを
@@ -77,12 +77,12 @@ export class Gate {
     const { done } = this.config;
     const closed = issue.state === "CLOSED";
     const reason = issue.lastClose.nodes[0]?.stateReason === "COMPLETED" ? "COMPLETED" : "NOT_PLANNED";
-    const [from, to, wasClosed] = move ? [move.from, move.to, closed] : closed && issue.status !== done ? [issue.status, done, false] : !closed && issue.status === done ? [done, null, true] : [];
+    const [from, to] = move ? [move.from, move.to] : closed && issue.status !== done ? [issue.status, done] : !closed && issue.status === done ? [done, null] : [];
     if (!from) return;
     const close = to === done ? (move ? "COMPLETED" : reason) : undefined;
     const verdict = judge(this.config, from, to, { close, body: issue.body, comments: issue.comments.nodes.map((c) => c.body) });
-    if (verdict.ok) return this.write(issue, { status: to, close: to === done && !closed ? close : undefined });
-    const back = wasClosed === closed ? {} : wasClosed ? { close: reason } : { reopen: true };
+    if (verdict.ok) return this.write(issue, { status: to, close: closed ? undefined : close });
+    const back = move ? {} : closed ? { reopen: true } : { close: reason };
     await this.write(issue, { status: from, ...back, comments: [notes.back(verdict.reason, from)] });
   }
 

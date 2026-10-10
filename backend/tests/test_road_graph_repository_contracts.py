@@ -35,7 +35,7 @@ from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import MATERIAL_CATALOG, material_array_columns, tile_column_sql
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
-from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
+from app.infrastructure.derived_models import EdgeCountsRow, EdgeElevationRow, EdgeLandcoverRow, WayCountsRow
 from app.domain.graph import edge_key, node_key
 from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
@@ -120,7 +120,8 @@ def test_reversed_expression_swaps_paired_tokens_and_flips_grades(name, expressi
 
 def test_reversing_twice_returns_to_the_original_column():
     """対が壊れると、逆向きの枝の標高が別の列から来る。列の一覧は宣言から導く。"""
-    reversed_columns = {column.name: expression for column in EdgeMaterialRow.__table__.columns
+    reversed_columns = {column.name: expression
+                        for row in (EdgeCountsRow, EdgeElevationRow, EdgeLandcoverRow) for column in row.__table__.columns
                         if (expression := reversed_material_expression(column.name)) is not None}
     assert reversed_columns, "向きで変わる列が1つも無い"
     for name, expression in reversed_columns.items():
@@ -141,12 +142,13 @@ def test_material_array_columns_are_all_distinct():
 
 def test_material_tables_are_joined_only_for_the_columns_the_expressions_read():
     """使わないJOINを足すと、材料1件を引くだけの値列挙まで道の全件へ広がる。"""
-    edge_column = next(column for column in EdgeMaterialRow.__table__.columns if not column.primary_key)
+    edge_column = next(column for column in EdgeCountsRow.__table__.columns if not column.primary_key)
     clause = material_from_clause([f"em.{edge_column.name}"], "k.osm_way_id", "k.segment_index")
 
     assert "JOIN" not in way_from_clause(["w.tags"])
-    assert EdgeMaterialRow.__tablename__ in clause
-    assert WayMaterialRow.__tablename__ not in clause
+    assert EdgeCountsRow.__tablename__ in clause
+    assert EdgeElevationRow.__tablename__ not in clause
+    assert WayCountsRow.__tablename__ not in clause
 
 
 @pytest.mark.parametrize("alias", ["em", "wm"])

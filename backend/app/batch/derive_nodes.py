@@ -1,4 +1,4 @@
-"""ノードに付く値（`node_materials`）のうち、種別と交差点まわりを埋める。
+"""ノードの種別（`node_kinds`）と、グラフの頂点の信号の有無・集まる道の最大階級（`node_turns`）を作る。
 
 **種別（`kind`）は取込ではなく、ここで付ける。**取込は外部が持っていたタグをそのまま
 入れるだけで、「これはPOIか」「どの種別か」という判断は派生の側の仕事である。判断が
@@ -7,7 +7,7 @@
 **処理はDB内で完結する。**タグを読むためだけに行を取り出さない。タグから種別への
 引き当ては`domain/traffic.py`が表と式で持ち、このバッチはそれをSQLへ渡すだけである。
 
-`branch_count`は`derive_topology.py`が先に埋める。
+頂点と枝数（`road_nodes`）は`derive_topology.py`が先に作る。
 """
 
 import logging
@@ -15,7 +15,6 @@ import time
 
 import asyncpg
 
-from app.batch.common import reset_columns_sql
 from app.domain.geo import degrees_covering_m
 from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
@@ -24,7 +23,7 @@ from app.domain.traffic import (
     tag_kind_sql,
 )
 
-logger = logging.getLogger("ridecompass.derive_node_materials")
+logger = logging.getLogger("ridecompass.derive_nodes")
 
 
 def _source_nodes(extra_columns: str = "") -> str:
@@ -34,16 +33,11 @@ def _source_nodes(extra_columns: str = "") -> str:
             f" FROM {NODES_SOURCE_SQL} n WHERE n.tags <> '{{}}'::jsonb")
 
 
-#: 種別を付けるためだけにこの段が作った行。`derive_topology`はグラフの頂点を枝数1以上で入れる。
-_DROP_KIND_ONLY = "DELETE FROM node_materials WHERE branch_count = 0"
-
-_RESET = reset_columns_sql("node_materials", {
-    "kind": "NULL", "has_traffic_signals": "false", "max_highway_rank": "0"})
-
-_UPSERT_KIND = f"""
-INSERT INTO node_materials (osm_node_id, kind)
-SELECT id, kind FROM ({tag_kind_sql(_source_nodes())}) k
-ON CONFLICT (osm_node_id) DO UPDATE SET kind = EXCLUDED.kind
+#: 種別は、信号の読み替えが読む近くの信号の有無と一緒に書く。
+_INSERT_KINDS = f"""
+INSERT INTO node_kinds (osm_node_id, kind, has_traffic_signals)
+SELECT k.id, k.kind, EXISTS (SELECT 1 FROM _near_signal s WHERE s.osm_node_id = k.id)
+FROM ({tag_kind_sql(_source_nodes())}) k
 """
 
 _SIGNAL_NODES = f"""
@@ -51,25 +45,23 @@ CREATE TEMP TABLE _signal_nodes ON COMMIT DROP AS
 SELECT s.id AS osm_node_id, s.geom FROM ({_source_nodes(", geom")}) s WHERE {TRAFFIC_SIGNAL_SQL}
 """
 
+#: 信号の近くのノード。種別の付いた点と頂点の両方が読むので、1回だけ探す。
 #: 信号の側から近くのノードを探す——索引を引く回数が、全ノード数ではなく信号の数で決まる。
 #: 半径で探すのは、交差点そのものではなく流入路ごとに信号ノードが置かれ、`osm_node_id`の
 #: 一致では大半を取りこぼすため。
 #: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
 #: 使えなくするため。矩形で絞ってから正確な距離を測る。
-_UPDATE_SIGNALS = f"""
-UPDATE node_materials nm SET has_traffic_signals = true
-FROM (
-    SELECT DISTINCT near.osm_node_id
-    FROM _signal_nodes sk
-    JOIN {NODES_SOURCE_SQL} near
-      ON near.geom && ST_Expand(sk.geom, $2)
-     AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
-) hit
-WHERE hit.osm_node_id = nm.osm_node_id
+_NEAR_SIGNAL = f"""
+CREATE TEMP TABLE _near_signal ON COMMIT DROP AS
+SELECT DISTINCT near.osm_node_id
+FROM _signal_nodes sk
+JOIN {NODES_SOURCE_SQL} near
+  ON near.geom && ST_Expand(sk.geom, $2)
+ AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
 """
 
-#: そのノードに集まる道の最大階級。
-_UPDATE_MAX_RANK_TEMPLATE = f"""
+#: 頂点ごとに、信号の有無と、そこに集まる道の最大階級。階級の表に無い道しか集まらない頂点は0。
+_INSERT_TURNS_TEMPLATE = f"""
 WITH ranked AS (
     SELECT e.from_node_id AS node_id, r.rank FROM road_edges e
     JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
@@ -80,8 +72,10 @@ WITH ranked AS (
     JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
 ),
 best AS (SELECT node_id, max(rank) AS max_rank FROM ranked GROUP BY node_id)
-UPDATE node_materials nm SET max_highway_rank = best.max_rank
-FROM best WHERE best.node_id = nm.osm_node_id
+INSERT INTO node_turns (osm_node_id, has_traffic_signals, max_highway_rank)
+SELECT n.osm_node_id, EXISTS (SELECT 1 FROM _near_signal s WHERE s.osm_node_id = n.osm_node_id),
+       COALESCE(best.max_rank, 0)
+FROM road_nodes n LEFT JOIN best ON best.node_id = n.osm_node_id
 """
 
 
@@ -91,14 +85,16 @@ async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
 
     values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
     async with conn.transaction():
-        await conn.execute(_DROP_KIND_ONLY)
-        await conn.execute(_RESET)
-        classified = int((await conn.execute(_UPSERT_KIND)).split()[-1])
+        await conn.execute("TRUNCATE node_kinds, node_turns")
         await conn.execute(_SIGNAL_NODES)
         signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
         await conn.execute("ANALYZE _signal_nodes")
-        await conn.execute(_UPDATE_SIGNALS, signal_radius_m, degrees_covering_m(signal_radius_m))
-        await conn.execute(_UPDATE_MAX_RANK_TEMPLATE.format(values=values))
+        await conn.execute(_NEAR_SIGNAL, signal_radius_m, degrees_covering_m(signal_radius_m))
+        await conn.execute("ANALYZE _near_signal")
+        classified = int((await conn.execute(_INSERT_KINDS)).split()[-1])
+        await conn.execute(_INSERT_TURNS_TEMPLATE.format(values=values))
+        # 後ろの段（数）が読む。統計が無いまま読まれると実行計画が桁で外れる。
+        await conn.execute("ANALYZE node_kinds, node_turns")
 
     logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点（半径 %.1fm） / %.1f秒",
                 classified, signals, signal_radius_m, time.perf_counter() - started)

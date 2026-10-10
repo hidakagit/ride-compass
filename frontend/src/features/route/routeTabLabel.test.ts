@@ -52,11 +52,6 @@ describe("routeListEntries", () => {
       "e1:spliced:合成1/1",
     ]);
   });
-
-  it("経由地を通る1本は番号の代わりにbackendが付けた名前を出す", () => {
-    const waypoints = route("w", 900, { kind: "waypoints", direction_label: "目的地ルート" });
-    expect(entriesOf(routeListEntries([waypoints], []))).toEqual(["w:generated:目的地ルート/目的地ルート"]);
-  });
 });
 
 describe("durationBaseline", () => {

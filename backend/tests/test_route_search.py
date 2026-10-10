@@ -4,7 +4,7 @@
 対象は、入力を配列や値で直接与えられるもの。
 
 - 表示値の部品（ジオメトリの連結・標高の集約と逆回りの付け替え・候補の難易度の比較）
-- 探索の部品（繋ぎ目の候補・同点グループの試行順）
+- 探索の部品（繋ぎ目の候補・同点グループの試行順・中継点の帯）
 
 ここでは見ないもの:
 
@@ -44,6 +44,7 @@ from app.domain.route_search import (
     order_by_bearing_spread,
     pick_better_candidate,
     rank_by_pareto_layers,
+    relay_band,
     reverse_leg_assignment,
     turnaround_ring_m,
 )
@@ -303,3 +304,28 @@ def test_turnaround_ring_falls_back_to_half_the_loop_when_the_tolerance_is_too_n
     """許容が狭いと`[(目標-許容)/MIN, (目標+許容)/MAX]`が逆転し、折返し点が1つも見つからない。"""
     lower_m, upper_m, _ = turnaround_ring_m(10.0, 0.5)
     assert (lower_m, upper_m) == (4750.0, 5250.0)
+
+
+@pytest.mark.parametrize(
+    ("outbound_m", "shortest_m", "in_band"),
+    [
+        (3000.0, 4000.0, True),  # 見込み9.0〜10.2km: 下端がちょうど目標−許容
+        (2900.0, 4000.0, False),  # 下端8.9kmが目標−許容より短い
+        (3000.0, 4700.0, False),  # 上端11.1kmが目標＋許容より長い
+        # 見込みの幅（帰り7km×0.3）が許容の幅より広いので、帰りを最短のまま見る（10.0km）。幅のままだと上端12.1kmで外れる
+        (1000.0, 7000.0, True),
+        (3000.0, np.nan, False),  # 終点へ届かない中継点
+        (np.nan, 4000.0, False),  # 最後の固定点から届かない中継点
+    ],
+)
+def test_relay_band_takes_relays_whose_whole_estimate_of_the_route_fits_the_distance(outbound_m, shortest_m, in_band):
+    """目標10km±1km、前段2km。全長の見込みは前段＋往路＋帰りの最短×1.0〜1.3。帯から外れた中継点を選ぶと、帰りを
+    探したあとの距離フィルタで落ち、候補が減る。"""
+    (inside,), _ = relay_band(2000.0, np.array([outbound_m]), np.array([shortest_m]), 10.0, 1.0)
+    assert bool(inside) is in_band
+
+
+def test_relay_band_ranks_relays_by_how_far_the_middle_of_the_estimate_is_from_the_target():
+    """見込みの中央（帰り×1.15）が目標から遠いほど後ろに並ぶ。短すぎる経路も長すぎる経路も同じに扱う。"""
+    _, closeness_m = relay_band(2000.0, np.array([3000.0, 3000.0]), np.array([4000.0, 4000.0 + 800.0 / 1.15]), 10.0, 1.0)
+    assert closeness_m == pytest.approx([400.0, 400.0])

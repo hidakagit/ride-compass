@@ -9,11 +9,10 @@ import { HelpIcon, LogIcon, MenuIcon, RedrawMapIcon, VersionIcon } from "@/compo
 import { textVariants } from "@/components/ui/Text/Text";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { getQueryClient } from "@/lib/queryClient";
-import { getFrontendVersion } from "@/services/versionApi";
+import { frontendVersionQuery } from "@/services/versionApi";
 
 interface HeaderMenuProps {
-  /** デバッグログ項目自体の表示可否（デバッグモードのON/OFFは/adminで切り替える、
-   * 既存の`debugEnabled`条件をそのまま引き継ぐ）。 */
+  /** デバッグログ項目自体の表示可否（デバッグモードのON/OFFは/adminで切り替える）。 */
   debugEnabled: boolean;
   debugConsoleOpen: boolean;
   onToggleDebugConsole: () => void;
@@ -23,9 +22,7 @@ interface HeaderMenuProps {
   onRedrawMap: () => void;
 }
 
-// ヘッダーの個別ボタンをこれ以上増やさないよう、常時表示は1個のメニューアイコンに
-// 集約する（WarningBadgeListと同じ「常時1行のトリガー→タップで詳細」パターンを
-// Radix Popoverで踏襲）。
+// ヘッダーの狭い幅に個別のボタンを並べず、常時出すのは1個のメニューアイコンにして、項目は押して開く中に置く。
 export default function HeaderMenu({
   debugEnabled,
   debugConsoleOpen,
@@ -132,7 +129,7 @@ export default function HeaderMenu({
 const SHORT_COMMIT_LENGTH = 8;
 
 function VersionDialog() {
-  const { data, error } = useQuery({ queryKey: ["frontend-version"], queryFn: getFrontendVersion }, getQueryClient());
+  const { data, error } = useQuery(frontendVersionQuery, getQueryClient());
 
   return (
     <DialogContent title="バージョン">

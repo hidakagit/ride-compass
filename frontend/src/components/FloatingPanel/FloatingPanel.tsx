@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Rnd } from "react-rnd";
 import { Button } from "@/components/ui/Button/Button";
+import { cardVariants } from "@/components/ui/Card/Card";
 import { cn } from "@/lib/cn";
 
 interface FloatingPanelProps {
@@ -69,10 +70,13 @@ export default function FloatingPanel({
     >
       <div
         ref={panelRef}
-        className="flex flex-col rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[length:var(--font-size-xs)] text-[var(--foreground)] shadow-float"
+        className={cn(
+          cardVariants({ variant: "float" }),
+          "flex flex-col text-[length:var(--font-size-xs)] text-[var(--foreground)]",
+        )}
         style={{
           width: `min(${widthRem}rem, calc(100vw - 2 * var(--space-3)))`,
-          maxHeight: maxHeightPx === undefined ? undefined : `${maxHeightPx}px`,
+          maxHeight: maxHeightPx,
         }}
       >
         <div

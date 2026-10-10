@@ -11,7 +11,6 @@ import type { FilterSpecification, LayerSpecification } from "maplibre-gl";
 
 import type { BasemapPoiKinds } from "@/features/map/layers/mapStyleOps";
 
-import { orderedSceneLayers } from "./mapScene";
 import type { MapScene, MapSceneFeatureStates, MapSceneLayer, MapSceneSource, MapSceneTier } from "./mapScene";
 import { geojsonContent, layerSpec, sceneLayerId, type SceneSourceId, tilesContent } from "./sceneBuilders";
 
@@ -79,8 +78,7 @@ export function composeScene<State>(groups: readonly SceneGroup<State>[], state:
     for (const entry of built.layers) layers.push(toSceneLayer(entry));
   }
 
-  // 段で並べ直してから返す——ここで正規化しておけば、下流はグループの並べ方を知らずに済む。
-  return { sources: [...sources.values()], layers: [...orderedSceneLayers({ sources: [], layers })] };
+  return { sources: [...sources.values()], layers };
 }
 
 function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
@@ -89,7 +87,7 @@ function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
       id: sceneLayerId(entry.source, entry.role),
       type: entry.type,
       source: entry.source,
-      ...(entry.sourceLayer === undefined ? {} : { sourceLayer: entry.sourceLayer }),
+      sourceLayer: entry.sourceLayer,
       paint: entry.paint,
       ...(entry.layout === undefined ? {} : { layout: entry.layout }),
     }),

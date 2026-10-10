@@ -6,12 +6,12 @@
 // （配信元のタイル・配信元の地物・自前の格子）ごとに1つずつの実装で描画内容を作る。
 import { useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import { deriveFetchLayerStatus, type LayerDataStatus } from "@/features/map/layers/mapLayers";
+import { deriveFetchLayerStatus, type LayerDataStatus, type MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import {
   fetchJmaGeojson,
   fetchJmaTargetTimesFile,
   isJmaTileKind,
+  jmaFrameKey,
   jmaFramesOf,
   jmaTilePayload,
   type JmaDelivery,
@@ -21,6 +21,7 @@ import {
   WEATHER_SOURCES,
   gridStageFrames,
   jmaStageFrames,
+  readsGrid,
   selectFrame,
   sourceTimeline,
   type GridValue,
@@ -50,7 +51,12 @@ const GRID_PAYLOAD: Record<
 };
 
 /** 配信要素ごとの時刻一覧の読み取り結果。 */
-type DeliveryResult = { frames: readonly JmaFrame[]; error: null } | { frames: readonly JmaFrame[]; error: string };
+interface DeliveryResult {
+  frames: readonly JmaFrame[];
+  error: string | null;
+}
+
+const WEATHER_GROUPS: ReadonlySet<DynamicWeatherLayerId> = new Set(WEATHER_SOURCES.map((source) => source.group));
 
 /** 時刻一覧のファイル1つの取り方。間隔はそのファイルを読む表示中の要素のうち最も更新の速い系統に合わせる（遅い系統を
  * 早めに取り直すぶんには古い表示にならない）。失敗の文言に載る呼び名は最初に読む要素のもの（同じURLの同じ失敗を指す）。 */
@@ -122,7 +128,7 @@ function deliveriesOf(sources: readonly WeatherSource[]): { delivery: JmaDeliver
 
 /** 配信元の段の、選んだコマの地物を取る鍵（要素配下のURLと同じく、配信要素と時刻で決まる）。 */
 function geojsonKey(delivery: JmaDelivery, frame: JmaFrame): string {
-  return `${delivery.id}/${frame.basetime}/${frame.member}/${frame.validtime}`;
+  return `${delivery.id}/${jmaFrameKey(frame)}`;
 }
 
 interface UseDynamicWeatherLayersOptions {
@@ -206,24 +212,30 @@ export function useDynamicWeatherLayers({
   }, [files, fileStates, deliveries]);
 
   // 自前の格子（風と降水の延長予報が共有する1回の取得、`useWeatherGrid.ts`）。
-  const usesGrid = shownSources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
+  const usesGrid = shownSources.some(readsGrid);
   const grid = useWeatherGrid(usesGrid, mapViewport);
 
-  // ソースごとの時系列と、選んだ時刻に描くコマ。
-  const selected = useMemo(() => {
-    const bySource = new Map<WeatherSource, StageFrameRef | undefined>();
-    for (const source of WEATHER_SOURCES) {
-      const timeline = sourceTimeline(
-        source.stages.map((stage, index) =>
-          stage.origin === "grid"
-            ? gridStageFrames(index, grid.grid, now)
-            : jmaStageFrames(index, deliveryResults.get(stage.delivery.id)?.frames ?? []),
+  // ソースごとの時系列と、選んだ時刻に描くコマ。時系列は時刻を動かしても変わらないので、選ぶのと分けて持つ。
+  const timelines = useMemo(
+    () =>
+      WEATHER_SOURCES.map((source) =>
+        sourceTimeline(
+          source.stages.map((stage, index) =>
+            stage.origin === "grid"
+              ? gridStageFrames(index, grid.grid, now)
+              : jmaStageFrames(index, deliveryResults.get(stage.delivery.id)?.frames ?? []),
+          ),
         ),
-      );
-      bySource.set(source, selectFrame(source.frameRule, timeline, at, now)?.ref);
-    }
-    return bySource;
-  }, [deliveryResults, grid.grid, at, now]);
+      ),
+    [deliveryResults, grid.grid, now],
+  );
+  const selected = useMemo(
+    () =>
+      new Map<WeatherSource, StageFrameRef | undefined>(
+        WEATHER_SOURCES.map((source, index) => [source, selectFrame(source.frameRule, timelines[index], at, now)?.ref]),
+      ),
+    [timelines, at, now],
+  );
 
   // 配信元のタイルで描かない段（落雷の地点・線状降水帯の雨域）は、配信元が地物をGeoJSONで配る。タイルで描く段は
   // 時刻一覧だけでURLが決まるが、この段は選んだコマが変わるたびに中身を取る。取れた中身を鍵（配信要素と
@@ -309,21 +321,20 @@ export function useDynamicWeatherLayers({
   // 描けていれば空とせず、どれかの取得が失敗していれば失敗、どれかがまだ取れていなければ読み込み中。
   const dynamicWeatherDataStatus = useMemo(() => {
     const status: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>> = {};
-    const groups = new Set(WEATHER_SOURCES.map((source) => source.group));
-    for (const group of groups) {
+    for (const group of WEATHER_GROUPS) {
       const sources = shownSources.filter((source) => source.group === group);
       const results = deliveriesOf(sources).map(({ delivery }) => deliveryResults.get(delivery.id));
       const groupGeojsons = geojsonStates.filter((_, index) => geojsonRequests[index]?.group === group);
-      const readsGrid = sources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
+      const onGrid = sources.some(readsGrid);
       const loading =
         results.some((result) => result === undefined) ||
         groupGeojsons.some((geojson) => geojson.pending) ||
-        (readsGrid && grid.loading);
+        (onGrid && grid.loading);
       const error =
         results.find((result) => result?.error)?.error ??
         groupGeojsons.find((geojson) => geojson.error)?.error ??
-        (readsGrid ? grid.error : null);
-      const hasFetched = results.some((result) => result !== undefined) || (readsGrid && grid.hasFetched);
+        (onGrid ? grid.error : null);
+      const hasFetched = results.some((result) => result !== undefined) || (onGrid && grid.hasFetched);
       const hasPayload = sources.some((source) => dynamicWeather[source.group]?.[source.source]?.payload !== undefined);
       status[group] = deriveFetchLayerStatus(loading, error, hasPayload, hasFetched);
     }

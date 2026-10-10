@@ -88,7 +88,8 @@ export function heldReplies(closeWith: () => Response = () => HttpResponse.error
         unanswered.set(settle, closeWith);
       }),
     answer: async (index: number, response: Response) => {
-      // 間をおいて出る要求（ルート生成の2回目からの問い合わせは1.5秒あとに出る）も待てる長さにする。
+      // 間をおいて出る要求（ルート生成の2回目からの問い合わせ。間隔は`features/route/routeApi.ts: POLL_INTERVAL_MS`）も
+      // 待てる長さにする。
       await vi.waitFor(() => expect(pending.length).toBeGreaterThan(index), { timeout: 5000 });
       unanswered.delete(pending[index]);
       pending[index](response);

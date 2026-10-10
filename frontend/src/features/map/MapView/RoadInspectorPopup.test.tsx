@@ -6,15 +6,16 @@
  *   要るか」の1問目）。重みを要求の項目へ載せることは`features/map/regionApi.test.ts`が見る
  */
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { setDebugEnabled } from "@/lib/debugLog";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import { onBackend } from "@/testing/backendServer";
 import { catalogEntry } from "@/testing/catalogAxes";
 import materialCatalog from "@/types/generated/material-catalog.json";
-import type { AxisInspectorResult } from "@/types/traffic";
+import type { AxisInspectorResult } from "@/features/map/regionApi";
 import RoadInspectorPopup from "./RoadInspectorPopup";
+import type { RoadSurfacePopupProperties } from "./roadFacts";
 
 const INSPECTOR = "/api/region/axis-inspector";
 const serveInspector = (result: AxisInspectorResult) => onBackend("POST", INSPECTOR, () => Response.json(result));
@@ -33,6 +34,15 @@ const SURFACE_CLASS = materialCatalog.find((material) => material.material_id ==
 const [SURFACE_CLASS_VALUE] = Object.entries(SURFACE_CLASS.value_labels ?? {}).find(
   (entry): entry is [string, string] => typeof entry[1] === "string",
 )!;
+
+/** 路面の区分を持つ1本の道。 */
+const SURFACED_ROAD: RoadSurfacePopupProperties = { osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE };
+
+function renderPopup(properties: RoadSurfacePopupProperties = SURFACED_ROAD) {
+  return render(<RoadInspectorPopup properties={properties} axes={AXES} axisColors={AXIS_COLORS} {...RIDE} />);
+}
+
+const openEvaluation = (user: UserEvent) => user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
 function inspectorResult(): AxisInspectorResult {
   return {
@@ -61,16 +71,9 @@ describe("RoadInspectorPopup", () => {
   it("周囲の土地被覆は畳んでおき、閉じている間は最も多いクラスだけを見せる", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup();
 
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
 
     // 閉じている間は要約だけを見せる。走行中のスマホが主用途のため、既定で行を並べない
     // （`details`は閉じていても子をDOMへ残すため、存在ではなく見えるかで確かめる）。
@@ -86,14 +89,7 @@ describe("RoadInspectorPopup", () => {
   });
 
   it("事実だけを先に出し、評価は押したときに取りに行く（クリックのたびに引かない）", () => {
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, name: "明治通り", surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup({ ...SURFACED_ROAD, name: "明治通り" });
 
     expect(screen.getByText("明治通り")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "この道の評価を見る" })).toBeInTheDocument();
@@ -102,16 +98,9 @@ describe("RoadInspectorPopup", () => {
   it("評価はルート結果と同じ寄与度で出し、算出できない軸は並べない", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup();
 
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
 
     // 寄与度バーの凡例は軸アイコン＋値（ルート結果と同じ部品）。
     expect(await screen.findByText("30.0")).toBeInTheDocument();
@@ -123,19 +112,28 @@ describe("RoadInspectorPopup", () => {
     expect(screen.queryByLabelText("勾配の詳細を表示")).not.toBeInTheDocument();
   });
 
+  it("どの軸の寄与も0の道では、帯の代わりに値を出せる軸が無いと案内する（空の欄にしない）", async () => {
+    const user = userEvent.setup();
+    serveInspector({
+      ...inspectorResult(),
+      axes: [
+        { axis_id: "axis_sample", difficulty: 0, contribution: 0 },
+        { axis_id: "night", difficulty: 0, contribution: 0 },
+      ],
+    });
+    renderPopup();
+
+    await openEvaluation(user);
+
+    expect(await screen.findByText("この道で値を出せる評価軸がありません。")).toBeInTheDocument();
+  });
+
   it("合成は注記として出す（実際の探索コストとは一致しないため主役にしない）", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup();
 
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
 
     expect(await screen.findByText(/この道だけで見た難易度: 40\.0\/100/)).toBeInTheDocument();
     expect(screen.getByText(/重みの約80%/)).toBeInTheDocument();
@@ -144,16 +142,9 @@ describe("RoadInspectorPopup", () => {
   it("出す割合が100%に丸まるなら、一部の軸だけだという注記を添えない", async () => {
     const user = userEvent.setup();
     serveInspector({ ...inspectorResult(), composite_difficulty: { value: 40, covered_weight_fraction: 0.996 } });
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup();
 
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
 
     expect(await screen.findByText(/この道だけで見た難易度: 40\.0\/100/)).toBeInTheDocument();
     expect(screen.queryByText(/重みの約/)).not.toBeInTheDocument();
@@ -162,16 +153,9 @@ describe("RoadInspectorPopup", () => {
   it("カタログ外の生タグは畳んで置く（数が読めないため、開いたときだけ縦に伸ばす）", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup();
 
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
 
     await waitFor(() => expect(screen.getByText("その他のタグ")).toBeInTheDocument());
     // 生タグは属性の中でさらに畳む。登録済みの属性（lit）は属性の畳みの中に直接並ぶ。
@@ -183,21 +167,14 @@ describe("RoadInspectorPopup", () => {
   it("属性は畳んでおき、タイルとタグの両方が持つ項目は1度だけ出す", async () => {
     const user = userEvent.setup();
     serveInspector({ ...inspectorResult(), tags: { highway: "residential", lit: "yes" } });
-    render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, surface_class: SURFACE_CLASS_VALUE }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    renderPopup();
 
     const attributes = screen.getByText("この道の属性").closest("details");
     expect(screen.getByText(SURFACE_CLASS.name)).not.toBeVisible();
     // 畳みを開くと、評価を取る前からタイルの事実が読める。
     await user.click(screen.getByText("この道の属性"));
     expect(screen.getByText(SURFACE_CLASS.name)).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
 
     await waitFor(() => expect(screen.getByText("residential")).toBeInTheDocument());
     const labels = Array.from(attributes?.querySelectorAll("dt") ?? []).map((dt) => dt.textContent);
@@ -214,7 +191,7 @@ describe("評価の重み", () => {
     serveInspector(inspectorResult());
     const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
     const { rerender } = render(<RoadInspectorPopup {...props} routePreference={WEIGHTS} />);
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
     await waitFor(() => expect(screen.getByText(/この道だけで見た難易度/)).toBeInTheDocument());
 
     rerender(<RoadInspectorPopup {...props} routePreference={{ axis_sample: 1, night: 1 }} />);
@@ -225,14 +202,14 @@ describe("評価の重み", () => {
 });
 
 describe("評価の走行の条件", () => {
-  const CONDITIONS = { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), speedKmh: 20, z: 14, x: 1, y: 2 };
+  const CONDITIONS = RIDE.conditions;
   const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS, ...RIDE };
 
   it("開いている間に出発時刻が進んでも、押したときの条件で取った評価を出し続ける", async () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());
     const { rerender } = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
     await screen.findByText(/この道だけで見た難易度/);
 
     rerender(<RoadInspectorPopup {...props} conditions={{ ...CONDITIONS, at: new Date("2026-09-24T00:05:00Z") }} />);
@@ -244,7 +221,7 @@ describe("評価の走行の条件", () => {
     const user = userEvent.setup();
     serveInspector(inspectorResult());
     const first = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
-    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await openEvaluation(user);
     await screen.findByText(/この道だけで見た難易度/);
     first.unmount();
 
@@ -257,14 +234,7 @@ describe("評価の走行の条件", () => {
 describe("OSMの生値", () => {
   it("OSMの生値はタグとして解釈されない（第三者が編集できるデータのため）", () => {
     const attack = '<img src=x onerror="alert(1)">';
-    const { container } = render(
-      <RoadInspectorPopup
-        properties={{ osm_way_id: 1, name: attack }}
-        axes={AXES}
-        axisColors={AXIS_COLORS}
-        {...RIDE}
-      />,
-    );
+    const { container } = renderPopup({ osm_way_id: 1, name: attack });
 
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain(attack);
@@ -278,7 +248,7 @@ describe("道の識別子", () => {
     [true, ["OSM way id: 4242"]],
   ])("デバッグログが%sなら、出すのは%j", (debug, shown) => {
     setDebugEnabled(debug);
-    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} {...RIDE} />);
+    renderPopup({ osm_way_id: 4242 });
 
     expect(screen.queryAllByText(/OSM way id/).map((element) => element.textContent)).toEqual(shown);
     setDebugEnabled(false);

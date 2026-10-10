@@ -25,7 +25,7 @@ from typing import TypeVar
 
 import numpy as np
 from numba import njit
-from app.domain.geo import bearing_between, haversine_distance_km_array, km_per_degree_longitude
+from app.domain.geo import LatLonPoint, bearing_between, haversine_distance_km_array, km_per_degree_longitude
 from app.domain.route import Coordinates
 from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
 from app.domain.tuning import tuning_value
@@ -61,11 +61,15 @@ def build_lazy_road_graph(edge_from: np.ndarray, edge_to: np.ndarray, node_count
     head = np.asarray(edge_to, dtype=np.int64)
     keys = tail * node_count + head
     order = np.lexsort((np.arange(len(keys)), keys))
-    sorted_keys = keys[order]
-    first = np.ones(len(order), dtype=bool)
-    first[1:] = sorted_keys[1:] != sorted_keys[:-1]
-    kept = order[first]
+    kept = order[_run_starts(keys[order])]
     return LazyRoadGraph(node_count=node_count, edge_rows=kept, edge_from=tail[kept], edge_to=head[kept])
+
+
+def _run_starts(sorted_values: np.ndarray) -> np.ndarray:
+    """並べ替えた配列で、同じ値が続く並びの先頭の位置を真にした真偽配列。"""
+    first = np.ones(len(sorted_values), dtype=bool)
+    first[1:] = sorted_values[1:] != sorted_values[:-1]
+    return first
 
 
 # --- 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
@@ -653,21 +657,18 @@ def edge_bearings(
     for index in np.flatnonzero(np.isnan(bearings)).tolist():
         tail, head = int(lazy_graph.edge_from[index]), int(lazy_graph.edge_to[index])
         bearings[index] = bearing_between(
-            Coordinates(latitude=float(node_lat[tail]), longitude=float(node_lon[tail])),
-            Coordinates(latitude=float(node_lat[head]), longitude=float(node_lon[head])),
+            LatLonPoint(float(node_lat[tail]), float(node_lon[tail])),
+            LatLonPoint(float(node_lat[head]), float(node_lon[head])),
         )
     return bearings
 
 
 def _turn_seconds_for(
-    from_bearing: np.ndarray, to_bearing: np.ndarray, is_uturn: np.ndarray, spec: TurnCostSpec
+    delta: np.ndarray, straight: np.ndarray, is_uturn: np.ndarray, spec: TurnCostSpec
 ) -> np.ndarray:
-    """遷移ごとのターンの時間損失（秒）。方位差の符号で左右を分ける（負＝反時計回り＝左折）。"""
-    delta = (to_bearing - from_bearing + 180.0) % 360.0 - 180.0
+    """遷移ごとのターンの時間損失（秒）。方位差`delta`の符号で左右を分ける（負＝反時計回り＝左折）。"""
     turning = np.where(delta < 0, spec.left_seconds, spec.right_seconds)
-    return np.where(
-        is_uturn, spec.uturn_seconds, np.where(np.abs(delta) <= spec.straight_max_deg, 0.0, turning)
-    )
+    return np.where(is_uturn, spec.uturn_seconds, np.where(straight, 0.0, turning))
 
 
 def build_turn_expanded_structure(
@@ -706,10 +707,12 @@ def build_turn_expanded_structure(
     )
     target_state = csr.entry_edge_index[entry_index].astype(np.int64)
     is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
-    turn_seconds = _turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
+    delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
+    straight = np.abs(delta) <= spec.straight_max_deg
+    turn_seconds = _turn_seconds_for(delta, straight, is_uturn, spec)
 
     # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
-    # （`node_materials.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
+    # （`node_turns.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
     # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
     # 下回るので、バッチ未実行でも結果は変わらない。
     node_rank = np.zeros(csr.node_count, dtype=np.int64)
@@ -718,16 +721,15 @@ def build_turn_expanded_structure(
     node_rank = np.maximum(node_rank, node_db_rank)
     # 「自分より上位」だけでなく「そもそも待ちの要る階級か」も見る
     # （`MAJOR_CROSSING_MIN_RANK`、domain/traffic.py）。
-    target_node_rank = node_rank[edge_to[source]]
+    via_node = edge_to[source]
+    target_node_rank = node_rank[via_node]
     crosses_major = (
         (target_node_rank > edge_rank[source])
         & (target_node_rank >= MAJOR_CROSSING_MIN_RANK)
         # 信号のある交差点では足さない（待ちは停止密度の材料が走行モデルへ運ぶ）。
         # 未集計なら全ノードが「信号なし」で、この列の導入前と同じ結果になる。
-        & ~node_has_signal[edge_to[source]]
+        & ~node_has_signal[via_node]
     )
-    delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
-    straight = np.abs(delta) <= spec.straight_max_deg
     turn_seconds = turn_seconds + np.where(
         crosses_major & ~is_uturn,
         np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
@@ -1008,10 +1010,7 @@ def build_turn_expanded_tree(
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
     incoming = structure.edge_from if reverse else structure.edge_to
     order = np.lexsort((state_cost, incoming))
-    sorted_nodes = incoming[order]
-    first = np.ones(len(order), dtype=bool)
-    first[1:] = sorted_nodes[1:] != sorted_nodes[:-1]
-    best_states = order[first]
+    best_states = order[_run_starts(incoming[order])]
     node_best_state = np.full(node_count, -1, dtype=np.int64)
     node_cost = np.full(node_count, np.inf)
     node_length_m = np.full(node_count, np.nan)
@@ -1035,20 +1034,20 @@ def build_turn_expanded_tree(
     )
 
 
-def _walk_predecessors(tree: TurnExpandedTree, state_index: int) -> list[int]:
-    """`state_index`から木の始点まで前任者を辿った状態（＝Edge index）の列。"""
+def _walk_predecessors(predecessors: Sequence[int] | np.ndarray, state_index: int) -> list[int]:
+    """`state_index`から探索の始点まで前任者（-1で終わる）を辿った状態（＝Edge index）の列。"""
     edges: list[int] = []
     state = int(state_index)
     while state >= 0:
         edges.append(state)
-        state = tree.predecessor_list[state]
+        state = int(predecessors[state])
     return edges
 
 
 def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> list[int]:
     """前向き木で、始点→`state_index`の経路をEdge index列（進行順）で返す。状態がそのまま
     Edge indexのため、`(parent, current)`からEdgeを引き直す必要がない。"""
-    edges = _walk_predecessors(tree, state_index)
+    edges = _walk_predecessors(tree.predecessor_list, state_index)
     edges.reverse()
     return edges
 
@@ -1056,7 +1055,7 @@ def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> l
 def turn_expanded_path_from_state_to_source(tree: TurnExpandedTree, state_index: int) -> list[int]:
     """`reverse=True`で作った木で、`state_index`から木の始点（目的地）までの経路を進行順で
     返す。逆向きの木では前任者を辿ることが目的地へ近づくことに当たるため、反転しない。"""
-    return _walk_predecessors(tree, state_index)
+    return _walk_predecessors(tree.predecessor_list, state_index)
 
 
 def turn_expanded_path_edge_indices(tree: TurnExpandedTree, target_node_index: int) -> list[int] | None:
@@ -1114,10 +1113,12 @@ def lengths_by_physical_segment(
     経路長より短くなるぶん似ていると判定されやすくなるが、似た周回を並べるより棄却する
     側へ倒す。
     """
-    result: dict[frozenset[int], float] = {}
-    for index in path:
-        result[frozenset({int(edge_from[index]), int(edge_to[index])})] = float(edge_length_m[index])
-    return result
+    return {
+        frozenset({tail, head}): length
+        for tail, head, length in zip(
+            edge_from[path].tolist(), edge_to[path].tolist(), edge_length_m[path].tolist(), strict=True
+        )
+    }
 
 
 def physical_overlap_ratio(
@@ -1161,10 +1162,7 @@ def combine_forward_backward_at_nodes(
     finite = np.flatnonzero(np.isfinite(total))
     if len(finite):
         order = finite[np.lexsort((total[finite], junction_node[finite]))]
-        nodes = junction_node[order]
-        first = np.ones(len(order), dtype=bool)
-        first[1:] = nodes[1:] != nodes[:-1]
-        best = order[first]
+        best = order[_run_starts(junction_node[order])]
         best_nodes = junction_node[best]
         cost[best_nodes] = total[best]
         length_m[best_nodes] = length[best]
@@ -1320,11 +1318,7 @@ def turn_expanded_shortest_path(
     )
     if goal_state < 0:
         return None
-    edges: list[int] = []
-    state = int(goal_state)
-    while state >= 0:
-        edges.append(state)
-        state = int(predecessor[state])
+    edges = _walk_predecessors(predecessor, goal_state)
     edges.reverse()
     return edges
 

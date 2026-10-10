@@ -20,7 +20,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/AxisComposer.tsx` | 1画面フォームの本体。draftの状態・保存前の検証・保存と、節の組み立てだけを持つ |
 | `features/admin/AxisStudio/AxisScoringSection.tsx` | 「点数の決め方」の節。材料の選択と、その材料の型に応じた点数入力（0点/100点・効き方、はい/いいえ、値ごと、他軸の係数）。折れ点の直接編集は畳んだ詳細設定の中 |
 | `features/admin/AxisStudio/AxisMapDisplaySection.tsx` | 「地図表示・公開」の節。色分けしきい値のまとめ入力と段階プレビュー・アイコン・公開チェック |
-| `features/admin/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`SectionLabel`・`SliderNumberField`） |
+| `features/admin/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`RequiredCheckbox`・`SectionLabel`・`SliderNumberField`） |
 | `features/admin/AxisStudio/axisDraft.ts` | Draft（フォームの内部状態）とbackendのpayloadの相互変換。`buildShape`・`draftFromExisting`・`pickPassthroughFields`・`PASSTHROUGH_PAYLOAD_KEYS`。変更理由はbackendのpayloadスキーマで、フォームUIの増減とは独立している |
 | `features/admin/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
 | `features/admin/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
@@ -129,7 +129,7 @@ listAxisDefinitions() ──→ definitions（全軸）
   削除のAPIを呼ぶ。消した軸を戻す手段が無く、下書きには折れ点を実データで調整した手間が入って
   いるため、同じ行に並ぶ「編集」「複製して新規作成」との押し間違いで失わせない。確認は消せるかを
   判定しない（判定は上のとおりbackendが持ち、断られたら確認を閉じたあと一覧の上に理由が出る）。
-- 一覧サマリ行（`renderRowMain`）は各軸が使う材料id/軸idの両方を`labelForMaterialOrAxis`で
+- 一覧の行（`renderRow`）は各軸が使う材料id/軸idの両方を`labelForMaterialOrAxis`で
   人間向けラベルへ解決する。まずこの軸一覧内に該当する軸id（内部軸階層、他axis_idを
   材料として参照するケース）が無いか探し、あればその`label`を優先する。無ければ
   `axisMaterialsCatalog.ts: materialCatalogLabel`（材料の一覧`MATERIAL_CATALOG`を
@@ -151,11 +151,11 @@ listAxisDefinitions() ──→ definitions（全軸）
 **選んだ材料に応じて入力欄を出し分ける**だけで表せる。スマホで開いたときに、開いてすぐ
 色分けまで一続きに見えることを優先する。
 
-| 節 | 見出し | 出る条件 |
+| 節の見出し | 描く部品 | 出る条件 |
 |---|---|---|
-| `basic` | （見出しなし。表示名・説明・既定重み） | 下書き軸のみ |
-| `shape_params` | 点数の決め方（`AxisScoringSection`） | 下書き軸のみ |
-| `display_publish` | 地図表示・公開（`AxisMapDisplaySection`） | 常に |
+| （見出しなし。表示名・説明・既定重み） | `renderBasicFields` | 下書き軸のみ |
+| 点数の決め方 | `AxisScoringSection` | 下書き軸のみ |
+| 地図表示・公開 | `AxisMapDisplaySection` | 常に |
 
 既定重みの下には、公開したときに公開軸の重みの合計に占める割合を参考に出す。割合はbackendが総合難易度と同じ分母で
 返す値（`weight_share_when_published`）で、画面は計算し直さない——保存した重みで計算するため、編集中の値は保存して
@@ -164,22 +164,20 @@ listAxisDefinitions() ──→ definitions（全軸）
 下書きは材料の一覧（値ごとの材料か、はい/いいえの材料か）と軸の一覧からマウント時に1度だけ導く。材料の一覧は
 ビルド時の生成物で、開いている間に入れ替わらない（読み込み中・取得失敗の状態も無い）。
 
-`SECTIONS`は「どの節の検証か」を指す識別子で、順番の意味を持たない。保存時に
-`validateSection`が入力の読み取りの誤り（しきい値が数値として読めない）だけを確かめ、原因を文章で出す。
+保存時に`handleSubmit`が入力の読み取りの誤り（しきい値が数値として読めない）だけを確かめ、原因を文章で出す。
 軸の不変条件（表示名必須・折れ点のx昇順・値の行の件数・しきい値の件数と昇順等）は写さない——
 backendが保存時に検証し、日本語の文で返す誤りをそのままフォームへ出す。
 
-**`noValidate`を付ける。** 検証は`validateSection`が行い原因を文章で示す。ブラウザの制約
+**`noValidate`を付ける。** 検証は`handleSubmit`が行い原因を文章で示す。ブラウザの制約
 検証（`step`・`min`/`max`）へ任せると、小数の刻みが浮動小数の誤差で不一致と判定された
 とき、何の表示も無いまま送信だけが止まる——1画面で全ての欄が同時に検証対象へ入るぶん、
 この止まり方が起きやすい。数値入力欄の`step`も`any`にする。
 
 **制限モード**: `editing`が公開済み軸（`editing.is_published`）の場合、
-`restrictedDisplayOnly`が`true`になり、`basic`・`shape_params`の節を**描画そのものごと
+`restrictedDisplayOnly`が`true`になり、基本（表示名・説明・既定重み）と点数の決め方の節を**描画そのものごと
 省く**（backendが表示専用フィールドの差分しか受け付けない——
 `domain/axis_definitions.py: _COSMETIC_ONLY_FIELDS`——ため、いま何が変えられるかを画面の
-形で示す）。検証も`display_publish`だけに絞る——描画していない節を検証すると「入力欄が
-無いのにそこへ誘導される」行き止まりになる。`公開する`チェックボックスもこのモードでは
+形で示す）。保存前に確かめる入力（しきい値）は、このモードでも描画する節にある。`公開する`チェックボックスもこのモードでは
 非表示にする（is_published自体は変更させない。切替は`AxisStudio.tsx`の「非公開に戻す」
 ボタンへ導線を一本化）。入力欄の無い節の`draft`フィールド（label・shape・
 default_weight等）は`draftFromExisting`が読み込んだ既存値のまま素通しで保存される。
@@ -240,7 +238,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 
 **折れ点の並びは保存形式であって入力欄ではない。** 実在する軸の大半は2点の直線で、曲線は
 実データを見て決めるもの（較正）。そのため既定の入力は「0点にする値・100点にする値・
-効き方」だけにし（`applyScoringRange`が`generateBreakpoints`で折れ点を作り直す）、折れ点の
+効き方」だけにし（`updateGenerator`が`generateBreakpoints`で折れ点を作り直す）、折れ点の
 表と曲線エディタは`<details>折れ点を直接いじる</details>`の中に畳む。
 
 ### 折れ点エディタ・スライダー・数値入力
@@ -425,7 +423,7 @@ backend `POST /api/admin/basemap/refresh`を呼び、
   2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型`_PayloadKeyCoverage`が
   静的に検査するため、backend側へフィールドが増えたときはどちらかへ追加しないとtscが
   通らない。`display_thresholds_override`/`display_band_labels_override`は
-  専用の編集UI（`display_publish`の節）を持つため、このリストには含まない。
+  専用の編集UI（地図表示・公開の節）を持つため、このリストには含まない。
   `display_band_labels_override`の編集欄は`display_thresholds_override`が有効（null以外）の
   間だけ現れ、段階数（`displayThresholdsOverride.length+1`）と要素数を常に一致させる
   （`resizeBandLabels`）——しきい値の上書きを解除する（自動計算に戻す）とラベルの上書きも
@@ -437,7 +435,7 @@ backend `POST /api/admin/basemap/refresh`を呼び、
 境界値は1つの入力欄へまとめて書く（`parseThresholdList`が区切りを問わず解釈する）。
 **入力欄の文字列はdraftとは別にコンポーネントが持ち、読めたときだけdraftへ反映する**
 ——読めない途中の状態でdraftを書き換えると直前の並びが消える。読めないまま保存しようと
-した場合は`validateSection`が止めるため（節が`onThresholdErrorChange`で親へ伝える）、
+した場合は親（`AxisComposer`）の保存の検証が止めるため（読み取りの誤りは親が持ち、節へ渡す）、
 下書きの値が黙って保存されることはない。
 
 入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては

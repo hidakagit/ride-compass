@@ -22,7 +22,7 @@
 | features/map/MapView | `useLayerDataStatus.ts`（MapLibreのソースイベントからレイヤーごとの取得状態を算出して渡す） |
 | lib | `apiBaseUrl.ts`・`apiClient.ts`（backendのAPIを呼ぶ口と、全呼び出しが共有する骨格。下記）・`apiPath.ts`（アプリ自身が呼ばないURL［地図ライブラリへ渡すタイル・スタイル］のパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`queryClient.ts`（画面のデータ取得が共有するTanStack Queryのキャッシュ。下記「データ取得の骨格」）・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ）・`mapOverlayEdges.ts`（地図の上に重ねる部品へ付ける「どの辺を覆うか」の印と、印の付いた部品が覆う幅の実測。印を付ける部品は地図の機能の外にもあるので共有の層に置く。下記「`MapView`との境界」） |
 | features/route | `routeApi.ts`（ルート生成API。ジョブを投げ、終わるまで問い合わせる）・`formatDuration.ts`（秒を「102分」の形にする。1時間を超えても分で書き、候補の一覧・候補の中身・差し替えの比較で同じ単位で見比べる）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
-| features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
+| features/conditions | `useRideConditions.ts`（走行条件: 走行方位・出発時刻・想定速度。想定速度だけを保存し、保存値は画面の範囲内の整数だけを受け入れる）・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベル・出発時刻の刻みと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型）・`types/fetchFailure.ts`（常設ヘッダーの「未取得」の印に並ぶ項目の型。下記「失敗・空・待ちの伝え方」） |
 | components（特定モジュールの責務ではない共通部品） | `BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う）・`UsageGuide/UsageGuide.tsx`（説明を見る状態。下記「使い方の説明」）・`UsageGuide/usageTarget.ts`（押された要素から説明する部品・名前・使い方の文を引く）・`FirstVisitIntro/FirstVisitIntro.tsx`（初めて開いたときだけ出す案内。下記「初回の案内」） |
 | features/conditions/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ列の幅のアイコンボタンで、アイコンの下へ現在値（出発時刻は当日なら「12:40」、別の日は「9/24」「12:40」の2行。想定速度は「20km/h」）を出す。表示・`aria-label`・`title`は同じ文字列から作る。タップしたポップオーバー内はドラッグ式タイムライン（「今」の目盛りを選ぶと追従へ戻す）＋`input[type=datetime-local]`の直接指定[出発時刻、日本時間で読み書きする。説明の文は、出発時刻で値の変わる評価の名前を軸カタログから差し込み、無ければ評価に触れない]、スライダー＋数値入力[想定速度。平地・無風の巡航速度であることを添え、(i)の奥に、速度を変える条件の名前を走行モデルの宣言（生成物の`segment_speed_conditions`）から、走行モデルの体格・機材の標準値を軸カタログの較正値から書く——引けない間は標準値の文を出さない]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
@@ -489,9 +489,7 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込む（�
 一覧は番号だけで線も出さない。「元との違い」が元を指す名前は「最速」「合成N」・番号。タブは**候補ごと**で、一覧の一番上に
 列の見出し（km・時間・難易度）を1行だけ置き、行は名前・距離（kmを書かない）・時間・総合難易度の数値（算出できなかった候補は
 「—」）の列にそろえる——タブを開かずに候補どうしを見比べられるようにするため。列は一覧全体の格子（行は`subgrid`）で
-そろえ、一覧の幅は列が折り返さずに収まる最小にする。経由地
-を通る1本（種類`waypoints`。目的地の有無を問わない）は常に1件で順位の概念が無いため、番号の代わりにbackendが付けた
-direction_label[「経由地ルート」「目的地ルート」]をそのまま表示する。
+そろえ、一覧の幅は列が折り返さずに収まる最小にする。経由地を通る候補も、ほかの生成した候補と同じく番号を振る。
 基準線（上の時間の列の基準。`durationBaseline`）の時間の列には
 その所要時間を、他の候補には基準線との差[`+12分`・`−3分`]を出す
 [`features/route/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
@@ -505,8 +503,7 @@ direction_label[「経由地ルート」「目的地ルート」]をそのまま
 同じ入力（`GenerationInput`）から導出する**ため、payloadへフィールドを足したときに比較側へ
 足し忘れることが起きない。地図のレンズは見え方の選択で、payloadに載らない（区間に載せる値はbackendが
 レンズに依らず決める。[map-axis-coloring.md](map-axis-coloring.md)）ので、切り替えても印は点かない。
-候補数は実際に使う値を送って比べる（`useRouteFormSubmit.ts: fixedRouteCount`——経由地を伴う目的地ルートは
-backendの決まった数）ので、その条件で候補数の入力を変えても印は点かない。利用者が
+利用者が
 出発時刻を選んでいない間は`start_time`を比べない——共有時刻は「今」へ5分刻みで追従するので、
 放置するだけで値が変わる（何もしていないのに印が点くと、印が合図として機能しなくなる）。
 キーは並び順に依存しない形でJSON化する——`hard_filters`・`route_preference`は保存値からの

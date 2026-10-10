@@ -1,10 +1,10 @@
-// 約束 19・20・23・25（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
+// 約束 19・20・23・25・35（見回りの判断と状況の更新。src/dispatch.js）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは
 // GitHub（網）だけ。確かめるのは約束の結果（振り出す番号・At risk かどうか・書いたかどうか）。
 // ここで見ないもの: 状況の更新の文言・見回りのワークフローの止める（無効・止める時刻。bin/dispatch.js が読む値で決まる）・
-// 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）。
+// 同じタスクの実行が1本ずつ動くこと（担当のワークフローの concurrency。GitHub の動き）・持つ印を読む・消す git の呼び出し（tools.test.js が見る）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pick, putStatus, readActive, ready, summary, workload } from "../src/dispatch.js";
+import { pick, putStatus, readActive, ready, staleHolds, summary, workload } from "../src/dispatch.js";
 import { GitHub } from "../src/github.js";
 import { notes } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
@@ -21,11 +21,18 @@ test("19 枠は種類ごと: 上限から動いている数を引いた分だけ
   assert.deepEqual([kinds.filter((k) => k === "作る").length, kinds.filter((k) => k === "確かめる").length], [make, check - 1]);
 });
 
-test("20 確かめるは検証中を全部、作るは前提が閉じ・開発機のラベルが無く・着手可能日が今日以前の未着手。並びは急ぎ・優先度（空は既定の位置）・番号", () => {
+test("20 持つ印・開発機のラベルがあれば作るも確かめるも振り出さず、作るは前提が閉じ・着手可能日が今日以前の未着手だけ。並びは急ぎ・優先度（空は既定の位置）・番号", () => {
   const dev = config.coordinator.devLabel;
   const tasks = [task(1, config.todo, { blocked: true }), task(2, config.todo, { labels: [dev] }), task(3, config.todo, { startOn: "2026-10-05" }), task(4, config.todo, { startOn: "2026-10-04" }),
-    task(5, config.todo, { priority: "下" }), task(6, config.todo, { priority: "上" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, labels: [dev] }), task(9, config.working), task(10, config.todo)];
+    task(5, config.todo, { priority: "下" }), task(6, config.todo, { priority: "上" }), task(7, config.todo, { urgent: true }), task(8, config.review, { blocked: true, startOn: "2026-10-05" }), task(9, config.working), task(10, config.todo),
+    task(11, config.review, { labels: [dev] }), task(12, config.todo, { held: "開発機 a" }), task(13, config.review, { held: "開発機 a" })];
   assert.deepEqual(ready(config, board(...tasks), [{ number: 10, kind: "作る" }], now).map((t) => t.number), [7, 6, 4, 8, 5]);
+});
+
+test("35 担当の印は、その実行がもう動いていなければ残ったものとし、動いていれば・開発機の印なら残ったものにしない", () => {
+  const hold = (number, who) => ({ number, sha: `s${number}`, who });
+  const holds = [hold(1, "作る https://x/actions/runs/11"), hold(2, "確かめる https://x/actions/runs/12"), hold(3, "開発機 a")];
+  assert.deepEqual(staleHolds(config, holds, ["https://x/actions/runs/11"]).map((h) => h.number), [2]);
 });
 
 test("25 動いている実行は、終わっていない状態ごとに全部のページを読む: 新しい順の先頭100件より後ろの実行も落とさない", async () => {

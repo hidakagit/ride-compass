@@ -58,12 +58,12 @@ def _drop_thresholds_that_share_a_score(
     得点で入る道が無い（凡例に「0点未満」のような届かない段が出る）。
     """
     kept: list[float] = []
-    seen: list[float] = [min(shape.score_at(x) for x, _ in shape.breakpoints)]
+    last_score = min(shape.score_at(x) for x, _ in shape.breakpoints)
     for threshold in thresholds:
         score = shape.score_at(threshold)
-        if score <= seen[-1]:
+        if score <= last_score:
             continue
-        seen.append(score)
+        last_score = score
         kept.append(threshold)
     return kept
 
@@ -174,9 +174,8 @@ def _derive_ramp_inputs(
         if set(shape.mapping.keys()) == {True, False}:
             true_score = shape.mapping[True]
             false_score = shape.mapping[False]
-            lower, upper = sorted([true_score, false_score])
             tile_input = _boolean_score_tile_input(spec, true_score, false_score)
-            return RampInputs(tile_inputs=[tile_input], thresholds=[(lower + upper) / 2])
+            return RampInputs(tile_inputs=[tile_input], thresholds=[(true_score + false_score) / 2])
         if any(isinstance(key, bool) for key in shape.mapping):
             return None
         str_mapping = cast(dict[str, float], dict(shape.mapping))
@@ -283,12 +282,11 @@ def bands_the_map_keeps(
     return [0] + [index + 1 for index, threshold in enumerate(thresholds) if threshold in kept]
 
 
-def thresholds_the_map_drops(
-    axis_id: str, shape: AxisShape, priority_overrides: list[PriorityCondition], thresholds: list[float]
-) -> list[float]:
-    """人が上書きした段の境界のうち、地図が段として作らないもの（入力の並び順）。"""
-    kept_bands = set(bands_the_map_keeps(axis_id, shape, priority_overrides, thresholds))
-    return [threshold for index, threshold in enumerate(thresholds) if index + 1 not in kept_bands]
+def thresholds_the_map_drops(thresholds: list[float], kept_bands: list[int]) -> list[float]:
+    """人が上書きした段の境界のうち、地図が段として作らないもの（入力の並び順）。`kept_bands`は
+    同じ境界で`bands_the_map_keeps`が返した段。"""
+    kept = set(kept_bands)
+    return [threshold for index, threshold in enumerate(thresholds) if index + 1 not in kept]
 
 
 def map_band_labels(definition: AxisDefinition) -> list[str] | None:

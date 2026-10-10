@@ -37,7 +37,6 @@ from app.domain.route_request import (  # noqa: E402
     MAX_WAYPOINTS,
     MIN_ASSUMED_SPEED_KMH,
     MIN_ROUTES,
-    ROUTES_WITH_WAYPOINTS,
 )
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
@@ -586,7 +585,6 @@ def main() -> None:
             "min_routes": MIN_ROUTES,
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
-            "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             # 画面は経由地をこの数まで置け、超える点は置かない。

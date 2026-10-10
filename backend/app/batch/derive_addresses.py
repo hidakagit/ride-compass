@@ -157,12 +157,14 @@ def _build_areas(prefectures: Sequence[asyncpg.Record], cities: Sequence[asyncpg
             areas[area_id] = _Area(area_id, row["city_code"], "oaza", row["oaza"], None, _point(row),
                                    search_keys([*heads, ("oaza", row["oaza"])]))
             continue
-        name = chome_name(row["chome_number"], row["chome"]) if row["chome"] else row["koaza"]
-        if not name:
-            continue
+        tails: tuple[str, ...]
         if row["chome"]:
-            tails: tuple[str, ...] = (name,)
+            name = chome_name(row["chome_number"], row["chome"])
+            tails = (name,)
         else:
+            name = row["koaza"]
+            if not name:
+                continue
             bare = name.removeprefix("字")
             tails = (bare, "字" + bare)
         parent = row["city_code"]

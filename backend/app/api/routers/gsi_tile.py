@@ -1,9 +1,11 @@
+from typing import TypeVar
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.cache_policy import GSI_TILE_NOT_FOUND
 from app.api.dependencies import get_gsi_tile_client
 from app.api.rate_limit import enforce_rate_limit
-from app.api.routers._tile_http import validate_tile_coords
+from app.api.routers._tile_http import tile_not_found, validate_tile_coords
 from app.config import settings
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
 from app.domain.gsi_tiles import RELIEF_UPSTREAM_PATH, TerrainTileZoom
@@ -22,6 +24,19 @@ RELIEF_TILE_URL = f"{_RELIEF_PREFIX}/{RELIEF_UPSTREAM_PATH}"
 TERRAIN_ROUTE = "/api/gsi-terrain-tile/{z}/{x}/{y}.png"
 TERRAIN_TILE_URL = TERRAIN_ROUTE
 
+T = TypeVar("T")
+
+
+def _found(result: T | GsiTileNotFound | None) -> T:
+    """取れたタイル。整備区域外は404、取得の失敗は502として送出する。"""
+    if isinstance(result, GsiTileNotFound):
+        # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
+        # ではなく404を返す。
+        raise tile_not_found(GSI_TILE_NOT_FOUND)
+    if result is None:
+        raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")
+    return result
+
 
 @router.get(RELIEF_ROUTE)
 async def gsi_relief_tile_proxy(
@@ -29,18 +44,7 @@ async def gsi_relief_tile_proxy(
 ) -> Response:
     # 認証なしで叩けるプロキシへの簡易な歯止め（basemap_proxy/jma_tile_proxyと同じ方針）。
     enforce_rate_limit(request, "gsi-relief-tile", settings.gsi_tile_rate_limit_per_minute)
-    result = await gsi_tile_client.get(path)
-    if isinstance(result, GsiTileNotFound):
-        # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
-        # ではなく404を返す。
-        raise HTTPException(
-            status_code=404,
-            detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": GSI_TILE_NOT_FOUND.header()},
-        )
-    if result is None:
-        raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")
-    content, content_type = result
+    content, content_type = _found(await gsi_tile_client.get(path))
     return Response(content=content, media_type=content_type)
 
 
@@ -59,13 +63,5 @@ async def gsi_terrain_tile(
     """
     enforce_rate_limit(request, "gsi-terrain-tile", settings.gsi_tile_rate_limit_per_minute)
     validate_tile_coords(z, x, y)
-    result = await get_terrain_rgb_tile(gsi_tile_client, z, x, y)
-    if isinstance(result, GsiTileNotFound):
-        raise HTTPException(
-            status_code=404,
-            detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": GSI_TILE_NOT_FOUND.header()},
-        )
-    if result is None:
-        raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")
-    return Response(content=result, media_type=PNG_CONTENT_TYPE)
+    content = _found(await get_terrain_rgb_tile(gsi_tile_client, z, x, y))
+    return Response(content=content, media_type=PNG_CONTENT_TYPE)

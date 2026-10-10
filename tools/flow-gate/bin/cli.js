@@ -6,6 +6,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import base from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
+import { holdRemote } from "../src/hold.js";
 
 export const config = { ...base, questionTemplate: readFileSync(new URL("../question_template.md", import.meta.url), "utf8") };
 
@@ -13,8 +14,8 @@ export const config = { ...base, questionTemplate: readFileSync(new URL("../ques
 // この作業ツリーの tools/flow-gate が origin/master と違えば、master の版を一時の場所へ取り出し、同じ引数でそちらを打って、
 // その終わりの値で終える。取り出した側は、元のリポジトリを FLOW_GATE_REPO で受け取る。試し（--dry-run）は書かないので、
 // 作業ツリーの版で打つ（道具を変える作業ブランチで、変えた道具を試す）。
-const ref = `origin/${config.code.base}`;
-export const repo = process.env.FLOW_GATE_REPO
+export const ref = `origin/${config.code.base}`;
+const repo = process.env.FLOW_GATE_REPO
   ?? execFileSync("git", ["-C", fileURLToPath(new URL(".", import.meta.url)), "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 export const git = (...a) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8" });
 if (!process.env.FLOW_GATE_REPO && !process.argv.includes("--dry-run")) {
@@ -53,6 +54,7 @@ function userEnv(name) {
 }
 export const bot = () => new GitHub(userEnv("FLOW_BOT_TOKEN")); // 置き場へ書くのは hidakagit-bot だけ
 export const code = () => new GitHub(userEnv("GH_TOKEN")); // コードのリポジトリ（hidakagit のもの）を読み、担当を起こす
+export const holds = () => holdRemote(`https://github.com/${config.repository}.git`, userEnv("FLOW_BOT_TOKEN")); // 持つ印も置き場に置く
 
 // 引数を読む。usage は使い方の1行で、試しを持つ道具は `[--dry-run]` を書く。ok は引数（--dry-run を除いたもの）が正しいか。
 // 正しくなければ使い方を出して 2 で終える。試しを持たない道具に --dry-run が付いていれば、本当に書かないよう何もせずに 1 で終える

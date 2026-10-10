@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import { useDebugEnabled, useDebugLogEntries } from "@/hooks/useDebugLog";
 import { CopyIcon } from "@/components/ui/icons/icons";
-import { clearDebugLog, type DebugLogLevel } from "@/lib/debugLog";
+import { clearDebugLog, type DebugLogEntry, type DebugLogLevel } from "@/lib/debugLog";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { Button } from "@/components/ui/Button/Button";
 import { Select } from "@/components/ui/Input/Input";
@@ -20,6 +20,16 @@ interface DebugConsoleProps {
 
 // 「この段階以上だけ出す」の下限で絞る。
 const LEVEL_ORDER: readonly DebugLogLevel[] = ["info", "warn", "error"];
+
+/** 1行の末尾に添える詳細。無ければnull。 */
+function detailText(entry: DebugLogEntry): string | null {
+  return entry.detail == null ? null : JSON.stringify(entry.detail);
+}
+
+function entryText(entry: DebugLogEntry): string {
+  const detail = detailText(entry);
+  return `${entry.time} [${entry.category}] ${entry.message}${detail === null ? "" : ` ${detail}`}`;
+}
 
 /** デバッグモードのときだけ地図の上に浮かべる、地図の出来事とAPI呼び出しのログ。 */
 export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
@@ -39,19 +49,8 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [visibleEntries]);
 
-  // コピーするのは絞り込んで画面に出ている行だけ（絞って見つけた数行を渡せるように）。
-  const visibleEntriesText = useMemo(
-    () =>
-      visibleEntries
-        .map((entry) => {
-          const detail = entry.detail == null ? "" : ` ${JSON.stringify(entry.detail)}`;
-          return `${entry.time} [${entry.category}] ${entry.message}${detail}`;
-        })
-        .join("\n"),
-    [visibleEntries],
-  );
-
-  if (!enabled) return null;
+  // 閉じている間は行を組まない（記録のたびに全行の詳細を文字にし直すことになる）。
+  if (!enabled || !open) return null;
 
   return (
     <FloatingPanel
@@ -75,7 +74,8 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
           </Select>
           <Button
             size="xs"
-            onClick={() => copy(visibleEntriesText)}
+            // コピーするのは絞り込んで画面に出ている行だけ（絞って見つけた数行を渡せるように）。
+            onClick={() => copy(visibleEntries.map(entryText).join("\n"))}
             disabled={visibleEntries.length === 0}
             aria-label={copied ? "表示中のログをコピーしました" : "表示中のログをコピー"}
             title={copied ? "コピーしました" : "表示中のログをコピー"}
@@ -100,17 +100,20 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
             条件に一致するログがありません[フィルタを「すべて」に戻すと{entries.length}件表示されます]
           </p>
         )}
-        {visibleEntries.map((entry) => (
-          <LogLine
-            key={entry.id}
-            tone={entry.level === "error" ? "error" : entry.level === "warn" ? "warning" : "normal"}
-            data-level={entry.level}
-          >
-            <span className="text-[var(--color-muted)]">{entry.time}</span>{" "}
-            <span className="text-[var(--color-accent)]">[{entry.category}]</span> <span>{entry.message}</span>
-            {entry.detail != null && <span className="text-[var(--color-muted)]"> {JSON.stringify(entry.detail)}</span>}
-          </LogLine>
-        ))}
+        {visibleEntries.map((entry) => {
+          const detail = detailText(entry);
+          return (
+            <LogLine
+              key={entry.id}
+              tone={entry.level === "error" ? "error" : entry.level === "warn" ? "warning" : "normal"}
+              data-level={entry.level}
+            >
+              <span className="text-[var(--color-muted)]">{entry.time}</span>{" "}
+              <span className="text-[var(--color-accent)]">[{entry.category}]</span> <span>{entry.message}</span>
+              {detail !== null && <span className="text-[var(--color-muted)]"> {detail}</span>}
+            </LogLine>
+          );
+        })}
       </div>
     </FloatingPanel>
   );

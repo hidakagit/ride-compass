@@ -283,7 +283,7 @@ CIだけに置いているため、CIの分数が尽きると検査そのもの�
 | 入れた場所 | 名前 | 中身（作った人・Resource owner・届く範囲・権限・期限） | 使う所 |
 |---|---|---|---|
 | hidakagit/ride-compassのActionsの秘密の値 | `CODE_TOKEN` | hidakagitが作ったfine-grained `ride-compass-actions`。Resource ownerはhidakagitで、届くのはhidakagit/ride-compassだけ。Actions・Contents・Issues・Pull requests・Variables・Workflowsは読み書き（Workflowsは2026-10-09に足した。担当が`.github/workflows/`を自分でpushする）、Commit statusesは読むだけ。期限は未記録 | `claude-task.yml`（checkout・Claudeの連携・ghの既定）・`claude-dispatch.yml`（盤面を読み担当を起こす・次の見回りを起こす） |
-| 同 | `FLOW_BOT_TOKEN` | hidakagit-botが作ったfine-grained。届くのはridecompass/ride-compass-tasksだけ。Contentsは読み書き（担当の手番の記録をリリースへ置く）。期限2027-09-29 | 担当と流れの道具が置き場へ書く。開発機ではユーザー環境変数の同じ名前 |
+| 同 | `FLOW_BOT_TOKEN` | hidakagit-botが作ったfine-grained。届くのはridecompass/ride-compass-tasksだけ。Contentsは読み書き（担当の手番の記録をリリースへ置く・タスクを持つ印の参照を作る・消す）。期限2027-09-29 | 担当と流れの道具が置き場へ書く。開発機ではユーザー環境変数の同じ名前 |
 | 同 | `CLAUDE_CODE_OAUTH_TOKEN` | Claudeの契約のトークン（GitHubのトークンではない） | `claude-task.yml` |
 | 同 | `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare | ゲートと回答フォームの公開（`claude-gate.yml`） |
 | 同 | `MAPILLARY_TOKEN` | hidakagitがMapillaryの開発者の画面で登録したアプリのClient Token（読むだけ。GitHubのトークンではない）。期限は未記録 | `claude-task.yml`（担当の環境変数。Mapillaryの街灯の点の付き方の測定） |

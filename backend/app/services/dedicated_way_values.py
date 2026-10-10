@@ -10,7 +10,6 @@
 
 from dataclasses import dataclass, fields
 from datetime import datetime
-from functools import partial
 from typing import Any, Callable, Iterable, Mapping, Protocol, TypeVar, cast
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
@@ -44,9 +43,6 @@ class DedicatedWayValueService(Protocol[_Conditions]):
     async def get_way_values(self, z: int, x: int, y: int, conditions: _Conditions) -> Mapping[str, float | None]:
         """フィーチャーの鍵→値。Noneは、その道の値が走行方位で決まらないこと（値が無い道は鍵ごと除く）。"""
         ...
-
-
-DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService[Any]]
 
 
 class DedicatedWayValueServiceType(Protocol):
@@ -115,8 +111,10 @@ def _served_material_of(axis_id: str) -> str | None:
     return served_dedicated_way_value_material(definition.materials)
 
 
-def _factory_of(material: str) -> DedicatedWayValueServiceFactory:
-    return partial(_SERVICES_BY_MATERIAL[material].build, material_id=material)
+def _build_service(
+    material: str, repository: RoadGraphRepository, weather_service: WeatherService
+) -> DedicatedWayValueService[Any]:
+    return _SERVICES_BY_MATERIAL[material].build(repository, weather_service, material)
 
 
 #: 材料id→その材料の配信サービス。
@@ -125,7 +123,7 @@ MaterialServiceBuilder = Callable[[str], DedicatedWayValueService[Any]]
 
 def material_service_builder(repository: RoadGraphRepository, weather_service: WeatherService) -> MaterialServiceBuilder:
     """材料ごとの配信サービスを、同じリポジトリ・気象サービスで組み立てる。"""
-    return lambda material: _factory_of(material)(repository, weather_service)
+    return lambda material: _build_service(material, repository, weather_service)
 
 
 async def way_values(
@@ -162,7 +160,7 @@ def axis_way_value_lens(
 ) -> AxisWayValueLens | None:
     """軸のレンズを組み立てる。専用配信の軸でないか、配信できる材料が無ければNone。"""
     material = _served_material_of(axis_id)
-    return None if material is None else AxisWayValueLens(axis_id, _factory_of(material)(repository, weather_service))
+    return None if material is None else AxisWayValueLens(axis_id, _build_service(material, repository, weather_service))
 
 
 @dataclass(frozen=True)

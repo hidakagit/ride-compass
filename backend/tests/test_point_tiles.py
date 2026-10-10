@@ -1,12 +1,12 @@
 """点のタイル（`infrastructure/point_tile_layers.py: POINT_TILE_LAYERS`）が焼く中身。
 
 レイヤーのSQLを読み出しの口（`RoadGraphRepository.get_tile_mvt`）で流し、タイルに出る点を見る。生データは取込の
-入口（`tests/source_ingest.py: ingest_records`）から入れ、POIの種別は派生の段（`derive_node_materials`）を本物のまま
+入口（`tests/source_ingest.py: ingest_records`）から入れ、POIの種別は派生の段（`derive_nodes`）を本物のまま
 流して付ける。
 
 ここで見ないもの:
 - 取り込んだ範囲の判定そのもの（どのrunの範囲か・範囲の境目） → `test_ingested_area.py`
-- タグから種別への引き当て・信号とみなす半径 → `test_derive_node_materials.py`
+- タグから種別への引き当て・信号とみなす半径 → `test_derive_nodes.py`
 - 宣言どうしの関係（一次属性の指す系統・世代・source-layer名の重なり） → `test_point_tile_layers.py`
 - 配信（キャッシュ・空タイル・DB障害・未知のレイヤー） → `test_region_service.py`・`test_region_routes.py`
 - 範囲の中で点の無いタイルを空のバイト列にすること → `test_road_graph_repository_contracts.py`
@@ -19,7 +19,7 @@ from collections import Counter
 import mapbox_vector_tile
 import pytest
 
-from app.batch import derive_node_materials, derive_stop_places
+from app.batch import derive_nodes, derive_stop_places
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
@@ -61,7 +61,7 @@ async def _ingest_pois(nodes: list[tuple[float, float, dict[str, str]]], road_ar
     await ingest_records("osm_way", [], bbox=road_area)
     await ingest_records("osm_node", [point_record(i, lon, lat, tags) for i, (lon, lat, tags) in enumerate(nodes, 1)])
     async with raw_connection() as conn:
-        await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
+        await derive_nodes.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
 
 
 async def _tile(repository: RoadGraphRepository, name: str, x: int = X) -> bytes | None:

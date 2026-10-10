@@ -55,9 +55,12 @@ const MAX_WAYPOINTS = routeGenerateConfig.max_waypoints;
 /** 札の印と名前の間（札の`gap-1`）。 */
 const NAME_GAP_PX = 4;
 
+/** 地図で置いた地点の出どころ。探して置いた名前が無い地点の名前にも使う。 */
+const MAP_PLACED = "地図で選んだ地点";
+
 /** どうやって置いた地点か。 */
 function sourceOf(found: PlaceCandidate | null): string {
-  return found !== null ? "探して選んだ地点" : "地図で選んだ地点";
+  return found !== null ? "探して選んだ地点" : MAP_PLACED;
 }
 
 /**
@@ -114,9 +117,9 @@ export default function RoutePoints({
   }
 
   const originName =
-    originFound?.name ?? (originManual ? "地図で選んだ地点" : originLocated ? "現在地" : "現在地を取得できていません");
+    originFound?.name ?? (originManual ? MAP_PLACED : originLocated ? "現在地" : "現在地を取得できていません");
   const destinationFound = foundAt(destination);
-  const destinationName = destinationFound?.name ?? (destination !== null ? "地図で選んだ地点" : "未設定");
+  const destinationName = destinationFound?.name ?? (destination !== null ? MAP_PLACED : "未設定");
 
   // 両端の札に名前を出すか。並び全体が1行に入りきるときだけ出し、入らなければ両端とも印だけにする（途中で切った名前は読めない。
   // 名前は押すと詳しくに出る）。出さない間も名前は札の中で幅を測れる形で置いてあり、出したときの幅を足して入りきるかを見る。
@@ -248,7 +251,7 @@ export default function RoutePoints({
         title={title}
         markLabel={String(index + 1)}
         source={sourceOf(found)}
-        name={found?.name ?? "地図で選んだ地点"}
+        name={found?.name ?? MAP_PLACED}
         found={found}
         at={waypoints[index]}
         placed
@@ -325,7 +328,7 @@ export default function RoutePoints({
                 shape="pill"
                 className={cn(chipClass, "border-transparent p-px")}
                 aria-pressed={isShown({ role: "waypoint", index })}
-                aria-label={`経由地${index + 1}: ${foundAt(point)?.name ?? "地図で選んだ地点"}`}
+                aria-label={`経由地${index + 1}: ${foundAt(point)?.name ?? MAP_PLACED}`}
                 onClick={() => select({ role: "waypoint", index })}
               >
                 <PointMark role="waypoint" label={String(index + 1)} originLocated={originLocated} />

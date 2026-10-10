@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { onBackend, type SentRequest } from "@/testing/backendServer";
+import { inTurn, onBackend, type SentRequest } from "@/testing/backendServer";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { GenerationConditions, RouteGenerateRequest } from "@/types/route";
@@ -38,16 +38,14 @@ const TTL_MS = routeGenerateConfig.job_result_ttl_seconds * 1000;
 /** 生成の受け付けにはjob-1を返し、問い合わせには`polls`を順に返す（尽きたら最後のものを返し続ける）。届いた要求を順に積む。 */
 function stubJob(polls: Response[]): SentRequest[] {
   const sent: SentRequest[] = [];
-  let next = 0;
+  const nextPoll = inTurn(...polls);
   onBackend("POST", "/api/routes/generate", (request) => {
     sent.push(request);
     return Response.json({ job_id: "job-1" });
   });
   onBackend("GET", "/api/routes/generate/:jobId", (request) => {
     sent.push(request);
-    const reply = polls[Math.min(next, polls.length - 1)];
-    next += 1;
-    return reply.clone();
+    return nextPoll(request);
   });
   return sent;
 }

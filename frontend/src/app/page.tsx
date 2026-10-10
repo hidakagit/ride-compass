@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
@@ -66,19 +66,41 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
-/** モバイルの下部タブの使い方。 */
-const MOBILE_TAB_USAGES = {
-  routeSettings:
-    "ルートを作る条件[距離・地点・重み・除外・保存した地点と設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
-  routeOutcome:
-    "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
-} as const;
-
 /** モバイルの下部タブ（シートと同じ並び）。 */
 const MOBILE_TABS = [
-  { sheet: "routeSettings", label: "ルート設定", Icon: RouteSettingsIcon },
-  { sheet: "routeOutcome", label: "ルート結果", Icon: RouteIcon },
+  {
+    sheet: "routeSettings",
+    label: "ルート設定",
+    Icon: RouteSettingsIcon,
+    usage:
+      "ルートを作る条件[距離・地点・重み・除外・保存した地点と設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
+  },
+  {
+    sheet: "routeOutcome",
+    label: "ルート結果",
+    Icon: RouteIcon,
+    usage:
+      "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
+  },
 ] as const;
+
+type OutcomeTabSignal = { tone: "error" | "empty" | "warning"; label: string };
+
+// モバイルの「ルート結果」タブの印。失敗と候補0件は形を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
+const UNSEEN_OUTCOME_SIGNALS: Record<RouteOutcomeKind, OutcomeTabSignal> = {
+  failed: { tone: "error", label: "生成に失敗しました" },
+  empty: { tone: "empty", label: "候補が見つかりませんでした" },
+  fresh: { tone: "warning", label: "新しい結果があります" },
+};
+const CONDITIONS_DIRTY_SIGNAL: OutcomeTabSignal = { tone: "warning", label: "生成条件が変更されています" };
+
+/** 「ルート設定」のタブ（中身は `RouteForm` が描く）。 */
+const SETTINGS_TABS: readonly { value: SettingsTab; label: string; usage: string }[] = [
+  { value: "generate", label: "条件", usage: "周回か目的地か、距離・地点・候補の数を決めます。" },
+  { value: "weights", label: "重み", usage: "道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。" },
+  { value: "exclusions", label: "除外", usage: "ルートに使わない道路の種類を選びます。" },
+  { value: "saved", label: "保存", usage: "名前を付けて保存した地点と設定を並べます。" },
+];
 
 export default function Home() {
   const {
@@ -91,6 +113,7 @@ export default function Home() {
     handleLocateMe,
     setManualLocation,
   } = useLocation();
+  const originManual = locationSource === "manual";
 
   const axisCatalog = useAxisCatalog();
 
@@ -110,7 +133,7 @@ export default function Home() {
   const savedConditions = useSavedConditions({
     conditions,
     origin: locationKnown ? location : null,
-    originManual: locationSource === "manual",
+    originManual,
     onOriginPlace: setManualLocation,
     onOriginFollowCurrent: handleLocateMe,
   });
@@ -129,20 +152,15 @@ export default function Home() {
     MOBILE_SHEET_HEIGHT_STORAGE_KEY,
     null,
     {
-      serialize: (v) => JSON.stringify(v),
+      serialize: JSON.stringify,
       deserialize: (raw) => {
-        try {
-          const parsed = JSON.parse(raw);
-          return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
-        } catch {
-          return null;
-        }
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
       },
     },
   );
   const [workingSheetHeightVh, setWorkingSheetHeightVh] = useState<number | null>(null);
   const mobileSheetHeightVh = workingSheetHeightVh ?? chosenSheetHeightVh ?? DEFAULT_SHEET_HEIGHT_VH;
-  const sheetHeightChosen = chosenSheetHeightVh !== null;
 
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
@@ -207,22 +225,25 @@ export default function Home() {
   };
 
   // モバイルのタブ。同じタブをもう一度押したら閉じる。
-  const handleMobileTabClick = useCallback(
-    (sheet: Exclude<MobileSheet, null>) => {
-      setMobileSheet((prev) => (prev === sheet ? null : sheet));
-      // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
-      if (sheet === "routeOutcome") setUnseenOutcome(null);
-    },
-    [setMobileSheet],
-  );
+  const handleMobileTabClick = (sheet: Exclude<MobileSheet, null>) => {
+    setMobileSheet((prev) => (prev === sheet ? null : sheet));
+    // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+    if (sheet === "routeOutcome") setUnseenOutcome(null);
+  };
 
-  const handleMobileSheetHeightCommit = useCallback(
-    (vh: number) => {
+  // 2枚のシートが共有する開閉と高さ。
+  const sharedSheetProps = {
+    onClose: () => setMobileSheet(null),
+    heightVh: mobileSheetHeightVh,
+    onHeightChange: setWorkingSheetHeightVh,
+    onHeightCommit: (vh: number) => {
       setChosenSheetHeightVh(vh);
       setWorkingSheetHeightVh(null);
     },
-    [setChosenSheetHeightVh, setWorkingSheetHeightVh],
-  );
+    autoFitHeight: chosenSheetHeightVh === null,
+  };
+
+  const handleSettingsTabChange = (value: string) => setSettingsTab(value as SettingsTab);
 
   // 「今日」のパネル・最寄りの実測・警報の類（位置が分かってから、位置が変わるたびに取る。仮の地点では取らない）。
   const {
@@ -245,17 +266,11 @@ export default function Home() {
     [locationFailure, warningFetchFailures, axisCatalogFailure],
   );
 
-  // モバイルの「ルート結果」タブの印。失敗と候補0件は形を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
-  const outcomeTabSignal: { tone: "error" | "empty" | "warning"; label: string } | null =
-    unseenOutcome === "failed"
-      ? { tone: "error", label: "生成に失敗しました" }
-      : unseenOutcome === "empty"
-        ? { tone: "empty", label: "候補が見つかりませんでした" }
-        : unseenOutcome === "fresh"
-          ? { tone: "warning", label: "新しい結果があります" }
-          : generation.conditionsDirty
-            ? { tone: "warning", label: "生成条件が変更されています" }
-            : null;
+  const outcomeTabSignal: OutcomeTabSignal | null = unseenOutcome
+    ? UNSEEN_OUTCOME_SIGNALS[unseenOutcome]
+    : generation.conditionsDirty
+      ? CONDITIONS_DIRTY_SIGNAL
+      : null;
 
   // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「いまの設定を保存」「ルート生成」は同じ行の右端に離して置く
   // （どのタブを見ていても押せる）。タブの間と左右の余白・操作の間を詰めているのは、スマホの幅で見出しの題・タブ・操作（条件の
@@ -263,22 +278,11 @@ export default function Home() {
   function renderSettingsTabs() {
     return (
       <TabsList className="gap-0 overflow-visible border-b-0" aria-label="ルート設定">
-        <TabsTrigger className="px-1.5" value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
-          条件
-        </TabsTrigger>
-        <TabsTrigger
-          className="px-1.5"
-          value="weights"
-          usage="道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。"
-        >
-          重み
-        </TabsTrigger>
-        <TabsTrigger className="px-1.5" value="exclusions" usage="ルートに使わない道路の種類を選びます。">
-          除外
-        </TabsTrigger>
-        <TabsTrigger className="px-1.5" value="saved" usage="名前を付けて保存した地点と設定を並べます。">
-          保存
-        </TabsTrigger>
+        {SETTINGS_TABS.map(({ value, label, usage }) => (
+          <TabsTrigger key={value} className="px-1.5" value={value} usage={usage}>
+            {label}
+          </TabsTrigger>
+        ))}
       </TabsList>
     );
   }
@@ -299,7 +303,7 @@ export default function Home() {
           saved={savedConditions.saved}
           current={savedConditions.current}
           suggestedName={savedConditions.suggestedName}
-          originManual={locationSource === "manual"}
+          originManual={originManual}
           originKnown={locationKnown}
           onSave={savedConditions.save}
         />
@@ -344,10 +348,10 @@ export default function Home() {
       <RouteForm
         conditions={conditions}
         origin={location}
-        originManual={locationSource === "manual"}
+        originManual={originManual}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
-        originFound={locationSource === "manual" ? conditions.foundAt(location) : null}
+        originFound={originManual ? conditions.foundAt(location) : null}
         // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
         mapCenter={mapView.center ?? location}
         onPlaceFound={placeFound}
@@ -372,6 +376,11 @@ export default function Home() {
         }
       />
     );
+  }
+
+  // 「ルート結果」の中身（デスクトップの区分・モバイルのシートの両方）。
+  function renderRouteOutcome() {
+    return <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />;
   }
 
   // 「ルート結果」の見出しの操作。候補すべてに効く操作だけを置き、候補1本への操作はその候補のタブの中に置く
@@ -444,25 +453,10 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* モバイルの下部タブと同じ区分・同じ順序。タブ列（見出し行）とタブの中身（本文）の両方を囲む。 */}
-                <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
-                  <Disclosure
-                    className="border-t border-[var(--color-border)] pt-2"
-                    headerClassName={"flex items-center justify-between gap-2"}
-                    triggerClassName={cn(
-                      textVariants({ variant: "heading" }),
-                      "group flex cursor-pointer items-center gap-1.5",
-                    )}
-                    bodyClassName={"flex flex-col gap-2"}
+                <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
+                  <SectionDisclosure
                     id={GENERATE_SECTION_TITLE_ID}
-                    summary={
-                      <>
-                        <span
-                          aria-hidden="true"
-                          className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                        />
-                        ルート設定
-                      </>
-                    }
+                    title="ルート設定"
                     trailing={
                       <div className="flex min-w-0 flex-auto items-center justify-between gap-2">
                         {renderSettingsTabs()}
@@ -474,27 +468,12 @@ export default function Home() {
                     usage="押すと開き・畳みます。ルートを作る条件をここで決め、右の「ルート生成」で作ります。"
                   >
                     {renderRouteSectionBody()}
-                  </Disclosure>
+                  </SectionDisclosure>
                 </Tabs>
 
-                <Disclosure
-                  className="border-t border-[var(--color-border)] pt-2"
-                  headerClassName={"flex items-center justify-between gap-2"}
-                  triggerClassName={cn(
-                    textVariants({ variant: "heading" }),
-                    "group flex cursor-pointer items-center gap-1.5",
-                  )}
-                  bodyClassName={"flex flex-col gap-2"}
+                <SectionDisclosure
                   id={OUTCOME_SECTION_TITLE_ID}
-                  summary={
-                    <>
-                      <span
-                        aria-hidden="true"
-                        className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                      />
-                      ルート結果
-                    </>
-                  }
+                  title="ルート結果"
                   trailing={
                     results.routes.length > 0 ? (
                       <div className="flex flex-shrink-0 items-center gap-2">{renderRouteResultHeaderActions()}</div>
@@ -504,13 +483,8 @@ export default function Home() {
                   onOpenChange={setOutcomeOpen}
                   usage="押すと開き・畳みます。作った候補と、その難易度の内訳がここに並びます。"
                 >
-                  <RouteOutcome
-                    results={results}
-                    generation={generation}
-                    splice={splice}
-                    routeWeights={route.routeWeights}
-                  />
-                </Disclosure>
+                  {renderRouteOutcome()}
+                </SectionDisclosure>
               </>
             )}
           </aside>
@@ -595,7 +569,8 @@ export default function Home() {
                   <p
                     className={cn(
                       cardVariants({ variant: "float" }),
-                      "pointer-events-none absolute top-0 right-full mr-2 w-max max-w-55 border-0 px-2.5 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)]",
+                      textVariants({ variant: "error" }),
+                      "pointer-events-none absolute top-0 right-full mr-2 w-max max-w-55 border-0 px-2.5 py-1.5",
                     )}
                   >
                     {locateError}
@@ -615,7 +590,7 @@ export default function Home() {
             className="fixed right-0 bottom-0 left-0 z-[var(--z-bottom-sheet)] flex h-[var(--mobile-tabbar-height)] touch-none border-t border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_-1px_8px_rgba(0,0,0,0.15)]"
             aria-label="パネル切り替え"
           >
-            {MOBILE_TABS.map(({ sheet, label, Icon }) => (
+            {MOBILE_TABS.map(({ sheet, label, Icon, usage }) => (
               <Button
                 key={sheet}
                 variant="ghost"
@@ -623,7 +598,7 @@ export default function Home() {
                 className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
                 aria-expanded={mobileSheet === sheet}
                 aria-description={sheet === "routeOutcome" ? outcomeTabSignal?.label : undefined}
-                usage={MOBILE_TAB_USAGES[sheet]}
+                usage={usage}
                 onClick={() => handleMobileTabClick(sheet)}
               >
                 <Icon />
@@ -638,18 +613,14 @@ export default function Home() {
             ))}
           </nav>
 
-          <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+          <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
             <BottomSheet
+              {...sharedSheetProps}
               open={mobileSheet === "routeSettings"}
-              onClose={() => setMobileSheet(null)}
               title="ルート設定"
               titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
               headerLead={renderSettingsTabs()}
               headerAction={renderRouteSectionHeaderActions()}
-              heightVh={mobileSheetHeightVh}
-              onHeightChange={setWorkingSheetHeightVh}
-              onHeightCommit={handleMobileSheetHeightCommit}
-              autoFitHeight={!sheetHeightChosen}
               fitKey={`${settingsTab}:${conditions.routeMode}`}
               headerNote={renderGenerationOutcomeNote()}
             >
@@ -658,20 +629,44 @@ export default function Home() {
           </Tabs>
 
           <BottomSheet
+            {...sharedSheetProps}
             open={mobileSheet === "routeOutcome"}
-            onClose={() => setMobileSheet(null)}
             title="ルート結果"
             titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
             headerAction={results.routes.length > 0 ? renderRouteResultHeaderActions() : undefined}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={setWorkingSheetHeightVh}
-            onHeightCommit={handleMobileSheetHeightCommit}
-            autoFitHeight={!sheetHeightChosen}
           >
-            <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />
+            {renderRouteOutcome()}
           </BottomSheet>
         </>
       )}
     </div>
+  );
+}
+
+// デスクトップのサイドバーの区分（「ルート設定」「ルート結果」）。見出しの見た目と開閉の矢印をここに1つだけ持つ。
+function SectionDisclosure({
+  title,
+  ...props
+}: { title: string } & Omit<
+  ComponentProps<typeof Disclosure>,
+  "className" | "headerClassName" | "triggerClassName" | "bodyClassName" | "summary"
+>) {
+  return (
+    <Disclosure
+      {...props}
+      className="border-t border-[var(--color-border)] pt-2"
+      headerClassName="flex items-center justify-between gap-2"
+      triggerClassName={cn(textVariants({ variant: "heading" }), "group flex cursor-pointer items-center gap-1.5")}
+      bodyClassName="flex flex-col gap-2"
+      summary={
+        <>
+          <span
+            aria-hidden="true"
+            className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
+          />
+          {title}
+        </>
+      }
+    />
   );
 }

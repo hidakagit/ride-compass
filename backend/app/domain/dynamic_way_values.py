@@ -13,13 +13,13 @@
 自体は宣言的に導出できないPythonコードのまま残る。
 """
 
-import math
 from collections.abc import Mapping
 from dataclasses import MISSING, dataclass, fields
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeVar
 
 from app.domain.axis_definitions import AxisDefinition, evaluate_axis_values
+from app.domain.geo import bearing_sector
 from app.domain.map_paint import SignedMaterialMapValue, map_paint
 
 if TYPE_CHECKING:
@@ -31,13 +31,8 @@ BEARING_BUCKET_DEG = 5
 
 
 def bearing_bucket(bearing_deg: float) -> int:
-    """向き（度、範囲外は正規化）をバケット番号へ丸める。360度は0度と同じバケットになる。
-
-    組み込み`round()`は偶数への銀行丸めで境界のバケット幅が理論値からずれるため、
-    `math.floor(x+0.5)`で境界幅を均一にする。
-    """
-    normalized = bearing_deg % 360
-    return math.floor(normalized / BEARING_BUCKET_DEG + 0.5) % (360 // BEARING_BUCKET_DEG)
+    """向き（度、範囲外は正規化）をバケット番号へ丸める。360度は0度と同じバケットになる。"""
+    return bearing_sector(bearing_deg, 360 // BEARING_BUCKET_DEG)
 
 
 #: 専用配信の要求が運ぶ条件の名前。`WayValueQuery`の欄の名前で、配信のクエリパラメータの名前でもある。

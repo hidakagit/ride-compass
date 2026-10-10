@@ -3,8 +3,9 @@
 import * as RadixPopover from "@radix-ui/react-popover";
 import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef } from "react";
+import { cardVariants } from "@/components/ui/Card/Card";
 import { cn } from "@/lib/cn";
-import { USAGE_GUIDE_ATTRIBUTE } from "@/components/UsageGuide/usageTarget";
+import { USAGE_OPENS_ATTRIBUTE, isInUsageGuide } from "@/components/UsageGuide/usageTarget";
 
 // 押すと開く浮きパネル。開閉・位置取り・外側を押したら閉じる・Escで閉じるはRadix Popoverが持つ。
 // 中身はdocument.body直下へ描く（呼び出し側がoverflowで切り取る容器の中にあっても欠けない）。
@@ -15,7 +16,7 @@ export const PopoverTrigger = forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof RadixPopover.Trigger>
 >(function PopoverTrigger(props, ref) {
-  return <RadixPopover.Trigger ref={ref} data-usage-opens="" {...props} />;
+  return <RadixPopover.Trigger ref={ref} {...{ [USAGE_OPENS_ATTRIBUTE]: "" }} {...props} />;
 });
 /** 押した部品以外の位置へ開くときの目印（`virtualRef`で要素を指す）。 */
 export const PopoverAnchor = RadixPopover.Anchor;
@@ -24,7 +25,10 @@ export const PopoverAnchor = RadixPopover.Anchor;
 export const POPOVER_COLLISION_PADDING_PX = 8;
 
 const contentVariants = cva(
-  "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-[length:var(--font-size-sm)] leading-[1.4] text-[var(--foreground)] shadow-float",
+  [
+    cardVariants({ variant: "float" }),
+    "px-3 py-2 text-[length:var(--font-size-sm)] leading-[1.4] text-[var(--foreground)]",
+  ],
   {
     variants: {
       /** 重なり順（globals.cssの--z-*）。`top`は開いた時点で必ず見えるべきもの（下部シート・ダイアログより上）、
@@ -63,8 +67,7 @@ export const PopoverContent = forwardRef<HTMLDivElement, PopoverContentProps>(fu
         onInteractOutside={(event) => {
           onInteractOutside?.(event);
           // 説明を見る状態の案内・説明の面を押しても、そこへフォーカスが移っても閉じない（開いたまま、中の部品の説明を見られる）。
-          if (event.target instanceof Element && event.target.closest(`[${USAGE_GUIDE_ATTRIBUTE}]`))
-            event.preventDefault();
+          if (isInUsageGuide(event.target)) event.preventDefault();
         }}
         {...props}
       />

@@ -178,6 +178,7 @@ function applyFeatureStates(
 
   for (const [key, previousValues] of previousStates) {
     const nextValues = nextStates.get(key);
+    if (nextValues === previousValues) continue;
     for (const featureId of previousValues.keys()) {
       if (nextValues?.has(featureId) === true) continue;
       map.removeFeatureState({ ...sourceTarget, id: featureId }, key);
@@ -187,6 +188,7 @@ function applyFeatureStates(
   const pending = new Map<string, Record<string, MapSceneFeatureStateValue>>();
   for (const [key, nextValues] of nextStates) {
     const previousValues = previousStates.get(key);
+    if (previousValues === nextValues) continue;
     for (const [featureId, value] of nextValues) {
       if (isSameValue(previousValues?.get(featureId), value)) continue;
       const state = pending.get(featureId) ?? {};

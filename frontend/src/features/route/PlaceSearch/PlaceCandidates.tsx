@@ -31,7 +31,7 @@ export function isRepresentative(candidate: PlaceCandidate): boolean {
 interface PlaceCandidatesProps {
   lookup: ReturnType<typeof usePlaceLookup>;
   /** 候補1件の行。中身（名前・辺り・距離・札）は`label`で渡す。 */
-  renderCandidate: (candidate: PlaceCandidate, index: number, label: React.ReactNode) => React.ReactNode;
+  renderCandidate: (candidate: PlaceCandidate, label: React.ReactNode) => React.ReactNode;
 }
 
 /** 引いた候補の一覧。引いている間・引けない・当たらないときは、その文を出す。 */
@@ -55,11 +55,10 @@ export default function PlaceCandidates({ lookup, renderCandidate }: PlaceCandid
   }
   return (
     <ul aria-label="地点の候補" className="flex flex-col gap-0.5">
-      {candidates.map((candidate, index) => (
+      {candidates.map((candidate) => (
         <li key={`${candidate.name}:${candidate.latitude}:${candidate.longitude}`}>
           {renderCandidate(
             candidate,
-            index,
             <>
               <span className="min-w-0 flex-auto truncate">
                 {candidate.name}

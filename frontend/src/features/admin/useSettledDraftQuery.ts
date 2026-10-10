@@ -10,7 +10,7 @@ import { getQueryClient } from "@/lib/queryClient";
 
 /** 今の入力に対する答え。`failed`は今の入力の問い合わせが失敗したか——届く前と失敗を呼ぶ側が分けて出せるように返す
  * （どちらも答えが無いので、分けないと失敗が「計算中」のまま残る）。 */
-export interface SettledDraftAnswer<Response> {
+interface SettledDraftAnswer<Response> {
   data: Response | undefined;
   failed: boolean;
 }

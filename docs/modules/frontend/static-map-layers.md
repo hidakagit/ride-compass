@@ -41,7 +41,6 @@
 5分刻みで進むので、今の条件で引き直すと開いている間に評価が消える。評価は道・条件・重みをキーにキャッシュへ残り、
 同じ道を同じ条件・重みで開き直したときは押さずに前の評価を出す。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で、チップから開く軸の詳細も同じ`AxisDetail`で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査へ渡せるようにする。一般の利用者には読めない値のため常時は出さない |
 | `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（例: 道路名・路面の区分・農道・林道の等級・トンネル）をタイルのプロパティから組み立てる純関数。項目名と値の呼び名、タイルのどの属性を読むか（`tile_property`）は材料カタログ（生成物`material-catalog.json`）から引く。材料の外の列（識別子・道路名）の名前は生成物`region-tile-config.json`の`road_surface.properties`から引き、押した道のway_id・フィーチャーの鍵もここの関数（`roadWayId`・`roadFeatureKey`）で読む。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる）。路面の区分だけは値が無くても「不明」として出す——どの道でも最初に見たい項目で、行ごと消すと「舗装されていない」と読める |
-| `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `features/map/regionApi.ts`（`roadSurfaceTileUrl`/`pointTileUrl`とタイル世代の判定） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。点のレイヤーはどれも1つの配信（backend `GET /api/region/point-tiles/{layer}/...`）で、URLはレイヤー名（生成物`region-tile-config.json`の`point_layers`の鍵。タイルの世代の系統の名前でもある）で組み、source-layer名も同じ一覧から読む。世代はbackendから実行時に届き、**全系統が揃ったもの（`completeTileVersions`だけが作る`TileVersions`）でしかURLを組み立てない** |
 | `features/map/mapAxisCatalog.ts`・`useMapAxisCatalog.ts` | 軸カタログの応答のうち、地図が読むもの（公開中の軸・ramp軸・専用配信の軸・推定指標のチップ・ルートの色分けモード・事故の収録年・タイルの世代と、それらから組んだレイヤーの一覧`layers`。一覧を組むのは応答1つにつき1回で、地図と`useMapView`は同じものを読む）を導く純関数と、共有の軸カタログと同じ取得（`hooks/useAxisCatalog.ts: useAxisCatalogSelect`）から引くフック。地図がソースを作れるかの判定と、チップの縮退表示は、どちらもここのタイルの世代1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
@@ -233,7 +232,7 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 式の形であること（libertyはそう書いている）を前提にする——旧い形の絞りと式は1つの`all`に混ぜられない。
 
 重なり順は**宣言だけ**が決める（段の並びは`scene/mapScene.ts: MAP_SCENE_TIERS`）。
-宣言が自分の段を持ち、`composeScene`が段の順に並べてから`applyMapScene`が当てる——**作る側の配列の並びは順序に関係せず、レイヤーを
+宣言が自分の段を持ち、`applyMapScene`が段の順に並べて当てる——**作る側の配列の並びは順序に関係せず、レイヤーを
 足す人が挿す位置を選ばない**。同じ段の中はカタログに現れる順を保つ。
 
 段は背面から順に、面で塗るもの・推定指標の線・観測した事実の線・レンズの線・点データ・
@@ -507,8 +506,8 @@ backendが200で応答する窓では、カタログは取得済みなのに世�
 `mapLayers.ts: mapOverlayGroupFor(layer)`がチップを`category`からグループへ分類する。
 **どのレイヤーがどの`category`かは源泉が宣言する**（`domain/map_display.py`。`category`→
 グループの対応と同じ場所）——画面が持つのは描画の都合だけで、束ね方の所属はそこに入らない。
-軸スタジオ由来のレイヤー（`isAxisStudioLayer`: `dedicated_way_value_layer`軸[記述子の`axisStudioLayer`が立つ]・
-ramp軸[`dataNature==="composite"`]）は一覧の行の組み立て（`features/map/view/overlayChips.ts: overlayChips`）が
+軸スタジオ由来のレイヤー（`isAxisStudioLayer`: `dedicated_way_value_layer`軸・ramp軸。どちらも記述子の`axisStudioLayer`が立つ）は
+一覧の行の組み立て（`features/map/view/overlayChips.ts: overlayChips`）が
 **束ねる前に1か所で**除く（一覧のどこにも出さない。表示はレンズが持つ）。
 
 **暗黙の前提**: `mapOverlayGroupFor`は`category`しか見ないので、軸スタジオ由来のレイヤーは中分類を
@@ -813,7 +812,7 @@ ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタ
 
 ## 交差点密度は地図上の独立可視化レイヤーとして提供しない
 
-交差点のノードは地図に出ない。点のタイルが焼き込むのは分類器が種別（`node_materials.kind`）を
+交差点のノードは地図に出ない。点のタイルが焼き込むのは分類器が種別（`node_kinds.kind`）を
 付けた点だけで、ただの交差点はどの種別にも当たらない（材料`intersection_count_per_km`としては軸スタジオから
 引き続き選べるが、現在この材料を使う公開軸は無い）。
 

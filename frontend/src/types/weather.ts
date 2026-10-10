@@ -1,24 +1,18 @@
-// backendのOpenAPIスキーマから生成した generated/api.d.ts の再エクスポート
-// （経緯・更新手順は types/route.ts のコメント参照）。
 import type { components } from "./generated/api";
 
-export type WeatherConditions = components["schemas"]["WeatherConditions"];
+type Schemas = components["schemas"];
+
+export type WeatherConditions = Schemas["WeatherConditions"];
 // 「今日」のパネルの一定間隔のコマ（today_periods）1つぶん。
-export type WeatherPeriodOutlook = components["schemas"]["WeatherPeriodOutlook"];
-// バックエンドの応答本体（時刻配列を1本だけ持つ）。weatherApi.tsの
-// getWindGrid/getWindGridDetailが受け取る生の形で、フロント内部では使わない
-// （services/weatherApi.ts参照）。
-export type WindGridResponse = components["schemas"]["WindGridResponse"];
-// フロント内部で使う格子点の表現。バックエンドのWindGridPoint（times無し）に、
-// 応答トップレベルのtimesを合成したもの（services/weatherApi.ts: withTimes）。
-// 点ごとにtimesを持つのは、取った時刻が違う点（前回の値で補った点）が1つの格子に同居し、
+export type WeatherPeriodOutlook = Schemas["WeatherPeriodOutlook"];
+// 応答の生の形（時刻の列を格子に1本だけ持つ）。`services/weatherApi.ts: withTimes`が`WindGridPoint`へ直す。
+export type WindGridResponse = Schemas["WindGridResponse"];
+// 画面が使う格子点。点ごとにtimesを持つのは、取った時刻が違う点（前回の値で補った点）が1つの格子に同居し、
 // 時刻の列の先頭がそれぞれ違うため（値は点ごとに時刻で引く。windLayer.ts: timeIndexOf）。
-// ネットワーク上の表現とフロント内部表現をここで切り離すことで、応答サイズ削減が
-// 内部ロジックへ波及しないようにしている。
-export type WindGridPoint = components["schemas"]["WindGridPoint"] & { times: string[] };
-// 最寄りアメダス観測所の実測値。常設ヘッダー（WeatherPanel）が使う。
-export type AmedasObservation = components["schemas"]["AmedasObservation"];
+export type WindGridPoint = Schemas["WindGridPoint"] & { times: WindGridResponse["times"] };
+// 最寄りのアメダス観測所の実測値。
+export type AmedasObservation = Schemas["AmedasObservation"];
 // 警報・注意報、暑さ指数、河川氾濫予報。空の中身は「出ていない」を表す。
-export type WeatherWarnings = components["schemas"]["WeatherWarnings"];
-export type WbgtStatus = components["schemas"]["WbgtStatus"];
-export type FloodForecasts = components["schemas"]["FloodForecasts"];
+export type WeatherWarnings = Schemas["WeatherWarnings"];
+export type WbgtStatus = Schemas["WbgtStatus"];
+export type FloodForecasts = Schemas["FloodForecasts"];

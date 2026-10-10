@@ -41,7 +41,7 @@ class PointTileLayer:
         return shape_digest(self.sql, self.source_layer)
 
 
-# 種別は`node_materials.kind`（派生側の分類器が付けたもの）に信号の読み替えを済ませたもので、
+# 種別は`node_kinds.kind`（派生側の分類器が付けたもの）に信号の読み替えを済ませたもので、
 # 位置は`source_features`の点。コンビニだけは立ち寄り先の表（`stop_places`）から足し、店の名前も添える。
 _POI_KIND_EXPR = stop_kind_sql("nm")
 _POI_GROUP_EXPR = stop_poi_map_group_sql("nm")
@@ -85,9 +85,8 @@ _POI_TILE_MVT_SQL = text(
                                ELSE 'n' || p.osm_node_id END AS cluster_key,
                                NULL::text AS name
                         FROM {NODES_SOURCE_SQL} p
-                        JOIN node_materials nm ON nm.osm_node_id = p.osm_node_id
-                        WHERE nm.kind IS NOT NULL
-                          AND ST_Intersects(
+                        JOIN node_kinds nm ON nm.osm_node_id = p.osm_node_id
+                        WHERE ST_Intersects(
                               p.geom,
                               ST_Expand(
                                   ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326),

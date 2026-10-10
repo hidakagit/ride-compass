@@ -1,8 +1,8 @@
 """JMA警報・注意報API、地域マスタ(area.json)のクライアント。
 
 どちらも更新頻度が低い（area.jsonは行政区画変更でしか変わらず、
-警報自体も分単位では動かない）ため、429前提の再試行は設けない。取得失敗はNoneを返し、呼び出し元
-（warning_service.py）が「警報なし」と分けて返す。応答の形はここで解き、呼び出し元へは
+警報自体も分単位では動かない）ため、429前提の再試行は設けない。取得失敗はNoneを返し、
+「警報なし」とは分ける。応答の形はここで解き、呼び出し元へは
 `AreaMaster`・`WarningBulletin`で渡す。
 
 警報のコード→種別の名称の表は、気象庁「気象警報・注意報（Ｒ０６）」電文フォーマット解説資料の別表3
@@ -19,7 +19,7 @@ from cachetools import TTLCache
 
 from app.domain.jma_area import AreaEntry, AreaMaster
 from app.domain.jma_warning import NOT_RELEVANT_TO_CYCLING, AreaWarningKind, WarningBulletin
-from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
+from app.infrastructure.simple_api_client import cached_fetch, get_json
 
 JMA_AREA_JSON_URL = "https://www.jma.go.jp/bosai/common/const/area.json"
 JMA_WARNING_URL_TEMPLATE = "https://www.jma.go.jp/bosai/warning/data/r8/{office_code}.json"
@@ -238,11 +238,7 @@ async def fetch_area_data(client: httpx.AsyncClient, cache: TTLCache) -> AreaMas
     プロセス内で長時間キャッシュする。"""
 
     async def fetch() -> AreaMaster:
-        response = await client.get(JMA_AREA_JSON_URL, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise UnexpectedShapeError(f"area master is {type(payload).__name__}")
+        payload = await get_json(client, JMA_AREA_JSON_URL, dict, "area master is", timeout=REQUEST_TIMEOUT)
         return _parse_area_master(payload)
 
     return await cached_fetch("weather:jma-area", fetch, cache=cache, key=_AREA_DATA_CACHE_KEY)
@@ -259,11 +255,13 @@ async def fetch_warning_documents(
     （domain/jma_warning.py参照）。"""
 
     async def fetch() -> list[WarningBulletin]:
-        response = await client.get(JMA_WARNING_URL_TEMPLATE.format(office_code=office_code), timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, list):
-            raise UnexpectedShapeError(f"warning bulletins are {type(payload).__name__}")
+        payload = await get_json(
+            client,
+            JMA_WARNING_URL_TEMPLATE.format(office_code=office_code),
+            list,
+            "warning bulletins are",
+            timeout=REQUEST_TIMEOUT,
+        )
         return _parse_bulletins(payload, office_code)
 
     return await cached_fetch(

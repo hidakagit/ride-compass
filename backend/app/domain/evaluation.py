@@ -23,7 +23,7 @@ Score（難易度換算）は`domain/difficulty.py`（0-100、値が大きいほ
 """
 
 from dataclasses import dataclass
-from typing import Mapping, NamedTuple
+from typing import Container, Iterable, Mapping, NamedTuple
 
 import numpy as np
 
@@ -39,8 +39,8 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     axis_raw_value_array,
     copy_axis_definitions,
-    has_axis_raw_value_array,
     evaluate_axes_array,
+    published_axis_definitions,
     topological_axis_order,
 )
 from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
@@ -94,9 +94,7 @@ def route_facing_raw_axis_ids(definitions: dict[str, AxisDefinition]) -> list[st
     return [
         axis_id
         for axis_id in topological_axis_order(definitions)
-        if definitions[axis_id].is_published
-        and has_route_facing_raw_value(definitions[axis_id])
-        and has_axis_raw_value_array(definitions[axis_id])
+        if definitions[axis_id].is_published and has_route_facing_raw_value(definitions[axis_id])
     ]
 
 
@@ -105,14 +103,12 @@ def _published_axis_leaf_material_ids(definitions: dict[str, AxisDefinition]) ->
 
     下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。
     """
-    seen: dict[str, None] = {}
-    for axis_id in topological_axis_order(definitions):
-        definition = definitions[axis_id]
-        if not definition.is_published:
-            continue
-        for entry in axis_material_shares(definition, definitions):
-            seen.setdefault(entry.material_id, None)
-    return list(seen)
+    return list(dict.fromkeys(
+        entry.material_id
+        for axis_id in topological_axis_order(definitions)
+        if definitions[axis_id].is_published
+        for entry in axis_material_shares(definitions[axis_id], definitions)
+    ))
 
 
 def route_facing_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
@@ -134,17 +130,7 @@ def route_facing_material_ids(definitions: dict[str, AxisDefinition]) -> list[st
     `domain/traffic.py: stop_count_material_ids`）は常に含める——軸の
     公開/非公開で所要時間の中身が変わってはいけない。
     """
-    seen: dict[str, None] = {}
-    for material_id in stop_count_material_ids():
-        seen.setdefault(material_id, None)
-    for material_id in _published_axis_leaf_material_ids(definitions):
-        spec = MATERIAL_CATALOG.get(material_id)
-        if spec is None or spec.dtype == "categorical":
-            continue
-        if material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
-            continue
-        seen.setdefault(material_id, None)
-    return list(seen)
+    return _route_facing_leaf_material_ids(definitions, stop_count_material_ids(), categorical=False)
 
 
 def route_facing_categorical_material_ids(definitions: dict[str, AxisDefinition]) -> list[str]:
@@ -157,10 +143,19 @@ def route_facing_categorical_material_ids(definitions: dict[str, AxisDefinition]
     走行モデルが転がり抵抗に使う材料（`domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`）は、
     軸が参照していなくても常に含める（理由は`route_facing_material_ids`の停止の待ちと同じ）。
     """
-    seen: dict[str, None] = {ROLLING_RESISTANCE_MATERIAL_ID: None}
+    return _route_facing_leaf_material_ids(definitions, (ROLLING_RESISTANCE_MATERIAL_ID,), categorical=True)
+
+
+def _route_facing_leaf_material_ids(
+    definitions: dict[str, AxisDefinition], always: Iterable[str], *, categorical: bool
+) -> list[str]:
+    """`always`のあとに、公開軸の葉の材料のうちcategoricalかどうかが`categorical`に合うもの（動的材料を除く）を安定順で並べる。"""
+    seen: dict[str, None] = dict.fromkeys(always)
     for material_id in _published_axis_leaf_material_ids(definitions):
         spec = MATERIAL_CATALOG.get(material_id)
-        if spec is None or spec.dtype != "categorical":
+        if spec is None or (spec.dtype == "categorical") != categorical:
+            continue
+        if material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
             continue
         seen.setdefault(material_id, None)
     return list(seen)
@@ -190,17 +185,15 @@ def displayed_material_ids(weights: Mapping[str, float]) -> set[str]:
         # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
         # 内部軸を経由する軸の内訳が1件も運ばれない。
         material_ids.update(entry.material_id for entry in axis_material_shares(definition, AXIS_DEFINITIONS))
-    for definition in AXIS_DEFINITIONS.values():
-        if not definition.is_published:
-            continue
+    for definition in published_axis_definitions(AXIS_DEFINITIONS):
         value = map_paint(definition).value
         if isinstance(value, SignedMaterialMapValue) and is_known_material(value.material):
             material_ids.add(value.material)
     return material_ids
 
 
-def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
-    """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/値なし）で確保する。
+def _empty_material_arrays(n: int, present: Container[str]) -> dict[str, MaterialColumn]:
+    """`MATERIAL_CATALOG`のうち`present`に無い材料の配列を、材料ごとの既定値（NaN/値なし）で確保する。
 
     **SQL式（`value_sql`）を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
     `MaterialTerm`等で参照する軸は軸スタジオから素朴に作れてしまい
@@ -211,6 +204,8 @@ def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
     """
     arrays: dict[str, MaterialColumn] = {}
     for spec in MATERIAL_CATALOG.values():
+        if spec.material_id in present:
+            continue
         if spec.dtype == "categorical":
             arrays[spec.material_id] = CategoricalColumn(np.zeros(n, dtype=np.int16), (None,))
         else:  # numeric・boolean（真偽も数値の行列と同じく1.0/0.0/NaNで持つ）
@@ -422,7 +417,7 @@ def build_static_edge_score_matrix(
 
     材料はDBが導出済み（`MaterialSpec.value_sql`）で、事故の収録年数による正規化もその
     導出の中で既に効いている。軸が読む材料の列は`MATERIAL_CATALOG`全材料ぶん確保する
-    （`_empty_material_arrays`へ重ねる）。
+    （DBにも観測にも無い材料は`_empty_material_arrays`で埋める）。
 
     `observed_materials`は、DBではなく生成の時点の外部の観測から区間ごとに引いた材料（雨。材料id→
     切り出した区間の順の配列）。走行の向きにも通過の時刻にも依らないため、DBの材料と同じ列として
@@ -438,9 +433,8 @@ def build_static_edge_score_matrix(
     # 軸の保存がこの間に`AXIS_DEFINITIONS`を差し替えても、この行列の列は1つの軸の集合から組む。
     definitions = copy_axis_definitions()
     n = len(materials)
-    material_arrays = _empty_material_arrays(n)
-    material_arrays.update(materials.columns())
-    material_arrays.update(observed_materials)
+    material_arrays: dict[str, MaterialColumn] = {**materials.columns(), **observed_materials}
+    material_arrays.update(_empty_material_arrays(n, material_arrays))
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
     axis_scores_by_id = evaluate_axes_array(material_arrays, definitions)
     # 合成の対象（axis_arrays）は公開軸だけ。内部軸は公開軸の材料として読まれるだけで、

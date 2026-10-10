@@ -14,7 +14,6 @@ from app.domain.route_request import (
     NoDistanceTarget,
     RouteTarget,
     SplicedTarget,
-    applied_max_routes,
 )
 from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
@@ -92,7 +91,7 @@ class GeneratedRoutes:
     no_candidates_reason: str | None
     # 目的地を道路網の届く点へ補正したときの座標（`RouteGenerator.last_destination_correction`）。
     corrected_destination: Coordinates | None
-    # 実際に使った候補数の上限。
+    # 候補数の上限。
     max_routes: int
     conditions: AppliedConditions
 
@@ -110,8 +109,6 @@ async def generate_route_candidates(
 
     仕上げの戦略は要求の検証が型で選び済みで、ここは型ごとの入口へ渡すだけ（距離の有無を見直さない）。
     """
-    has_waypoints = isinstance(target, NoDistanceTarget) and bool(target.points.waypoints)
-    applied_max = applied_max_routes(max_routes, has_waypoints=has_waypoints)
     async with open_setup() as setup:
         generator = setup.generator
         match target:
@@ -129,7 +126,7 @@ async def generate_route_candidates(
                     waypoints=target.points.waypoints,
                     distance_km=target.distance_km,
                     destination=target.points.destination,
-                    max_routes=applied_max,
+                    max_routes=max_routes,
                     start_time=start_time,
                 )
             case DistanceTarget():
@@ -137,8 +134,9 @@ async def generate_route_candidates(
                     origin=origin,
                     distance_km=target.distance_km,
                     distance_tolerance_km=distance_tolerance_km,
-                    max_routes=applied_max,
+                    max_routes=max_routes,
                     start_time=start_time,
+                    points=target.points,
                 )
             case _:
                 assert_never(target)
@@ -146,6 +144,6 @@ async def generate_route_candidates(
             candidates=candidates,
             no_candidates_reason=generator.last_no_candidates_reason if not candidates else None,
             corrected_destination=generator.last_destination_correction,
-            max_routes=applied_max,
+            max_routes=max_routes,
             conditions=setup.conditions,
         )

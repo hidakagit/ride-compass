@@ -26,7 +26,6 @@ from app.domain.axis_definitions import (
     check_axis_definition,
     first_term_points,
     named_references,
-    referenced_materials,
     weight_share_when_published,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
@@ -46,6 +45,11 @@ def _axis_not_found() -> HTTPException:
         status_code=status.HTTP_404_NOT_FOUND,
         detail="この軸はもうありません（ほかの画面で削除された可能性があります）。一覧を読み直してください。",
     )
+
+
+def _conflict(exc: ValueError) -> HTTPException:
+    """登録・更新・削除がほかの軸との不変条件で断られた。例外の文をそのまま返す。"""
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 class AxisDefinitionPayload(AxisDefinition):
@@ -78,7 +82,7 @@ class AxisDefinitionPayload(AxisDefinition):
         """
         if not self.dedicated_way_value_layer:
             return self
-        materials = referenced_materials(self.shape, self.priority_overrides)
+        materials = self.materials
         if served_dedicated_way_value_material(materials) is None:
             raise axis_error(
                 "専用配信の軸は、配信の実装がある材料をちょうど1つだけ指す必要があります"
@@ -147,7 +151,7 @@ async def create_axis_definition(
     try:
         definitions = await service.create(definition)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _conflict(exc) from exc
     return _to_response(definition, definitions)
 
 
@@ -169,7 +173,7 @@ async def update_axis_definition(
     except ValueError as exc:
         # 公開済み軸の更新拒否（AxisPublishedImmutableError）と材料の
         # 排他チェック（AxisMaterialConflictError）の両方がここを通る。
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _conflict(exc) from exc
     return _to_response(definition, definitions)
 
 
@@ -182,7 +186,7 @@ async def delete_axis_definition(
     except KeyError as exc:
         raise _axis_not_found() from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _conflict(exc) from exc
 
 
 @router.post("/{axis_id}/unpublish")
@@ -246,14 +250,14 @@ async def preview_scores(payload: ScoresPreviewRequest) -> ScoresPreviewResponse
     画面で作り直すと、評価と画面で同じ折れ点に別の点数が付きうる（同じxの点が並ぶところ等）。
     """
     return ScoresPreviewResponse(
-        scores=[payload.shape.score_at(x) for x in payload.xs],
+        scores=payload.shape.scores_at(payload.xs),
         material_points=first_term_points(payload.shape, payload.material_values),
     )
 
 
 class DisplayThresholdsPreviewRequest(StrictModel):
     """段の境界の下書きの問い合わせ。段を決めるのに要る入力だけを受け取る
-    （`domain/axis_display.py: thresholds_the_map_drops`）。"""
+    （`domain/axis_display.py: bands_the_map_keeps`）。"""
 
     axis_id: str = Field(min_length=1)
     shape: AxisShape
@@ -280,8 +284,7 @@ async def preview_display_thresholds(payload: DisplayThresholdsPreviewRequest) -
 
     判定は保存後に地図が段を作るのと同じ関数で行い、軸スタジオは結果を印として出すだけにする。
     """
-    args = (payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds)
+    bands = bands_the_map_keeps(payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds)
     return DisplayThresholdsPreviewResponse(
-        dropped_on_map=thresholds_the_map_drops(*args),
-        bands_on_map=bands_the_map_keeps(*args),
+        dropped_on_map=thresholds_the_map_drops(payload.thresholds, bands), bands_on_map=bands
     )

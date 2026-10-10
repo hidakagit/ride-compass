@@ -2,12 +2,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { jst } from "@/testing/jst";
+import { vocabulary } from "@/types/generated/vocabulary";
 import type { AmedasObservation } from "@/types/weather";
 
 import WeatherPanel from "./WeatherPanel";
-import { WEATHER_CATEGORY_LABEL } from "./weatherCode";
 
-const NOW = new Date("2026-09-24T12:00:00+09:00");
+const NOW = jst("2026-09-24T12:00");
 
 const observation = (overrides: Partial<AmedasObservation> = {}) =>
   ({
@@ -82,17 +83,34 @@ describe("WeatherPanel 観測値", () => {
     expect(screen.queryByText("降水量:")).not.toBeInTheDocument();
   });
 
+  it.each([
+    { missing: "なし", overrides: {}, expected: ["気温", "|", "東の風", "|", "降水量", "|", "天気"] },
+    { missing: "風", overrides: { wind_speed_ms: null }, expected: ["気温", "|", "降水量", "|", "天気"] },
+    {
+      missing: "風・降水量・天気",
+      overrides: { wind_speed_ms: null, precipitation_10min_mm: null, weather_code: null },
+      expected: ["気温"],
+    },
+  ])("区切り線は、出ている項目どうしの間にだけ出る（欠け: $missing）", ({ overrides, expected }) => {
+    render(<WeatherPanel amedas={observation(overrides)} loading={false} error={null} />);
+    const row = screen.getByRole("button").firstElementChild!;
+    const shown = Array.from(row.children).map((child) =>
+      child.getAttribute("aria-hidden") === "true" ? "|" : child.querySelector(".sr-only")!.textContent!.split(":")[0],
+    );
+    expect(shown).toEqual(expected);
+  });
+
   it("天気はbackendが実測から導いたコードで出し、日の出から日の入りまでを昼とする", () => {
     const { unmount } = render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
     const dayIcon = screen.getByText(/^天気:/).parentElement!.innerHTML;
     unmount();
-    vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
+    vi.setSystemTime(jst("2026-09-24T20:00"));
     render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
     expect(screen.getByText(/^天気:/).parentElement!.innerHTML).not.toBe(dayIcon);
   });
 
   it("日の出・日の入りが分からなければ昼として扱う", () => {
-    vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
+    vi.setSystemTime(jst("2026-09-24T20:00"));
     const { unmount } = render(<WeatherPanel amedas={observation({ twilight: null })} loading={false} error={null} />);
     const unknown = screen.getByText(/^天気:/).parentElement!.innerHTML;
     unmount();
@@ -136,7 +154,8 @@ describe("WeatherPanel 観測の出所", () => {
     expect(panel).toHaveTextContent("気温21.4℃（体感 20.0℃）");
     expect(panel).toHaveTextContent("風東の風 3.3m/s");
     expect(panel).toHaveTextContent("降水量1.3mm（直近10分間）");
-    expect(panel).toHaveTextContent(`天気${WEATHER_CATEGORY_LABEL.clear}`);
+    const clear = vocabulary.weatherCategories.find((category) => category.key === "clear")!;
+    expect(panel).toHaveTextContent(`天気${clear.label}`);
   });
 
   it("体感温度・風・降水量・天気が無ければ、パネルにもその行を出さない", async () => {

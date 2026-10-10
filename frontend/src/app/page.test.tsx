@@ -43,7 +43,7 @@ import { serveGenerationJobs } from "@/testing/generationJobs";
 import { mapOnScreen, type PointedFeature } from "@/testing/maplibre";
 import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { Coordinates, RouteCandidate } from "@/types/route";
-import type { AxisInspectorResult } from "@/types/traffic";
+import type { AxisInspectorResult } from "@/features/map/regionApi";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
@@ -202,8 +202,17 @@ function renderHome() {
   return { user, ...rendered };
 }
 
+type User = ReturnType<typeof userEvent.setup>;
+
+/** 「地図に出す情報」の一覧で道路のレイヤー（路面の種類）を出す。 */
+async function showRoadSurface(user: User) {
+  await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
+  await user.click(screen.getByRole("checkbox", { name: "路面の種類" }));
+  await user.keyboard("{Escape}");
+}
+
 /** 「ルート生成」を押し、出した要求を返す。 */
-async function generate(user: ReturnType<typeof userEvent.setup>) {
+async function generate(user: User) {
   const before = jobs.submitted.length;
   await user.click(screen.getByRole("button", { name: "ルート生成" }));
   await waitFor(() => expect(jobs.submitted).toHaveLength(before + 1));
@@ -215,7 +224,7 @@ function candidateTabs() {
 }
 
 /** 全消去の確認の窓で「消す」を押す。 */
-async function confirmClear(user: ReturnType<typeof userEvent.setup>) {
+async function confirmClear(user: User) {
   const dialog = screen.getByRole("dialog", { name: "候補をすべて消します" });
   await user.click(within(dialog).getByRole("button", { name: "消す" }));
 }
@@ -303,9 +312,7 @@ describe("ルートを作る", () => {
     fireEvent.change(await screen.findByLabelText("出発日時を直接指定"), { target: { value: "2026-10-05T09:00" } });
 
     // 道を押せるのは、道路のレイヤーを出している間。
-    await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
-    await user.click(screen.getByRole("checkbox", { name: "路面の種類" }));
-    await user.keyboard("{Escape}");
+    await showRoadSurface(user);
     clickMap(HERE, [{ layer: "road-tiles-surface", properties: { osm_way_id: 1 } }]);
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
     expect(await screen.findByText(/この道だけで見た難易度/)).toBeInTheDocument();
@@ -523,7 +530,7 @@ describe("地図で扱えること", () => {
     });
 
     /** 目的地を置いて2本の候補を作る。 */
-    async function generateTwo(user: ReturnType<typeof userEvent.setup>) {
+    async function generateTwo(user: User) {
       await user.click(screen.getByRole("radio", { name: "目的地" }));
       clickMap(DESTINATION);
       jobs.respond([BASE, OTHER], DESTINATION_CONDITIONS);
@@ -531,7 +538,7 @@ describe("地図で扱えること", () => {
     }
 
     /** 先頭の候補で編集を始める。 */
-    async function startEditing(user: ReturnType<typeof userEvent.setup>) {
+    async function startEditing(user: User) {
       await user.click(await screen.findByRole("button", { name: "ルートを合成" }));
       await waitFor(() => expect(mapOnScreen().sourceFeatures("route-splice-bands").length).toBeGreaterThan(0));
     }
@@ -596,9 +603,7 @@ describe("地図で扱えること", () => {
       mapOnScreen()
         .visibleLayerIds()
         .filter((id) => !id.startsWith("route-"));
-    await user.click(screen.getByRole("button", { name: "地図に出す情報" }));
-    await user.click(screen.getByRole("checkbox", { name: "路面の種類" }));
-    await user.keyboard("{Escape}");
+    await showRoadSurface(user);
     expect(nonRouteLayers()).not.toEqual([]);
     const routeLayers = mapOnScreen()
       .visibleLayerIds()

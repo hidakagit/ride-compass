@@ -1,4 +1,6 @@
+from collections.abc import Awaitable
 from datetime import datetime
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
@@ -41,8 +43,23 @@ router = APIRouter()
 
 # 警報系バッジの失敗の文。画面は出所の名前を前に付けて出す（「警報・注意報: 取得できませんでした。」）。
 _BADGE_SOURCE_UNAVAILABLE = "取得できませんでした。"
-_AREA_UNAVAILABLE = "対象範囲を読めませんでした"
-_GRID_UNAVAILABLE = "気象データの取得に失敗しました"
+
+_T = TypeVar("_T")
+
+
+def _or_502(value: _T | None, detail: str) -> _T:
+    if value is None:
+        raise HTTPException(status_code=502, detail=detail)
+    return value
+
+
+async def _grid_or_502(grid: Awaitable[WindGridResponse]) -> WindGridResponse:
+    try:
+        return await grid
+    except WindGridAreaUnavailable:
+        raise HTTPException(status_code=502, detail="対象範囲を読めませんでした") from None
+    except WindGridUnavailable:
+        raise HTTPException(status_code=502, detail="気象データの取得に失敗しました") from None
 
 
 @router.get("/api/weather", response_model=WeatherConditions)
@@ -56,10 +73,10 @@ async def get_weather(
     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
     `GET /api/weather/amedas`が担う。"""
     enforce_rate_limit(http_request, "weather", settings.weather_rate_limit_per_minute)
-    conditions = await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude))
-    if conditions is None:
-        raise HTTPException(status_code=502, detail="天候情報の取得に失敗しました")
-    return conditions
+    return _or_502(
+        await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude)),
+        "天候情報の取得に失敗しました",
+    )
 
 
 @router.get("/api/weather/warnings", response_model=WeatherWarnings)
@@ -72,10 +89,10 @@ async def get_weather_warnings(
     """出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す。
     地点→区域→警報エリアの解決か、警報自体の取得に失敗したら502（空の応答は「警報なし」だけを表す）。"""
     enforce_rate_limit(http_request, "weather-warnings", settings.weather_warnings_rate_limit_per_minute)
-    warnings = await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
-    if warnings is None:
-        raise HTTPException(status_code=502, detail=_BADGE_SOURCE_UNAVAILABLE)
-    return warnings
+    return _or_502(
+        await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude)),
+        _BADGE_SOURCE_UNAVAILABLE,
+    )
 
 
 @router.get("/api/weather/wbgt", response_model=WbgtStatus)
@@ -89,10 +106,10 @@ async def get_wbgt(
     「ほぼ安全」（21未満）と、提供期間の外で今の時刻の値が得られないときは空（reading=None）。
     提供期間の中で地点解決・取得に失敗したか今の時刻の値が得られなければ502。"""
     enforce_rate_limit(http_request, "weather-wbgt", settings.weather_wbgt_rate_limit_per_minute)
-    status = await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude), datetime.now(JST))
-    if status is None:
-        raise HTTPException(status_code=502, detail=_BADGE_SOURCE_UNAVAILABLE)
-    return status
+    return _or_502(
+        await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude), datetime.now(JST)),
+        _BADGE_SOURCE_UNAVAILABLE,
+    )
 
 
 @router.get("/api/weather/flood-forecast", response_model=FloodForecasts)
@@ -107,10 +124,10 @@ async def get_flood_forecast(
     enforce_rate_limit(
         http_request, "weather-flood-forecast", settings.weather_flood_forecast_rate_limit_per_minute
     )
-    forecasts = await flood_service.get_forecasts(Coordinates(latitude=latitude, longitude=longitude))
-    if forecasts is None:
-        raise HTTPException(status_code=502, detail=_BADGE_SOURCE_UNAVAILABLE)
-    return forecasts
+    return _or_502(
+        await flood_service.get_forecasts(Coordinates(latitude=latitude, longitude=longitude)),
+        _BADGE_SOURCE_UNAVAILABLE,
+    )
 
 
 @router.get("/api/weather/amedas", response_model=AmedasObservation)
@@ -124,10 +141,10 @@ async def get_amedas(
     観測値本体はRedis Hash（TTL 15分）でキャッシュされる（infrastructure/jma_amedas_store.py参照）。
     観測所解決・取得のいずれかに失敗した場合は502を返す。"""
     enforce_rate_limit(http_request, "amedas", settings.weather_amedas_rate_limit_per_minute)
-    observation = await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude))
-    if observation is None:
-        raise HTTPException(status_code=502, detail="アメダス観測値の取得に失敗しました")
-    return observation
+    return _or_502(
+        await amedas_service.get_nearest_observation(Coordinates(latitude=latitude, longitude=longitude)),
+        "アメダス観測値の取得に失敗しました",
+    )
 
 
 @router.get("/api/weather/wind-grid", response_model=WindGridResponse)
@@ -141,12 +158,7 @@ async def get_wind_grid(
     時刻配列はpoints内の各点からは外し、応答トップレベルに1本だけ持つ
     （WindGridResponseのdocstring参照）。"""
     enforce_rate_limit(http_request, "wind-grid", settings.wind_grid_rate_limit_per_minute)
-    try:
-        return await wind_grid_service.get_grid()
-    except WindGridAreaUnavailable:
-        raise HTTPException(status_code=502, detail=_AREA_UNAVAILABLE) from None
-    except WindGridUnavailable:
-        raise HTTPException(status_code=502, detail=_GRID_UNAVAILABLE) from None
+    return await _grid_or_502(wind_grid_service.get_grid())
 
 
 @router.get("/api/weather/wind-grid-detail", response_model=WindGridResponse)
@@ -175,10 +187,6 @@ async def get_wind_grid_detail(
     if spacing_deg < WIND_GRID_DETAIL_MIN_SPACING_DEG:
         raise HTTPException(status_code=400, detail="spacing_degの値が不正です。")
     try:
-        return await wind_grid_service.get_detail_grid(bbox, spacing_deg)
+        return await _grid_or_502(wind_grid_service.get_detail_grid(bbox, spacing_deg))
     except WindGridTooLarge:
         raise HTTPException(status_code=400, detail="表示範囲が広すぎます。ズームインしてください。") from None
-    except WindGridAreaUnavailable:
-        raise HTTPException(status_code=502, detail=_AREA_UNAVAILABLE) from None
-    except WindGridUnavailable:
-        raise HTTPException(status_code=502, detail=_GRID_UNAVAILABLE) from None

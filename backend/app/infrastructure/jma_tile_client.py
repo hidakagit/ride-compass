@@ -143,10 +143,7 @@ class JmaTileClient:
                 content_type = response.headers.get("content-type", "application/octet-stream")
                 content = recolored(path, response.content)
                 result = (content, content_type)
-                if is_target_times:
-                    self._shared.target_times[path] = result
-                else:
-                    await jma_tile_redis_cache.set(path, content, content_type)
+                await self.store(path, content, content_type)
         if not_found:
             raise JmaTileNotFoundError(path)
         return result

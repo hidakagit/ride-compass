@@ -12,7 +12,7 @@ import {
   type RouteStyleMode,
 } from "@/lib/mapDisplay/routeStyleModes";
 import { completeTileVersions, type TileVersions } from "@/features/map/regionApi";
-import { buildMapLayers, type MapLayerDescriptor } from "@/features/map/layers/mapLayers";
+import { buildMapLayers, NO_AXES, type MapLayerDescriptor } from "@/features/map/layers/mapLayers";
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogResponse } from "@/types/route";
 
@@ -37,13 +37,11 @@ export interface MapAxisCatalog {
 }
 
 // 取得できるまでは軸が1つも無く、タイルの世代も無い状態（ビルド時の写しで埋めない）。
-const NO_LAYER_AXES = { axes: [], rampAxes: [], dedicatedAxes: [], accidentYears: [] };
-
 export const EMPTY_MAP_AXIS_CATALOG: MapAxisCatalog = {
-  ...NO_LAYER_AXES,
+  ...NO_AXES,
   routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
   tileVersions: null,
-  layers: buildMapLayers(NO_LAYER_AXES),
+  layers: buildMapLayers(NO_AXES),
 };
 
 export function mapAxisCatalogFromResponse(response: AxisCatalogResponse): MapAxisCatalog {

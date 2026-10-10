@@ -3,7 +3,7 @@
 式は派生の段がDBで実行するので、ここでもDBで実行して答えを見る。入力は`VALUES`で与え、表は使わない。
 
 ここで見ないもの:
-- 決めた向きを道の材料の表へ書くこと → 派生の段（`batch/derive_way_materials.py`）の責務
+- 決めた向きを道の通行方向の表へ書くこと → 派生の段（`batch/derive_way_directions.py`）の責務
 """
 
 import json

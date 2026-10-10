@@ -3,12 +3,8 @@
 
 import { drawSdfIcon } from "@/features/map/layers/sdfIcon";
 
-// 風の矢印は、バックエンドの格子点マップAPI（GET /api/weather/wind-grid、気象庁MSM
-// REST地点評価と同じ仕組み）が返す風向・風速をMapLibre標準のGeoJSON source + symbol
-// レイヤーで描画する。矢印アイコンは独自定義（createWindArrowIcon、白いシルエットを
-// sdf:trueで登録しicon-colorで着色）で、向き（icon-rotate）・長さ+太さ（icon-size、
-// アイコン全体を一様スケールするため両方同時に変わる）・色（icon-color、連続
-// グラデーション）のすべてを風速から自由に設定できる。
+// 矢印は白いシルエットをsdf:trueで登録し、icon-colorで着色する。向き（icon-rotate）・長さと太さ（icon-size。
+// アイコン全体を一様に拡縮するので両方同時に変わる）・色（icon-color）を、描く側が風速から決められる。
 const WIND_ARROW_SIZE_PX = 32;
 
 interface Point2D {
@@ -27,8 +23,7 @@ function cubicBezierPoint(p0: Point2D, p1: Point2D, p2: Point2D, p3: Point2D, t:
 /** 3次ベジェ曲線p0→p3ぶんの帯（先端に向けて太さがwidthStart→widthEndへ線形に変わる
  * リボン状の塗り）を描く。曲線の接線に垂直な方向へオフセットした左右の縁を辿って
  * 1つの閉じたパスにする（オフセット曲線の厳密解ではなく、区間を細かく刻んだ近似）。
- * 気流のストリームライン（下記createWindArrowIcon参照、風であることを地図上の
- * オブジェクトと区別して表現する意図）を描くための汎用ヘルパー。 */
+ * 気流のストリームライン（風であることを地図上のオブジェクトと区別して表す）を描くための汎用ヘルパー。 */
 function fillTaperedRibbon(
   ctx: CanvasRenderingContext2D,
   p0: Point2D,
