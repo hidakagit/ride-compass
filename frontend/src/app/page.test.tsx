@@ -43,7 +43,7 @@ import { serveGenerationJobs } from "@/testing/generationJobs";
 import { mapOnScreen, type PointedFeature } from "@/testing/maplibre";
 import { makeGenerationConditions, makeRouteCandidate, makeRouteSegment } from "@/testing/routeFixtures";
 import type { Coordinates, RouteCandidate } from "@/types/route";
-import type { AxisInspectorResult } from "@/types/traffic";
+import type { AxisInspectorResult } from "@/features/map/regionApi";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
