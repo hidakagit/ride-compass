@@ -1,11 +1,16 @@
 // Claude の道具がステータスを動かす。ほかの経路と同じ照らし（rules.js: judge）で見て、通れば書く。
 // 同じタスクを触るのが1者だけなのは、担当のワークフローのグループ（.github/workflows/claude-task.yml の concurrency）が守る。
 import { readTask, setField } from "./github.js";
-import { checkQuestion, judge, normalize, SCAN } from "./rules.js";
+import { checkQuestion, isExchange, judge, normalize, SCAN } from "./rules.js";
+
+const read = (gh, config, number) => readTask(gh, config, { number }, { comments: SCAN });
 
 // comment を渡すと、そのコメントを書いてから動かす（同じ要求で）。
-export async function moveTask(gh, config, number, to, { comment, dryRun = false } = {}) {
-  const { project, issue } = await readTask(gh, config, { number }, { comments: SCAN });
+export async function moveTask(gh, config, number, to, options) {
+  return moveRead(gh, config, number, to, await read(gh, config, number), options);
+}
+
+async function moveRead(gh, config, number, to, { project, issue }, { comment, dryRun = false } = {}) {
   if (!issue?.item || issue.state !== "OPEN") throw new Error(`#${number} は ${config.repository} の Project の開いた件ではありません。`);
   const verdict = judge(config, issue.status, to, { close: to === config.done ? "COMPLETED" : undefined, body: issue.body, comments: [...issue.comments.nodes.map((c) => c.body), comment] });
   if (!verdict.ok) throw new Error(verdict.reason);
@@ -20,10 +25,11 @@ export async function moveTask(gh, config, number, to, { comment, dryRun = false
 export async function askTask(gh, config, number, question) {
   const problems = checkQuestion(config.questionTemplate, question);
   if (problems.length) throw new Error(`問いが形（tools/flow-gate/question_template.md）に合いません: ${problems.join("・")}`);
-  const { issue } = await readTask(gh, config, { number }, { comments: SCAN });
-  const last = issue?.comments.nodes.findLast((c) => /^## (問い|回答)\n/.test(normalize(c.body)));
+  const task = await read(gh, config, number);
+  const { issue } = task;
+  const last = issue?.comments.nodes.findLast((c) => isExchange(c.body));
   const comment = last && normalize(last.body).trim() === question ? undefined : question;
-  if (issue?.state !== "OPEN" || issue.status !== config.waiting) return moveTask(gh, config, number, config.waiting, { comment });
+  if (issue?.state !== "OPEN" || issue.status !== config.waiting) return moveRead(gh, config, number, config.waiting, task, { comment });
   if (comment) await gh.write([["addComment", { subjectId: issue.id, body: comment }]]);
   return `#${number}: 回答待ちのまま${comment ? "問い直した" : "（同じ問いがあるので書かなかった）"}`;
 }
