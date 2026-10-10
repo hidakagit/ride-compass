@@ -26,8 +26,9 @@ async function setField(gh, config, world, item, name, option) {
 }
 
 // 1つのタスクを決め直して、今と違う所だけを書く。本文（ボタン）は問いのコメントより先に書く（要件 R13）。閉じるのは最後。
-export async function settle(gh, config, number, runs) {
-  const f = await readFacts(gh, config, number, runs);
+// moved は、ユーザーがボードでステータスを動かした出来事で決め直すとき（戻したら知らせる）。
+export async function settle(gh, config, number, runs, moved = false) {
+  const f = { ...(await readFacts(gh, config, number, runs)), moved };
   const d = decide(f, config);
   const issue = `/repos/${config.tasks}/issues/${number}`;
   const patch = { ...(d.open && !f.open ? { state: "open" } : {}), ...(d.type !== f.type ? { type: d.type } : {}), ...(d.body !== norm(f.body) ? { body: d.body } : {}) };
@@ -69,7 +70,7 @@ export async function route(gh, config, name, p) {
     const ours = await Promise.all(Object.keys(config.boards).map((w) => board(gh, config, w)));
     if (!ours.some((b) => b.id === p.projects_v2_item.project_node_id)) return { numbers: [] };
     const node = (await gh.gql(`query($id:ID!){node(id:$id){...on Issue{number}}}`, { id: p.projects_v2_item.content_node_id })).node;
-    return { numbers: node?.number ? [node.number] : [] };
+    return { numbers: node?.number ? [node.number] : [], moved: p.sender?.login === config.user };
   }
   if (name === "schedule") return { numbers: await mismatched(gh, config), free: true }; // 定時の突き合わせ（src/index.js: scheduled）
   return { numbers: [] };
@@ -78,9 +79,9 @@ export async function route(gh, config, name, p) {
 // 担当の枠が空いたか、決め直したタスクが振り出せるステータスへ来たら、振り出す。
 export async function handleEvent(env, config, name, payload) {
   const gh = await GitHub.app(env, config.installation);
-  const { numbers, free } = await route(gh, config, name, payload);
+  const { numbers, free, moved } = await route(gh, config, name, payload);
   if (!numbers.length && !free) return;
   const runs = readRuns(gh, config);
-  const settled = await Promise.all(numbers.map((n) => settle(gh, config, n, runs)));
+  const settled = await Promise.all(numbers.map((n) => settle(gh, config, n, runs, moved)));
   if (free || settled.some((d) => d.status !== d.before && DISPATCH[d.status])) await dispatch(gh, config, await runs);
 }

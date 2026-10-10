@@ -120,6 +120,12 @@ test("答えの読み: 見送るは見送りで閉じ、保留するは保留、
   assert.deepEqual([closed.status, closed.open, closed.closeAs], ["完了", false, "NOT_PLANNED"]);
 });
 
+test("ユーザーのボードの移動を事実へ戻したら知らせ、受けた移動では知らせない（約束1）", () => {
+  assert.match(decide(f({ status: "完了", moved: true }), config).notice, /ボードで「完了」へ動かしましたが、事実から「未着手」にしました/);
+  assert.equal(decide(f({ status: "保留", moved: true }), config).notice, null);
+  assert.equal(decide(f({ status: "完了" }), config).notice, null, "ボードの移動でない決め直しでは知らせない");
+});
+
 test("振り出す担当の種類（R14・R17: CI待ちは枠を使わず振り出さない）", () => {
   const rows = [
     [f({ status: "未着手" }), "作る"],

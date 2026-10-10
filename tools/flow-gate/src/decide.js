@@ -18,17 +18,19 @@ export function decide(f, config) {
   const missing = (s.fix ?? []).filter((l) => !body.includes(`] ${l}`));
   if (missing.length) body = `${body.trimEnd()}\n${missing.map((l) => `- [ ] ${l}`).join("\n")}\n`;
   return { board, type, status: s.status, open: s.status !== "完了", closeAs: s.closeAs ?? f.closedAs ?? "COMPLETED", ask: s.ask ?? null, cancel: s.cancel ?? [],
-    notice: notice(f),
+    notice: notice(f, s.status),
     ready: s.status === "検証待ち" && Boolean(f.pr?.draft), assigned: WAIT.includes(s.status), priority: f.priority ?? (f.parent ? f.parentPriority : null),
     body: s.status === "回答待ち" ? withButton(body, config, f.number) : body };
 }
 
-// 受け入れなかった書き込みは、黙らずに1つのコメントで知らせる（形に合わない問い・印の間の見知らぬ行・形の合わない着手可能日時）。
-// 直るまで同じ知らせを重ねないよう、最新のコメントが同じ知らせなら書かない。
-function notice(f) {
+// 受け入れなかった書き込みは、黙らずに1つのコメントで知らせる（形に合わない問い・印の間の見知らぬ行・形の合わない着手可能日時・
+// 事実へ戻したユーザーのボードの移動）。直るまで同じ知らせを重ねないよう、最新のコメントが同じ知らせなら書かない。
+function notice(f, status) {
   const text = [f.badQuestion?.length && `この問いは形に合わないので、問いとして読みません: ${f.badQuestion.join("・")}`,
     splitBody(f.body).foreign.length && "本文の先頭の印の間に、ゲートの書かない行があったので、消さずに印の外へ出しました。",
-    f.badStart && "着手可能日時の形が合わないので受け付けず、その間は振り出しません（`YYYY-MM-DD HH:MM` か `YYYY-MM-DD`。日本時間）。"].filter(Boolean).join("\n\n");
+    f.badStart && "着手可能日時の形が合わないので受け付けず、その間は振り出しません（`YYYY-MM-DD HH:MM` か `YYYY-MM-DD`。日本時間）。",
+    f.moved && f.status && status !== f.status && `ボードで「${f.status}」へ動かしましたが、事実から「${status}」にしました（ユーザーが直接決められるのは、保留と、完了（完了の条件が全部済んだときの完成か、見送り）だけです）。`,
+  ].filter(Boolean).join("\n\n");
   return text && text !== f.lastComment ? text : null;
 }
 
