@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from io import BytesIO
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageColor
 
 from app.config import settings
 from app.domain.landcover import LANDCOVER_CLASSES
@@ -70,12 +70,7 @@ _last_open_attempt = 0.0
 #: クラスは透明のまま残る。
 _PALETTE = np.zeros((256, 4), dtype=np.uint8)
 for _cls in (c for c in LANDCOVER_CLASSES if c.painted):
-    _PALETTE[_cls.value] = (
-        int(_cls.color[1:3], 16),
-        int(_cls.color[3:5], 16),
-        int(_cls.color[5:7], 16),
-        255,
-    )
+    _PALETTE[_cls.value] = (*ImageColor.getrgb(_cls.color), 255)
 
 
 def _open_sources() -> list[_RasterSource]:
@@ -150,15 +145,15 @@ def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, fl
     return data, base * base.scale(window.width / data.shape[1], window.height / data.shape[0])
 
 
-def _encode_png(image: Image.Image) -> bytes:
+def empty_tile_png() -> bytes:
+    """全面透明のPNG（ラスタが覆わない範囲へ返す空タイル）。"""
+    return _png(Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0)))
+
+
+def _png(image: Image.Image) -> bytes:
     buffer = BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
-
-
-def empty_tile_png() -> bytes:
-    """全面透明のPNG（ラスタが覆わない範囲へ返す空タイル）。"""
-    return _encode_png(Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0)))
 
 
 def has_sources() -> bool:
@@ -226,4 +221,4 @@ def render_tile(z: int, x: int, y: int) -> bytes | None:
     classes = tile_classes(z, x, y)
     if classes is None:
         return None
-    return _encode_png(Image.fromarray(_PALETTE[classes], mode="RGBA"))
+    return _png(Image.fromarray(_PALETTE[classes], mode="RGBA"))

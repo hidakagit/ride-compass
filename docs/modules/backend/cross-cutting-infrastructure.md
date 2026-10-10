@@ -33,6 +33,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
 | infrastructure | `media_types.py` | 自前で作って配るタイルのメディアタイプ（MVT・PNG）。作る側・配る側・gzipの対象の判定が同じ値を読む |
+| infrastructure | `data_paths.py` | backendがディスクへ置くものの根（本番ではホストのディレクトリを載せ、コンテナを入れ替えても残る） |
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する（ヒット率・平均の計算元の回数・合計時間は応答に載せない） |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `admin_data_backup.py` | 管理データのバックアップが最後に置けてからの時間（`/health`が返す）。下の「取り直せない管理データのバックアップ」 |

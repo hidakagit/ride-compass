@@ -1,3 +1,5 @@
+import { startAt } from "./rules.js";
+
 // GitHub への読み書き。ゲートは App（env.APP_ID・PKCS#8 の env.APP_KEY）の名義、道具と回答フォームはトークンの名義。
 const API = "https://api.github.com";
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -93,14 +95,14 @@ const TASK = `fragment Task on Issue { id number title body url state author { .
   comments(last: $c) { nodes { author { login } createdAt url body bodyHTML } }
   projectItems(first: 10) { nodes { id project { id } fieldValues(first: 30) { nodes {
     ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
-    ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } } } } } }
+    ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2Field { name } } } } } } }
   repository { id nameWithOwner } }`;
 const COMMON = `organization(login: $po) { projectV2(number: $pn) { id fields(first: 50) { nodes {
   ... on ProjectV2SingleSelectField { id name options { id name } } ... on ProjectV2Field { id name dataType } } } } }
   repository(owner: $o, name: $n) { labels(first: 100) { nodes { id name } }`;
 
 // タスクを1回の問い合わせで読む。ref は { number } か { nodeId }。comments は新しいコメントを何件読むか。
-// project.fields は欄の名前 → { id, options（単一選択の名前 → id）か date: true }。issue.fields は欄の名前 → 今の値。
+// project.fields は欄の名前 → { id, options（単一選択の名前 → id）か start: true（着手可能日時の文字の欄） }。issue.fields は欄の名前 → 今の値。
 // 置き場の issue でなければ issue は null。
 export async function readTask(gh, config, ref, { comments = 1 } = {}) {
   const [o, n] = config.repository.split("/");
@@ -112,15 +114,15 @@ export async function readTask(gh, config, ref, { comments = 1 } = {}) {
   const p = d.organization.projectV2;
   const project = {
     id: p.id,
-    fields: Object.fromEntries(p.fields.nodes.filter((f) => f.options || f.dataType === "DATE")
-      .map((f) => [f.name, f.options ? { id: f.id, options: Object.fromEntries(f.options.map((x) => [x.name, x.id])) } : { id: f.id, date: true }])),
+    fields: Object.fromEntries(p.fields.nodes.filter((f) => f.options || f.name === config.project.startField)
+      .map((f) => [f.name, f.options ? { id: f.id, options: Object.fromEntries(f.options.map((x) => [x.name, x.id])) } : { id: f.id, start: true }])),
   };
   const labels = Object.fromEntries(d.repository.labels.nodes.map((l) => [l.name, l.id]));
   const issue = ref.nodeId ? d.node : d.repository.issue;
   if (issue?.repository?.nameWithOwner !== config.repository) return { project, labels, issue: null };
   const item = issue.projectItems.nodes.find((i) => i.project.id === p.id);
   const set = (item?.fieldValues.nodes ?? []).filter((x) => x.field);
-  const fields = Object.fromEntries(set.map((x) => [x.field.name, x.name ?? x.date]));
+  const fields = Object.fromEntries(set.map((x) => [x.field.name, x.name ?? x.text]));
   return { project, labels, issue: { ...issue, item: item?.id ?? null, status: fields[config.project.statusField] ?? null, fields } };
 }
 
@@ -129,19 +131,20 @@ export const labelNames = (issue) => issue.labels.nodes.map((l) => l.name);
 export const blockedOpen = (issue) => issue.blockedBy.nodes.some((b) => b.state !== "CLOSED");
 // readTask の issue を、待つ理由の見分け（rules.js: waitsFor）へ渡す形にする。
 export const waitsOf = (config, issue) =>
-  ({ status: issue.status, blocked: blockedOpen(issue), labels: labelNames(issue), startOn: issue.fields[config.project.startField] ?? null });
+  ({ status: issue.status, blocked: blockedOpen(issue), labels: labelNames(issue), start: issue.fields[config.project.startField] ?? null });
 
 // コメントを書く1件。
 export const addComment = (subjectId, body) => ["addComment", { subjectId, body }];
 
-// Project の欄を名前で書く1件。単一選択は選択肢の名前、日付は YYYY-MM-DD（消すなら null）。
+// Project の欄を名前で書く1件。単一選択は選択肢の名前、着手可能日時は rules.js: startAt の形（YYYY-MM-DD HH:MM にそろえて書く。消すなら null）。
 export function setField(project, item, name, value) {
   const field = project.fields[name];
   const at = { projectId: project.id, itemId: item, fieldId: field?.id };
-  if (field?.date && value === null) return ["clearProjectV2ItemFieldValue", at];
-  if (field?.date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`欄「${name}」は日付の欄です。YYYY-MM-DD の日付を渡してください（「${value}」）。`);
-    return ["updateProjectV2ItemFieldValue", { ...at, value: { date: value } }];
+  if (field?.start && value === null) return ["clearProjectV2ItemFieldValue", at];
+  if (field?.start) {
+    const start = startAt(value);
+    if (!start) throw new Error(`欄「${name}」は日本時間の日時の欄です。YYYY-MM-DD HH:MM か、00:00 なら YYYY-MM-DD を渡してください（「${value}」）。`);
+    return ["updateProjectV2ItemFieldValue", { ...at, value: { text: start } }];
   }
   if (!field?.options[value]) throw new Error(`欄「${name}」に選択肢「${value}」がありません（${field ? Object.keys(field.options).join("・") : Object.keys(project.fields).join("・")}）。`);
   return ["updateProjectV2ItemFieldValue", { ...at, value: { singleSelectOptionId: field.options[value] } }];

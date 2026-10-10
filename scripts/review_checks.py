@@ -88,8 +88,8 @@ def fitted_threshold(lines: int) -> int:
     return -(-lines * (100 + GROWTH_PERCENT) // (100 * step)) * step
 
 
-def instruction_limit(path: str, limits: dict[str, int]) -> int | None:
-    """指示の文書の種類ごとの上限（size_thresholds.json の instruction_limits）。当たらなければ None。"""
+def kind_limit(path: str, limits: dict[str, int]) -> int | None:
+    """種類ごとの上限（size_thresholds.json の instruction_limits・code_limits）。当たらなければ None。"""
     return next((limit for pattern, limit in limits.items() if fnmatch.fnmatchcase(path, pattern)), None)
 
 
@@ -267,11 +267,16 @@ def volume_totals(counts: dict[str, int]) -> dict[str, int]:
 def cmd_size(args: argparse.Namespace) -> int:
     counts = volume_counts(tracked_files())
     decided = json.loads(read(SIZE_THRESHOLDS)) if SIZE_THRESHOLDS.exists() else {}
-    limits = decided.get("instruction_limits", {})
-    # 指示の文書は種類ごとの上限だけで見て、ファイルごとに置いた閾値は上書きする。
-    exceptions = sorted(f for f in decided.get("thresholds", {}) if instruction_limit(f, limits) is not None)
+    # 指示の文書とコードは種類ごとの上限だけで見て、ファイルごとに置いた閾値は上書きする。
+    # 生成物は書き手が分けられないので、コードの上限に当てずファイルごとの閾値で見る。
+    code_limits = {f: limit for f in counts if not f.startswith(GENERATED_PREFIXES)
+                   and (limit := kind_limit(f, decided.get("code_limits", {}))) is not None}
+    kind_limits = {f: limit for f in counts
+                   if (limit := kind_limit(f, decided.get("instruction_limits", {}))) is not None}
+    kind_limits.update(code_limits)
+    exceptions = sorted(f for f in decided.get("thresholds", {}) if f in kind_limits)
     thresholds = dict(decided.get("thresholds", {}))
-    thresholds.update({f: limit for f in counts if (limit := instruction_limit(f, limits)) is not None})
+    thresholds.update(kind_limits)
     on_fire = decided.get("on_fire", {})
     groups: dict[str, list[str]] = defaultdict(list)
     for f in counts:
@@ -280,7 +285,9 @@ def cmd_size(args: argparse.Namespace) -> int:
     for members in groups.values():
         top.update(sorted(members, key=lambda f: -counts[f])[:args.top])
     large = {f for f, n in counts.items() if n >= LARGE_FILE_LINES}
-    watched = sorted(top | large | set(thresholds), key=lambda f: -counts.get(f, 0))
+    # 種類ごとの上限はその種類の全部に当たるので、表へ出すのは上限に届いたものだけにする。
+    reached = {f for f, limit in kind_limits.items() if counts[f] >= limit}
+    watched = sorted(top | large | reached | (set(thresholds) - set(kind_limits)), key=lambda f: -counts.get(f, 0))
 
     tags = review_tags()
     base_tag, base_sha, base_date = tags[0] if tags else (None, None, None)
@@ -306,11 +313,12 @@ def cmd_size(args: argparse.Namespace) -> int:
             reasons.append(f"+{(cur - p) / p * 100:.0f}%")
         if th is None and cur >= LARGE_FILE_LINES:
             reasons.append(f"{LARGE_FILE_LINES:,}行以上・閾値未設定")
-        if th and cur >= th:
+        # コードの上限は外の道具の最大の行数なので、道具と同じく超えたときだけ発火する。
+        if th and (cur > th if f in code_limits else cur >= th):
             reasons.append(f"閾値{th:,}超過")
         if reasons:
             fired.append(f)
-        if th and instruction_limit(f, limits) is None and th > fitted_threshold(cur):
+        if th and f not in kind_limits and th > fitted_threshold(cur):
             slack.append(f"{f}（{th}→{fitted_threshold(cur)}）")
         delta = f"{cur - p:+d}" if p is not None else "新規"
         rate = f"{cur / th:.0%}" if th else "-"
@@ -325,7 +333,8 @@ def cmd_size(args: argparse.Namespace) -> int:
           f"{len(slack)}件: "
           + (", ".join(slack) if slack else "なし"))
     if exceptions:
-        print(f"指示の文書のファイルごとの閾値（無視した。上限は instruction_limits だけ） {len(exceptions)}件: "
+        print(f"種類ごとの上限に当たるファイルごとの閾値（無視した。上限は instruction_limits・code_limits だけ） "
+              f"{len(exceptions)}件: "
               + ", ".join(exceptions))
     if not base_sha:
         print("（周期レビューのタグが無いため前回比は出していない）")

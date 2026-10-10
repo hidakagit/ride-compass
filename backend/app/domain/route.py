@@ -65,7 +65,7 @@ class SegmentWind(StrictModel):
 
 @dataclass(frozen=True, slots=True)
 class DensityScoreInput:
-    """密度の軸（`evaluation.py: averages_density`）の、区間をまたいで平均する値。
+    """密度の軸（`axis_definitions.py: averages_density`）の、区間をまたいで平均する値。
 
     区間（Edge）ではその区間の値、ビンと候補では中の区間の距離平均を持つ。ビンと候補の得点は、
     区間の得点の平均ではなく、この横軸の値の平均を折れ線に通して作る（`merge_axis_difficulties`）。

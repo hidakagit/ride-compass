@@ -42,15 +42,15 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     comments: { nodes: i.comments.map((c, k) => ({ author: { login: c.author }, createdAt: "2026-10-04T00:00:00Z", url: `c${k}`, body: c.body, bodyHTML: `<p>描いた: ${c.body}</p>` })) },
     projectItems: { nodes: [{ id: "PVTI", project: { id: "PVT" }, fieldValues: { nodes: [
       { name: i.status, field: { name: config.project.statusField } },
-      ...Object.entries(i.fields).map(([name, v]) => (name === config.project.startField ? { date: v, field: { name } } : { name: v, field: { name } }))] } }] },
+      ...Object.entries(i.fields).map(([name, v]) => (name === config.project.startField ? { text: v, field: { name } } : { name: v, field: { name } }))] } }] },
   });
   const apply = (name, input, as) => {
     s.writes.push({ op: name, as, ...input });
     const i = input.id === "I_P" ? s.parent : s.issue;
     if (name === "updateProjectV2ItemFieldValue") {
-      const v = input.value.singleSelectOptionId ?? input.value.date;
+      const v = input.value.singleSelectOptionId ?? input.value.text;
       if (input.fieldId === "F") i.status = v.slice(2);
-      else i.fields = { ...i.fields, [input.fieldId]: v.includes(":") ? v.split(":")[1] : v };
+      else i.fields = { ...i.fields, [input.fieldId]: input.value.singleSelectOptionId ? v.split(":")[1] : v };
     }
     if (name === "addComment") i.comments.push({ author: as, body: input.body });
     if (name === "updateIssue") {
@@ -69,7 +69,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
       return { data: { organization: { projectV2: { id: "PVT", fields: { nodes: [
         { id: "F", name: config.project.statusField, options: Object.entries(OPTIONS).map(([name, id]) => ({ id, name })) },
         ...Object.entries(FIELDS).map(([f, os]) => ({ id: f, name: f, options: os.map((o) => ({ id: `${f}:${o}`, name: o })) })),
-        { id: config.project.startField, name: config.project.startField, dataType: "DATE" }] } } },
+        { id: config.project.startField, name: config.project.startField, dataType: "TEXT" }] } } },
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) }, node: node(i) } };
     }
     if (query.startsWith("query Closed")) {

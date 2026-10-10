@@ -32,8 +32,7 @@ from app.infrastructure.source_models import DEM_TILES_SQL, WAYS_SOURCE_SQL
 
 logger = logging.getLogger("ridecompass.derive_elevation")
 
-_SHAPES = f"""
-CREATE TEMP TABLE _shape ON COMMIT DROP AS
+_SHAPES = f"""CREATE TEMP TABLE _shape ON COMMIT DROP AS
 SELECT e.osm_way_id, e.segment_index, e.geom,
        ({IS_TUNNEL_SQL} OR {IS_BRIDGE_SQL}) AS on_structure
 FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id

@@ -7,8 +7,8 @@
 
 from datetime import datetime
 
+from app.infrastructure.data_paths import DATA_DIR
 from app.infrastructure.debug_log import log_throttled_warning
-from app.infrastructure.tile_cache import DATA_DIR
 
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
 #: （testing.md「確かめる高さ」の (c)）。

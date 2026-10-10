@@ -51,17 +51,24 @@ class MaterialCoverageCounts:
     missing_by_material: dict[str, int]
 
 
-def build_way_coverage_sql():
+_WAY_SPECS = {
+    material_id: spec
+    for material_id, spec in MATERIAL_COVERAGE_SPECS.items()
+    if isinstance(spec, WayMaterialCoverageSpec)
+}
+_EDGE_SPECS = {
+    material_id: spec
+    for material_id, spec in MATERIAL_COVERAGE_SPECS.items()
+    if isinstance(spec, EdgeMaterialCoverageSpec)
+}
+
+
+def _way_coverage_sql():
     """way母集団の全材料を1回の走査で数えるSELECT文（`count(*) FILTER`列を材料ごとに並べる）。
     列別名は材料id（内部定数のみ、外部入力を連結しない）。"""
-    way_specs = {
-        material_id: spec
-        for material_id, spec in MATERIAL_COVERAGE_SPECS.items()
-        if isinstance(spec, WayMaterialCoverageSpec)
-    }
     columns = ", ".join(
         f"count(*) FILTER (WHERE {spec.missing_condition}) AS {material_id}"
-        for material_id, spec in way_specs.items()
+        for material_id, spec in _WAY_SPECS.items()
     )
     # 元データの引き方は`domain/material_sql.py`が持つ。ここで書き写すと、生データの
     # 置き場が変わったときにこの1本だけが古いテーブルを指したまま残る。
@@ -71,13 +78,12 @@ def build_way_coverage_sql():
     return text(sql)
 
 
-def build_edge_coverage_sql():
+def _edge_coverage_sql():
     """edge母集団の全材料の「値ありEdge数」を数えるSELECT文。区間の値の表ごとに1回の走査。列別名は材料id。"""
     columns_by_table: dict[str, list[str]] = {}
-    for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
-        if isinstance(spec, EdgeMaterialCoverageSpec):
-            columns_by_table.setdefault(edge_material_table(spec.present_condition), []).append(
-                f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}")
+    for material_id, spec in _EDGE_SPECS.items():
+        columns_by_table.setdefault(edge_material_table(spec.present_condition), []).append(
+            f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}")
     # 区間へ結ばずに値の表だけを走査する（区間の全件へ結ぶと、値の表の全件のハッシュがwork_memから溢れる）。
     # 判定式が`re.`（区間の形）を読むようになったら、この形では組めないので区間へ結ぶ形に戻す。
     scans = [f"(SELECT {', '.join(columns)} FROM {table} em) t_{table}"
@@ -99,17 +105,15 @@ class MaterialCoverageQuery:
     async def get_material_coverage_counts(self) -> MaterialCoverageCounts:
         missing_by_material: dict[str, int] = {}
 
-        way_row = (await self._session.execute(build_way_coverage_sql())).mappings().one()
+        way_row = (await self._session.execute(_way_coverage_sql())).mappings().one()
         way_total = int(way_row["total"])
-        for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
-            if isinstance(spec, WayMaterialCoverageSpec):
-                missing_by_material[material_id] = int(way_row[material_id])
+        for material_id in _WAY_SPECS:
+            missing_by_material[material_id] = int(way_row[material_id])
 
-        edge_row = (await self._session.execute(build_edge_coverage_sql())).mappings().one()
+        edge_row = (await self._session.execute(_edge_coverage_sql())).mappings().one()
         edge_total = int(edge_row["total"])
-        for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
-            if isinstance(spec, EdgeMaterialCoverageSpec):
-                missing_by_material[material_id] = edge_total - int(edge_row[material_id])
+        for material_id in _EDGE_SPECS:
+            missing_by_material[material_id] = edge_total - int(edge_row[material_id])
 
         return MaterialCoverageCounts(
             way_total=way_total, edge_total=edge_total, missing_by_material=missing_by_material

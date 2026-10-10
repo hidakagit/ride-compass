@@ -180,15 +180,14 @@ async def _ensure_partition(conn: asyncpg.Connection, spec: SourceSpec) -> None:
     )
 
 
-async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceProfile,
-                    origin: dict[str, Any]) -> int:
+async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceProfile) -> int:
     return await conn.fetchval(
         "INSERT INTO source_runs (source, status, started_at, origin, profile, counts) "
         "VALUES ($1, $2, $3, $4, $5, $6) RETURNING run_id",
         spec.name,
         SourceRunStatus.RUNNING,
         datetime.now(timezone.utc),
-        _json(origin),
+        _json({}),
         _json({"profile_hash": profile.profile_hash, "target": asdict(profile.target),
                "source": _source_dict(spec)}),
         _json({}),
@@ -262,7 +261,7 @@ async def _ingest(conn: asyncpg.Connection, profile: SourceProfile, source_name:
 
     await _ensure_partition(conn, spec)
     origin: dict[str, Any] = {}
-    run_id = await _open_run(conn, spec, profile, origin)
+    run_id = await _open_run(conn, spec, profile)
     started = time.perf_counter()
     written = 0
 

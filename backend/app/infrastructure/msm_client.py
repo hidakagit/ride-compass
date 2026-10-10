@@ -27,11 +27,11 @@ from omfiles import OmFileReader
 from app.domain.time_zone import JST, as_series_time
 from app.config import settings
 from app.domain.msm import MsmGrid, MsmWindow
+from app.infrastructure.data_paths import DATA_DIR
 from app.infrastructure.debug_log import log_external_call
 
 logger = logging.getLogger("ridecompass.msm_client")
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
 #: （testing.md「確かめる高さ」の (c)）。
 MSM_DIR = DATA_DIR / "msm"

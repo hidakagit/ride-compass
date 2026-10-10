@@ -61,8 +61,9 @@ JOIN {NODES_SOURCE_SQL} near
  AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
 """
 
-#: 頂点ごとに、信号の有無と、そこに集まる道の最大階級。階級の表に無い道しか集まらない頂点は0。
 _HIGHWAY_RANKS = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
+
+#: 頂点ごとに、信号の有無と、そこに集まる道の最大階級。階級の表に無い道しか集まらない頂点は0。
 _INSERT_TURNS = f"""
 WITH ranked AS (
     SELECT e.from_node_id AS node_id, r.rank FROM road_edges e

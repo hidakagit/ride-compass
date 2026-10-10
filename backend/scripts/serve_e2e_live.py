@@ -1,9 +1,8 @@
 """e2e-live（`frontend/e2e-live/`）のために、この作業ツリーのbackendを開発DBへ向けて起動する。
 
 作業ツリーには`.env`が無い（gitignoreの対象は作業ツリーへ写らない）ので、本体のチェックアウトの`backend/.env`
-を読み（DBの向け先・土地被覆ラスタのパス等）、E2Eのオリジンへ向ける2つ——基礎地図のURLとCORSの許可——だけを
-足して起動する。ポートは空いているものを選ぶ（並行する担当のbackendと取り合わない）。起点は開発DBの区間から、
-路面タイルに道が出る点を選ぶ——開発DBの取込範囲はリポジトリに記録が無く、DBだけが知っている。`/health`が
+を読み（DBの向け先・土地被覆ラスタのパス等）、基礎地図のURLだけをE2Eのオリジンへ向けて起動する。ポートは
+空いているものを選ぶ（並行する担当のbackendと取り合わない）。起点は開発DBの区間から、路面タイルに道が出る点を選ぶ——開発DBの取込範囲はリポジトリに記録が無く、DBだけが知っている。`/health`が
 返り起点が決まったら、ビルドと実行のコマンド（向け先・起点を埋めたもの）を出し、止められるまで動き続ける
 （Bashの道具なら裏で走らせ、出力を読む）。
 
@@ -29,7 +28,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 WORKTREE = BACKEND.parent
-#: E2Eのオリジン。E2Eの設定と同じ値でなければCORSで弾かれる（`frontend/playwright.live.config.ts: LIVE_ORIGIN`）。
+#: E2Eのオリジン。基礎地図をここのrewrites越しに取らせる（`frontend/playwright.live.config.ts: LIVE_ORIGIN`）。
 LIVE_ORIGIN = "http://localhost:3200"
 DEFAULT_PORT = 8000
 HEALTH_TIMEOUT_SECONDS = 300
@@ -49,7 +48,7 @@ def venv_python(main: Path) -> Path:
 
 
 def backend_env(main: Path, port: int) -> dict[str, str]:
-    """本体の`.env`に、E2Eのオリジンへ向ける値を足した環境。`.env`の値は画面へ出さない。"""
+    """本体の`.env`に、基礎地図のURLをE2Eのオリジンへ向けた環境。`.env`の値は画面へ出さない。"""
     from dotenv import dotenv_values
 
     env = dict(os.environ)
@@ -57,9 +56,6 @@ def backend_env(main: Path, port: int) -> dict[str, str]:
         if value is not None:
             env[key.upper()] = value
     env["BASEMAP_PUBLIC_BASE_URL"] = f"{LIVE_ORIGIN}/api/basemap"
-    # `settings.cors_allowed_origins_list`はカンマで区切る（JSONの配列ではない）。
-    origins = [o.strip() for o in env.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-    env["CORS_ALLOWED_ORIGINS"] = ",".join(origins + ([LIVE_ORIGIN] if LIVE_ORIGIN not in origins else []))
     env["PYTHONIOENCODING"] = "utf-8"
     env["PORT"] = str(port)
     return env

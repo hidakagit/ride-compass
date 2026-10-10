@@ -126,9 +126,10 @@ way粒度の経路も**区間向けと同じ式**を使う。`way_from_clause`�
         │  domain/axis_definitions.py: evaluate_axes_array が AXIS_DEFINITIONS を評価
         │  （軸が他の軸のdifficultyをmaterialとして参照する階層構造も含む）
         ▼
-  三次: compose_costs_from_axis_matrix(distance_m, axis_arrays, weights, penalty_strength)
-        │  difficulty = Σᵢ wᵢ × axisᵢ / Σᵢ wᵢ（difficulty.py: composite_difficulty_array）
-        │  cost = 下地 × (1 + P × difficulty / 100)
+  三次: compose_costs_from_axis_matrix(distance_m, axis_arrays, weights, penalty_strength, density=…)
+        │  difficulty = Σᵢ wᵢ × axisᵢ / Σᵢ wᵢ（difficulty.py: composite_from_sums）
+        │  cost = 所要時間 × (1 + P × difficulty′ / 100) + 密度の軸の分
+        │  （difficulty′は分子から密度の軸を外した合成。密度の軸の分は回数に比例する秒）
         ▼
   cost・difficulty配列（0次フィルタの除外は`compute_hard_filter_excluded`が別途判定）
 ```
@@ -142,11 +143,10 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
 - `penalty_strength`（P）は**主観的割増と時間の換算レート**。リクエストが省略したときの値は
   較正値`evaluation.penalty_strength`（`domain/tuning.py`）だけが持ち、`resolve_penalty_strength`が
   リクエスト処理時に読む（`compose_costs_from_axis_matrix`は既定を持たない）。探索のコストは
-  `所要時間 × (1 + P × difficulty/100)`＝体感の所要時間で、P=1は「難易度100の道は
-  体感で2倍の時間」を意味する。P=0で`cost=下地`（好みを一切考慮しない＝時間最短、
+  `所要時間 × (1 + P × difficulty/100)`＝体感の所要時間（密度の軸の分は下の「密度の軸」のとおり足す）で、P=1は
+  「難易度100の道は体感で2倍の時間」を意味する。P=0で`cost=所要時間`（好みを一切考慮しない＝時間最短、
   `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
-  `cost >= 下地`という不変条件はP>=0の間常に成り立つ（下地は探索では区間ごとの
-  所要時間、Edge単位の評価では距離）。
+  `cost >= 所要時間`という不変条件はP>=0の間常に成り立つ。
 - **`build_static_edge_score_matrix`**: `AXIS_DEFINITIONS`を軸ごとに適用して
   difficulty配列を求める（`StaticEdgeScoreMatrix`: 公開軸別配列に加え、0次フィルタ判定用の
   生フラグ`hard_filter_flags`/`gradient_percent`も持つ——`hard_filters`はリクエストごとに
@@ -158,8 +158,12 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
   静的材料と同じ軸に置けない。`axis_definitions.py: _check_dynamic_and_static_materials_are_not_mixed`）。
   観測の履歴が無ければ空で、その材料を読む軸はその生成で「データなし」になる。
 - **`compose_costs_from_axis_matrix`**: 軸別スコア配列群と重み辞書から合成difficulty
-  （`difficulty.py: composite_difficulty_array`）→cost算出まで配列演算で行う。costからdifficultyへの
-  逆算（折返し点・経由Nodeの並べ替えが使う）は同じファイルの`difficulty_from_cost`が持つ。0次フィルタによる除外
+  （`difficulty.py: composite_from_sums`）→割増の倍率と足す秒（`AxisComposition`。費用は`AxisComposition.cost`に
+  所要時間を渡して求める）まで配列演算で行う。costからdifficultyへの
+  逆算（折返し点・経由Nodeの並べ替えが使う）は同じファイルの`difficulty_from_cost`が持つ。密度の軸の分は、逆算では
+  足した秒を所要時間で割った値として入る——回数 ÷ (所要時間 × 想定速度)の点数で、所要時間が想定速度で走る時間に
+  近いほど、範囲の平均の密度に傾きを掛けた点数（頭打ちの無い直線）に近い。停止の待ちや上り坂で所要時間が延びた
+  範囲ほど、平均の密度の点数より小さく入る。0次フィルタによる除外
   （`compute_hard_filter_excluded`が`hard_filters`/`max_average_grade_percent`を反映して
   別途判定）はここには含まれない。重み付き軸がすべて欠損のEdgeはcost算出だけbbox内平均
   difficultyを代入する（表示用の戻り値には影響しない、詳細は後述「探索コストの既定経路」節）。
@@ -263,11 +267,11 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 集約で積み上がるため、2本のままにしている。
 
 **密度の軸は、得点ではなく回数を平均してから得点にする。** 軸の折れ線の横軸の値が1kmあたりの量（密度）の重み付き和の軸
-（`evaluation.py: averages_density`。足せる材料`MaterialSpec.additive`だけを項に持ち、前処理が無い）は、ビン（500m）と候補の
-得点を、区間の得点の平均ではなく、横軸の値を距離で平均した値（その範囲の回数÷距離）を折れ線に通して作る。折れ線は上に凸で
-上限で頭打ちになることが多く、信号が交差点の脇の短い区間に集まる幹線では、区間ごとの得点の平均が回数どおりの得点よりずっと
-低く出る（都内の国道6号で回数どおり65.7点のところ40.3点）。勾配のように密度でない材料の軸・他の軸を項に持つ軸は得点の平均の
-まま（短い急坂を平均でならすと坂のつらさが消える）。
+（`axis_definitions.py: averages_density`。足せる材料`MaterialSpec.additive`だけを項に持ち、前処理が無い）は、ビン（500m）と候補の
+得点を、区間の得点の平均ではなく、横軸の値を距離で平均した値（その範囲の回数÷距離）を折れ線に通して作る。折れ線は(0, 0)から
+始まる直線で、もう1点より先は頭打ちになる（軸の検査が断る。[軸スタジオ](axis-studio.md)「軸の外に照らす値の不変条件」）。
+信号が交差点の脇の短い区間に集まる幹線では、その区間が頭打ちになり、区間ごとの得点の平均が回数どおりの得点より低く出る。
+勾配のように密度でない材料の軸・他の軸を項に持つ軸は得点の平均のまま（短い急坂を平均でならすと坂のつらさが消える）。
 - 運び方: 静的スコア行列が密度の軸の横軸の値の列（`StaticEdgeScoreMatrix.density_axes`）を持ち、`LegCostArrays.density_axes`を
   経て、`_build_segment_details`が区間ごとの値・丸めない距離・その軸の重みの割合（`difficulty.py: axis_weight_shares_at_row`）を
   区間の器の内部の値（`RouteSegmentDetail._density_inputs`。応答に出ない）として載せる。距離を丸めないのは、応答の区間の距離が
@@ -276,7 +280,14 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   距離平均（`merge_axis_contributions`）、合成の難しさは区間の値の距離加重平均の、その軸の寄与度の項だけを作り直した寄与度へ
   差し替えた値（`merge_difficulty`。寄与度の和と合成の難しさの関係を保つ）。ビンは区間から、候補はビンからもう一度同じ畳み方で作り、
   ビンも中の区間の平均を内部の値として持つ。順回り・逆回りの比べ（`route_search.py: pick_better_candidate`）も同じ`merge_difficulty`を読む。
-- 探索の費用は区間ごとの得点の和のままで、この畳み方を持たない（区間ごとに費用を足すA*へは、区間をまたいだ平均をそのまま持ち込めない）。
+- 探索の費用（`evaluation.py: compose_costs_from_axis_matrix`）: 密度の軸の得点は割増の倍率から外し、代わりに
+  `P × 重みの割合 × 傾き/100 × 区間の回数 × 3600/想定速度`の秒を足す（回数は横軸の値×区間の長さ。`evaluation.py: density_costs`）。
+  想定速度で走る時間に得点の割増を掛けたものに当たり、回数だけで決まる——区間の端の場所は端を持つ区間が0.5ずつ分け持つので
+  （`domain/traffic.py: place_count_sql`）、道をどこで切っても経路上の和は変わらず、ルートの値と同じ回数から出る。重みの割合の分母は表示の
+  合成と同じ（密度の軸の重みも入る）。実際の所要時間に掛けないのは、停止の待ちの秒も回数に比例するため（得点を掛けると回数の2乗÷長さに
+  なり、短い区間に回数が集まる道ほど重く数える）。想定速度は利用者の巡航速度で、勾配や風で変わる走行の速さではない。
+  頭打ちは持たない（経路全体の平均で決まる頭打ちは、区間ごとに費用を足すA*へ持ち込めない）ので、密度が直線の先へ出る経路では、探索は
+  ルートの値より回数を重く数える。
 
 同じ集約を軸の**生値**（折れ点を通す前の値、`StaticEdgeScoreMatrix.axis_raw_values`）にも
 掛ける。区間の応答は生値を持たず、エンジンがEdge単位の生値を区間と同じ切り方でビンへ畳んでから
@@ -452,8 +463,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 | 母集団 | 対象 | 判定 |
 |---|---|---|
-| `"way"` | 生の道の全行（`infrastructure/source_models.py: WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_condition`（区間の値（別名`em`）が値を持つときに真のSQL条件式）。区間の値の表は区間への外部キーと同じ主キーを持ち区間1本に行は0か1なので、値のある区間は区間へ結ばずにその表だけを走査して数え、総数は`road_edges`の件数とする。式が読む表は宣言から引き（`road_graph_repository.py: edge_material_table`）、edge材料を`count(*) FILTER`で表ごとに1回の走査にまとめる（`build_edge_coverage_sql`）。判定式が区間の形（`re`）を読むなら区間へ結ぶ形に戻す |
+| `"way"` | 生の道の全行（`infrastructure/source_models.py: WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
+| `"edge"` | `road_edges`全行 | `present_condition`（区間の値（別名`em`）が値を持つときに真のSQL条件式）。区間の値の表は区間への外部キーと同じ主キーを持ち区間1本に行は0か1なので、値のある区間は区間へ結ばずにその表だけを走査して数え、総数は`road_edges`の件数とする。式が読む表は宣言から引き（`road_graph_repository.py: edge_material_table`）、edge材料を`count(*) FILTER`で表ごとに1回の走査にまとめる（`_edge_coverage_sql`）。判定式が区間の形（`re`）を読むなら区間へ結ぶ形に戻す |
 
 - **「行がある」と「値がある」を混同しない**。派生の表は区間ごとに行を持ち、値を出せない列は
   NULLのまま残す（土地被覆の`lc_*`がそう。NULLの意味は[静的道路属性](static-road-attributes.md)「値が無ければNULL」）。

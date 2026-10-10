@@ -3,18 +3,20 @@ import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { featureFilter } from "@maplibre/maplibre-gl-style-spec";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import type { AxisCatalogResponse } from "@/types/route";
+import { FIXED_LENS_LABELS } from "@/lib/mapDisplay/routeStyleModes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { ROUTE_HIT_TARGET_SEGMENT } from "@/features/map/scene/groups/routes";
 import { installMapFinder } from "../e2e/fixtures";
 import { installPageHelpers } from "../e2e/states";
 
-// 実backend・開発DBへ向けて回すe2eの共通の段取りと観測（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）。
+// 実backendへ向けて回すe2eの共通の段取りと観測（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）。
 // 期待値は値そのものではなく性質（1件以上ある・2つの出どころが食い違わない・エラー0件）で書く。
 
-/** 手元のbackend。アプリのビルドが埋め込む向け先（`NEXT_PUBLIC_API_URL`の既定）と同じ。 */
+/** 向けるbackend。アプリのビルドが埋め込む向け先（`NEXT_PUBLIC_API_URL`）と同じにする。既定は手元のbackend。 */
 export const LIVE_API = process.env.E2E_LIVE_API ?? "http://localhost:8000";
 
-/** 起点。開発DBの取込範囲はリポジトリに記録が無いので、範囲から推測せず環境変数で与える。既定はアプリの既定地点。 */
+/** 起点。backendのDBの取込範囲はリポジトリに記録が無いので、範囲から推測せず環境変数で与える。既定はアプリの既定地点。 */
 export const LIVE_POINT = (() => {
   const [latitude, longitude] = (process.env.E2E_LIVE_POINT ?? "35.7597,139.7387").split(",").map(Number);
   return { latitude, longitude };
@@ -22,23 +24,10 @@ export const LIVE_POINT = (() => {
 
 const LIVE_VIEWPORT = { width: 390, height: 812 };
 
-interface CatalogAxis {
-  axis_id: string;
-  label: string;
-  display: { kind: string; tile_inputs: { property: string }[] };
-  dedicated_way_value_layer: boolean;
-  dynamic_way_value_conditions: string[];
-}
-
-export interface Catalog {
-  axes: CatalogAxis[];
-  tile_versions: Record<string, string>;
-}
-
-export async function fetchCatalog(): Promise<Catalog> {
+export async function fetchCatalog(): Promise<AxisCatalogResponse> {
   const response = await fetch(`${LIVE_API}/api/axis-catalog`);
   if (!response.ok) throw new Error(`軸カタログの取得に失敗: ${response.status}`);
-  return (await response.json()) as Catalog;
+  return (await response.json()) as AxisCatalogResponse;
 }
 
 export function tileOf(z: number, { latitude, longitude }: { latitude: number; longitude: number }) {
@@ -264,24 +253,26 @@ export function expectNoOwnFailures(watch: Watch): void {
     .toEqual([]);
 }
 
-/** レンズを選ぶ（ピルを押して選択肢を押す。選ぶとポップオーバーは閉じる）。選択肢の名前には「ルート後のみ」等の印が続くので、ラベルの要素で当てる。
- *  選び済みの選択肢を押しても閉じないので、ピルが既にそのレンズを出していれば押さない（選んだレンズは localStorage に残り、開き直しても選ばれたまま）。
- *  ピルの名前には印や条件が続くので、名前ではなくラベルの要素で当てる。 */
+/** レンズを選ぶ（ピルを押して選択肢を押す。選ぶとポップオーバーは閉じる）。選択肢の名前には「ルート後のみ」等の印が空白を挟んで続くので、
+ *  名前の頭で当てる。選び済みの選択肢を押しても閉じないので、ピルが既にそのレンズを出していれば押さない（選んだレンズは localStorage に残り、
+ *  開き直しても選ばれたまま）。ピルの名前には印や条件が続くので、名前ではなくラベルの要素で当てる。 */
 export async function chooseLens(page: Page, label: string): Promise<void> {
   const pill = page.getByRole("button", { name: /^地図の色分け: / });
   if (await pill.getByText(label, { exact: true }).isVisible()) return;
   await pill.click();
   const group = page.getByRole("radiogroup", { name: "地図の色分け" });
-  await group
-    .getByRole("radio")
-    .filter({ has: page.getByText(label, { exact: true }) })
-    .click();
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await group.getByRole("radio", { name: new RegExp(`^${escaped}(\\s|$)`) }).click();
   await expect(group).toBeHidden();
 }
 
-export async function currentLensLabel(page: Page): Promise<string> {
-  const name = await page.getByRole("button", { name: /^地図の色分け: / }).getAttribute("aria-label");
-  return /^地図の色分け: (.*)（タップで変更）$/.exec(name ?? "")?.[1] ?? "";
+/** 今のレンズの名前。ピルの名前は印や走る条件を「・」でつないで続けるので切り出さず、選びうる名前のどれをラベルの要素が出しているかで当てる。 */
+export async function currentLensLabel(page: Page, catalog: AxisCatalogResponse): Promise<string> {
+  const pill = page.getByRole("button", { name: /^地図の色分け: / });
+  for (const label of [...Object.values(FIXED_LENS_LABELS), ...catalog.axes.map((axis) => axis.label)]) {
+    if (await pill.getByText(label, { exact: true }).isVisible()) return label;
+  }
+  throw new Error(`今のレンズが選びうる名前のどれでもない: ${await pill.getAttribute("aria-label")}`);
 }
 
 /**

@@ -42,10 +42,10 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
   expect(tileRoads.length, "取得した路面タイルに道が無い").toBeGreaterThan(0);
   const carries = (road: Record<string, unknown>, property: string) =>
     road[property] !== undefined && road[property] !== null;
-  const tileAxes = axes.filter((axis) => axis.display.tile_inputs.length > 0);
+  const tileAxes = axes.filter((axis) => axis.map_paint.tiles.tile_inputs.length > 0);
   expect(tileAxes.length, "タイルから材料を読む公開軸が1件も無い").toBeGreaterThan(0);
   for (const axis of tileAxes) {
-    const inputs = axis.display.tile_inputs.map((input) => input.property);
+    const inputs = axis.map_paint.tiles.tile_inputs.map((input) => input.property);
     const carriers = tileRoads.filter((road) => inputs.some((p) => carries(road, p))).length;
     expect
       .soft(carriers, `「${axis.label}」の材料（${inputs.join("・")}）を持つ道が路面タイルに無い`)
@@ -56,7 +56,7 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
   }
 
   // E→F: 公開軸のレンズを1つずつ選ぶ → その軸の値を持つ道が描かれている。
-  const originalLens = await currentLensLabel(page);
+  const originalLens = await currentLensLabel(page, catalog);
   for (const axis of axes) {
     await branch(
       page,
@@ -76,7 +76,7 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
           const drawnWithValue = drawn.filter((road) => wayIds.has(String(road.osm_way_id))).length;
           expect.soft(drawnWithValue, `「${axis.label}」: 値を受け取った道が1本も描かれていない`).toBeGreaterThan(0);
         } else {
-          const inputs = axis.display.tile_inputs.map((input) => input.property);
+          const inputs = axis.map_paint.tiles.tile_inputs.map((input) => input.property);
           const carriers = drawn.filter((road) => inputs.some((p) => road[p] !== undefined && road[p] !== null));
           expect
             .soft(carriers.length, `「${axis.label}」: 材料（${inputs.join("・")}）を持つ道が描かれていない`)

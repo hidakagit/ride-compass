@@ -101,7 +101,7 @@ class FakeEngine:
         self.drop_evaluated = drop_evaluated
 
     @_as_engine
-    async def prepare(self, origin, radius_km, now, waypoints=None):
+    async def prepare(self, origin, points, radius_km, now):
         if self.prepare_error is not None:
             raise self.prepare_error
         return self.context
@@ -160,14 +160,14 @@ async def _loops(
 
 async def _no_distance(engine: FakeEngine | RouteGenerator, waypoints, destination, max_routes: int = 3):
     generator = engine if isinstance(engine, RouteGenerator) else RouteGenerator(engine)
-    return await generator.generate_via_waypoints(ORIGIN, waypoints, 10.0, destination, max_routes, START)
+    return await generator.generate_via_waypoints(ORIGIN, waypoints, destination, max_routes, START)
 
 
 ENTRANCES = {
     "loops": lambda generator: generator.generate_loops(ORIGIN, 10.0, 1.0, DEFAULT_MAX_ROUTES, START),
-    "waypoints": lambda generator: generator.generate_via_waypoints(ORIGIN, [WAYPOINT], 10.0, None, 1, START),
-    "destination": lambda generator: generator.generate_via_waypoints(ORIGIN, [], 10.0, DESTINATION, 1, START),
-    "spliced": lambda generator: generator.generate_spliced_route(ORIGIN, DESTINATION, 10.0, ("e1",), START),
+    "waypoints": lambda generator: generator.generate_via_waypoints(ORIGIN, [WAYPOINT], None, 1, START),
+    "destination": lambda generator: generator.generate_via_waypoints(ORIGIN, [], DESTINATION, 1, START),
+    "spliced": lambda generator: generator.generate_spliced_route(ORIGIN, DESTINATION, ("e1",), START),
 }
 
 
@@ -499,7 +499,7 @@ async def test_spliced_route_that_does_not_connect_says_so_without_internal_ids(
     generator = RouteGenerator(FakeEngine(build_error=RoutingError("edge_id=osm-123 がつながっていない")))
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
-        assert await generator.generate_spliced_route(ORIGIN, DESTINATION, 10.0, ("osm-123",), START) == []
+        assert await generator.generate_spliced_route(ORIGIN, DESTINATION, ("osm-123",), START) == []
 
     assert generator.last_no_candidates_reason == (
         "組み合わせた経路がつながっていないため評価できませんでした。区間の選び直しか、ルートの再生成をお試しください。")

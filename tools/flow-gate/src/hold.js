@@ -26,6 +26,8 @@ export function holdRemote(url, token) {
     p.stderr.on("data", (d) => (stderr += d));
     p.on("error", reject);
     p.on("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() }));
+    // 標準入力を読まない git が書き込みより先に終わると、書き込みが EPIPE で失敗する。成否は close の状態で決めるので受け流す。
+    p.stdin.on("error", () => {});
     p.stdin.end(input);
   });
   return { url, git, ready: git(["init", "-q", "--bare"]) };

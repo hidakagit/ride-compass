@@ -68,7 +68,7 @@ JOIN road_edges e ON e.osm_way_id = w.osm_way_id AND ST_Intersects(e.geom, s.geo
 #: 材料とタイルの列は増えるのにこの段が数えず、新しい列が0のまま残る。
 _STOP_COLUMNS = {kind: poi_count_column(kind) for kind in POI_COUNT_KINDS}
 
-#: 区間の両端のノード。区間1本が2行になる。
+#: 区間の両端のノード（区間1本につき2行）。
 _EDGE_ENDS = """ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
     UNION ALL

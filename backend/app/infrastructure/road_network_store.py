@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Iterator
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -30,13 +31,14 @@ from app.domain.attributes import EdgeMaterialArrays
 from app.domain.road_network import RoadNetwork
 from app.domain.traffic import travel_allowed
 from app.infrastructure.cache_identity import shape_digest
+from app.infrastructure.data_paths import DATA_DIR
 from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.road_network")
 
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
 #: （testing.md「確かめる高さ」の (c)）。
-ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "road_network"
+ROOT = DATA_DIR / "road_network"
 
 NETWORK_SHAPE = shape_digest(RoadNetwork, *NETWORK_SQL_SOURCES)
 
@@ -54,15 +56,22 @@ def directory_name(revision: int | None) -> str:
     return f"{NETWORK_SHAPE}-r{'x' if revision is None else revision}"
 
 
+def _directories() -> Iterator[tuple[Path, re.Match[str]]]:
+    """置き場の名前の形をしたディレクトリと、名前の照合の結果（書きかけは名前の形に合わないので含まない）。"""
+    for path in ROOT.glob("*"):
+        match = _DIRECTORY_PATTERN.match(path.name)
+        if match is not None and path.is_dir():
+            yield path, match
+
+
 def _latest_directory() -> Path | None:
     """形の署名が一致するもののうち、世代が最も新しい置き場。無ければNone。
 
     世代が読めなかったDBで作ったもの（`-rx`）は、世代のあるものより古いとみなす。
     """
     best: tuple[int, Path] | None = None
-    for path in ROOT.glob("*"):
-        match = _DIRECTORY_PATTERN.match(path.name)
-        if not path.is_dir() or match is None or match["shape"] != NETWORK_SHAPE:
+    for path, match in _directories():
+        if match["shape"] != NETWORK_SHAPE:
             continue
         revision = -1 if match["revision"] == "x" else int(match["revision"])
         if best is None or revision > best[0]:
@@ -104,7 +113,7 @@ def reuse_pending(inputs: str, revision: int) -> Path | None:
     latest = _latest_directory()
     if latest is None:
         return None
-    values = json.loads((latest / _MANIFEST).read_text(encoding="utf-8"))
+    values = _read_manifest(latest)
     if values.get(_INPUTS) != inputs:
         return None
     temporary = _new_pending(revision)
@@ -126,9 +135,13 @@ def _write_manifest(directory: Path, values: dict[str, object]) -> None:
     (directory / _MANIFEST).write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
 
 
+def _read_manifest(directory: Path) -> dict[str, Any]:
+    return json.loads((directory / _MANIFEST).read_text(encoding="utf-8"))
+
+
 def publish(pending: Path) -> Path:
     """`write_pending`が書いたものを世代の名前へ付け替え、同じ形で世代の古い置き場を消す。"""
-    revision = json.loads((pending / _MANIFEST).read_text(encoding="utf-8"))["revision"]
+    revision = _read_manifest(pending)["revision"]
     target = ROOT / directory_name(revision)
     try:
         pending.rename(target)
@@ -145,7 +158,7 @@ def publish(pending: Path) -> Path:
 
 def load(directory: Path) -> RoadNetwork:
     """置き場を読む。配列はメモリマップで開く——常に要る列だけがメモリに載る。"""
-    values = json.loads((directory / _MANIFEST).read_text(encoding="utf-8"))
+    values = _read_manifest(directory)
     arguments: dict[str, object] = {}
     for f in fields(RoadNetwork):
         if f.name in values:
@@ -194,9 +207,8 @@ def prune(keep: Path) -> list[Path]:
     古いコンテナは古い署名の置き場を読んでいる。
     """
     removed = []
-    for path in ROOT.glob("*"):
-        match = _DIRECTORY_PATTERN.match(path.name)
-        if path == keep or not path.is_dir() or match is None or match["shape"] != NETWORK_SHAPE:
+    for path, match in _directories():
+        if path == keep or match["shape"] != NETWORK_SHAPE:
             continue
         shutil.rmtree(path, ignore_errors=True)
         removed.append(path)
@@ -209,9 +221,8 @@ def prune_other_shapes() -> int:
     backendの起動後に呼ぶ——デプロイで入れ替わるまでは、旧コンテナが古い署名の置き場を読んでいる。
     """
     freed = 0
-    for path in ROOT.glob("*"):
-        match = _DIRECTORY_PATTERN.match(path.name)
-        if not path.is_dir() or match is None or match["shape"] == NETWORK_SHAPE:
+    for path, match in _directories():
+        if match["shape"] == NETWORK_SHAPE:
             continue
         freed += sum(f.stat().st_size for f in path.iterdir() if f.is_file())
         shutil.rmtree(path, ignore_errors=True)
@@ -268,16 +279,20 @@ async def build(repository: RoadGraphRepository, revision: int | None) -> RoadNe
     )
 
 
+_NODE_DTYPES = {"osm_node_id": np.int64, "latitude": np.float64, "longitude": np.float64,
+                "has_traffic_signals": np.bool_, "max_highway_rank": np.int64}
+_EDGE_DTYPES = {"way": np.int64, "segment": np.int32, "forward": np.bool_, "from": np.int32, "to": np.int32,
+                "highway": np.int16, "min_lon": np.float64, "min_lat": np.float64, "max_lon": np.float64,
+                "max_lat": np.float64}
+_BBOX_COLUMNS = ("min_lon", "min_lat", "max_lon", "max_lat")
+
+
 async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
-    chunks: dict[str, list[np.ndarray]] = {
-        "osm_node_id": [], "latitude": [], "longitude": [], "has_traffic_signals": [], "max_highway_rank": [],
-    }
-    dtypes = {"osm_node_id": np.int64, "latitude": np.float64, "longitude": np.float64,
-              "has_traffic_signals": np.bool_, "max_highway_rank": np.int64}
+    chunks: dict[str, list[np.ndarray]] = {name: [] for name in _NODE_DTYPES}
     async for rows in repository.stream_network_nodes(_STREAM_CHUNK):
-        for name, dtype in dtypes.items():
+        for name, dtype in _NODE_DTYPES.items():
             chunks[name].append(np.fromiter((getattr(r, name) for r in rows), dtype=dtype, count=len(rows)))
-    return {name: _concatenate(parts, dtypes[name]) for name, parts in chunks.items()}
+    return {name: _concatenate(parts, _NODE_DTYPES[name]) for name, parts in chunks.items()}
 
 
 async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.ndarray) -> dict[str, Any]:
@@ -285,10 +300,7 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
     有向の行の数を`dropped_without_endpoint`で返す（道の値の行は、区間が持つ外部キーが保証する）。"""
     highway_vocab: dict[str, int] = {}
     dropped_without_endpoint = 0
-    parts: dict[str, list[np.ndarray]] = {
-        name: [] for name in ("way", "segment", "forward", "from", "to", "highway",
-                              "min_lon", "min_lat", "max_lon", "max_lat")
-    }
+    parts: dict[str, list[np.ndarray]] = {name: [] for name in _EDGE_DTYPES}
     async for rows in repository.stream_network_edges(_STREAM_CHUNK):
         n = len(rows)
         way = np.fromiter((r.osm_way_id for r in rows), dtype=np.int64, count=n)
@@ -298,7 +310,7 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
         highway = np.fromiter(
             (highway_vocab.setdefault(r.highway, len(highway_vocab)) for r in rows), dtype=np.int16, count=n)
         bbox = {name: np.fromiter((getattr(r, name) for r in rows), dtype=np.float64, count=n)
-                for name in ("min_lon", "min_lat", "max_lon", "max_lat")}
+                for name in _BBOX_COLUMNS}
 
         # 区間ごとに順方向・逆方向の2行を並べ、走れない向きを落とす。
         keep = np.fromiter((ok for r in rows for ok in travel_allowed(r.direction)), dtype=bool, count=2 * n)
@@ -321,10 +333,7 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
         for name, values in bbox.items():
             parts[name].append(values[source])
 
-    dtypes = {"way": np.int64, "segment": np.int32, "forward": np.bool_, "from": np.int32, "to": np.int32,
-              "highway": np.int16, "min_lon": np.float64, "min_lat": np.float64, "max_lon": np.float64,
-              "max_lat": np.float64}
-    result: dict[str, Any] = {name: _concatenate(values, dtypes[name]) for name, values in parts.items()}
+    result: dict[str, Any] = {name: _concatenate(values, _EDGE_DTYPES[name]) for name, values in parts.items()}
     result["highway_vocab"] = tuple(sorted(highway_vocab, key=highway_vocab.__getitem__))
     result["dropped_without_endpoint"] = dropped_without_endpoint
     return result

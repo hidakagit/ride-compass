@@ -502,6 +502,11 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
   （`domain/axis_definitions.py`）を使い、**shapeの種別を問わず`priority_overrides`が
   参照する材料も含める**。動的軸かどうかを判定する`_axes_depending_on_materials`が
   同じ導出を根拠にしているため、検証側だけ`shape.terms`に絞ると素通りした軸が実行時に落ちる。
+- 密度の軸（`domain/axis_definitions.py: averages_density`。1kmあたりの回数・件数の材料`MaterialSpec.additive`だけを
+  項に持ち、前処理の無い軸）の折れ点は、(0, 0)ともう1点の2つに限る（点数は回数に比例し、もう1点より先はその点数で
+  止まる）。探索の費用はこの軸の分を回数×傾きの秒として足す（[評価・スコアリング](evaluation-scoring.md)「ルート単位の
+  集約」の密度の軸）ので、傾きが1つに決まらない折れ線では、探索とルートの値が食い違い、道の切り方で点数の和が変わる。
+  足せる材料かは材料カタログが決めるため、モデルの検証ではなくここに置く。
 
 ### 軸の集合の検査（`domain/axis_definitions.py: check_axis_set`）
 

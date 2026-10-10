@@ -126,12 +126,12 @@ def format_progress(done: int, total: int | None, elapsed: float, unit: str = "�
     とき）は残りを出さない——分からないものを推測で埋めると、読み手が当てにする。
     """
     rate = done / elapsed if elapsed > 0 else 0.0
-    if not total:
-        return f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
-    remaining = (total - done) / rate if rate > 0 else 0.0
-    return (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
-            f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
-            f" / 残り およそ {format_duration(remaining)}")
+    if total:
+        remaining = (total - done) / rate if rate > 0 else 0.0
+        return (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
+                f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
+                f" / 残り およそ {format_duration(remaining)}")
+    return f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
 
 
 #: 取得途中の一時ファイルの印。所定の名前と紛れないもの。

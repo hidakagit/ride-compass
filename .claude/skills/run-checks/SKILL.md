@@ -247,23 +247,30 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
     実世界で無いのが正当なもの（踏切の無い範囲・雨の無い日）は判定せず「該当なし（理由）」をログへ出す。
     backendが上流の失敗として返した502・503・504と、`/api/debug/stats`の外部呼び出しのエラーの増分は、
     合否に入れず「外部要因」として必ずログへ出す。
-  - **前提**（`e2e-live/global-setup.ts`が最初に確かめ、欠けていれば「前提不成立: 直し方」で止める）:
-    開発DBへ向けたbackendを手元で起動しておく（設定からは起動しない）。そのbackendは
-    `BASEMAP_PUBLIC_BASE_URL=http://localhost:3200/api/basemap`と、`CORS_ALLOWED_ORIGINS`に
-    `http://localhost:3200`を足して起動する。起点は`E2E_LIVE_POINT=緯度,経度`で開発DBの取込範囲の中を与える
-    （既定はアプリの既定地点で、範囲外なら前提不成立で止まる）。予報（MSM）が古ければ、時刻を入力に取る枝は「該当なし」になる。
-  - **backendの起動は`python backend/scripts/serve_e2e_live.py`**（作業ツリーから。裏で走らせて出力を読む）。
-    本体のチェックアウトの`backend/.env`を読み、上の基礎地図のURLとCORS（カンマ区切り）の2つだけを起動の環境に足して
-    （`.env`のファイルは書き換えない）、作業ツリーのコードを本体の`backend/.venv`で起動する。
-    `/health`が返ると、向け先と起点を埋めたビルドと実行のコマンド、止め方（backendのpid）を出す。
-  - **手順**: 起動の出力のとおり、`cd frontend && NEXT_PUBLIC_API_URL=<backend> BACKEND_INTERNAL_URL=<backend> npm run build` →
+  - **向け先**は、開発DBへ向けた手元のbackendか、本番のbackend（`<本番の backend>`。宛先は
+    docs/architecture/tech-stack.md「本番の宛先」）のどちらか。担当のランナー・クラウドのセッション等、開発DBの無い所は本番へ向ける。
+    本番へ向けた流しが見るのは作業ツリーのfrontendと本番のbackend（masterの版）の組で、作業ツリーのbackendの変更は入らない。
+    本番へは書き込まず、生成は1回の流しで1回だけ送る。
+    ブラウザは`--disable-web-security`で起こす（`playwright.live.config.ts`。本番のbackendのCORSは本番のfrontendのオリジンしか許さない）。
+  - **前提**（`e2e-live/global-setup.ts`が最初に確かめ、欠けていれば「前提不成立: 直し方」で止める）: 向け先のbackendが応答する
+    （設定からは起動しない）。基礎地図のスタイルのURLがE2Eのオリジン（`http://localhost:3200`）かbackendそのものを指す（手元の
+    backendは`BASEMAP_PUBLIC_BASE_URL=http://localhost:3200/api/basemap`で起動する）。起点は`E2E_LIVE_POINT=緯度,経度`でbackendの
+    DBの取込範囲の中を与える（既定はアプリの既定地点で、範囲外なら前提不成立で止まる）。予報（MSM）が古ければ、時刻を入力に取る枝は「該当なし」になる。
+  - **手元のbackendの起動は`python backend/scripts/serve_e2e_live.py`**（開発機の作業ツリーから。裏で走らせて出力を読む）。
+    本体のチェックアウトの`backend/.env`を読み、上の基礎地図のURLだけを起動の環境に足して（`.env`のファイルは書き換えない）、
+    作業ツリーのコードを本体の`backend/.venv`で起動する。`/health`が返ると、向け先と起点を埋めたビルドと実行のコマンド、
+    止め方（backendのpid）を出す。
+  - **手順**: 手元のbackendなら起動の出力のとおり、`cd frontend && NEXT_PUBLIC_API_URL=<backend> BACKEND_INTERNAL_URL=<backend> npm run build` →
     `cd frontend && E2E_LIVE_API=<backend> E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>`
-    をシナリオごとに1回。backendの向け先を変えたらビルドし直す（`NEXT_PUBLIC_API_URL`と`BACKEND_INTERNAL_URL`はビルドに埋め込まれる）。
+    をシナリオごとに1回。本番のbackendなら、本番と同じくタイルもbackendへ向けて
+    `cd frontend && NEXT_PUBLIC_API_URL=<本番の backend> NEXT_PUBLIC_TILE_BASE_URL=<本番の backend> BACKEND_INTERNAL_URL=<本番の backend> npm run build` →
+    `cd frontend && E2E_LIVE_API=<本番の backend> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>`（起点は既定のまま）。
+    backendの向け先を変えたらビルドし直す（`NEXT_PUBLIC_API_URL`等はビルドに埋め込まれる）。
   - **誰がいつ回すか**: 地図の描き方（`features/map/scene/`等）・タイルへ焼く値・軸カタログ・動的値の
     配信・気象の描き方・ルート生成の応答に触る変更の担当が、**Pull Requestを出す前に1回**回し、
-    実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）をPull Requestの本文の検証へ書く。回せない環境（開発DBも
-    手元のbackendも無い担当のランナー・クラウドのセッション等）・当たるファイルを変えたが描き方にも応答にも触らない変更では、
-    回さない理由を`e2e-live`の語を添えて同じ所へ書く。触らない変更では回さない。門にはしない（CIに載せない）。
+    実行したコマンドと結果（落ちた枝・「該当なし」・「外部要因」）をPull Requestの本文の検証へ書く。担当のランナーは本番のbackendへ向けて回す。
+    backendの応答を変える変更を本番へ向けて回したときは、変更が流しに入っていないことを同じ所へ書く。当たるファイルを変えたが描き方にも
+    応答にも触らない変更では、回さない理由を`e2e-live`の語を添えて同じ所へ書く。触らない変更では回さない。門にはしない（CIに載せない）。
 
 - **画面を撮る道具は`frontend/capture/`に置き、`playwright.capture.config.ts`で走らせる。テストではなく、CIに載せない**
   （判定を持たず、画像を出すだけ。Pull Requestの修正前後のキャプチャに使う）。入口は`node scripts/capture.mjs`の1つで、引数と使い方は
