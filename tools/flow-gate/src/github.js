@@ -127,6 +127,9 @@ export async function readTask(gh, config, ref, { comments = 1 } = {}) {
 // issue（TASK の形か、見回りの一覧の形）のラベルの名前と、開いた前提があるか。
 export const labelNames = (issue) => issue.labels.nodes.map((l) => l.name);
 export const blockedOpen = (issue) => issue.blockedBy.nodes.some((b) => b.state !== "CLOSED");
+// readTask の issue を、待つ理由の見分け（rules.js: waitsFor）へ渡す形にする。
+export const waitsOf = (config, issue) =>
+  ({ status: issue.status, blocked: blockedOpen(issue), labels: labelNames(issue), startOn: issue.fields[config.project.startField] ?? null });
 
 // コメントを書く1件。
 export const addComment = (subjectId, body) => ["addComment", { subjectId, body }];

@@ -10,11 +10,13 @@ export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owne
 // 今日（日本時間）の日付（YYYY-MM-DD）。
 const today = (now) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
 
-// 作る担当へ振り出さずに待つ理由（無ければ null）: 開いた前提・ラベル coordinator.devLabel・今日より先の着手可能日。見回り
-// （src/dispatch.js: ready）と後始末（src/after.js: settle）が同じ見分けを使う。
-export const waitsFor = (config, { blocked, labels, startOn }, now = new Date()) =>
-  blocked ? "開いた前提（blocked by）" : labels.includes(config.coordinator.devLabel) ? `ラベル「${config.coordinator.devLabel}」`
-    : startOn && startOn > today(now) ? `着手可能日 ${startOn}` : null;
+// 担当へ振り出さず・引き受けずに待つ理由（無ければ null）: 持つ印（held。持ち主）・ラベル coordinator.devLabel は作る・確かめるの両方、
+// 開いた前提・今日より先の着手可能日は作るだけ（検証中は status で見分ける）。見回り（src/dispatch.js: ready）・引き受け
+// （src/hold.js: claim）・後始末（src/after.js: settle）が同じ見分けを使う。
+export const waitsFor = (config, { status, held, blocked, labels, startOn }, now = new Date()) =>
+  held ? `持つ印（${held}）` : labels.includes(config.coordinator.devLabel) ? `ラベル「${config.coordinator.devLabel}」`
+    : status === config.review ? null
+    : blocked ? "開いた前提（blocked by）" : startOn && startOn > today(now) ? `着手可能日 ${startOn}` : null;
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
 const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
