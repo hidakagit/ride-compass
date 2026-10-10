@@ -2,7 +2,7 @@
 
 入口は`fetch`。配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
 本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをタイル1枚ぶんへ絞る。
-見るのは、宣言した製品をそれぞれのズームで取り、返ったものを置いて404は区域外の印にすることと、
+見るのは、宣言した製品をそれぞれのズームでPNG形式のURLから取り、返ったものを置いて404は区域外の印にすることと、
 次の実行がどちらも叩かないこと。
 
 ここで見ないもの:
@@ -10,6 +10,7 @@
 - 一時的な失敗の試し直しと、諦めたタイルがあれば失敗で終えること → どのテストも通さない
 """
 
+import re
 from dataclasses import replace
 
 import httpx
@@ -25,6 +26,12 @@ ZOOM, X, Y = 15, 29100, 12902
 
 #: 代役が200を返す製品。残りは404（その製品の区域外）を返す。
 SERVED = {"dem5a", "dem"}
+
+#: 配信元のPNG形式のURLの道（https://maps.gsi.go.jp/development/ichiran.html）。製品名に`_png`が付く。
+PNG_PATH = re.compile(r"/xyz/(?P<product>\w+)_png/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png")
+
+#: 代役が返す本文。置き場は中身を読まないので、PNGである必要は無い。
+BODY = b"\x89PNG tile"
 
 
 def _profile():
@@ -46,16 +53,19 @@ def _declared_requests(profile) -> set[tuple[str, int, int, int]]:
 
 
 class Origin:
-    """配信元の代役。受けた要求を (製品, ズーム, x, y) で覚える。"""
+    """配信元の代役。受けた要求を (製品, ズーム, x, y) で覚える。PNG形式のURLでなければ400を返す。"""
 
     def __init__(self):
         self.requests: list[tuple[str, int, int, int]] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
-        product, z, x, y = request.url.path.removesuffix(".txt").split("/")[-4:]
-        self.requests.append((product, int(z), int(x), int(y)))
+        match = PNG_PATH.fullmatch(request.url.path)
+        if match is None:
+            return httpx.Response(400)
+        product = match["product"]
+        self.requests.append((product, int(match["z"]), int(match["x"]), int(match["y"])))
         if product in SERVED:
-            return httpx.Response(200, text="1.00,e\n")
+            return httpx.Response(200, content=BODY)
         return httpx.Response(404)
 
     def client(self) -> httpx.AsyncClient:
@@ -78,7 +88,7 @@ async def test_served_tiles_are_stored_and_the_rest_marked_absent_per_product(tm
         absent = dem_tile_store.is_absent(tmp_path, product, zoom, x, y)
         assert (stored, absent) == ((True, False) if product in SERVED else (False, True))
     served = next(r for r in _declared_requests(profile) if r[0] in SERVED)
-    assert dem_tile_store.read_tile(tmp_path, *served) == "1.00,e\n"
+    assert dem_tile_store.read_tile(tmp_path, *served) == BODY
 
 
 async def test_a_second_run_does_not_ask_the_origin_again(tmp_path, profile):

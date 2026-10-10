@@ -57,14 +57,14 @@ _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
 
 
 async def _fetch_one(client: httpx.AsyncClient, product: str, zoom: int,
-                     x: int, y: int) -> str | None:
+                     x: int, y: int) -> bytes | None:
     """本文。その製品に無ければ（404）None。"""
     response = await client.get(
         TILE_URL.format(product=product, z=zoom, x=x, y=y), timeout=_REQUEST_TIMEOUT)
     if response.status_code == 404:
         return None
     response.raise_for_status()
-    return response.text
+    return response.content
 
 
 async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zoom: int,
@@ -87,7 +87,7 @@ async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zo
             try:
                 async with semaphore:
                     counts["往復"] += 1
-                    text = await _fetch_one(client, product, zoom, x, y)
+                    content = await _fetch_one(client, product, zoom, x, y)
             except (httpx.HTTPError, httpx.StreamError) as exc:
                 if attempt == attempts:
                     logger.warning("諦めた %s z%d/%d/%d: %s", product, zoom, x, y, exc)
@@ -95,11 +95,11 @@ async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zo
                     return
                 await asyncio.sleep(2 ** attempt)
                 continue
-            if text is None:
+            if content is None:
                 mark_absent(root, product, zoom, x, y)
                 counts["区域外"] += 1
             else:
-                write_tile(root, product, zoom, x, y, text)
+                write_tile(root, product, zoom, x, y, content)
                 counts["取得"] += 1
             return
 

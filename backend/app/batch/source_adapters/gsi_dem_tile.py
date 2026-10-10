@@ -7,14 +7,13 @@
 **配信元は叩かない。**取りに行くのは`scripts/fetch_dem_tiles.py`の仕事で、ここは
 `app/batch/dem_tile_store.py`が指す置き場にあるものを読む。
 
-標高をint32（0.01m単位）で並べ、`raster`として持つ。配信元はテキストで返すが、同じ
-内容が数倍の大きさになるため詰める。位置・画素の大きさ・型・欠測値は`raster`の値自身が
-持つので、読み手は`attrs`から形を組み立てない。
+標高をint32（0.01m単位）で並べ、`raster`として持つ。配信元のPNGは画素の色に標高を
+符号化しており、DBの中で画素を読むには値の並びへ戻しておく必要がある。位置・画素の大きさ・
+型・欠測値は`raster`の値自身が持つので、読み手は`attrs`から形を組み立てない。
 
 どの製品をどのズームで読むかはプロファイルが持ち、実装は持たない。
 """
 
-import io
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from app.batch.ingest import AdapterInputs, SourceRecord, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
+from app.infrastructure.gsi_dem_png import read_gsi_dem_png
 from app.infrastructure.source_models import SourceFeatureRow
 
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
@@ -36,12 +36,8 @@ logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 #: 出典: https://maps.gsi.go.jp/development/demtile.html
 _DEM_TILE_SIZE = 256
 
-#: 欠測を表す文字。「標高値が存在しない画素には「e」の文字が格納されている。」
-#: 出典: https://maps.gsi.go.jp/development/demtile.html
-_DEM_MISSING_MARKER = "e"
-
-#: 詰めるときの尺度と欠測値。地理院の標高タイル（テキスト形式）は「標高データは小数点
-#: 第二位までデータとして入っている（単位はm）」ため、0.01m単位で丸めずに保つ。
+#: 詰めるときの尺度と欠測値。地理院の標高タイル（PNG形式）の標高分解能が0.01mなので、
+#: 画素の値をそのまま0.01m単位として丸めずに保つ。
 #: 出典: https://maps.gsi.go.jp/development/demtile.html
 #:
 #: 型はint32。関東のbboxには富士山（3,776m）が入り、0.01m単位では377,600となって
@@ -50,14 +46,10 @@ SCALE = 100
 NODATA = -2147483648
 
 
-def pack_elevations(text: str) -> tuple[bytes, int]:
-    """タイル本文（カンマ区切りのテキスト）をint32の配列へ詰める。"""
-    # 値は小数第二位までの10進表記で指数を含まないため、`e`は欠測の印にしか現れない。
-    # 指数表記が来れば`1nan5`のような字句になり、黙って欠測にならず読み込みで止まる。
-    meters = np.loadtxt(io.StringIO(text.replace(_DEM_MISSING_MARKER, "nan")),
-                        delimiter=",", dtype=np.float64, ndmin=1).ravel()
-    missing = np.isnan(meters)
-    packed = np.where(missing, NODATA, np.rint(meters * SCALE)).astype("<i4")
+def pack_elevations(png: bytes) -> tuple[bytes, int]:
+    """タイル1枚（PNG）を、画素の順（行ごと）にint32の配列へ詰める。欠測の画素の数も返す。"""
+    elevations, missing = read_gsi_dem_png(png)
+    packed = np.where(missing, NODATA, elevations).astype("<i4")
     return packed.tobytes(), int(missing.sum())
 
 
