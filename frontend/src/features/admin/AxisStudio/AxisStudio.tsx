@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
+import { materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import {
   createAxisDefinition,
   deleteAxisDefinition,
@@ -39,7 +39,7 @@ const LEFT_AS_DRAFT_NOTICE =
 // shapeのtermは材料idと他の軸idのどちらも指しうる。軸として見つかればその表示名を、
 // 見つからなければ材料カタログから引く。
 function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
-  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, MATERIAL_CATALOG);
+  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id);
 }
 
 // 軸スタジオのトップレベルコンポーネント。一覧取得・作成・更新・削除の状態管理をここに
@@ -50,13 +50,7 @@ export default function AxisStudio() {
   const definitions = definitionsQuery.data ?? null;
   // 作成・更新以外の操作（下書きへ戻す・削除）の失敗。一覧を読み直すと消える。
   const [actionError, setActionError] = useState<string | null>(null);
-  const listError =
-    actionError ??
-    (definitionsQuery.error
-      ? definitionsQuery.error instanceof Error
-        ? definitionsQuery.error.message
-        : String(definitionsQuery.error)
-      : null);
+  const listError = actionError ?? definitionsQuery.error?.message ?? null;
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
   // 「削除」を押した軸。確認で「削除する」を押すまで消さない（消した軸を戻す手段が無いため）。

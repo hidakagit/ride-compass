@@ -78,9 +78,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
     draft.shapeKind === "breakpoint_linear"
       ? JSON.stringify([draft.preprocess, draft.terms.map((t) => [t.material, t.weight, t.required])])
       : "";
-  const valueDistribution = useAxisValueDistribution(distributionTermsKey !== "", distributionTermsKey, () =>
-    buildShape(draft, materialOptions),
-  );
+  const valueDistribution = useAxisValueDistribution(distributionTermsKey, () => buildShape(draft, materialOptions));
   // 分布の階級と参考点の点数・参考点の横軸の値は、backendが評価と同じ計算で返す（折れ点を動かすたびに、
   // 落ち着いたら問い合わせる）。届くまでは効き目の表と参考点のボタンを出さない。
   const { preview: scoresPreview, failed: scoresFailed } = useScoresPreview(

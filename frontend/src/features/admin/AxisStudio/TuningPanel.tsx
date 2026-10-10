@@ -82,12 +82,7 @@ export default function TuningPanel() {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const loadError = query.error
-    ? query.error instanceof Error
-      ? query.error.message
-      : "較正値の取得に失敗しました"
-    : null;
-  const error = saveError ?? loadError;
+  const error = saveError ?? query.error?.message ?? null;
 
   const rows = parameters ?? [];
   const draftOf = (parameter: TuningParameter) => drafts[parameter.id] ?? parameter.value;
