@@ -94,8 +94,8 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
 /** 専用のフィーチャー→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`）。
  * ramp軸に対する`RampAxis`と同じ位置付けの、軸カタログ由来の地図向けビュー。
  * この型があることで、レイヤー登録・カタログ・可視性・フェッチのすべてを軸idの
- * ハードコードなしに導出できる（3件目の軸を軸スタジオで公開しただけで
- * 地図に現れる。ただし配信実装本体はbackend側の登録が別途必要）。 */
+ * ハードコードなしに導出できる（軸を軸スタジオで公開しただけで
+ * 地図に現れる）。 */
 export interface DedicatedWayValueAxis extends CatalogAxis {
   /** 専用way値配信APIへ添えるクエリパラメータ（軸カタログの`dynamic_way_value_conditions`）。`features/map/useDedicatedWayValues.ts`が
    * 「どの軸のフェッチに時刻・想定速度を乗せるか」をaxis_idの分岐ではなくここから決める
