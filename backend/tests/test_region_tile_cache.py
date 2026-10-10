@@ -104,7 +104,7 @@ async def test_disk_reads_and_writes_run_off_the_event_loop(cache, records):
 async def test_a_tile_made_without_knowing_its_generation_is_not_stored(cache, records):
     fetch, _ = _fetch(b"new")
 
-    response = await _serve(fetch, persist=False)
+    response = await _serve(fetch, generation=f"{UNKNOWN_REVISION}-shape")
 
     assert response == region_tile_cache.TileResponse(b"new")
     assert cache.entries == {}
