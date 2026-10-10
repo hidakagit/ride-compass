@@ -7,16 +7,31 @@ export const SCAN = 30; // 今の問いを探すために読むコメントの�
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
 
-// 今日（日本時間）の日付（YYYY-MM-DD）。
-const today = (now) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
+// 今の日本時間の日時（YYYY-MM-DD HH:MM）。日本時間は夏時間を持たないので、UTC に9時間足す。
+const nowAt = (now) => new Date(now.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
+
+// 着手可能日時（project.startField）の値を YYYY-MM-DD HH:MM（日本時間）にそろえる。時刻を省いた YYYY-MM-DD は 00:00。
+// 形の合わない値・無い日時は null。
+export function startAt(value) {
+  const [, day, time = "00:00"] = /^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?$/.exec(value) ?? [];
+  const at = day && new Date(`${day}T${time}Z`); // 無い日時（2月30日・24:00）は NaN か別の日時になる
+  return at && !Number.isNaN(at.getTime()) && at.toISOString().startsWith(`${day}T${time}`) ? `${day} ${time}` : null;
+}
+
+// 着手可能日時のために待つ理由: 今より後の日時か、形の合わない値（ユーザーがボードで書いたもの）。
+const startWait = (config, start, now) => {
+  if (!start) return null;
+  const at = startAt(start);
+  return !at ? `${config.project.startField}の形が合わない（「${start}」）` : at > nowAt(now) ? `${config.project.startField} ${at}` : null;
+};
 
 // 担当へ振り出さず・引き受けずに待つ理由（無ければ null）: 持つ印（held。持ち主）・ラベル coordinator.devLabel は作る・確かめるの両方、
-// 開いた前提・今日より先の着手可能日は作るだけ（検証中は status で見分ける）。見回り（src/dispatch.js: ready）・引き受け
+// 開いた前提・着手可能日時（start）は作るだけ（検証中は status で見分ける）。見回り（src/dispatch.js: ready）・引き受け
 // （src/hold.js: claim）・後始末（src/after.js: settle）が同じ見分けを使う。
-export const waitsFor = (config, { status, held, blocked, labels, startOn }, now = new Date()) =>
+export const waitsFor = (config, { status, held, blocked, labels, start }, now = new Date()) =>
   held ? `持つ印（${held}）` : labels.includes(config.coordinator.devLabel) ? `ラベル「${config.coordinator.devLabel}」`
     : status === config.review ? null
-    : blocked ? "開いた前提（blocked by）" : startOn && startOn > today(now) ? `着手可能日 ${startOn}` : null;
+    : blocked ? "開いた前提（blocked by）" : startWait(config, start, now);
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
 const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
