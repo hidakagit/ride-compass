@@ -157,9 +157,10 @@ export default function LensControl({
             title={statusLabel}
             usage="地図の道路（ルートを作った後はルートの線）を何で色分けするかを選びます。下の帯は今の色分けの凡例です。"
           >
-            <span className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+            {/* 地図が狭い（デスクトップのブレークポイントのすぐ外側）と1行に収まらないので、札から先を次の行へ折り返す。 */}
+            <span className="flex flex-wrap items-center justify-center gap-x-1.5">
               <LensSwatch color={current.color} />
-              <span className="font-semibold">{current.label}</span>
+              <span className="font-semibold whitespace-nowrap">{current.label}</span>
               {routeOnlyBadge(currentRouteOnly)}
               {dataStatus && <Dot aria-hidden="true" tone={dataStatus} />}
               <span aria-hidden="true" className="text-[0.7rem] text-[var(--color-muted)]">

@@ -177,14 +177,17 @@ export default function BottomSheet({
         onKeyDown={handleHandleKeyDown}
       />
       <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-3">
-        <h2
-          id={titleId}
-          tabIndex={-1}
-          className={cn(textVariants({ variant: "heading" }), "min-w-0 truncate focus:outline-none")}
-        >
-          {title}
-        </h2>
-        {headerLead && <div className="mr-auto flex min-w-0 items-center">{headerLead}</div>}
+        {/* 見出しの横に収まらなければ、見出しのすぐ右に置くものを見出しの下の行へ折り返す（右の操作はその右に残る）。 */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
+          <h2
+            id={titleId}
+            tabIndex={-1}
+            className={cn(textVariants({ variant: "heading" }), "min-w-0 truncate focus:outline-none")}
+          >
+            {title}
+          </h2>
+          {headerLead && <div className="flex min-w-0 items-center">{headerLead}</div>}
+        </div>
         <div className="flex flex-shrink-0 items-center gap-2">
           {headerAction}
           <Button

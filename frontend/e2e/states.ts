@@ -17,23 +17,25 @@ import {
 // 土台の上では、画面がARIAで宣言している開閉の部品（`aria-expanded`・`role="tab"`）のうち、最前面で
 // 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅 × 段階ごとに1枚のページで辿り、開いたものは閉じて戻す。
 
+// 各レイアウトのいちばん狭い幅に置く。モバイルは320px（WCAG 2.1 達成基準 1.4.10 のリフローの幅で、小さいiPhoneを
+// 画面表示の拡大にしたときの幅）。高さは縮めない——縮めると画面の外へ出た部品を押せず、辿れる状態が減る。
 export const WIDTHS = {
-  mobile: MOBILE_VIEWPORT,
-  desktop: { width: 1280, height: 800 },
+  mobile: { ...MOBILE_VIEWPORT, width: 320 },
+  desktop: { width: 641, height: 800 },
 } as const;
 export type WidthName = keyof typeof WIDTHS;
 
 /** アプリの段階。ルートを生成する前と後、区間を乗り換えた後で、画面に出る部品の集合が入れ替わる。 */
 export const PHASES = ["生成前", "生成後", "乗り換え後"] as const;
 
-/** 幅の分岐はCSSのブレークポイント1つだけで、WIDTHSはその両側に1つずつ置く。 */
+/** 幅の分岐はCSSのブレークポイント1つだけで、デスクトップの幅はその1px外側（デスクトップのいちばん狭い幅）に置く。 */
 export async function assertWidthsStraddleBreakpoint(page: Page): Promise<void> {
   const breakpoint = await page.evaluate(() =>
     Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--breakpoint-mobile")),
   );
   expect(breakpoint, "--breakpoint-mobile が読めない").toBeGreaterThan(0);
   expect(WIDTHS.mobile.width).toBeLessThanOrEqual(breakpoint);
-  expect(WIDTHS.desktop.width).toBeGreaterThan(breakpoint);
+  expect(WIDTHS.desktop.width).toBe(breakpoint + 1);
 }
 
 interface Opener {

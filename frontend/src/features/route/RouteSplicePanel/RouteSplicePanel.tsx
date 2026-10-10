@@ -111,7 +111,8 @@ export default function RouteSplicePanel({
       )}
       aria-labelledby="splice-heading"
     >
-      <div className="flex items-center gap-1">
+      {/* 狭いスマホの幅では、右の操作をまとめて次の行の右端へ折り返す。 */}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
         <Button
           variant="ghost"
           size="bare"
