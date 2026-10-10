@@ -7,12 +7,15 @@ import { GitHub } from "./github.js";
 import { askText, norm } from "./questions.js";
 
 const boards = new Map();
-// ボードの id と単一選択の欄（ボードごとに1回だけ読む）。
+// ボードの id と単一選択の欄（ボードごとに1回だけ読む）。読めなかったら覚えず、次に読み直す。
 export async function board(gh, config, world) {
   const number = config.boards[world];
-  if (!boards.has(number))
-    boards.set(number, gh.gql(`query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){id fields(first:30){nodes{...on ProjectV2SingleSelectField{id name options{id name}}}}}}}`,
-      { o: config.owner, n: number }).then((r) => r.organization.projectV2));
+  if (!boards.has(number)) {
+    const read = gh.gql(`query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){id fields(first:30){nodes{...on ProjectV2SingleSelectField{id name options{id name}}}}}}}`,
+      { o: config.owner, n: number }).then((r) => r.organization.projectV2);
+    read.catch(() => boards.delete(number));
+    boards.set(number, read);
+  }
   return boards.get(number);
 }
 
@@ -25,7 +28,7 @@ async function setField(gh, config, world, item, name, option) {
     { p: p.id, i: item, f: field.id, v: value.id });
 }
 
-// 1つのタスクを決め直して、今と違う所だけを書く。本文（ボタン）は問いのコメントより先に書く（要件 R13）。閉じるのは最後。
+// 1つのタスクを決め直して、今と違う所だけを書く。本文（ボタン）は問いのコメントより先に書く（問いの通知から開いたときにボタンがあるように）。閉じるのは最後。
 // moved は、ユーザーがボードでステータスを動かした出来事で決め直すとき（戻したら知らせる）。
 export async function settle(gh, config, number, runs, moved = false) {
   const f = { ...(await readFacts(gh, config, number, runs)), moved };
@@ -72,7 +75,10 @@ export async function route(gh, config, name, p) {
     const node = (await gh.gql(`query($id:ID!){node(id:$id){...on Issue{number}}}`, { id: p.projects_v2_item.content_node_id })).node;
     return { numbers: node?.number ? [node.number] : [], moved: p.sender?.login === config.user };
   }
-  if (name === "schedule") return { numbers: await mismatched(gh, config), free: true }; // 定時の突き合わせ（src/index.js: scheduled）
+  if (name === "schedule") { // 定時の突き合わせ（src/index.js: scheduled）
+    const known = await mismatched(gh, config);
+    return { numbers: known.numbers, free: true, known };
+  }
   return { numbers: [] };
 }
 
@@ -94,14 +100,17 @@ export async function reportHealth(gh, config, { error = null, stopped = null, f
 }
 
 // 担当の枠が空いたか、決め直したタスクが振り出せるステータスへ来たら、振り出す。
-
 export async function handleEvent(env, config, name, payload) {
   const gh = await GitHub.app(env, config.installation);
-  const { numbers, free, moved } = await route(gh, config, name, payload);
+  const { numbers, free, moved, known } = await route(gh, config, name, payload);
   if (!numbers.length && !free) return { fixed: [], stopped: null };
-  const runs = readRuns(gh, config);
+  const runs = known ? Promise.resolve(known.runs) : readRuns(gh, config);
   const settled = await Promise.all(numbers.map((n) => settle(gh, config, n, runs, moved)));
-  const sent = free || settled.some((d) => d.status !== d.before && DISPATCH[d.status]) ? await dispatch(gh, config, await runs) : { stopped: null };
-  // 突き合わせで決め直したタスク（出来事を取りこぼしていたもの）と、振り出しを止めている理由。定時の起動が状況の更新に出す。
-  return { fixed: settled.filter((d) => d.status !== d.before).map((d) => d.number), stopped: sent.stopped };
+  // 定時の突き合わせは、読み済みのボードのタスクへ決め直した結果を重ねて振り出す（読み直さない）。
+  const now = new Map(settled.map((d) => [d.number, d]));
+  const tasks = known?.tasks.filter((t) => !now.get(t.number) || now.get(t.number).open).map((t) => (now.has(t.number) ? { ...t, status: now.get(t.number).status } : t));
+  const sent = free || settled.some((d) => d.status !== d.before && DISPATCH[d.status]) ? await dispatch(gh, config, await runs, tasks) : { stopped: null };
+  // 突き合わせで決め直したタスクのうち、出来事を取りこぼしていたもの（CI待ちは、マージのあとの master の CI の終わりを出来事で受けないので、
+  // 定時の突き合わせで進むのが普通の流れ。数えない）と、振り出しを止めている理由。定時の起動が状況の更新に出す。
+  return { fixed: settled.filter((d) => d.status !== d.before && d.before !== "CI待ち").map((d) => d.number), stopped: sent.stopped };
 }

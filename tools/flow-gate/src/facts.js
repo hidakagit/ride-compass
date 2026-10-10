@@ -1,11 +1,11 @@
 // タスクの事実を読む（src/decide.js: decide が受ける形）。置き場の issue とコードのリポジトリの作業ブランチの PR を GraphQL の1回で、
-// 担当の実行を REST で読む。App はどちらのリポジトリにも入っている（tasks#797）。ボードの一覧（src/dispatch.js）も同じ読み方を使う。
+// 担当の実行を REST で読む。App はどちらのリポジトリにも入っている。ボードの一覧（src/dispatch.js）も同じ読み方を使う。
 import { checkQuestion, latestQuestion, norm, remaining } from "./questions.js";
 
 // ボードの欄（ステータス・優先度・着手可能日時）の読み方。欄の名前は設定が持つ。
 export const fieldsOf = ({ fields: f }) => `status:fieldValueByName(name:"${f.status}"){...on ProjectV2ItemFieldSingleSelectValue{name}}
  priority:fieldValueByName(name:"${f.priority}"){...on ProjectV2ItemFieldSingleSelectValue{name}} start:fieldValueByName(name:"${f.start}"){...on ProjectV2ItemFieldTextValue{text}}`;
-// 着手可能日時は「YYYY-MM-DD」か「YYYY-MM-DD HH:MM」（日本時間）だけを受ける。形の合わない値は受け入れず（badStart。ゲートが知らせる）、
+// 着手可能日時は「YYYY-MM-DD」か「YYYY-MM-DD HH:MM」（日本時間）だけを受ける。形の合わない値は受け入れず（badStart はその値。ゲートが知らせる）、
 // 待つと決めた意図を守ってまだ先と読む。
 export const START_FORM = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/;
 const jst = (text) => (START_FORM.test(text) ? new Date(`${text.replace(" ", "T")}${text.includes(":") ? "" : "T00:00"}:00+09:00`) : null);
@@ -15,7 +15,7 @@ export function taskOf(config, issue, items, now = new Date()) {
   const text = item?.start?.text?.trim();
   const start = text ? jst(text) : null;
   return { board: world, item: item?.id ?? null, status: item?.status?.name ?? null, priority: item?.priority?.name ?? null, type: issue.issueType?.name ?? null,
-    open: issue.state === "OPEN", blocked: (issue.blockedBy?.nodes ?? []).some((b) => b.state === "OPEN"), future: Boolean(text) && (!start || start > now), badStart: Boolean(text) && !start };
+    open: issue.state === "OPEN", blocked: (issue.blockedBy?.nodes ?? []).some((b) => b.state === "OPEN"), future: Boolean(text) && (!start || start > now), badStart: text && !start ? text : null };
 }
 // 担当の実行の名前「#<番号> <種類>」（claude-task.yml の run-name）。
 export function runOf(title) {
@@ -46,14 +46,18 @@ const query = (config) => `query($to:String!,$tn:String!,$n:Int!,$co:String!,$cn
   timelineItems(last:1,itemTypes:[CONVERT_TO_DRAFT_EVENT]){nodes{...on ConvertToDraftEvent{createdAt}}}}}}}`;
 const ROLLUP = { SUCCESS: "SUCCESS", FAILURE: "FAILURE", ERROR: "FAILURE", PENDING: "PENDING", EXPECTED: "PENDING" };
 
-// 変異テストの生き残り（ファイルと文。行の位置は変わるので使わない）。コミットごとに変わらないので覚えておく。
+// 変異テストの生き残り（ファイルと文。行の位置は変わるので使わない）。コミットごとに変わらないので覚えておく。読めなかったら覚えない。
 const seen = new Map();
 function survivors(gh, config, sha) {
-  if (!seen.has(sha)) seen.set(sha, (async () => {
-    const { check_runs: [run] } = await gh.rest("GET", `/repos/${config.code}/commits/${sha}/check-runs?check_name=${config.mutationCheck}`);
-    const notes = run ? await gh.rest("GET", `/repos/${config.code}/check-runs/${run.id}/annotations?per_page=100`) : [];
-    return notes.filter((a) => a.title === "テストが気づかない書き換え").map((a) => `${a.path}: ${a.message}`);
-  })());
+  if (!seen.has(sha)) {
+    const read = (async () => {
+      const { check_runs: [run] } = await gh.rest("GET", `/repos/${config.code}/commits/${sha}/check-runs?check_name=${config.mutationCheck}`);
+      const notes = run ? await gh.rest("GET", `/repos/${config.code}/check-runs/${run.id}/annotations?per_page=100`) : [];
+      return notes.filter((a) => a.title === "テストが気づかない書き換え").map((a) => `${a.path}: ${a.message}`);
+    })();
+    read.catch(() => seen.delete(sha));
+    seen.set(sha, read);
+  }
   return seen.get(sha);
 }
 
@@ -66,7 +70,7 @@ export async function readFacts(gh, config, number, runs) {
   const open = c.pullRequests.nodes.find((p) => p.state === "OPEN");
   const [prev, head] = open?.commits.nodes.length === 2 ? open.commits.nodes : [null, open?.commits.nodes.at(-1)];
   const checks = ROLLUP[head?.commit.statusCheckRollup?.state] ?? null;
-  // 生き残りは、持たれていない PR の CI が通ったときだけ要る（決め3）。前のコミットに無かったものが新しい生き残り。
+  // 生き残りは、持たれていない PR の CI が通ったときだけ要る。前のコミットに無かったものが新しい生き残り。
   const [before, now] = !held.length && open && checks === "SUCCESS"
     ? await Promise.all([prev ? survivors(gh, config, prev.commit.oid) : [], survivors(gh, config, head.commit.oid)]) : [[], []];
   const drafted = open?.timelineItems.nodes[0]?.createdAt;
@@ -80,5 +84,6 @@ export async function readFacts(gh, config, number, runs) {
     types: changes.length ? [changes[0].prevIssueType?.name ?? null, ...changes.map((e) => e.issueType?.name ?? null)] : [i.issueType?.name ?? null],
     merged: Boolean(merged), mergeChecks: ROLLUP[merged?.mergeCommit?.statusCheckRollup?.state] ?? null,
     badQuestion: last && /^## 問い/.test(norm(last)) ? checkQuestion(config.questionTemplate, last) : [], lastComment: norm(last),
+    comments: i.comments.nodes.map((n) => norm(n.body)), // 最近のコメント（同じ知らせを重ねないために読む）
     pr: open && { id: open.id, draft: open.isDraft, checks, newSurvivors: now.some((s) => !before.includes(s)), backToDraft: Boolean(drafted && head && drafted > head.commit.committedDate) } };
 }

@@ -92,11 +92,12 @@ test("着手可能日時: 読めない値はまだ先と読む（待つと決め
   assert.equal(taskOf(config, {}, item("2026-10-12"), now).future, true);
   assert.equal(taskOf(config, {}, item("2026-10-10 09:00"), now).future, false);
   assert.equal(taskOf(config, {}, item("10月12日"), now).future, true);
-  assert.equal(taskOf(config, {}, item("10月12日"), now).badStart, true);
-  assert.equal(taskOf(config, {}, item("2026-10-12"), now).badStart, false);
-  const told = decide(f({ badStart: true }), config).notice;
-  assert.match(told, /着手可能日時の形が合わない/);
-  assert.equal(decide(f({ badStart: true, lastComment: told }), config).notice, null, "直るまで同じ知らせを重ねない");
+  assert.equal(taskOf(config, {}, item("10月12日"), now).badStart, "10月12日");
+  assert.equal(taskOf(config, {}, item("2026-10-12"), now).badStart, null);
+  const told = decide(f({ badStart: "10月12日" }), config).notice;
+  assert.match(told, /着手可能日時「10月12日」の形が合わない/);
+  assert.equal(decide(f({ badStart: "10月12日", comments: [told, "ほかのコメント"] }), config).notice, null, "間にほかのコメントがあっても重ねない");
+  assert.match(decide(f({ badStart: "10/13", comments: [told] }), config).notice, /「10\/13」/, "値が変われば新しく知らせる");
   assert.equal(taskOf(config, {}, item(null), now).future, false);
 });
 

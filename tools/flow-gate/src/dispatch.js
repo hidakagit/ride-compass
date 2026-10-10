@@ -17,7 +17,7 @@ async function items(gh, config) {
   }
 }
 
-// 止める操作（要件 K6）: 振り出さない理由（無ければ null）。担当のワークフローを無効にしたら止める。最後に終わった担当の実行が
+// 止める操作: 振り出さない理由（無ければ null）。担当のワークフローを無効にしたら止める。最後に終わった担当の実行が
 // Claude の利用の上限・認証で止まっていたら（担当のワークフローの段 config.quotaStep が落ちた）、その終わりから pauseMinutes の間止める。
 // 理由はボードに表れないので、ボードの状況の更新に出す（src/gate.js: reportHealth）。
 async function stopReason(gh, config) {
@@ -33,11 +33,11 @@ async function stopReason(gh, config) {
 }
 
 // 枠の数まで、急ぎ・優先度・番号の順に振り出す。作る担当の枠 = 進行中、確かめる担当の枠 = 検証中（CI待ちは枠を使わない）。
-// 返すのは起こした担当（picked）と、止めているならその理由（stopped）。
-export async function dispatch(gh, config, runs) {
+// 返すのは起こした担当（picked）と、止めているならその理由（stopped）。tasks は読み済みのボードの開いたタスク（無ければ読む）。
+export async function dispatch(gh, config, runs, tasks = null) {
   const stopped = await stopReason(gh, config);
   if (stopped) return { picked: [], stopped };
-  const tasks = await items(gh, config);
+  tasks ??= await items(gh, config);
   const rank = (t) => config.priorities.indexOf(t.priority ?? config.unsetPriority);
   const picked = Object.keys(config.slots).flatMap((kind) =>
     tasks.map((t) => ({ ...t, runs: runs.filter((r) => r.number === t.number) })).filter((t) => dispatchable(t, config) === kind)
@@ -49,8 +49,10 @@ export async function dispatch(gh, config, runs) {
 
 // 突き合わせ: ボードのステータスと担当の実行が食い違うタスク（持たれているのに作業のステータスでない・作業のステータスなのに持たれていない）と、
 // CI待ちのタスク（CI の終わりの出来事を取りこぼしても拾う）。
+// 読んだボードのタスクと実行も返す（定時の突き合わせが、決め直しと振り出しで読み直さない）。
 export async function mismatched(gh, config) {
   const [tasks, runs] = await Promise.all([items(gh, config), readRuns(gh, config)]);
   const working = Object.values(HELD);
-  return tasks.filter((t) => t.status === "CI待ち" || runs.some((r) => r.number === t.number) !== working.includes(t.status)).map((t) => t.number);
+  const numbers = tasks.filter((t) => t.status === "CI待ち" || runs.some((r) => r.number === t.number) !== working.includes(t.status)).map((t) => t.number);
+  return { numbers, tasks, runs };
 }

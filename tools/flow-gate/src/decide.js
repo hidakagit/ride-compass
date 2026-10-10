@@ -5,11 +5,11 @@ import { bodyRest, CONFIRM, splitBody, withButton } from "./questions.js";
 
 export const HELD = { 作る: "進行中", 確かめる: "検証中" }; // 担当が持っている間のステータス
 export const DISPATCH = { 未着手: "作る", 検証待ち: "確かめる" }; // 振り出す担当の種類
-const WAIT = ["回答待ち", "保留"]; // ユーザーの番（担当者の欄にユーザーを入れる。決め6）
+const WAIT = ["回答待ち", "保留"]; // ユーザーの番（担当者の欄にユーザーを入れる）
 
 export function decide(f, config) {
   const board = f.board ?? (f.type === config.dialogType ? "dialog" : "actions");
-  // 種類は作るときに決まり、対話作業の境目をまたいで変わらない（要件 R16）。境目の向こうへ変わったら、こちら側の最後の種類へ戻す。
+  // 種類は作るときに決まり、対話作業の境目をまたいで変わらない。境目の向こうへ変わったら、こちら側の最後の種類へ戻す。
   const mine = (t) => (t === config.dialogType) === (board === "dialog");
   const type = mine(f.type) ? f.type : (f.types.findLast(mine) ?? (board === "dialog" ? config.dialogType : null));
   const s = status(f, config);
@@ -28,7 +28,9 @@ export function decide(f, config) {
 function notice(f, status) {
   const text = [f.badQuestion?.length && `この問いは形に合わないので、問いとして読みません: ${f.badQuestion.join("・")}`,
     splitBody(f.body).foreign.length && "本文の先頭の印の間に、ゲートの書かない行があったので、消さずに印の外へ出しました。",
-    f.badStart && "着手可能日時の形が合わないので受け付けず、その間は振り出しません（`YYYY-MM-DD HH:MM` か `YYYY-MM-DD`。日本時間）。",
+    // 直るまで続く知らせは、最近のコメントに同じ知らせがあれば重ねない（値が変われば新しく知らせる）。
+    f.badStart && !f.comments?.some((c) => c.includes(`「${f.badStart}」`)) &&
+      `着手可能日時「${f.badStart}」の形が合わないので受け付けず、その間は振り出しません（\`YYYY-MM-DD HH:MM\` か \`YYYY-MM-DD\`。日本時間）。`,
     f.moved && f.status && status !== f.status && `ボードで「${f.status}」へ動かしましたが、事実から「${status}」にしました（ユーザーが直接決められるのは、保留と、完了（完了の条件が全部済んだときの完成か、見送り）だけです）。`,
   ].filter(Boolean).join("\n\n");
   return text && text !== f.lastComment ? text : null;
@@ -36,12 +38,12 @@ function notice(f, status) {
 
 function status(f, config) {
   // 完了は、完成（完了の条件が全部済んだ）か見送りでだけ受ける。条件が残ったまま完成で閉じたら、誰が閉じても開き直して決め直す。
-  // ボードで完了へ動かしても、開いているなら下で事実から決め直す（tasks#788「完了の条件が残ったまま完成にさせない」）。
+  // ボードで完了へ動かしても、開いているなら下で事実から決め直す。
   if (!f.open && !(f.closedAs === "COMPLETED" && f.remaining.length)) return { status: "完了" };
-  // 持たれている間は決め直さない。ユーザーが保留へ置いたら、持っている実行を取り消す（要件 R7）。
+  // 持たれている間は決め直さない。ユーザーが保留へ置いたら、持っている実行を取り消す。
   if (f.runs.length) return f.status === "保留" ? { status: "保留", cancel: f.runs.map((r) => r.id) } : { status: HELD[f.runs.some((r) => r.kind === "作る") ? "作る" : "確かめる"] };
-  if (f.status === "保留") return { status: "保留" }; // ユーザーが置いた保留は、ユーザーが出すまで保つ（要件 R6）
-  // 入口: Claude が起こした要望（段階でないもの）だけ採否を問い、ほかは未着手（決め4）。
+  if (f.status === "保留") return { status: "保留" }; // ユーザーが置いた保留は、ユーザーが出すまで保つ
+  // 入口: Claude が起こした要望（段階でないもの）だけ採否を問い、ほかは未着手。
   if (!f.status) return f.author === config.claude && f.type === "要望" && !f.parent ? { status: "回答待ち", ask: "採否" } : { status: "未着手" };
   const q = f.question;
   if (q && !q.answer) return { status: "回答待ち" };
@@ -50,7 +52,7 @@ function status(f, config) {
     if (q.answer.decision === "保留") return { status: "保留" };
     if (q.kind === "確かめ") {
       const bad = q.answer.items.filter((i) => !i.ok);
-      if (bad.length) return { status: "未着手", fix: bad.map((i) => `直す: ${i.note || i.text}`) }; // 決め2
+      if (bad.length) return { status: "未着手", fix: bad.map((i) => `直す: ${i.note || i.text}`) };
       const check = f.remaining.filter((l) => CONFIRM.test(l));
       return { ...table({ ...f, remaining: f.remaining.filter((l) => !CONFIRM.test(l)) }), check };
     }
@@ -58,7 +60,7 @@ function status(f, config) {
   return table(f);
 }
 
-// 手放したあとの表（要件 R3・R4・決め1・決め3・決め7）。作業のステータスなのに持たれていないのが、担当が手放した事実。
+// 手放したあとの表。作業のステータスなのに持たれていないのが、担当が手放した事実。
 const IRREGULAR = { status: "回答待ち", ask: "イレギュラー" };
 function table(f) {
   const pr = f.pr;

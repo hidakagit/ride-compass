@@ -47,7 +47,8 @@ test("出来事の振り分け: ゲート自身・Claude の本文の書き換�
   assert.deepEqual(await route(gh, config, "issues", { action: "milestoned", sender: { login: config.user }, issue: { number: 5 }, repository: tasks }), { numbers: [] });
   assert.deepEqual(await route(gh, config, "issue_comment", { action: "created", sender: { login: config.user }, issue: { number: 5 }, repository: tasks }), { numbers: [5] });
   assert.deepEqual(await route(gh, config, "pull_request", { action: "converted_to_draft", sender: { login: config.claude }, pull_request: { head: { ref: `${config.branchPrefix}12` } }, repository: code }), { numbers: [12] });
-  assert.deepEqual(await route(fake({ items: [item(2, "検証中")] }).gh, config, "schedule", {}), { numbers: [2], free: true });
+  const scheduled = await route(fake({ items: [item(2, "検証中")] }).gh, config, "schedule", {});
+  assert.deepEqual([scheduled.numbers, scheduled.free, scheduled.known.tasks.length], [[2], true, 1], "定時は読んだタスクと実行も渡す");
   assert.deepEqual(await route(gh, config, "workflow_run", { action: "completed", sender: { login: config.gateBot }, workflow_run: { path: `.github/workflows/${config.workflow}`, display_title: "#9 作る" }, repository: code }),
     { numbers: [9], free: true });
 });
@@ -72,13 +73,13 @@ test("書く順: 本文のボタンは問いより先、ボードへ入れてか
 
 test("突き合わせ: 実行の有無と作業のステータスが食い違うタスクと CI待ちだけを決め直す", async () => {
   const { gh } = fake({ items: [item(1, "進行中"), item(2, "検証中"), item(3, "未着手"), item(4, "CI待ち"), item(5, "未着手"), item(6, "検証待ち")], runs: [run(1, "作る"), run(3, "作る")] });
-  assert.deepEqual(await mismatched(gh, config), [2, 3, 4]);
+  assert.deepEqual((await mismatched(gh, config)).numbers, [2, 3, 4]);
 });
 
 test("突き合わせ: 動いている実行が100件を超えても、後ろのページの実行を落とさない（約束25）", async () => {
   const many = Array.from({ length: 150 }, (_, i) => run(1000 + i, "作る"));
   const { gh } = fake({ items: [item(1149, "進行中")], runs: many });
-  assert.deepEqual(await mismatched(gh, config), []);
+  assert.deepEqual((await mismatched(gh, config)).numbers, []);
 });
 
 test("振り出し: 最後の担当が利用の上限で止まったら、その終わりから決まった間は振り出さない", async () => {

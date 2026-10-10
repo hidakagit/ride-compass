@@ -7,7 +7,7 @@ const BUTTON = /^\[!\[回答する\]\([^)]*\/button\.svg\)\]\([^)]*\/answer\?iss
 
 // 本文の頭の回答のボタン（GitHub の画面にボタンは足せないので、リンク付きの画像。画像とフォームの道は src/index.js が開ける）。
 export const answerUrl = (config, number) => `${config.urls.form}/answer?issue=${number}`;
-// 印の間にゲートの書かない行があれば、黙って消さずに印の外の先頭へ出す（tasks#307）。foreign はその行。
+// 印の間にゲートの書かない行があれば、黙って消さずに印の外の先頭へ出す。foreign はその行。
 export function splitBody(body) {
   const foreign = (BLOCK.exec(norm(body))?.[1] ?? "").split("\n").filter((l) => l.trim() && !BUTTON.test(l.trim()));
   const rest = norm(body).replace(BLOCK, "");
