@@ -125,20 +125,16 @@ class RouteGenerateRequest(StrictModel):
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF。
     hard_filters: HardFilterOverride
-    # 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ合格・
-    # overall_difficulty昇順の上位この件数を返す）。経由地の無い目的地ルート
-    # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
-    # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
-    # あるとレグごとに代替案が組合せで増えるため）。下限・上限と画面の既定値はOpenAPI生成物
+    # 返す候補の上限件数。周回は距離フィルタ合格・overall_difficulty昇順の上位この件数、経由地・目的地を
+    # 置いたときは最後の区間の代わりの道をこの件数まで返す。下限・上限と画面の既定値はOpenAPI生成物
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
     max_routes: int = Field(ge=MIN_ROUTES, le=MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
     # 算出に使う。範囲と画面の既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
     # 渡す唯一の情報源にする。
     assumed_speed_kmh: AssumedSpeedKmh
-    # ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で通過する単一経路を
-    # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
-    # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
+    # ユーザーが地図上で指定した経由地（起点→経由地1→...→終点の順に通る）。bboxが際限なく広がらないよう、
+    # 起点から`MAX_ROUTE_DISTANCE_KM`以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
     # 成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=MAX_WAYPOINTS)
     # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
@@ -185,7 +181,9 @@ class RouteGenerateRequest(StrictModel):
                 raise ValueError("spliced_edge_ids requires destination")
             if self.distance_km is None:
                 raise ValueError("distance_km is required without waypoints/destination")
-            self._target = DistanceTarget(distance_km=self.distance_km)
+            self._target = DistanceTarget(
+                distance_km=self.distance_km, points=FixedPoints(waypoints=[], destination=None)
+            )
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
         distance_km = search_distance_km(max(haversine_distance_km(origin, point) for point in points))
@@ -230,8 +228,7 @@ class GenerationConditions(StrictModel):
     max_average_grade_percent: float | None
     # 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
-    # 候補数の上限（実際に適用された値）。経由地を伴う生成では、指定によらず
-    # `route_request.ROUTES_WITH_WAYPOINTS`。
+    # 候補数の上限。
     max_routes: int
     # 実際に適用された出発時刻（JST）。
     start_time: datetime
@@ -241,7 +238,7 @@ class GenerationConditions(StrictModel):
     waypoints: list[Coordinates] | None
     # 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
     destination: Coordinates | None
-    # 経由地の無い目的地ルートで、`destination`がメインの道路網から孤立した
+    # 距離なしの目的地ルートで、`destination`がメインの道路網から孤立した
     # Node（歩道橋・私有地内通路等）にスナップされたため、実際にはアクセス可能な最寄りNode
     # へ補正して探索した場合の座標。補正しなかった（`destination`をそのまま使えた）場合は
     # None。

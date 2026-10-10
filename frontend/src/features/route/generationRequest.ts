@@ -13,7 +13,6 @@ export interface GenerationInput {
   /** 周回の目標距離。経由地・目的地を置いたときはnull（探索の範囲はbackendが置いた点から決める）。 */
   distanceKm: number | null;
   distanceToleranceKm: number;
-  /** 実際に使う候補数（経由地を伴う目的地ルートは決まった数、`fixedRouteCount`）。 */
   maxRoutes: number;
   assumedSpeedKmh: number;
   startTime: Date;

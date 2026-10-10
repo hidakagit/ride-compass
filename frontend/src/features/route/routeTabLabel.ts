@@ -5,8 +5,8 @@ import type { RouteCandidate } from "@/types/route";
 // タブは候補どうしを見比べる場所のため、「基準線とどれだけ違うか」はここに出す
 // （タブの中身を開かないと分からないと、比較のたびに開き直すことになる）。
 //
-// 候補の種類と最速の印は**backendが付ける値**（route_generator.py: _label）で、ここは読むだけ。idの文字列や
-// 生成の要求の形から種類を決め直さない。
+// 最速の印は**backendが付ける値**（route_generator.py: _label）で、ここは読むだけ。idの文字列や
+// 生成の要求の形から決め直さない。
 
 /** 一覧の群。並びは最速 → 生成した候補 → 合成で、群が変わる所に区切りの線を引く。 */
 export type RouteListGroup = "fastest" | "generated" | "spliced";
@@ -25,14 +25,13 @@ interface RouteListEntry<T> {
 /** 一覧の先頭に置く、所要時間だけで探した候補の名前。 */
 const FASTEST_ROUTE_NAME = "最速";
 
-type ListedRoute = Pick<RouteCandidate, "id" | "kind" | "direction_label" | "is_fastest">;
+type ListedRoute = Pick<RouteCandidate, "id" | "is_fastest">;
 
 /**
  * 「ルート結果」の一覧の並びと名前。
  *
  * 最速の印の付いた1本を「最速」として先頭に置き、残りの生成候補に1から番号を振り、合成で作ったルートを作った順に
- * 「合成N」で続ける。比べる基準の1本を、合成の前後で動かさずに一番上へ置くため。経由地を通る1本は常に1本で
- * 順位を持たないので、番号の代わりにbackendが付けた名前を出す。
+ * 「合成N」で続ける。比べる基準の1本を、合成の前後で動かさずに一番上へ置くため。
  */
 export function routeListEntries<T extends ListedRoute>(
   generated: readonly T[],
@@ -43,10 +42,7 @@ export function routeListEntries<T extends ListedRoute>(
     .map((route) => ({ route, group: "fastest" as const, name: FASTEST_ROUTE_NAME, label: "" }));
   const numbered = generated
     .filter((route) => !route.is_fastest)
-    .map((route, index) => {
-      const name = route.kind === "waypoints" ? route.direction_label : `${index + 1}`;
-      return { route, group: "generated" as const, name, label: name };
-    });
+    .map((route, index) => ({ route, group: "generated" as const, name: `${index + 1}`, label: `${index + 1}` }));
   const spliced = edits.map(({ route, number }) => ({
     route,
     group: "spliced" as const,

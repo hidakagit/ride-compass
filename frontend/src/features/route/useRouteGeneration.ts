@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 
 import { debugLog } from "@/lib/debugLog";
-import { fixedRouteCount, useRouteFormSubmit } from "@/features/route/RouteForm/useRouteFormSubmit";
+import { useRouteFormSubmit } from "@/features/route/RouteForm/useRouteFormSubmit";
 import {
   buildGenerateRequest,
   generationConditionsKey,
@@ -84,7 +84,7 @@ export function useRouteGeneration({
         // 点を置いたときの探索の範囲はbackendが点から決めるため、距離は送らない。
         distanceKm: routeMode === "destination" && destinationModePoints.length > 0 ? null : distanceKm,
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
-        maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutes),
+        maxRoutes: Number(maxRoutes),
         assumedSpeedKmh,
         startTime: departure.at,
         startTimePinned: departure.pinned,

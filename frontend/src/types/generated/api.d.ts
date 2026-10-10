@@ -1525,7 +1525,7 @@ export interface components {
              * @default loop
              * @enum {string}
              */
-            kind: "loop" | "waypoints" | "destination" | "spliced";
+            kind: "loop" | "destination" | "spliced";
             /**
              * Spliceable
              * @default false

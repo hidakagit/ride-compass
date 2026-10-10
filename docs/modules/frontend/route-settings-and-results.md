@@ -436,9 +436,8 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。印は押すと意味が開く（`InfoPopover`の中身を印に差し替えたもの）。検証・送信ロジック自体は
 `useRouteFormSubmit`（`{error, check}`を返す）へ切り出し、生成（`useRouteGeneration.ts: submit`）が検証して送る。
-`page.tsx`はヘッダーのボタンからその送信を呼ぶ（地図のレンズは要求に載らず、生成のフックは地図の見え方を読まない）。候補数の指定が効くか（効かないならbackendの決まった数）は
-`useRouteFormSubmit.ts: fixedRouteCount`が1か所で決め、`RouteForm`（候補数ステッパーの表示）・
-`useRouteGeneration.ts`（送る値と「条件が変わった」の比較）が読む。
+`page.tsx`はヘッダーのボタンからその送信を呼ぶ（地図のレンズは要求に載らず、生成のフックは地図の見え方を読まない）。候補数の指定は
+周回でも経由地・目的地を置いたときでも同じに効く。
 
 距離は`<input type="range">`のスライダー、候補数は「‹ 8 › 件」のステッパー
 （-/+ボタン、`DynamicLayerTimeSlider`の1コマ送りボタンと同じ役割分担）にし、

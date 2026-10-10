@@ -1,11 +1,11 @@
 /**
  * 生成の前の検証（`RouteForm/useRouteFormSubmit.ts`）——出発地が仮の地点のままなら、どちらのモードでも生成せずに
  * 位置情報か地図での指定を促す。目的地モードで地点が1つも無ければ、地図での指定を促す。通れば送る距離（周回は
- * 入力の距離、目的地は0）を返し、前の文言を消す。候補数の指定を使わない生成の決まった数（`fixedRouteCount`）も持つ。
+ * 入力の距離、目的地は0）を返し、前の文言を消す。
  *
  * ここで見ないもの:
  * - 文言を出す場所（「ルート結果」欄・モバイルの「ルート設定」シート） → `RouteOutcome/RouteOutcome.test.tsx`・`app/page.test.tsx`
- * - 検証を通った値で何を送るか（目的地の距離・候補数の決まった数を送ること） → `useRouteGeneration.test.ts`
+ * - 検証を通った値で何を送るか（目的地の距離・候補数） → `useRouteGeneration.test.ts`
  * - 候補数のステッパーを押せなくする表示 → `RouteForm/RouteForm.test.tsx`
  * - 距離・候補数の値域 → 検証しない（入力はスライダー・ステッパーで、保存値は読むときに範囲の外を捨てる。
  *   `useGenerationConditions.test.ts`）
@@ -13,9 +13,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-
-import { fixedRouteCount, type RouteMode, useRouteFormSubmit } from "./useRouteFormSubmit";
+import { type RouteMode, useRouteFormSubmit } from "./useRouteFormSubmit";
 
 const ORIGIN_UNKNOWN =
   "現在地が分かりません。位置情報を許可するか、「出発地を地図で選ぶ」を押して地図をタップしてください。";
@@ -42,14 +40,6 @@ function check(result: { current: ReturnType<typeof useRouteFormSubmit> }) {
   });
   return distance;
 }
-
-describe("fixedRouteCount", () => {
-  it("経由地を伴う目的地だけがbackendの決まった数で、周回と経由地の無い目的地は指定を使う", () => {
-    expect(fixedRouteCount("destination", 1)).toBe(routeGenerateConfig.routes_with_waypoints);
-    expect(fixedRouteCount("destination", 0)).toBeNull();
-    expect(fixedRouteCount("loop", 2)).toBeNull();
-  });
-});
 
 describe("useRouteFormSubmit", () => {
   it("周回は入力の距離を数にして返す", () => {

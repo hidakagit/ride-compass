@@ -4508,7 +4508,6 @@
             "type": "string",
             "enum": [
               "loop",
-              "waypoints",
               "destination",
               "spliced"
             ],
