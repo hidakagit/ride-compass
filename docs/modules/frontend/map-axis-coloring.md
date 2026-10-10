@@ -386,7 +386,7 @@ features/map/view/useMapView.ts
 isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に一切現れない。表示ON/OFFの起動導線は地図上部中央の
 `LensControl`のみが持つ（本ファイル冒頭「対象ファイル」参照）。
 
-## 3件目の軸を公開したときに自動で追従する範囲
+## 軸を公開したときに自動で追従する範囲
 
 `dedicated_way_value_layer=true`の軸を軸スタジオで公開すると、frontend側は
 地図の軸カタログ（`features/map/useMapAxisCatalog.ts`）の`dedicatedAxes`経由で以下がすべて自動で増える（このモジュールの
@@ -400,6 +400,4 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`dynamic_way_value_conditions`（`axisLayers.ts`が`needsTime`/`needsBearing`/`needsSpeed`へ移す） |
 | 表示宣言・凡例 | `dedicatedWayValueAxesFromCatalogAxes`（軸の`display`）/`dedicatedWayValueLegend` |
 
-**追従しないもの**: 値を組み立てるbackendのサービス本体（材料ごとの`DEDICATED_WAY_VALUE_SERVICES`
-への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。
-配信を実装した材料を参照しない軸へこのフラグを立てる書き込み自体がbackendで拒否される。
+配信の口がどの軸に値を返すかは、backendの[dynamic-way-values.md](../backend/dynamic-way-values.md)「軸登録と要求の条件」が持つ。
