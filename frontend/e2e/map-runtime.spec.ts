@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
+  INTRO_CLOSED,
+  KEYBOARD_HEIGHT,
   MOBILE_VIEWPORT,
+  allLayersOn,
   installApiMocks,
   installMapFinder,
   openMobileApp,
@@ -166,7 +168,7 @@ test("目的地を探して置いた地点は地図のその位置にピンが�
   };
   await installApiMocks(page);
   await page.route("**/api/place-search*", (route) => route.fulfill({ json: { candidates: [candidate] } }));
-  await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true" });
+  await seedStoredState(page, INTRO_CLOSED);
   await page.addInitScript(installMapFinder);
   await page.goto("/");
   await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
@@ -239,8 +241,7 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
 
   await installApiMocks(page);
   await seedStoredState(page, {
-    "ridecompass:debug-enabled": "1",
-    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
+    ...allLayersOn(),
     // installApiMocks の軸カタログが持つ軸。
     "ridecompass:route-style-mode": "ramp",
   });
@@ -251,9 +252,6 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
 
   expect(styleErrors).toEqual([]);
 });
-
-/** スマホのキーボードの高さ（6.1 型の iPhone、変換の候補の帯なし）。 */
-const KEYBOARD_PX = 301;
 
 /**
  * キーボードが出たときにブラウザがすることを、見える範囲（visual viewport）の高さで見立てる。Playwright の Chromium は
@@ -266,7 +264,7 @@ async function showKeyboard(page: Page): Promise<number> {
     Object.defineProperty(viewport, "height", { configurable: true, get: () => height });
     viewport.dispatchEvent(new Event("resize"));
     return height;
-  }, KEYBOARD_PX);
+  }, KEYBOARD_HEIGHT);
 }
 
 // 狭い画面では、欄を押すと欄のあった位置からせり上がって、打つ欄と候補を画面の上側へ出し、候補はキーボードの上までの中で

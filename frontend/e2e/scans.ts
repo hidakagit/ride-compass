@@ -103,11 +103,10 @@ export async function scanLayout(
         if (!el) return null;
         const box = el.getBoundingClientRect();
         if (box.width === 0 || box.height === 0 || !el.checkVisibility({ visibilityProperty: true })) return null;
-        const describe = (e, b) => {
-          const name = e.getAttribute("aria-label") ?? (e.textContent ?? "").trim().slice(0, 20);
-          return e.tagName.toLowerCase() + ' "' + name + '"' + " が画面の横からはみ出す（" +
-            Math.round(b.left) + "〜" + Math.round(b.right) + "px）";
-        };
+        const label = (e) =>
+          e.tagName.toLowerCase() + ' "' + (e.getAttribute("aria-label") ?? (e.textContent ?? "").trim().slice(0, 20)) + '"';
+        const describe = (e, b) =>
+          label(e) + " が画面の横からはみ出す（" + Math.round(b.left) + "〜" + Math.round(b.right) + "px）";
         const fits = (b) => b.left >= -1 && b.right <= window.innerWidth + 1;
         const scrolls = (v) => v === "auto" || v === "scroll";
         const clips = (v) => v === "hidden" || v === "clip";
@@ -129,8 +128,7 @@ export async function scanLayout(
           const outX = !reachX && clips(style.overflowX) && (cx < outer.left || cx > outer.right);
           const outY = !reachY && clips(style.overflowY) && (cy < outer.top || cy > outer.bottom);
           if (!clipped && (outX || outY)) {
-            const name = el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 20);
-            clipped = el.tagName.toLowerCase() + ' "' + name + '" の押す点（' + Math.round(cx) + "," +
+            clipped = label(el) + " の押す点（" + Math.round(cx) + "," +
               Math.round(cy) + "）が祖先 " + p.tagName.toLowerCase() + "（" + Math.round(outer.left) + "〜" +
               Math.round(outer.right) + " × " + Math.round(outer.top) + "〜" + Math.round(outer.bottom) +
               "px）に切り取られて押せない";
@@ -148,8 +146,7 @@ export async function scanLayout(
           ["INPUT", "SELECT", "TEXTAREA", "VIDEO", "AUDIO"].includes(root.host.tagName);
         let small = "";
         if (!drawnByBrowser && (box.width < 24 || box.height < 24)) {
-          const name = el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 20);
-          small = el.tagName.toLowerCase() + ' "' + name + '" の押す所が24px四方に満たない（' +
+          small = label(el) + " の押す所が24px四方に満たない（" +
             Math.round(box.width * 10) / 10 + "×" + Math.round(box.height * 10) / 10 + "px）";
         }
         if (container) {
@@ -311,8 +308,7 @@ export async function pinchOpen(client: CDPSession, x: number, y: number): Promi
  * （`window.__e2e.isolate`）。拡大したら倍率を戻す（戻らなければ座標がずれるので、残りは未検査として打ち切る）。
  */
 export async function scanPinch(page: Page, client: CDPSession): Promise<{ checked: number; problems: string[] }> {
-  const width = await page.evaluate(() => window.innerWidth);
-  const targets = await page.evaluate(() => {
+  const { width, targets } = await page.evaluate(() => {
     const canvas = document.querySelector("canvas.maplibregl-canvas");
     const found: { x: number; y: number; label: string }[] = [];
     for (const el of document.querySelectorAll("body *")) {
@@ -326,7 +322,7 @@ export async function scanPinch(page: Page, client: CDPSession): Promise<{ check
       const name = hit.getAttribute("aria-label") ?? (hit.textContent ?? "").trim().slice(0, 16);
       found.push({ x, y, label: `${hit.tagName.toLowerCase()} "${name}"` });
     }
-    return found;
+    return { width: window.innerWidth, targets: found };
   });
   const problems: string[] = [];
   for (const [index, target] of targets.entries()) {
@@ -346,8 +342,10 @@ export async function scanPinch(page: Page, client: CDPSession): Promise<{ check
       ],
     });
     await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    await page.evaluate(() => window.__e2e.release());
-    const scale = await page.evaluate(() => window.__e2e.stableScale());
+    const scale = await page.evaluate(() => {
+      window.__e2e.release();
+      return window.__e2e.stableScale();
+    });
     if (scale === 1) continue;
     problems.push(
       `${target.label} (${Math.round(target.x)},${Math.round(target.y)}) から始めたピンチでページが×${scale.toFixed(2)}に拡大した`,

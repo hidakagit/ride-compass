@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { USAGE_PART_SELECTOR } from "@/components/UsageGuide/usageTarget";
-import { installApiMocks, seedStoredState } from "./fixtures";
+import { INTRO_CLOSED, installApiMocks, seedStoredState } from "./fixtures";
 import { WIDTHS, installPageHelpers, openApp, type WidthName } from "./states";
 
 // 使い方の説明の「中を見る」で開いた浮きパネルの中の部品も説明できること（パターン4 観点1）。浮きパネルは外への押し操作と
@@ -62,7 +62,7 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
     const page = await context.newPage();
     await page.addInitScript(installPageHelpers);
     await installApiMocks(page);
-    await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true" });
+    await seedStoredState(page, INTRO_CLOSED);
     await openApp(page);
 
     const enter = async () => {

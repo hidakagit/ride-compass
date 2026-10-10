@@ -103,21 +103,18 @@ const words = [...new Set([...phenomenonWords, ...axisCatalogWords()])].sort((a,
 const KEY_NAME =
   /^(key|id|kind|role|source|group|property|level|type|tier|category|layerId|axisId|attrId)$|(Id|Key|_id|_key|_kind)$/;
 const LIMIT_NAME = /weight|threshold|min|max|limit|ratio|share|bound|floor|ceil|cap|tolerance|eps|default/i;
-const COMPARISON = new Set([
-  ts.SyntaxKind.LessThanToken,
-  ts.SyntaxKind.LessThanEqualsToken,
-  ts.SyntaxKind.GreaterThanToken,
-  ts.SyntaxKind.GreaterThanEqualsToken,
-  ts.SyntaxKind.EqualsEqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsEqualsToken,
-  ts.SyntaxKind.EqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsToken,
-]);
 const EQUALITY = new Set([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
   ts.SyntaxKind.ExclamationEqualsEqualsToken,
   ts.SyntaxKind.EqualsEqualsToken,
   ts.SyntaxKind.ExclamationEqualsToken,
+]);
+const COMPARISON = new Set([
+  ...EQUALITY,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
 ]);
 
 /** 式の最後の名前（`a.b.key` なら key、`x` なら x、`a["key"]` なら key）。 */
@@ -209,8 +206,7 @@ for (const file of sources) {
     }
 
     const phrase =
-      ts.isStringLiteral(node) ||
-      ts.isNoSubstitutionTemplateLiteral(node) ||
+      isStringLike(node) ||
       ts.isTemplateHead(node) ||
       ts.isTemplateMiddle(node) ||
       ts.isTemplateTail(node) ||

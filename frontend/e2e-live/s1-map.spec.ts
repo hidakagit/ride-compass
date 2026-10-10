@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  allLayersOn,
   branch,
   chooseLens,
   currentLensLabel,
@@ -14,7 +13,7 @@ import {
   roadSourceId,
   settleMap,
 } from "./live";
-import { clickFeature } from "../e2e/fixtures";
+import { allLayersOn, clickFeature } from "../e2e/fixtures";
 import materialCatalog from "@/types/generated/material-catalog.json";
 
 /** 道の詳細が必ず持つ行（路面の区分）の項目名。名前は材料カタログが持つ。 */
@@ -77,7 +76,7 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
           expect.soft(drawnWithValue, `「${axis.label}」: 値を受け取った道が1本も描かれていない`).toBeGreaterThan(0);
         } else {
           const inputs = axis.map_paint.tiles.tile_inputs.map((input) => input.property);
-          const carriers = drawn.filter((road) => inputs.some((p) => road[p] !== undefined && road[p] !== null));
+          const carriers = drawn.filter((road) => inputs.some((p) => carries(road, p)));
           expect
             .soft(carriers.length, `「${axis.label}」: 材料（${inputs.join("・")}）を持つ道が描かれていない`)
             .toBeGreaterThan(0);
@@ -89,28 +88,28 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
   }
 
   // G: 道を1本押す → 道の詳細が開き、例外・エラー表示が無い。
+  const popup = page.locator(".maplibregl-popup");
   await branch(
     page,
     "道を押す",
     async () => {
       const errorsBefore = watch.pageErrors.length;
       await clickFeature(page, "road");
-      await expect(page.locator(".maplibregl-popup")).toBeVisible({ timeout: 10_000 });
+      await expect(popup).toBeVisible({ timeout: 10_000 });
       // 開いたのが道の詳細であること（道の詳細は路面の区分の行を必ず持つ。属性は畳んで開くので、開いてから見る）。
       // 描画の例外はエラー境界（app/error.tsx）が受けてページの例外にならないので、中身が出たかで見る。
-      const popup = page.locator(".maplibregl-popup");
       await popup.getByText("この道の属性", { exact: true }).click();
       await expect(popup.getByText(SURFACE_ROW_LABEL, { exact: true })).toBeVisible();
       await settleMap(page);
       expect.soft(watch.pageErrors.slice(errorsBefore), "道を押したあとのページの例外").toEqual([]);
-      await expect.soft(page.locator(".maplibregl-popup").getByRole("alert")).toHaveCount(0);
+      await expect.soft(popup.getByRole("alert")).toHaveCount(0);
     },
     async () => {
       await page.keyboard.press("Escape");
-      if (await page.locator(".maplibregl-popup").isVisible()) {
+      if (await popup.isVisible()) {
         await page.locator(".maplibregl-popup-close-button").click();
       }
-      await expect(page.locator(".maplibregl-popup")).toBeHidden();
+      await expect(popup).toBeHidden();
     },
   );
 

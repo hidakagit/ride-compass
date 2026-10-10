@@ -1,4 +1,5 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
+import { CHROMIUM_PROJECTS, standaloneServer } from "./playwright.config";
 
 // 実backend（開発DBへ向けた手元のbackendか本番のbackend）へ向けて回すe2e（frontend/e2e-live/）。CIには載せない。何を守るか・前提・
 // 走らせ方・誰がいつ回すかは.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」。backendはここから起動しない——DBの
@@ -26,13 +27,6 @@ export default defineConfig({
     // アプリはbackendを別オリジンとして呼ぶが、本番のbackendのCORSは本番のfrontendのオリジンしか許さない。
     launchOptions: { args: ["--disable-web-security"] },
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npm run start:standalone",
-    url: LIVE_ORIGIN,
-    // Git BashはHOSTNAMEへ機械名を入れてexportする。standaloneのサーバーはHOSTNAMEで待ち受けるので、localhostへ固定する。
-    env: { PORT: String(LIVE_PORT), HOSTNAME: "localhost" },
-    timeout: 60_000,
-    reuseExistingServer: false,
-  },
+  projects: CHROMIUM_PROJECTS,
+  webServer: standaloneServer(LIVE_PORT),
 });

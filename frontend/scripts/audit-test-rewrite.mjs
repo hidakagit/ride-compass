@@ -181,13 +181,13 @@ const tests = implementationIsTest ? [implementation] : givenTests.length > 0 ? 
 if (tests.length === 0) fail(`母集団が空: ${implementation} を import するテストが無い`);
 const missing = tests.filter((test) => !existsSync(path.join(frontendRoot, test)));
 if (missing.length > 0) fail(`テストが無い: ${missing.join(" ")}`);
-// lineSources は行数を数えるファイル、files は流すファイル、measured はカバレッジを取るファイル。
-let lineSources, files, measured;
+// files は流すファイル、measured はカバレッジを取るファイル。
+let files, measured;
 if (implementationIsTest) {
   const { copy, runner } = writeTestCopy();
-  [lineSources, files, measured] = [[copy], [runner], copy];
+  [files, measured] = [[runner], copy];
 } else {
-  [lineSources, files, measured] = [tests, tests, implementation];
+  [files, measured] = [tests, implementation];
 }
 
 console.log(`対象: ${implementation}`);
@@ -206,8 +206,8 @@ console.log(
   `母集団（${implementationIsTest ? "実装のテストファイルそのもの" : givenTests.length > 0 ? "渡したもの" : "import の指定子で集めたもの"}）:`,
 );
 let totalLines = 0;
-tests.forEach((test, i) => {
-  const lineCount = readFileSync(path.join(frontendRoot, lineSources[i]), "utf-8").trimEnd().split("\n").length;
+tests.forEach((test) => {
+  const lineCount = readFileSync(path.join(frontendRoot, test), "utf-8").trimEnd().split("\n").length;
   totalLines += lineCount;
   console.log(`  ${test}（${lineCount}行）`);
 });
