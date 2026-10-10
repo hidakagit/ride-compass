@@ -168,24 +168,14 @@ def find_dead_doc_links(md_files: list[str], universe: set[str]) -> list[str]:
 
 def cmd_docs(args: argparse.Namespace) -> int:
     universe = set(tracked_files())
-    md_files = [f for f in universe
-                if f.endswith(".md") and not f.startswith(FROZEN_PREFIXES)]
-
-    sections = [
-        ("dead_doc_links", "文書のリンクが解決しない",
-         find_dead_doc_links(sorted(md_files), universe)),
-    ]
-
-    total = 0
-    for key, title, lines in sections:
-        print(f"## [{key}] {title}: {len(lines)}件")
-        for line in lines:
-            print(f"  - {line}")
-        total += len(lines)
+    lines = find_dead_doc_links(sorted(f for f in universe if is_maintained_doc(f)), universe)
+    print(f"## [dead_doc_links] 文書のリンクが解決しない: {len(lines)}件")
+    for line in lines:
+        print(f"  - {line}")
 
     print()
-    if total:
-        print(f"違反 {total}件")
+    if lines:
+        print(f"違反 {len(lines)}件")
         return 1
     print("違反なし")
     return 0
@@ -231,6 +221,10 @@ def is_test(path: str) -> bool:
             or path.startswith(TEST_PREFIXES))
 
 
+def is_maintained_doc(path: str) -> bool:
+    return path.endswith(".md") and not path.startswith(FROZEN_PREFIXES)
+
+
 def is_code(path: str) -> bool:
     return path.endswith(CODE_SUFFIXES) or path.startswith(WORKFLOW_PREFIXES)
 
@@ -239,7 +233,7 @@ def volume_kind(path: str) -> str | None:
     """総量を数える種別（実装・テスト・維持する文書）。数えないものはNone。"""
     if is_code(path):
         return "テスト" if is_test(path) else "実装"
-    if path.endswith(".md") and not path.startswith(FROZEN_PREFIXES):
+    if is_maintained_doc(path):
         return "文書"
     return None
 
@@ -338,6 +332,12 @@ def cmd_size(args: argparse.Namespace) -> int:
     return 0
 
 
+def code_churn(sha: str) -> int:
+    """`sha` から HEAD までの backend・frontend の追加と削除の行数の和。"""
+    stat = git("diff", "--shortstat", f"{sha}..HEAD", "--", "backend", "frontend", check=False)
+    return sum(int(x) for x in re.findall(r"(\d+) (?:insertion|deletion)", stat))
+
+
 def cmd_metrics(args: argparse.Namespace) -> int:
     files = tracked_files()
     volume = volume_counts(files)
@@ -354,9 +354,7 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     churn = "-"
     previous = None
     if tags:
-        stat = git("diff", "--shortstat", f"{tags[0][1]}..HEAD",
-                   "--", "backend", "frontend", check=False)
-        churn = f"{sum(int(x) for x in re.findall(r'(\d+) (?:insertion|deletion)', stat)):,}行"
+        churn = f"{code_churn(tags[0][1]):,}行"
         previous = volume_totals(volume_counts(files_at(tags[0][1]), tags[0][1]))
 
     print(f"# 定量メトリクス（{dt.datetime.now(tz=dt.timezone.utc).date().isoformat()}、"
@@ -397,8 +395,7 @@ def cmd_trigger(args: argparse.Namespace) -> int:
     print(f"- 前回レビュー: {name} / {day}（{days}日経過、閾値 {TRIGGER_DAYS}日）")
     if days is not None and days >= TRIGGER_DAYS:
         fired.append("日数")
-    stat = git("diff", "--shortstat", f"{sha}..HEAD", "--", "backend", "frontend", check=False)
-    lines = sum(int(x) for x in re.findall(r"(\d+) (?:insertion|deletion)", stat))
+    lines = code_churn(sha)
     print(f"- コードの変更行数（{sha[:7]}..HEAD）: {lines:,}行（閾値 {TRIGGER_IMPL_LINES:,}）")
     if lines >= TRIGGER_IMPL_LINES:
         fired.append("変更行数")
@@ -412,10 +409,6 @@ def cmd_trigger(args: argparse.Namespace) -> int:
 #: .claude/skills/file-issue/SKILL.md「規模の札」の閾値（実装＋テストの変更行の上限）。
 SIZE_LABELS = ((200, "S"), (1000, "M"))
 GENERATED_NAMES = ("package-lock.json",)
-
-
-def merge_base(base: str, head: str) -> str:
-    return git("merge-base", base, head).strip()
 
 
 def change_kind(path: str) -> str:
@@ -432,7 +425,7 @@ def change_kind(path: str) -> str:
 
 def cmd_change(args: argparse.Namespace) -> int:
     target = args.head or "HEAD"
-    mb = merge_base(args.base, target)
+    mb = git("merge-base", args.base, target).strip()
     # -z では、移したファイルの行が「追加\t削除\t」のあと移す前と後のパスを別の欄に持つ。
     fields = git("diff", "-M", "--numstat", "-z", mb, *([args.head] if args.head else [])).split("\0")
     rows = []
@@ -450,8 +443,9 @@ def cmd_change(args: argparse.Namespace) -> int:
             rows.append((path, len(read(REPO_ROOT / path).splitlines()), 0))
     totals = {kind: [0, 0] for kind in ("実装", "テスト", "文書", "設定", "生成物")}
     for path, added, deleted in rows:
-        totals[change_kind(path)][0] += added
-        totals[change_kind(path)][1] += deleted
+        pair = totals[change_kind(path)]
+        pair[0] += added
+        pair[1] += deleted
     measured = sum(totals["実装"]) + sum(totals["テスト"])
     label = next((name for limit, name in SIZE_LABELS if measured <= limit), "L")
     shown = git("rev-parse", "--short", args.head).strip() if args.head else "作業ツリー（未追跡のファイルを含む）"
