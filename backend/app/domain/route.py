@@ -341,6 +341,11 @@ def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, flo
     return merged
 
 
+def _summed_km(distances: Iterable[float]) -> float:
+    """区間の距離（km）の和を、区間の`distance_km`と同じ桁へ丸めた値。ビンの距離はこれ1本で作る。"""
+    return round(sum(distances), DISTANCE_KM_DECIMALS)
+
+
 def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dict[str, float]:
     """Edge単位の（距離km, axis_id→生値）を、候補全体の`RouteCandidate.axis_raw_values`へ畳む。
 
@@ -351,7 +356,7 @@ def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dic
     bins = _split_into_bins(edges, lambda edge: edge[0])
     return _merge_weighted_dicts(
         [
-            (round(sum(distance for distance, _ in bin_edges), DISTANCE_KM_DECIMALS), _merge_weighted_dicts(bin_edges, _round_significant))
+            (_summed_km(distance for distance, _ in bin_edges), _merge_weighted_dicts(bin_edges, _round_significant))
             for bin_edges in bins
         ],
         _round_significant,
@@ -436,7 +441,7 @@ def merge_material_category_shares(
     return shares
 
 
-#: ビンへ引き継ぐ辞書フィールドと、その畳み方（キーごとの距離加重平均）。
+#: ビンと候補へ引き継ぐ辞書フィールドと、その畳み方（キーごとの距離加重平均）。
 BIN_DICT_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], dict[str, float]]] = {
     "axis_difficulties": merge_axis_difficulties,
     "axis_contributions": merge_axis_contributions,
@@ -452,7 +457,7 @@ BIN_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], object]] = {
     "end_latitude": lambda segments: segments[-1].end_latitude,
     "end_longitude": lambda segments: segments[-1].end_longitude,
     "cumulative_distance_km": lambda segments: segments[0].cumulative_distance_km,
-    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), DISTANCE_KM_DECIMALS),
+    "distance_km": lambda segments: _summed_km(s.distance_km for s in segments),
     "estimated_arrival_time": lambda segments: segments[0].estimated_arrival_time,
     # 到達予想と同じく、ビンに入った先頭の区間の値（ビンの中で予報の時刻が変わっても、入るときの風を出す）。
     "wind": lambda segments: segments[0].wind,

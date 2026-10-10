@@ -194,9 +194,7 @@ def _pareto_front_mask(
     # グループを壊してしまう）。
     order = np.lexsort((b, a))
     sorted_a, sorted_b = a[order], b[order]
-    group_starts = np.flatnonzero(
-        np.concatenate(([True], (sorted_a[1:] != sorted_a[:-1]) | (sorted_b[1:] != sorted_b[:-1])))
-    )
+    group_starts = np.flatnonzero(_run_starts(sorted_a) | _run_starts(sorted_b))
     group_b = sorted_b[group_starts]
     prefix_min = np.minimum.accumulate(group_b)
     # 自分のグループより前のグループにおける最小b。先頭は比較対象が無いため+inf。
@@ -247,11 +245,8 @@ def pareto_layer_index(
     b_quantized = np.round(b / quantum_b).astype(np.int64)
     order = np.lexsort((np.arange(n), b_quantized, bins))
     sorted_bins, sorted_bq = bins[order], b_quantized[order]
-    is_new_group = np.concatenate(
-        ([True], (sorted_bins[1:] != sorted_bins[:-1]) | (sorted_bq[1:] != sorted_bq[:-1]))
-    )
-    group_index = np.cumsum(is_new_group) - 1
-    is_new_bin = np.concatenate(([True], sorted_bins[1:] != sorted_bins[:-1]))
+    is_new_bin = _run_starts(sorted_bins)
+    group_index = np.cumsum(is_new_bin | _run_starts(sorted_bq)) - 1
     bin_starts = np.flatnonzero(is_new_bin)
     first_group_of_bin = np.repeat(group_index[bin_starts], np.diff(np.append(bin_starts, n)))
     keep = order[group_index - first_group_of_bin < max_items]
@@ -379,7 +374,6 @@ class NodeSpatialIndex:
     # ノード番号順の座標（索引に載らないノードも含む）。
     latitude: np.ndarray
     longitude: np.ndarray
-    cell_size_deg: float
     #: 候補のノード番号をセルの順（`cell_bounds`の範囲を緯度・経度の順に行優先で数えた番号）に並べたもの。
     #: 同じセルの中は番号の昇順。
     cell_nodes: np.ndarray
@@ -415,18 +409,17 @@ def build_node_spatial_index(
     latitude = np.asarray(latitude, dtype=np.float64)
     longitude = np.asarray(longitude, dtype=np.float64)
     ids = np.arange(len(latitude)) if candidates is None else np.flatnonzero(candidates)
-    cell_size_deg = _NODE_INDEX_CELL_SIZE_DEG
     if len(ids) == 0:
         return NodeSpatialIndex(
-            latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg,
+            latitude=latitude, longitude=longitude,
             cell_nodes=ids, cell_starts=[0], cell_bounds=None,
         )
     # セルの座標は問い合わせと同じ`floor(度 / セルの一辺)`で求める。整数値のまま浮動小数で
     # 番号まで組み、整数へは最後に1回だけ直す（値は2**53より十分小さく、どの段も丸めない）。
     row = latitude[ids]
-    np.floor(np.divide(row, cell_size_deg, out=row), out=row)
+    np.floor(np.divide(row, _NODE_INDEX_CELL_SIZE_DEG, out=row), out=row)
     column = longitude[ids]
-    np.floor(np.divide(column, cell_size_deg, out=column), out=column)
+    np.floor(np.divide(column, _NODE_INDEX_CELL_SIZE_DEG, out=column), out=column)
     bounds = (int(row.min()), int(column.min()), int(row.max()), int(column.max()))
     width = bounds[3] - bounds[1] + 1
     cell_count = (bounds[2] - bounds[0] + 1) * width
@@ -437,7 +430,7 @@ def build_node_spatial_index(
     order = _stable_order_of_cells(cell, cell_count)
     counts = np.bincount(cell, minlength=cell_count)
     return NodeSpatialIndex(
-        latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg,
+        latitude=latitude, longitude=longitude,
         cell_nodes=ids[order], cell_starts=[0, *np.cumsum(counts).tolist()], cell_bounds=bounds,
     )
 
@@ -499,11 +492,11 @@ def find_nearest_node_indexed(
     if index.cell_bounds is None:
         return None
 
-    cell_lat = math.floor(point.latitude / index.cell_size_deg)
-    cell_lon = math.floor(point.longitude / index.cell_size_deg)
+    cell_lat = math.floor(point.latitude / _NODE_INDEX_CELL_SIZE_DEG)
+    cell_lon = math.floor(point.longitude / _NODE_INDEX_CELL_SIZE_DEG)
     # 経度方向1度あたりの物理距離（cos補正込み）を安全マージンに使う——2方向のうち
     # 常に短い（＝より保守的な）方でなければ、リング内に未探索の近い点が残りうる。
-    cell_size_km_lower_bound = index.cell_size_deg * km_per_degree_longitude(point.latitude)
+    cell_size_km_lower_bound = _NODE_INDEX_CELL_SIZE_DEG * km_per_degree_longitude(point.latitude)
 
     nearest_node: int | None = None
     nearest_distance: float | None = None
@@ -1142,12 +1135,17 @@ def _walk_predecessors(predecessors: Sequence[int] | np.ndarray, state_index: in
     return edges
 
 
+def _walk_from_source(predecessors: Sequence[int] | np.ndarray, state_index: int) -> list[int]:
+    """前向きの探索で、始点→`state_index`の経路を進行順に返す（前任者をたどった列を反転する）。"""
+    edges = _walk_predecessors(predecessors, state_index)
+    edges.reverse()
+    return edges
+
+
 def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> list[int]:
     """前向き木で、始点→`state_index`の経路をEdge index列（進行順）で返す。状態がそのまま
     Edge indexのため、`(parent, current)`からEdgeを引き直す必要がない。"""
-    edges = _walk_predecessors(tree.predecessor_list, state_index)
-    edges.reverse()
-    return edges
+    return _walk_from_source(tree.predecessor_list, state_index)
 
 
 def turn_expanded_path_from_state_to_source(tree: TurnExpandedTree, state_index: int) -> list[int]:
@@ -1416,9 +1414,7 @@ def turn_expanded_shortest_path(
     )
     if goal_state < 0:
         return None
-    edges = _walk_predecessors(predecessor, goal_state)
-    edges.reverse()
-    return edges
+    return _walk_from_source(predecessor, goal_state)
 
 
 def compile_search_kernels() -> None:
