@@ -151,8 +151,8 @@ webアプリと別のプロセスで、その辞書へは何も読み込まれ�
 運用・生成スクリプトで、`export_openapi.py`がfrontend向けの生成物を書き出し、
 `bootstrap_database.py`がまっさらなDBをスキーマ→取込→派生の順で立ち上げる。
 `backend/ops/`は本番VMのホストで動くもの（systemdのユニットとそれが打つシェル）で、イメージには入らない。
-VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をそのコミットへ揃えるので、ここの変更もデプロイで届く
-（ユニットの中身を変えたときだけは、VMで`systemctl daemon-reload`が要る）。
+VMはデプロイのたびに作業コピー（`~/ridecompass-repo`）をそのコミットへ揃えて`systemctl daemon-reload`を打つので、
+ユニットもシェルもここの変更はデプロイで届く。
 
 **評価軸の行データはコードに無い。** `axis_definitions`テーブルが唯一の
 正本で、変更は軸スタジオ（`/api/admin/axis-definitions`）経由のみ
