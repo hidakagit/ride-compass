@@ -5,7 +5,7 @@ import test from "node:test";
 import config from "../flow.config.json" with { type: "json" };
 import { decide, dispatchable } from "../src/decide.js";
 import { taskOf } from "../src/facts.js";
-import { withButton } from "../src/questions.js";
+import { parseAnswer, withButton } from "../src/questions.js";
 
 // 担当が手放した直後の、どの行にも当たらないタスク。各行はここから違う事実だけを変える。
 const base = { number: 1, open: true, closedAs: null, board: "actions", status: "進行中", type: "不具合", types: ["不具合"], author: config.user, parent: false,
@@ -107,6 +107,17 @@ test("印の間のゲートの書かない行は、消さずに印の外の先�
   assert.equal(d.body, "メモ: あとで見る\n\n- [ ] テストが通る\n");
   assert.match(d.notice, /印の外へ出しました/);
   assert.equal(decide(f({ body: withButton("- [ ] テストが通る\n", config, 1) }), config).notice, null);
+});
+
+test("答えの読み: 見送るは見送りで閉じ、保留するは保留、ほかは続ける。確かめは項目ごとに問題の有無と内容", () => {
+  const answer = (lines) => parseAnswer(["## 回答", "**問い**", "", ...lines].join("\n"));
+  assert.equal(answer(["回答: 見送る"]).decision, "見送り");
+  assert.equal(answer(["回答: 保留する"]).decision, "保留");
+  assert.equal(answer(["回答: 着手する"]).decision, "続ける");
+  assert.deepEqual(answer(["- 問題なし: ユーザーが確かめる: A", "- 問題あり: ユーザーが確かめる: B — 重なる"]).items,
+    [{ ok: true, text: "ユーザーが確かめる: A", note: "" }, { ok: false, text: "ユーザーが確かめる: B", note: "重なる" }]);
+  const closed = decide(f({ status: "回答待ち", question: asked("採否", answer(["回答: 見送る"])) }), config);
+  assert.deepEqual([closed.status, closed.open, closed.closeAs], ["完了", false, "NOT_PLANNED"]);
 });
 
 test("振り出す担当の種類（R14・R17: CI待ちは枠を使わず振り出さない）", () => {

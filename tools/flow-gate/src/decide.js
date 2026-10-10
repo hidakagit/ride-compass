@@ -44,6 +44,7 @@ function status(f, config) {
   const q = f.question;
   if (q && !q.answer) return { status: "回答待ち" };
   if (q && f.status === "回答待ち") {
+    if (q.answer.decision === "見送り") return { status: "完了", closeAs: "NOT_PLANNED" };
     if (q.answer.decision === "保留") return { status: "保留" };
     if (q.kind === "確かめ") {
       const bad = q.answer.items.filter((i) => !i.ok);
