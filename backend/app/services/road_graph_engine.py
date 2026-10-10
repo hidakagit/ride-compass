@@ -28,6 +28,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from functools import cached_property
 from typing import NoReturn
 
 import numpy as np
@@ -191,13 +192,11 @@ class _RoadGraphContext:
     turn_structure: TurnExpandedStructure
     # 探索範囲を覆うタイル集合。学習した迂回率の鍵に使う。
     tile_set: frozenset[tuple[int, int, int]]
-    # 帰りの探索（中継点→終点）のA*ヒューリスティック配列（終点のノード番号→配列）。終点は1回の生成で
-    # 固定のため、終点ごとに1回だけ計算し全候補で共有する（初回の帰りの探索時に遅延構築）。
-    end_estimates: dict[int, list[float]] = field(default_factory=dict)
+    # A*のヒューリスティック（向かうノード番号→各Nodeからの所要時間の下界[秒]）。向かう先（置いた点・終点）は
+    # 1回の生成で固定のため、向かう先ごとに初回だけ計算し、区間の探索・最速の経路・全候補の帰りの探索で共有する。
+    heuristics: dict[int, np.ndarray] = field(default_factory=dict)
     # 仕上げが目的地を一番近いNodeでなく出て戻れる最寄りNodeへ寄せた場合の
-    # 実際の座標（寄せ直しが無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
-    # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
-    # 伝える。
+    # 実際の座標（寄せ直しが無ければNone）。仕上げの戻り値（経路の列）の外で生成器へ伝える。
     destination_correction: Coordinates | None = None
 
 
@@ -264,14 +263,22 @@ class FixedLegs:
     def last_node(self) -> int:
         return self.nodes[-1]
 
-    @property
+    @cached_property
     def edges(self) -> list[int]:
         """前段の道の区間の番号列（区間をつないだもの）。"""
         return [index for segment in self.segments for index in segment]
 
-    @property
+    @cached_property
     def leg_of_edge(self) -> list[int]:
         return [leg_index for leg_index, segment in enumerate(self.segments) for _ in segment]
+
+    def joined(self, outbound: list[int], inbound: list[int]) -> tuple[list[int], list[int]]:
+        """前段の道に仕上げの往路と帰りを継いだ区間の番号列と、区間ごとのレグの添字（`TracedLoop.leg_of_edge`）。"""
+        leg_index = len(self.segments)
+        return (
+            [*self.edges, *outbound, *inbound],
+            [*self.leg_of_edge, *[leg_index] * len(outbound), *[leg_index + 1] * len(inbound)],
+        )
 
     @property
     def reversible(self) -> bool:
@@ -495,23 +502,17 @@ class RoadGraphEngine:
         self, context: _RoadGraphContext, leg_index: int, from_node: int, to_node: int, cumulative_m: float,
     ) -> list[int] | None:
         """置いた点どうしを結ぶ区間を1本、A*で探す。区間0は`prepare`が合成済みの往路レグそのもので、
-        ほかは区間の起点を基準点に、それまでの実距離ぶんの経過時間に置いて合成し`context.legs`へ足す。
-
-        A*のヒューリスティックは区間ごとに目的地が変わるため、区間ごとにnumpyで1回だけ計算し直す。
-        """
+        ほかは区間の起点を基準点に、それまでの実距離ぶんの経過時間に置いて合成し`context.legs`へ足す。"""
         if leg_index == 0:
             leg = context.legs[0]
         else:
             leg = context.composer.compose(
-                f"leg{leg_index}", _node_coordinates(context, from_node),
+                _leg_name(leg_index), _leg_anchor(context, leg_index, from_node),
                 cruise_hours(cumulative_m / 1000, context.composer.speed_kmh), +1,
             )
             context.legs.append(leg)
         return turn_expanded_shortest_path(
-            context.turn_structure, leg.cost_bins_lazy,
-            heuristic_seconds(
-                straight_distances_m(context.node_lat, context.node_lon, to_node), context.composer.speed_kmh,
-            ),
+            context.turn_structure, leg.cost_bins_lazy, _heuristic_to(context, to_node),
             _origin_states(context.statics, from_node),
             to_node,
             leg.travel_bins_lazy, leg.bin_seconds,
@@ -536,7 +537,7 @@ class RoadGraphEngine:
         segments: list[list[int]] = []
         cumulative_m = 0.0
         for leg_index, (from_node, to_node) in enumerate(zip(node_sequence, node_sequence[1:])):
-            segment = self._trace_leg(context, leg_index, from_node, to_node, cumulative_m)
+            segment = await asyncio.to_thread(self._trace_leg, context, leg_index, from_node, to_node, cumulative_m)
             if segment is None:
                 raise RoutingError("no path found between waypoints")
             segments.append(segment)
@@ -577,20 +578,14 @@ class RoadGraphEngine:
         fixed_m = fixed.length_m
         remaining_km = distance_km - fixed_m / 1000
         closes = destination is None
-        if destination is None:
-            end_node = context.origin_node
-            end_point = context.origin
-        else:
-            snapped = _snap_destination(context, destination)
-            if snapped is None:
-                return []
-            end_node = snapped
-            end_point = context.destination_correction or destination
+        end = _resolve_end(context, destination)
+        if end is None:
+            return []
+        end_node, end_point = end
         # 往路レグを、見込み所要時間（残りの距離の半分÷巡航速度）ぶんの時刻ビンで組み直す。
         # 木は出発からの経過時間を持ち回れるため、風を推定ではなく実際の経過時間で引ける。
         outbound = context.composer.compose(
-            "outbound" if leg_index == 0 else f"leg{leg_index}",
-            context.origin if leg_index == 0 else _node_coordinates(context, start_node),
+            _leg_name(leg_index), _leg_anchor(context, leg_index, start_node),
             cruise_hours(fixed_m / 1000, context.composer.speed_kmh), +1,
             duration_hours=leg_duration_hours(remaining_km, context.composer.speed_kmh),
         )
@@ -774,24 +769,19 @@ class RoadGraphEngine:
         """
         leg_index = len(fixed.segments)
         start_node = fixed.last_node
-        start_point = context.origin if leg_index == 0 else _node_coordinates(context, start_node)
+        start_point = _leg_anchor(context, leg_index, start_node)
         fixed_hours = cruise_hours(fixed.length_m / 1000, context.composer.speed_kmh)
         closes = destination is None
-        if destination is None:
-            destination_index = context.origin_node
-            destination = context.origin
-        else:
-            snapped = _snap_destination(context, destination)
-            if snapped is None:
-                return []
-            destination_index = snapped
-            destination = context.destination_correction or destination
+        end = _resolve_end(context, destination)
+        if end is None:
+            return []
+        destination_index, destination = end
         traveled = _traveled_columns(context, fixed.edges)
 
         tree_started = time.monotonic()
         # 往路レグを、最後の固定点→終点の見込み所要時間ぶんの時刻ビンで組み直す。
         outbound = context.composer.compose(
-            "outbound" if leg_index == 0 else f"leg{leg_index}", start_point, fixed_hours, +1,
+            _leg_name(leg_index), start_point, fixed_hours, +1,
             duration_hours=straight_line_hours(
                 start_point, destination, context.composer.speed_kmh, context.composer.detour_ratio,
             ),
@@ -848,10 +838,7 @@ class RoadGraphEngine:
         # 終点そのものを経由Nodeとする経路（＝経由せず直行する経路）も候補に含める。
         # junctionは「入る区間×出る区間」の対で作るため、そこで終わる経路は現れない。
         add_terminal_candidate(junction, forward_tree, destination_index)
-        combined_cost = junction.cost
-        combined_length = junction.length_m
-        combined_seconds = junction.seconds
-        reachable = np.isfinite(combined_cost)
+        reachable = np.isfinite(junction.cost)
         if not np.any(reachable):
             # 前向き木・後ろ向き木のどちらがどれだけ到達できているかを内訳として出す
             # （前向きのみ0なら走り出す側、後ろ向きのみ0なら終点側の孤立を疑える）。
@@ -865,13 +852,13 @@ class RoadGraphEngine:
             )
             return []
 
-        best_index, candidates = alternative_via_nodes(combined_cost, combined_length, reachable)
-        best_length_m = float(combined_length[best_index])
+        best_index, candidates = alternative_via_nodes(junction.cost, junction.length_m, reachable)
+        best_length_m = float(junction.length_m[best_index])
         # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
         # （目的地ルートは目標距離を持たずALTERNATIVE_MAX_STRETCH倍以内という上限だけが効くぶん、
         # 難易度単独で並べると伸び率上限いっぱいの遠回りが上位を占めやすい）。
         ranking = rank_by_pareto_layers(
-            candidates, combined_length[candidates], combined_cost[candidates], combined_seconds[candidates],
+            candidates, junction.length_m[candidates], junction.cost[candidates], junction.seconds[candidates],
             self._penalty_strength,
             max_items=max_routes, max_examined=_MAX_VIA_NODE_CANDIDATES_EXAMINED, tie_by_distance=False,
         )
@@ -884,54 +871,46 @@ class RoadGraphEngine:
             )
         ranked = best_first(ranked, best_index)
 
-        full_edges_cache: dict[int, list[int] | None] = {}
-        forward_edge_count: dict[int, int] = {}
+        halves_cache: dict[int, tuple[list[int], list[int]] | None] = {}
+
+        def halves(node_index: int) -> tuple[list[int], list[int]] | None:
+            """経由Nodeを通る最後の区間の（前向き, 後ろ向き）の区間の番号列。行って戻る形ならNone。"""
+            if node_index in halves_cache:
+                return halves_cache[node_index]
+            halves_cache[node_index] = None
+            forward_state = int(junction.forward_state[node_index])
+            if forward_state < 0:
+                return None
+            forward_edges = turn_expanded_path_from_state(forward_tree, forward_state)
+            backward_state = int(junction.backward_state[node_index])
+            # backward_stateが-1なのは終点そのものを指す場合で、後ろ向きの区間は無い。
+            backward_edges = (
+                turn_expanded_path_from_state_to_source(backward_tree, backward_state) if backward_state >= 0 else []
+            )
+            # 行って戻る形（前向き・後ろ向きが同じ物理区間を通る）の判定は、
+            # is_loop_too_similarと同じ進行方向を無視した物理区間キーで行う——
+            # 同じ道でも逆方向Edge（別のedge_id/index）を通れば単純なEdge index
+            # 集合の比較では検出できないため。
+            if _physical_segments(context, forward_edges).keys() & _physical_segments(context, backward_edges).keys():
+                return None
+            halves_cache[node_index] = (forward_edges, backward_edges)
+            return halves_cache[node_index]
 
         def full_edges(node_index: int) -> list[int] | None:
-            if node_index not in full_edges_cache:
-                forward_state = int(junction.forward_state[node_index])
-                backward_state = int(junction.backward_state[node_index])
-                forward_edges = (
-                    turn_expanded_path_from_state(forward_tree, forward_state) if forward_state >= 0 else None
-                )
-                # backward_stateが-1なのは終点そのものを指す場合で、後ろ向きの区間は無い。
-                backward_edges = (
-                    turn_expanded_path_from_state_to_source(backward_tree, backward_state)
-                    if backward_state >= 0 else []
-                )
-                if forward_edges is None:
-                    full_edges_cache[node_index] = None
-                else:
-                    # 行って戻る形（前向き・後ろ向きが同じ物理区間を通る）の判定は、
-                    # is_loop_too_similarと同じ進行方向を無視した物理区間キーで行う——
-                    # 同じ道でも逆方向Edge（別のedge_id/index）を通れば単純なEdge index
-                    # 集合の比較では検出できないため。
-                    forward_segments = _physical_segments(context, forward_edges)
-                    backward_segments = _physical_segments(context, backward_edges)
-                    if forward_segments.keys() & backward_segments.keys():
-                        full_edges_cache[node_index] = None
-                    else:
-                        full_edges_cache[node_index] = forward_edges + backward_edges
-                        forward_edge_count[node_index] = len(forward_edges)
-            return full_edges_cache[node_index]
+            found = halves(node_index)
+            return None if found is None else found[0] + found[1]
 
         selected = select_diverse_by_overlap(
             ranked, full_edges, context.statics.edge_length_m,
             [VIA_NODE_MAX_OVERLAP_RATIO, VIA_NODE_RELAXED_OVERLAP_RATIO], max_routes,
         )
 
-        fixed_edges = fixed.edges
-        fixed_leg_of_edge = fixed.leg_of_edge
         traced: list[TracedLoop] = []
         for node_index in selected:
-            edges = full_edges(node_index)
-            if not edges:
+            found = halves(node_index)
+            if found is None or not (found[0] or found[1]):
                 continue
-            forward_count = forward_edge_count[node_index]
-            path = [*fixed_edges, *edges]
-            leg_of_edge = [
-                *fixed_leg_of_edge, *[leg_index] * forward_count, *[leg_index + 1] * (len(edges) - forward_count),
-            ]
+            path, leg_of_edge = fixed.joined(*found)
             traced.append(TracedLoop(
                 bearing=None, distance_km=_path_km(context, path), data=path, leg_of_edge=leg_of_edge,
                 reversible=closes and fixed.reversible,
@@ -979,10 +958,7 @@ class RoadGraphEngine:
             time_bins = leg.travel_bins_lazy
             edges = await asyncio.to_thread(
                 turn_expanded_shortest_path,
-                context.turn_structure, time_bins,
-                heuristic_seconds(
-                    straight_distances_m(context.node_lat, context.node_lon, to_node), context.composer.speed_kmh,
-                ),
+                context.turn_structure, time_bins, _heuristic_to(context, to_node),
                 _origin_states(context.statics, from_node), to_node,
                 time_bins, leg.bin_seconds,
             )
@@ -1017,8 +993,8 @@ class RoadGraphEngine:
         張った帰りでは全ビンの同じ列をまとめて差し替える——どの時刻に通っても「走った道を
         なぞる」ことに変わりはない。
 
-        **差し替えはawaitを挟まない同期区間で完結させること。** 共有のコスト配列を書き換える
-        ため、この間に他のコルーチンへ制御が渡ると別の候補が書き換え後の値を見る。
+        **差し替え・探索・戻すは1つのスレッドの中で続けて行い、間にawaitを挟まないこと。** 共有のコスト配列を
+        書き換えるため、この間に他のコルーチンへ制御が渡ると別の候補が書き換え後の値を見る。
 
         倍率は有限のため、帰りが走った道を戻る以外に道が無い区間（袋小路・起点付近の単一の道）は
         そのまま通れる。
@@ -1030,19 +1006,23 @@ class RoadGraphEngine:
         cost_bins = inbound_leg.cost_bins_lazy
 
         penalized_columns = _traveled_columns(context, [*fixed.edges, *data.outbound_edge_indices])
+        heuristic = _heuristic_to(context, data.end_node)
+
+        def search_avoiding_traveled() -> list[int] | None:
+            original = cost_bins[:, penalized_columns].copy()
+            try:
+                cost_bins[:, penalized_columns] = retrace_penalized(original)
+                return turn_expanded_shortest_path(
+                    context.turn_structure, cost_bins, heuristic,
+                    _origin_states(context.statics, data.node),
+                    data.end_node,
+                    inbound_leg.travel_bins_lazy, inbound_leg.bin_seconds,
+                )
+            finally:
+                cost_bins[:, penalized_columns] = original
+
         trace_started = time.monotonic()
-        original = cost_bins[:, penalized_columns].copy()
-        try:
-            cost_bins[:, penalized_columns] = retrace_penalized(original)
-            return_edge_index_list = turn_expanded_shortest_path(
-                context.turn_structure, cost_bins,
-                heuristic_seconds(_estimate_to(context, data.end_node), context.composer.speed_kmh),
-                _origin_states(context.statics, data.node),
-                data.end_node,
-                inbound_leg.travel_bins_lazy, inbound_leg.bin_seconds,
-            )
-        finally:
-            cost_bins[:, penalized_columns] = original
+        return_edge_index_list = await asyncio.to_thread(search_avoiding_traveled)
         trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
         if return_edge_index_list is None:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: no return path found")
@@ -1051,11 +1031,7 @@ class RoadGraphEngine:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: return path has no edges")
         return_edge_indices = np.array(return_edge_index_list, dtype=np.int64)
         retrace = overlap_ratio(return_edge_indices, penalized_columns, context.statics.edge_length_m)
-        path = [*fixed.edges, *data.outbound_edge_indices, *return_edge_index_list]
-        leg_of_edge = [
-            *fixed.leg_of_edge,
-            *[leg_index] * len(data.outbound_edge_indices), *[leg_index + 1] * len(return_edge_index_list),
-        ]
+        path, leg_of_edge = fixed.joined(data.outbound_edge_indices, return_edge_index_list)
         distance_km = _path_km(context, path)
         logger.debug(
             "trace_loop_from_turnaround bearing=%d outbound_km=%.1f loop_km=%.1f retrace_ratio=%.2f wall_ms=%d",
@@ -1161,7 +1137,7 @@ class RoadGraphEngine:
         # （棄却済み候補ぶんは問い合わせない）。引けない区間があれば落とす——探索が通った
         # 区間の実体がDBに無いということで、線の欠けた経路を配るより落ちる方がよい。
         topology = {
-            index: _lean_edge(context.road, context.lazy_graph, index)
+            index: _lean_edge(context, index)
             for index in dict.fromkeys(index for t in traced for index in t.data)
         }
         hydrated = await self._graph_service.get_edges_with_geometry(list(topology.values()))
@@ -1237,10 +1213,15 @@ class RoadGraphEngine:
         # 区間と標高属性を引数で受けるのは、逆回り候補も同じ組み立てを通すため。
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
         geometry, edge_point_offsets = concat_edge_geometries(edges_in_path)
-        segments, segment_categories, segment_raw_values = self._build_segment_details(
-            edges_in_path, path, elevation_by_edge, context, start_time, leg_of_edge
+        rows = [_slice_row(context, index) for index in path]
+        # 経路を探索と同じ規則でたどった区間ごとの時刻。区間の到達予想と候補の所要時間が同じ時計を使う。
+        passages = route_passages(
+            context.legs, context.turn_structure, path, rows,
+            [edge.distance_m for edge in edges_in_path], leg_of_edge, context.composer.speed_kmh,
         )
-        rows = np.asarray([_slice_row(context, index) for index in path], dtype=np.int64)
+        segments, segment_categories, segment_raw_values = self._build_segment_details(
+            edges_in_path, rows, passages, elevation_by_edge, context, start_time, leg_of_edge
+        )
         # categorical材料の延長割合は**集約より前に**Edge単位の値から畳む。集約後に
         # 計算すると、ビンの代表値を1つ選ぶ形になり割合がビンの粒度へ量子化される。
         material_category_shares = merge_material_category_shares(
@@ -1266,35 +1247,20 @@ class RoadGraphEngine:
             segments=segments,
             material_category_shares=material_category_shares,
             axis_raw_values=axis_raw_values,
-            estimated_duration_seconds=self._estimate_duration_seconds(context, edges_in_path, path, leg_of_edge),
+            # 所要時間＝区間の走行時間＋停止の待ち＋ターンの待ち（最後の区間を抜けた時刻）。
+            estimated_duration_seconds=passages[-1].elapsed_seconds + passages[-1].seconds if passages else None,
             wind_unavailable=context.composer.wind_unavailable,
-            missing_travel_data_share=context.composer.missing_travel_data_share(rows) if len(rows) else None,
+            missing_travel_data_share=(
+                context.composer.missing_travel_data_share(np.asarray(rows, dtype=np.int64)) if rows else None
+            ),
             elevation_gain_m=route_elevation_gain(edges_in_path, elevation_by_edge),
-        )
-
-    def _estimate_duration_seconds(
-        self, context: _RoadGraphContext, edges: list[LeanEdge], path: list[int], leg_of_edge: list[int]
-    ) -> float | None:
-        """候補の所要時間（秒）＝ 区間の走行時間 ＋ 停止の待ち ＋ ターンの待ち。経路を探索と同じ規則で
-        たどった時刻（`_route_passages`）の終わりで、区間の到達予想と同じ時計を使う。"""
-        if not edges:
-            return None
-        last = self._route_passages(context, edges, path, leg_of_edge)[-1]
-        return last.elapsed_seconds + last.seconds
-
-    def _route_passages(
-        self, context: _RoadGraphContext, edges: list[LeanEdge], path: list[int], leg_of_edge: list[int]
-    ) -> list[EdgePassage]:
-        """経路を探索と同じ規則でたどった区間ごとの時刻（`domain/route_search.py: route_passages`）。"""
-        return route_passages(
-            context.legs, context.turn_structure, path, [_slice_row(context, index) for index in path],
-            [edge.distance_m for edge in edges], leg_of_edge, context.composer.speed_kmh,
         )
 
     def _build_segment_details(
         self,
         edges: list[LeanEdge],
-        path: list[int],
+        rows: list[int],
+        passages: list[EdgePassage],
         elevation_by_edge: dict,
         context: _RoadGraphContext,
         start_time: datetime,
@@ -1307,15 +1273,13 @@ class RoadGraphEngine:
         軸別スコア・合成difficulty・寄与度・材料値は、
         そのEdgeが探索されたレグ（`leg_of_edge`）の合成済み配列（`context.legs`、
         区間の番号から行を引く）からそのまま読み、探索コストと表示を一致させる
-        （二重計算を持たない）。到達予想時刻は経路を探索と同じ規則でたどった時刻（`_route_passages`）。
+        （二重計算を持たない）。到達予想時刻は経路を探索と同じ規則でたどった時刻（`passages`）。
         """
         segments = []
         segment_categories: list[dict[str, str]] = []
         segment_raw_values: list[dict[str, float]] = []
         cumulative_km = 0.0
         active_material_ids = displayed_material_ids(context.composer.weights)
-        passages = self._route_passages(context, edges, path, leg_of_edge)
-        rows = [_slice_row(context, index) for index in path]
         timed = _values_at_passages(context, rows, leg_of_edge, passages)
         winds = context.composer.winds_at(
             rows,
@@ -1495,14 +1459,36 @@ def _snap_destination(context: _RoadGraphContext, destination: Coordinates) -> i
     return node
 
 
+def _resolve_end(context: _RoadGraphContext, destination: Coordinates | None) -> tuple[int, Coordinates] | None:
+    """仕上げの終点のノード番号と基準点。目的地が無ければ出発地、あれば寄せたNodeと寄せたあとの地点。
+    目的地を寄せられなければNone。"""
+    if destination is None:
+        return context.origin_node, context.origin
+    node = _snap_destination(context, destination)
+    if node is None:
+        return None
+    return node, context.destination_correction or destination
+
+
+def _leg_name(leg_index: int) -> str:
+    """最後の固定点から離れるレグの名前。経由地が無ければ出発地からの往路。"""
+    return "outbound" if leg_index == 0 else f"leg{leg_index}"
+
+
+def _leg_anchor(context: _RoadGraphContext, leg_index: int, node: int) -> Coordinates:
+    """`node`から離れるレグの基準点。最初のレグは置いた出発地そのもの（寄せたNodeではない）。"""
+    return context.origin if leg_index == 0 else _node_coordinates(context, node)
+
+
 def _path_km(context: _RoadGraphContext, path: list[int]) -> float:
     return round(float(context.statics.edge_length_m[path].sum()) / 1000, DISTANCE_KM_DECIMALS)
 
 
-def _lean_edge(road: RoadSlice, lazy_graph: LazyRoadGraph, index: int) -> LeanEdge:
+def _lean_edge(context: _RoadGraphContext, index: int) -> LeanEdge:
     """区間の番号から、形を持たない`LeanEdge`（区間の文字列の鍵・両端のノードの鍵付き）を作る。"""
+    road, lazy_graph = context.road, context.lazy_graph
     network = road.network
-    row = int(road.rows[lazy_graph.edge_rows[index]])
+    row = _network_row(context, index)
     return LeanEdge(
         edge_id=edge_key(int(network.edge_way_id[row]), int(network.edge_segment[row]), bool(network.edge_forward[row])),
         from_node_id=_node_key_of(road, int(lazy_graph.edge_from[index])),
@@ -1562,24 +1548,27 @@ def _learn_detour_ratio(context: _RoadGraphContext, measured: float) -> float:
     return measured
 
 
-def _estimate_to(context: _RoadGraphContext, node: int) -> list[float]:
-    """帰りの探索（中継点→終点）のA*ヒューリスティックの素材（各Nodeから`node`への直線距離）。終点は1回の生成で
-    固定のため初回だけ`straight_distances_m`で計算し、以降の候補はcontextに保持した配列を共有する。
-    """
-    estimate = context.end_estimates.get(node)
-    if estimate is None:
-        estimate = context.end_estimates[node] = straight_distances_m(context.node_lat, context.node_lon, node)
-    return estimate
+def _heuristic_to(context: _RoadGraphContext, node: int) -> np.ndarray:
+    """`node`へ向かうA*のヒューリスティック（各Nodeからの直線距離を所要時間の下界[秒]へ直したもの）。"""
+    heuristic = context.heuristics.get(node)
+    if heuristic is None:
+        heuristic = context.heuristics[node] = heuristic_seconds(
+            straight_distances_m(context.node_lat, context.node_lon, node), context.composer.speed_kmh,
+        )
+    return heuristic
+
+
+def _reverse_index(context: _RoadGraphContext, index: int) -> int | None:
+    """区間と同じNode対を逆に向かう区間の番号。一方通行で逆向きが無ければNone。"""
+    lazy_graph = context.lazy_graph
+    return edge_index_between(context.statics.csr, int(lazy_graph.edge_to[index]), int(lazy_graph.edge_from[index]))
 
 
 def _traveled_columns(context: _RoadGraphContext, edges: Sequence[int]) -> np.ndarray:
     """走った区間と、同じNode対の逆向きの区間の番号（重複なし）。走った道を避ける罰を置く列。"""
-    lazy_graph = context.lazy_graph
     traveled: set[int] = set(edges)
     for edge_index in edges:
-        reverse_index = edge_index_between(
-            context.statics.csr, int(lazy_graph.edge_to[edge_index]), int(lazy_graph.edge_from[edge_index])
-        )
+        reverse_index = _reverse_index(context, edge_index)
         if reverse_index is not None:
             traveled.add(reverse_index)
     return np.fromiter(traveled, dtype=np.int64, count=len(traveled))
@@ -1613,16 +1602,13 @@ def _reverse_traced_edges(
     ものを反転して使う——同じ物理区間を逆順に辿るだけなので、取り直す必要が無い。
     進行方向に依存しない値も**逆方向の区間自身から**引く。
     """
-    lazy_graph = context.lazy_graph
     reverse_edges: list[LeanEdge] = []
     reverse_path: list[int] = []
     for edge, index in zip(reversed(edges_in_path), reversed(path), strict=True):
-        reverse_index = edge_index_between(
-            context.statics.csr, int(lazy_graph.edge_to[index]), int(lazy_graph.edge_from[index])
-        )
+        reverse_index = _reverse_index(context, index)
         if reverse_index is None:
             return None
-        topology = _lean_edge(context.road, lazy_graph, reverse_index)
+        topology = _lean_edge(context, reverse_index)
         reverse_edges.append(replace(topology, geometry=list(reversed(edge.geometry))))
         reverse_path.append(reverse_index)
     return reverse_edges, reverse_path

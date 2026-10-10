@@ -256,16 +256,16 @@ def median_detour_ratio(origin: LatLon, lat: np.ndarray, lon: np.ndarray, length
     return float(np.nanmedian(ratios))
 
 
-def straight_distances_m(node_lat: np.ndarray, node_lon: np.ndarray, target_node: int) -> list[float]:
+def straight_distances_m(node_lat: np.ndarray, node_lon: np.ndarray, target_node: int) -> np.ndarray:
     """全Node（`node_lat`/`node_lon`と同じ行順）からノード`target_node`への直線距離（m）を
     numpyで1回だけベクトル計算する。2点間探索のA*ヒューリスティック（`heuristic_seconds`が
     秒へ直す）の素材になる。
     """
     target = LatLonPoint(float(node_lat[target_node]), float(node_lon[target_node]))
-    return (haversine_distance_km_array(node_lat, node_lon, target) * 1000).tolist()
+    return haversine_distance_km_array(node_lat, node_lon, target) * 1000
 
 
-def heuristic_seconds(straight_m: np.ndarray | list[float], cruise_speed_kmh: float) -> np.ndarray:
+def heuristic_seconds(straight_m: np.ndarray, cruise_speed_kmh: float) -> np.ndarray:
     """Nodeごとの直線距離（m）を、所要時間の下界（秒）へ直す。
 
     実経路は直線より長く、実際の速度は走行モデルの速度の上限以下のため、これは真の

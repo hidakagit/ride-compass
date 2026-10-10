@@ -18,9 +18,10 @@ import os
 import subprocess
 import sys
 
-#: 本番のイメージに入るファイル。gitのpathspecのglobとしてリポジトリの根から当てる
+#: 本番へ届くファイル。gitのpathspecのglobとしてリポジトリの根から当てる
 #: （`*`は`/`を跨がず、`**`は跨ぐ）。
 DEPLOY_PATHS = (
+    # backend/ops/はイメージに入らないが、デプロイがVMの作業コピーを揃えて届けるので外さない。
     "backend/**",
     # デプロイの手順そのもの（この道具は上の backend/** に入る）。
     ".github/workflows/deploy-backend.yml",

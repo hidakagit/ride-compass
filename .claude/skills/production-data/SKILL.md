@@ -109,8 +109,6 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
      Delete・日数を30・Object name filters の prefix を`admin-data/`にして作る。規則が効き始めるまで最大24時間かかる（同じ文書）。
 - 動いているかを見る: backendの`/health`の`admin_data_backup_age_hours`。詳しくはVMで`systemctl list-timers ridecompass-admin-data-backup.timer`
   （前回・次回）と`sudo journalctl -u ridecompass-admin-data-backup.service --since -2d`。
-- `backend/ops/`のユニットの中身を変えたコミットがデプロイされたら、VMで`sudo systemctl daemon-reload`を打つ
-  （シェルの中身は次の回から新しいものが読まれる）。
 
 ### 本番DBを失ったとき
 

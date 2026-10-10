@@ -281,6 +281,18 @@ export function buildShape(draft: Draft, materialOptions: readonly AxisMaterialO
   };
 }
 
+/** 点数の形が使う材料のうち、材料の一覧にも軸の一覧（`axisIds`）にも無いもの。材料を足したbackendが
+ * この画面より先に出た間に起きる。値の種類が分からないので下書きは正しく読めず（種類の材料の値ごとの
+ * 点数は、はい/いいえの2つへ潰れる）、これが空でない軸は保存させない。 */
+export function unknownMaterialIds(
+  shape: AxisShape,
+  materialOptions: readonly AxisMaterialOption[],
+  axisIds: ReadonlySet<string>,
+): string[] {
+  const used = shape.kind === "categorical" ? [shape.material] : shape.terms.map((t) => t.material);
+  return used.filter((id) => !axisIds.has(id) && !materialOptions.some((m) => m.id === id));
+}
+
 /** 地図の色分けしきい値のまとめ入力を解釈する。区切りはカンマ（全角含む）・空白・改行・
  * 読点のいずれでもよい——利用者は他所からコピーした並びをそのまま貼るため、区切りの
  * 種類を当てさせない。

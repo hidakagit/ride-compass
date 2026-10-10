@@ -69,7 +69,8 @@ class SourceTree:
             self._trees[module] = ast.parse(path.read_text(encoding="utf-8")) if path else None
         return self._trees[module]
 
-    def _absolute(self, module: str, node: ast.ImportFrom) -> str:
+    def absolute(self, module: str, node: ast.ImportFrom) -> str:
+        """`module`の中の`from … import`が読むモジュールの名前（相対の取り込みも絶対の名前にする）。"""
         if not node.level:
             return node.module or ""
         package = module.split(".")
@@ -79,7 +80,7 @@ class SourceTree:
         return ".".join(base + ([node.module] if node.module else []))
 
     def _from_import(self, module: str, node: ast.ImportFrom, name: str, depth: int) -> Symbol | None:
-        source = self._absolute(module, node)
+        source = self.absolute(module, node)
         if self.path_of(f"{source}.{name}"):
             return Symbol("module", f"{source}.{name}")
         return self.lookup(source, name, depth + 1)

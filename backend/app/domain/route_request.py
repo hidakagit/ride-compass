@@ -72,6 +72,11 @@ class FixedPoints:
     waypoints: list[Coordinates]
     destination: Coordinates | None
 
+    @property
+    def placed(self) -> list[Coordinates]:
+        """置いた点を通る順に（経由地のあとに目的地）。"""
+        return [*self.waypoints, *([self.destination] if self.destination is not None else [])]
+
 
 @dataclass(frozen=True)
 class DistanceTarget:

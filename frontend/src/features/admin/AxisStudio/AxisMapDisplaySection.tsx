@@ -284,7 +284,7 @@ export function AxisMapDisplaySection({
           拒否される）。公開状態の切り替えは「非公開に戻す」専用ボタン（AxisStudio.tsx）
           に導線を一本化済み。 */}
       {/* 「調整する」の最中は、保存が必ず公開へ戻す。切り替えを出すと、チェックを外して
-          保存しても公開へ戻り、画面の操作結果が無言で反転する（design-principles.md
+          保存しても公開へ戻り、画面の操作結果が無言で反転する（.claude/rules/screen.md
           「1つの状態は1つの場所でだけ操作する」）。ここでは事実だけを示す。 */}
       {republishing ? (
         <p className={textVariants({ variant: "hint" })}>
