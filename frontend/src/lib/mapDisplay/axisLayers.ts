@@ -50,13 +50,6 @@ export interface RampAxis extends CatalogAxis {
   bandLabelsOverride?: readonly string[];
 }
 
-/** 公開軸の表示名の辞書（軸id→軸定義の`label`）。**ここに無い軸idを画面へ出さない**——
- * 引けなかったときに軸idで埋めると、内部名（例: `wind`）がそのまま画面に出る。
- * 軸の名前は軸定義の`label`だけが持つ。 */
-export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Record<string, string> {
-  return Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.label]));
-}
-
 /** `runtimeScales`（GET /api/axis-catalogのtile_runtime_scales、tile property名→スケール係数）は、
  * `needs_runtime_scale`なtile_inputの`weight`へ構築時に一度だけ掛け合わせて解決する（地図の式は
  * 解決済みのweightだけを見る）。
