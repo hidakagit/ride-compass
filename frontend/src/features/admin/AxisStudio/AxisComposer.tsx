@@ -15,11 +15,10 @@ import { AxisScoringSection } from "./AxisScoringSection";
 import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, type Draft } from "./axisDraft";
 import { Button } from "@/components/ui/Button/Button";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
-import { Input, Textarea } from "@/components/ui/Input/Input";
+import { fieldClass, Input, Textarea } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
-import { fieldClass } from "@/components/ui/Input/Input";
 import { errorMessage } from "@/lib/apiError";
 
 interface AxisComposerProps {
@@ -104,16 +103,18 @@ export default function AxisComposer({
     }));
 
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
-  // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
-  // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
+  // keyを変えてコンポーネント自体を再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // 保存前の検証は入力の読み取りの誤りだけ。軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と
-    // 昇順等）はbackendが検証し、保存の誤りとして日本語の文を返す（`axis_definitions.py: axis_error`）。ここで写さない
-    // ——写すと、backendの条件を変えたとき画面だけが古い条件で止める。
-    setError(thresholdError);
-    if (thresholdError) return;
+    setError(null);
+    // 保存前の検証。軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と昇順等）はbackendが検証し、保存の
+    // 誤りとして日本語の文を返す（`axis_definitions.py: axis_error`）。ここで写さない——写すと、backendの条件を
+    // 変えたとき画面だけが古い条件で止める。ここに残すのは、入力の読み取りの誤りだけ（しきい値は制限モードでも編集できる）。
+    if (draft.displayThresholdsOverride !== null && thresholdError) {
+      setError(thresholdError);
+      return;
+    }
     const payload: AxisDefinitionPayload = {
       // 編集欄を持たないフィールドは既存値をそのまま送り返す（`PASSTHROUGH_PAYLOAD_KEYS`）。
       // 編集値を後から重ねるため、ここでの展開順を入れ替えないこと。
@@ -253,7 +254,8 @@ export default function AxisComposer({
         mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
         mapBands={mapBands}
-        onThresholdErrorChange={setThresholdError}
+        thresholdError={thresholdError}
+        setThresholdError={setThresholdError}
       />
 
       {error && <p className={textVariants({ variant: "error" })}>{error}</p>}

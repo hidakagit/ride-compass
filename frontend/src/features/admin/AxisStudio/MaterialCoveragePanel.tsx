@@ -37,10 +37,7 @@ const GROUP_BY_SEMANTICS = Object.fromEntries(
   ]),
 ) as Record<MissingSemantics, { title: string; hint: string; affectsEvaluation: boolean }>;
 
-const GROUPS = (Object.keys(GROUP_BY_SEMANTICS) as MissingSemantics[]).map((semantics) => ({
-  semantics,
-  ...GROUP_BY_SEMANTICS[semantics],
-}));
+const GROUPED_SEMANTICS = new Set<string>(Object.keys(GROUP_BY_SEMANTICS));
 
 function CoverageTable({ entries }: { entries: readonly CountedEntry[] }) {
   return (
@@ -119,35 +116,36 @@ export default function MaterialCoveragePanel() {
   );
 }
 
+function CoverageSection({ title, hint, entries }: { title: string; hint: string; entries: readonly CountedEntry[] }) {
+  return (
+    <section className="mt-2 flex flex-col gap-1" aria-label={title}>
+      <div className={cn(textVariants({ variant: "body" }), "font-bold")}>{title}</div>
+      <p className={textVariants({ variant: "hint" })}>{hint}</p>
+      <CoverageTable entries={entries} />
+    </section>
+  );
+}
+
 function CoverageReport({ report }: { report: MaterialCoverageResponse }) {
   const covered = sortByMissingRatioDesc(report.materials.filter((m): m is CountedEntry => m.kind === "counted"));
   const excluded = report.materials.filter((m): m is ExcludedEntry => m.kind === "excluded");
   // 集計対象なのにmissing_semanticsがどのグループにも該当しない材料。黙って表から消えると
   // カバレッジ画面が「欠損0件」に見えるため、拾って明示する。
-  const groupedSemantics = new Set<string>(GROUPS.map((group) => group.semantics));
-  const ungrouped = covered.filter((entry) => !groupedSemantics.has(entry.missing_semantics));
+  const ungrouped = covered.filter((entry) => !GROUPED_SEMANTICS.has(entry.missing_semantics));
 
   return (
     <>
-      {GROUPS.map((group) => {
-        const entries = covered.filter((entry) => entry.missing_semantics === group.semantics);
+      {vocabulary.materialMissingSemantics.map((group) => {
+        const entries = covered.filter((entry) => entry.missing_semantics === group.key);
         if (entries.length === 0) return null;
-        return (
-          <section key={group.semantics} className="mt-2 flex flex-col gap-1" aria-label={group.title}>
-            <div className={cn(textVariants({ variant: "body" }), "font-bold")}>{group.title}</div>
-            <p className={textVariants({ variant: "hint" })}>{group.hint}</p>
-            <CoverageTable entries={entries} />
-          </section>
-        );
+        return <CoverageSection key={group.key} title={group.title} hint={group.hint} entries={entries} />;
       })}
       {ungrouped.length > 0 && (
-        <section className="mt-2 flex flex-col gap-1" aria-label="欠損時の扱いが不明な材料">
-          <div className={cn(textVariants({ variant: "body" }), "font-bold")}>欠損時の扱いが不明な材料</div>
-          <p className={textVariants({ variant: "hint" })}>
-            集計対象なのにmissing_semanticsが画面の知らない扱い。画面の更新が追いついていない可能性がある。
-          </p>
-          <CoverageTable entries={ungrouped} />
-        </section>
+        <CoverageSection
+          title="欠損時の扱いが不明な材料"
+          hint="集計対象なのにmissing_semanticsが画面の知らない扱い。画面の更新が追いついていない可能性がある。"
+          entries={ungrouped}
+        />
       )}
       {excluded.length > 0 && (
         <details

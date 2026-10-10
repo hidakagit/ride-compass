@@ -14,10 +14,6 @@ import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 
-// axis_idはユーザー入力欄から撤去してある——内部識別子であって人間が読む必要はなく、
-// 実際に画面上で意味を持つのは表示名(label)の方だけのため。新規作成・複製時にここで
-// 自動生成し、編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が
-// 無い[str]ため、半角英数字で読みやすいprefix+乱数のみで十分）。
 /** 点数の形。backendが持つ形は契約から引く——写すと、形が増えたとき片側だけ知っている
  * 状態になる。`recipe_then_breakpoint_linear`だけは**編集画面の区別**で、backendの
  * `breakpoint_linear`1種を「材料を直接使う」「他の軸を組み合わせる」の2つの編集モードへ
@@ -25,6 +21,10 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 type BackendShapeKind = NonNullable<AxisShape["kind"]>;
 type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
 
+// axis_idはユーザー入力欄から撤去してある——内部識別子であって人間が読む必要はなく、
+// 実際に画面上で意味を持つのは表示名(label)の方だけのため。新規作成・複製時にここで
+// 自動生成し、編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が
+// 無い[str]ため、半角英数字で読みやすいprefix+乱数のみで十分）。
 function generateAxisId(): string {
   // crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）でのみ定義される。/admin
   // が平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に無いオンプレ運用時の
@@ -144,12 +144,8 @@ export interface Draft {
   passthrough: PassthroughFields;
 }
 
-/** 数値の材料で点数を付け始めるときの折れ点。 */
-export function initialNumericBreakpoints(): [number, number][] {
-  return [
-    [0, 0],
-    [10, 100],
-  ];
+function copyTerms(terms: readonly TermDraft[]): TermDraft[] {
+  return terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required }));
 }
 
 export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -162,7 +158,10 @@ export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draf
     shapeKind: "breakpoint_linear",
     terms: [{ material: materialOptions[0]?.id ?? "", weight: 1.0, required: true }],
     preprocess: "identity",
-    breakpoints: initialNumericBreakpoints(),
+    breakpoints: [
+      [0, 0],
+      [10, 100],
+    ],
     categoricalMaterial: firstBoolean,
     trueScore: 0,
     falseScore: 80,
@@ -229,10 +228,6 @@ export function draftFromExisting(
     preprocess: shape.preprocess,
     breakpoints: shape.breakpoints,
   };
-}
-
-function copyTerms(terms: readonly TermDraft[]): TermDraft[] {
-  return terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required }));
 }
 
 /** 複製（公開済み軸を「改良」する唯一の経路）。既存の内容を丸ごと写すが、axis_idは

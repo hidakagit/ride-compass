@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
+import { materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import {
   createAxisDefinition,
   deleteAxisDefinition,
@@ -40,17 +40,8 @@ const LEFT_AS_DRAFT_NOTICE =
 // shapeのtermは材料idと他の軸idのどちらも指しうる。軸として見つかればその表示名を、
 // 見つからなければ材料カタログから引く。
 function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
-  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, MATERIAL_CATALOG);
+  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id);
 }
-
-// 開いているフォーム。複製は新規作成として複製元の内容で初期化する（axis_idは新しく振り、公開済み軸を複製しても
-// 下書きから始まる）。`republish`は「調整する」で一時的に下書きへ戻した軸の編集で、保存時に公開へ戻す——編集を
-// 中断した場合は下書きのまま残るため、その事実を必ず知らせる（黙って非公開になると一般ユーザー向けの軸カタログから
-// 消えたことに気づけない）。
-type ComposerTarget =
-  | { mode: "edit"; axisId: string; republish: boolean }
-  | { mode: "duplicate"; from: AxisDefinitionResponse }
-  | { mode: "new" };
 
 // 軸スタジオのトップレベルコンポーネント。一覧取得・作成・更新・削除の状態管理をここに
 // 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
@@ -60,27 +51,28 @@ export default function AxisStudio() {
   const definitions = definitionsQuery.data ?? null;
   // 作成・更新以外の操作（下書きへ戻す・削除）の失敗。一覧を読み直すと消える。
   const [actionError, setActionError] = useState<string | null>(null);
-  const listError = actionError ?? (definitionsQuery.error && errorMessage(definitionsQuery.error));
+  const listError = actionError ?? definitionsQuery.error?.message ?? null;
+  const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
   // 「削除」を押した軸。確認で「削除する」を押すまで消さない（消した軸を戻す手段が無いため）。
   const [confirmingDelete, setConfirmingDelete] = useState<AxisDefinitionResponse | null>(null);
   const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
+  // 「調整する」で一時的に下書きへ戻した軸。保存時に公開へ戻す。編集を中断した場合は
+  // 下書きのまま残るため、その事実を`notice`で必ず知らせる（黙って非公開になると
+  // 一般ユーザー向けの軸カタログから消えたことに気づけない）。
+  const [republishAxisId, setRepublishAxisId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // モーダル（components/ui/Dialog）で開いているフォーム。編集・複製・新規作成のいずれかを選んだときだけ開く
-  // （一覧を隠さない・目的の操作を選んでから開く導線）。
-  const [composer, setComposer] = useState<ComposerTarget | null>(null);
-  const editingAxisId = composer?.mode === "edit" ? composer.axisId : null;
-  const duplicateFrom = composer?.mode === "duplicate" ? composer.from : null;
-  const republishing = composer?.mode === "edit" && composer.republish;
-  // AxisComposerのkey。別のフォームを開くと中身を作り直す。
+  // 複製元。nullでなければAxisComposerを「新規作成」モードのままduplicateFromの内容で
+  // 初期化する（axis_idは空のまま、is_publishedは常にfalseへ落とす——公開済み軸を
+  // 複製しても複製先は下書きから始まる）。
+  const [duplicateFrom, setDuplicateFrom] = useState<AxisDefinitionResponse | null>(null);
+  // 「新しい軸を作る」ボタンを押したときだけtrueになる。編集・複製・新規作成のいずれかを
+  // 選んだときだけモーダル（components/ui/Dialog）でAxisComposerを開く（一覧を隠さない・
+  // 目的の操作を選んでから開く導線）。
+  const [creatingNew, setCreatingNew] = useState(false);
+  // 開いているフォーム（閉じていればnull）。AxisComposerのkeyでもあり、別のフォームを開くと中身を作り直す。
   const composerKey =
-    composer === null
-      ? null
-      : composer.mode === "edit"
-        ? composer.axisId
-        : composer.mode === "duplicate"
-          ? `duplicate-${composer.from.axis_id}`
-          : "new";
+    editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : creatingNew ? "new" : null);
   // いま開いているフォーム。待った後は、押した時点に閉じ込めた値ではなくこれを見る（待つ間に閉じる・別のフォームを
   // 開くと、押した時点のフォームはもう開いていない）。
   const liveComposerKey = useRef(composerKey);
@@ -94,11 +86,15 @@ export default function AxisStudio() {
   }
 
   /** モーダルを閉じる。`republished`は「保存で公開へ戻したか」で、**呼び出し側が渡す**
-   * ——保存を待った後に呼んでも、この関数が読む`republishing`は保存を押したレンダーの
-   * クロージャのままで、再公開に成功した直後に「下書きのまま残った」と通知してしまう。 */
+   * ——`setRepublishAxisId(null)`の直後に呼んでも、この関数が読む`republishAxisId`は
+   * そのレンダーのクロージャのままで、再公開に成功した直後に「下書きのまま残った」と
+   * 通知してしまう（Reactのstate更新は次のレンダーまで反映されない）。 */
   function closeComposer(republished = false) {
-    if (republishing && !republished) setNotice(LEFT_AS_DRAFT_NOTICE);
-    setComposer(null);
+    if (republishAxisId !== null && !republished) setNotice(LEFT_AS_DRAFT_NOTICE);
+    setRepublishAxisId(null);
+    setEditingAxisId(null);
+    setDuplicateFrom(null);
+    setCreatingNew(false);
   }
 
   async function handleSave(payload: AxisDefinitionPayload, isNew: boolean) {
@@ -110,7 +106,7 @@ export default function AxisStudio() {
       // 「調整する」で一時的に下書きへ戻した軸は、保存と同時に公開へ戻す
       // （公開済み軸は不変という原則は保ったまま、unpublish→更新→再公開という
       // 正規の手順をボタン1つに畳んだもの）。
-      republished = republishing;
+      republished = republishAxisId === payload.axis_id;
       await updateAxisDefinition(payload.axis_id, republished ? { ...payload, is_published: true } : payload);
     }
     await reload();
@@ -120,16 +116,28 @@ export default function AxisStudio() {
     else if (republished) setNotice(null);
   }
 
-  // 待ちの印は、自分が立てたものだけを外す（待つ間にほかの軸で立てた印を外すと、その軸の待ちの間に押せてしまう）。
-  const clearUnpublishing = (axisId: string) =>
-    setUnpublishingAxisId((current) => (current === axisId ? null : current));
+  /** 一覧の行の操作を、その軸に待ちの印を立てて打つ。失敗は一覧の上に出す。 */
+  async function runRowAction(
+    axisId: string,
+    setPendingAxisId: React.Dispatch<React.SetStateAction<string | null>>,
+    action: () => Promise<void>,
+  ) {
+    setPendingAxisId(axisId);
+    try {
+      await action();
+    } catch (err) {
+      setActionError(errorMessage(err));
+    } finally {
+      // 待ちの印は、自分が立てたものだけを外す（待つ間にほかの軸で立てた印を外すと、その軸の待ちの間に押せてしまう）。
+      setPendingAxisId((current) => (current === axisId ? null : current));
+    }
+  }
 
   async function handleAdjustPublished(def: AxisDefinitionResponse) {
     // 公開済み軸の材料・計算式・折れ点を変えるには一度下書きへ戻す必要がある
     // （backendの`check_publish_immutability`）。その手順をここで畳む。
     setNotice(null);
-    setUnpublishingAxisId(def.axis_id);
-    try {
+    await runRowAction(def.axis_id, setUnpublishingAxisId, async () => {
       await unpublishAxisDefinition(def.axis_id);
       await reload();
       // 待つ間に別のフォームを開いていたら、そのフォームを替えない（打ちかけの入力が消える）。この軸は下書きのまま残る。
@@ -137,39 +145,32 @@ export default function AxisStudio() {
         setNotice(LEFT_AS_DRAFT_NOTICE);
         return;
       }
-      setComposer({ mode: "edit", axisId: def.axis_id, republish: true });
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      clearUnpublishing(def.axis_id);
-    }
+      setRepublishAxisId(def.axis_id);
+      setEditingAxisId(def.axis_id);
+    });
+  }
+
+  function handleDuplicate(def: AxisDefinitionResponse) {
+    setEditingAxisId(null);
+    setCreatingNew(false);
+    setDuplicateFrom(def);
   }
 
   async function handleUnpublish(axisId: string) {
     // 公開済み軸を下書きへ戻す。一般ユーザー向けの軸カタログから即座に消えるが、利用者の画面は保存した
     // 重みのキーをカタログへ合わせ直す（features/route/routePreferenceSync.ts）ので、消えた軸の重みは残らない。
-    setUnpublishingAxisId(axisId);
-    try {
+    await runRowAction(axisId, setUnpublishingAxisId, async () => {
       await unpublishAxisDefinition(axisId);
       await reload();
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      clearUnpublishing(axisId);
-    }
+    });
   }
 
   // 消せるか（ほかの軸が参照している・最後の1軸）はbackendが判定し、断った理由をそのまま出す。
   async function handleDelete(axisId: string) {
-    setDeletingAxisId(axisId);
-    try {
+    await runRowAction(axisId, setDeletingAxisId, async () => {
       await deleteAxisDefinition(axisId);
       await reload();
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      setDeletingAxisId((current) => (current === axisId ? null : current));
-    }
+    });
   }
 
   const editingDefinition = definitions?.find((d) => d.axis_id === editingAxisId) ?? null;
@@ -241,10 +242,10 @@ export default function AxisStudio() {
             renderRow(
               def,
               <>
-                <Button size="sm" onClick={() => setComposer({ mode: "edit", axisId: def.axis_id, republish: false })}>
+                <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
                   編集
                 </Button>
-                <Button size="sm" onClick={() => setComposer({ mode: "duplicate", from: def })}>
+                <Button size="sm" onClick={() => handleDuplicate(def)}>
                   複製して新規作成
                 </Button>
                 <Button
@@ -279,7 +280,7 @@ export default function AxisStudio() {
             renderRow(
               def,
               <>
-                <Button size="sm" onClick={() => setComposer({ mode: "edit", axisId: def.axis_id, republish: false })}>
+                <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
                   表示だけ編集
                 </Button>
                 <Button
@@ -289,7 +290,7 @@ export default function AxisStudio() {
                 >
                   調整する
                 </Button>
-                <Button size="sm" onClick={() => setComposer({ mode: "duplicate", from: def })}>
+                <Button size="sm" onClick={() => handleDuplicate(def)}>
                   複製して新規作成
                 </Button>
                 <Button
@@ -305,7 +306,15 @@ export default function AxisStudio() {
         </TabsContent>
       </Tabs>
 
-      <Button size="sm" className="self-start font-bold" onClick={() => setComposer({ mode: "new" })}>
+      <Button
+        size="sm"
+        className="self-start font-bold"
+        onClick={() => {
+          setEditingAxisId(null);
+          setDuplicateFrom(null);
+          setCreatingNew(true);
+        }}
+      >
         + 新しい軸を作る
       </Button>
 
@@ -326,7 +335,7 @@ export default function AxisStudio() {
             otherAxes={definitions ?? []}
             mapBandColors={mapBandColors}
             mapValueUnit={mapValueUnit}
-            republishing={republishing}
+            republishing={republishAxisId !== null && republishAxisId === editingAxisId}
             onCancelEdit={() => closeComposer()}
             onSave={handleSave}
           />

@@ -119,8 +119,22 @@ def string_values(node: ast.AST) -> Iterator[str]:
             yield from string_values(element)
 
 
+LABELS = {
+    "1": "(1) backend の文∩宣言の名前",
+    "2": "(2) backend の文∩色・寸法・時間幅の語",
+    "3": "(3) backend の説明∩同じ行の値",
+    "4": "(4) 走行モデル・難易度の数え方を述べる文",
+}
+
+
+def describes_model(text: str) -> bool:
+    """(4) の文か。"""
+    return bool((TRAVEL_TIME.search(text) and TRAVEL_CONDITION.search(text))
+                or (DIFFICULTY_TOTAL.search(text) and DIFFICULTY_SPAN.search(text)))
+
+
 def backend_findings(names: list[str]) -> dict[str, list[str]]:
-    found: dict[str, list[str]] = {"1": [], "2": [], "3": [], "4": []}
+    found: dict[str, list[str]] = {kind: [] for kind in LABELS}
     for path in sorted(BACKEND_DOMAIN.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         skip = docstring_nodes(tree)
@@ -141,9 +155,7 @@ def backend_findings(names: list[str]) -> dict[str, list[str]]:
             looks = sorted({match.group(0) for match in LOOK.finditer(text)})
             if looks:
                 found["2"].append(f"{where}\t{'・'.join(looks)}\t{shown}")
-            if (TRAVEL_TIME.search(text) and TRAVEL_CONDITION.search(text)) or (
-                DIFFICULTY_TOTAL.search(text) and DIFFICULTY_SPAN.search(text)
-            ):
+            if describes_model(text):
                 found["4"].append(f"{where}\t{shown}")
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -179,19 +191,9 @@ def frontend_findings() -> list[str]:
             text = line.strip()
             if text.startswith(COMMENT_LINE) or not JAPANESE.search(text):
                 continue
-            if (TRAVEL_TIME.search(text) and TRAVEL_CONDITION.search(text)) or (
-                DIFFICULTY_TOTAL.search(text) and DIFFICULTY_SPAN.search(text)
-            ):
+            if describes_model(text):
                 found.append(f"{rel}:{number}\t{text[:70]}")
     return found
-
-
-LABELS = {
-    "1": "(1) backend の文∩宣言の名前",
-    "2": "(2) backend の文∩色・寸法・時間幅の語",
-    "3": "(3) backend の説明∩同じ行の値",
-    "4": "(4) 走行モデル・難易度の数え方を述べる文",
-}
 
 
 def main() -> int:

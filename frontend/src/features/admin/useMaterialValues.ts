@@ -35,7 +35,6 @@ export function useMaterialValues(materialId: string | null): {
     },
     getQueryClient(),
   );
-  if (materialId === null) return { values: NO_VALUES, unavailable: false };
   if (isError) return { values: NO_VALUES, unavailable: true };
   return { values: data?.values ?? NO_VALUES, unavailable: data?.available === false };
 }

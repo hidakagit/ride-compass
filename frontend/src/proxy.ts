@@ -29,14 +29,15 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
+function unauthorized(): NextResponse {
+  return new NextResponse("認証が必要です", {
+    status: 401,
+    headers: { "WWW-Authenticate": `Basic realm="${REALM}"` },
+  });
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const expected = adminBasicAuthCredentials();
-
-  const unauthorized = () =>
-    new NextResponse("認証が必要です", {
-      status: 401,
-      headers: { "WWW-Authenticate": `Basic realm="${REALM}"` },
-    });
 
   if (expected === null) return unauthorized();
 

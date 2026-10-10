@@ -98,11 +98,20 @@ export function editDifference(origin: RouteCandidate, edited: RouteCandidate): 
   return { metrics: metricDifferences(origin, edited), stretches };
 }
 
-/** 表示する桁で丸めた差。色を変えるかどうかも**この値**で決める——生の差で判断すると、
- * 画面には「±0」と出ているのに色だけ増減を主張する。 */
-export function roundToDigits(value: number, digits: number): number {
+function roundToDigits(value: number, digits: number): number {
   return Number(value.toFixed(digits));
 }
+
+/** 差の色の向き（増えたら`data-worse`・減ったら`data-better`）。表示する桁で丸めた差で決める——生の差で判断すると、
+ * 画面には「±0」と出ているのに色だけ増減を主張する。 */
+export function deltaTone({ delta, digits }: Pick<MetricDifference, "delta" | "digits">) {
+  const shown = delta === null ? 0 : roundToDigits(delta, digits);
+  return { "data-worse": shown > 0, "data-better": shown < 0 };
+}
+
+/** 差の色（`deltaTone`の属性を読む）。 */
+export const DELTA_TONE_CLASS =
+  "data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]";
 
 /** 差の表記（例: `+0.4`・`−2`・`±0`）。 */
 export function formatDelta(value: number, digits: number): string {

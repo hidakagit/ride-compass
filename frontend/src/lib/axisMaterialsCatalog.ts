@@ -47,6 +47,6 @@ export function materialOptionText(option: { label: string; unit?: string }): st
 
 /** 軸スタジオ（管理画面）に出す材料名（「論理名 - 物理名」）。物理名を見せるのが目的の
  * 画面なので、カタログに無いidはidのまま返す。一般向けの画面では使わない。 */
-export function materialCatalogLabel(materialId: string, materials: readonly AxisMaterialOption[]): string {
-  return materials.find((m) => m.id === materialId)?.label ?? materialId;
+export function materialCatalogLabel(materialId: string): string {
+  return MATERIAL_CATALOG.find((m) => m.id === materialId)?.label ?? materialId;
 }

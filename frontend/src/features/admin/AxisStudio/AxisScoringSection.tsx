@@ -20,31 +20,30 @@ import { materialOptionText, type AxisMaterialOption } from "@/lib/axisMaterials
 import { useMaterialValues } from "@/features/admin/useMaterialValues";
 import { useAxisValueDistribution } from "@/features/admin/useAxisValueDistribution";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { InfoPopoverButton, MaterialInfoButton, SectionLabel, SliderNumberField } from "./AxisFormFields";
 import {
-  buildShape,
-  initialNumericBreakpoints,
-  type CategoricalRowDraft,
-  type Draft,
-  type TermDraft,
-} from "./axisDraft";
+  InfoPopoverButton,
+  MaterialInfoButton,
+  RequiredCheckbox,
+  SectionLabel,
+  SliderNumberField,
+} from "./AxisFormFields";
+import { buildShape, type CategoricalRowDraft, type Draft, type TermDraft } from "./axisDraft";
 import { BreakpointCurveEditor } from "./BreakpointCurveEditor";
 import { DistributionPreview } from "./DistributionPreview";
 import { MaterialRangeHint } from "./MaterialRangeHint";
 import { Button } from "@/components/ui/Button/Button";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
-import { Input, Select } from "@/components/ui/Input/Input";
+import { fieldClass, Input, Select } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { calloutVariants } from "@/components/ui/Callout/Callout";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
-import { fieldClass } from "@/components/ui/Input/Input";
 
 interface AxisScoringSectionProps {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
-  /** 材料の一覧。 */
+  /** 材料カタログ（実行時取得）。 */
   materialOptions: readonly AxisMaterialOption[];
   /** 「ほかの軸」を材料として選ぶための候補（他の軸の一覧）。 */
   axisTermOptions: readonly AxisMaterialOption[];
@@ -55,11 +54,6 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
   const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } = useMaterialValues(
     selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
   );
-  // 候補一覧（categoricalMaterialValues）がある材料は、候補セレクトでの選択のみを許可し、値は常にラベルの
-  // 読み取り専用表示にする（生のタグ値は画面に出さない——material_catalogに無い値を書く実運用上の必要性は基本無く、
-  // 直接入力を残すとタイプミスがそのまま「静かに一致しない行」として残る落とし穴になる）。候補一覧が無い材料
-  // （動的値一覧に対応していない）だけ、自由テキスト入力のままにする（選ぶ元となる候補自体が存在しないため）。
-  const hasDynamicCandidates = categoricalMaterialValues.length > 0;
   // 折れ点の自動生成フォーム（範囲＋形の3入力）。**入力のたびにdraft.breakpointsを
   // 作り直す**ため、初期値はいまの折れ点から復元する（breakpointTools.ts:
   // generatorSettingsFrom）。固定値にすると、既存の軸を開いて効き方だけを変えたときに
@@ -84,9 +78,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
     draft.shapeKind === "breakpoint_linear"
       ? JSON.stringify([draft.preprocess, draft.terms.map((t) => [t.material, t.weight, t.required])])
       : "";
-  const valueDistribution = useAxisValueDistribution(distributionTermsKey !== "", distributionTermsKey, () =>
-    buildShape(draft, materialOptions),
-  );
+  const valueDistribution = useAxisValueDistribution(distributionTermsKey, () => buildShape(draft, materialOptions));
   // 分布の階級と参考点の点数・参考点の横軸の値は、backendが評価と同じ計算で返す（折れ点を動かすたびに、
   // 落ち着いたら問い合わせる）。届くまでは効き目の表と参考点のボタンを出さない。
   const { preview: scoresPreview, failed: scoresFailed } = useScoresPreview(
@@ -128,13 +120,20 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
     draft.terms.length > 1 ||
     (draft.terms[0]?.weight ?? 1) !== 1 ||
     materialOptions.find((m) => m.id === draft.terms[0]?.material)?.dtype === "boolean";
-  // 合計の行で選べるもの。booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
-  // backend/app/domain/axis_definitions.py: _breakpoint_raw_total_array）。categoricalは非対応のまま（文字列材料と数値の
-  // 掛け算はbackend側でエラーになる）。recipe_then_breakpoint_linearは、材料の代わりに他の軸を候補にする。
+  // 合計する行が選べる候補。他の軸を組み合わせる形は軸だけ、それ以外は数値・はい/いいえの材料
+  // （種類の材料は文字列なので、係数と掛けられない）。
   const termOptions =
     draft.shapeKind === "recipe_then_breakpoint_linear"
       ? axisTermOptions
       : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
+
+  function renderOptions(options: readonly AxisMaterialOption[]) {
+    return options.map((m) => (
+      <option key={m.id} value={m.id}>
+        {materialOptionText(m)}
+      </option>
+    ));
+  }
 
   function selectPrimaryMaterial(id: string) {
     const isAxis = axisTermOptions.some((option) => option.id === id);
@@ -169,12 +168,15 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
         ...d,
         shapeKind: "breakpoint_linear",
         terms: [{ material: id, weight: 1.0, required: true }],
-        breakpoints: initialNumericBreakpoints(),
+        breakpoints: [
+          [0, 0],
+          [10, 100],
+        ],
       };
     });
   }
 
-  /** 「0点にする値」「100点にする値」「効き方」から材料の値→スコアの変換を作り直す。
+  /** 「0点にする値」「100点にする値」「効き方」のどれかを変え、材料の値→スコアの変換を作り直す。
    * 折れ点の並びそのものは保存形式であって入力欄ではない——実在する軸の大半は2点の直線で、
    * 曲線は実データを見て決めるもの（較正）。直接いじる口は下の詳細設定に残してある。 */
   function updateGenerator(patch: Partial<typeof generator>) {
@@ -227,44 +229,22 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
           value={primaryMaterialId}
           onChange={(e) => selectPrimaryMaterial(e.target.value)}
         >
-          <optgroup label="数値">
-            {materialOptions
-              .filter((m) => m.dtype === "numeric")
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {materialOptionText(m)}
-                </option>
-              ))}
-          </optgroup>
+          <optgroup label="数値">{renderOptions(materialOptions.filter((m) => m.dtype === "numeric"))}</optgroup>
           <optgroup label="はい・いいえ / 種類">
-            {materialOptions
-              .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {materialOptionText(m)}
-                </option>
-              ))}
+            {renderOptions(materialOptions.filter((m) => m.dtype === "boolean" || m.dtype === "categorical"))}
           </optgroup>
-          {axisTermOptions.length > 0 && (
-            <optgroup label="ほかの軸">
-              {axisTermOptions.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {materialOptionText(m)}
-                </option>
-              ))}
-            </optgroup>
-          )}
+          {axisTermOptions.length > 0 && <optgroup label="ほかの軸">{renderOptions(axisTermOptions)}</optgroup>}
         </Select>
         <MaterialInfoButton option={[...materialOptions, ...axisTermOptions].find((m) => m.id === primaryMaterialId)} />
         {draft.shapeKind !== "categorical" && draft.terms.length === 1 && (
-          <RequiredToggle
+          <RequiredCheckbox
             checked={draft.terms[0]?.required ?? true}
-            onChange={(next) => updateTerm(0, { required: next })}
+            onCheckedChange={(next) => updateTerm(0, { required: next })}
           />
         )}
       </div>
       {/* 「0=走りやすい・100=走りにくい」をこの節の先頭で1回だけ伝える
-          （折れ点・カテゴリのスコア・true/falseスコアの入力欄では繰り返さない）。 */}
+            （折れ点・カテゴリのスコア・true/falseスコアの入力欄では繰り返さない）。 */}
       <p className={textVariants({ variant: "hint" })}>スコアは0(走りやすい)〜100(走りにくい)です。</p>
 
       {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
@@ -287,15 +267,15 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
               description="はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます。街灯なし・トンネルなど、複数の危険要素の有無を数えて減点・加点したい場合もここに追加してください）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。"
             />
           )}
+          {/* booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
+                backend/app/domain/axis_definitions.py: _breakpoint_raw_total_array）。categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側で
+                エラーになる）。recipe_then_breakpoint_linearは、材料の代わりに
+                他の軸(axisTermOptions)を候補にする。 */}
           {showTermRows &&
             draft.terms.map((term, i) => (
               <div key={i} className="flex flex-wrap items-center gap-2">
                 <Select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
-                  {termOptions.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {materialOptionText(m)}
-                    </option>
-                  ))}
+                  {renderOptions(termOptions)}
                 </Select>
                 <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
                 {/* 典型的な係数の範囲（±10）に絞り、範囲外の値は数値欄から直接入力する想定にした。 */}
@@ -307,7 +287,10 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                   max={10}
                   step={0.1}
                 />
-                <RequiredToggle checked={term.required} onChange={(next) => updateTerm(i, { required: next })} />
+                <RequiredCheckbox
+                  checked={term.required}
+                  onCheckedChange={(next) => updateTerm(i, { required: next })}
+                />
                 <Button
                   size="sm"
                   onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
@@ -316,8 +299,8 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                   削除
                 </Button>
                 {/* 実データの分位は行の末尾で1行を占有させる（basis-full）。
-                    操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。
-                    他の軸を組み合わせる行が持つのは軸idで、材料の分位は引けない。 */}
+                      操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。
+                      他の軸を組み合わせる行が持つのは軸idで、材料の分位は引けない。 */}
                 {draft.shapeKind !== "recipe_then_breakpoint_linear" && (
                   <MaterialRangeHint
                     className="basis-full"
@@ -331,18 +314,20 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
             size="sm"
             className="self-start"
             disabled={draft.shapeKind === "recipe_then_breakpoint_linear" && axisTermOptions.length === 0}
-            onClick={() => {
-              // materialOptionsが空のとき無条件アクセスでクラッシュしないよう""へ。
-              const fallback = termOptions[0]?.id ?? materialOptions[0]?.id ?? "";
-              setDraft((d) => ({ ...d, terms: [...d.terms, { material: fallback, weight: 1.0, required: false }] }));
-            }}
+            onClick={() =>
+              setDraft((d) => {
+                // materialOptionsが空のとき無条件アクセスでクラッシュしないよう""へ。
+                const fallback = termOptions[0]?.id ?? materialOptions[0]?.id ?? "";
+                return { ...d, terms: [...d.terms, { material: fallback, weight: 1.0, required: false }] };
+              })
+            }
           >
             + {draft.shapeKind === "recipe_then_breakpoint_linear" ? "軸を足して合計する" : "材料を足して合計する"}
           </Button>
 
           {/* 他の軸を組み合わせる形は純粋な重み付き結合に絞り、下ごしらえ・折れ点の
-              編集UIを出さない（保存時は既定値[そのまま・恒等クランプ0→0,100→100]のまま
-              送信される、buildShape・selectPrimaryMaterialの設定参照）。 */}
+                編集UIを出さない（保存時は既定値[そのまま・恒等クランプ0→0,100→100]のまま
+                送信される、buildShape・selectPrimaryMaterialの設定参照）。 */}
           {draft.shapeKind === "breakpoint_linear" && (
             <>
               <label className="inline-flex items-center gap-1 text-[length:var(--font-size-sm)]">
@@ -373,26 +358,23 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                 }
               />
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-2 [&_input[type=number]]:w-18">
-                  <span className={cn(textVariants({ variant: "hint" }), "whitespace-nowrap")}>0点</span>
-                  <NumberInput
-                    commitOn="input"
-                    step="any"
-                    value={generator.zeroValue}
-                    aria-label="0点にする値"
-                    onValueChange={(next) => updateGenerator({ zeroValue: next })}
-                  />
-                </span>
-                <span className="inline-flex items-center gap-2 [&_input[type=number]]:w-18">
-                  <span className={cn(textVariants({ variant: "hint" }), "whitespace-nowrap")}>100点</span>
-                  <NumberInput
-                    commitOn="input"
-                    step="any"
-                    value={generator.hundredValue}
-                    aria-label="100点にする値"
-                    onValueChange={(next) => updateGenerator({ hundredValue: next })}
-                  />
-                </span>
+                {(
+                  [
+                    ["0点", "zeroValue"],
+                    ["100点", "hundredValue"],
+                  ] as const
+                ).map(([caption, key]) => (
+                  <span key={key} className="inline-flex items-center gap-2 [&_input[type=number]]:w-18">
+                    <span className={cn(textVariants({ variant: "hint" }), "whitespace-nowrap")}>{caption}</span>
+                    <NumberInput
+                      commitOn="input"
+                      step="any"
+                      value={generator[key]}
+                      aria-label={`${caption}にする値`}
+                      onValueChange={(next) => updateGenerator({ [key]: next })}
+                    />
+                  </span>
+                ))}
                 <Select
                   aria-label="効き方"
                   value={generator.shape}
@@ -507,7 +489,6 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
         </div>
       )}
 
-      {/* 選んだ材料のdtypeで表示を切り替える（boolean→2択、categorical→値ごとのスコア行）。 */}
       {draft.shapeKind === "categorical" && (
         <div className={cn(cardVariants({ variant: "muted" }), "flex flex-col gap-2")}>
           <Button
@@ -529,12 +510,13 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
           >
             + 材料を足して合計する
           </Button>
+          {/* 選んだ材料のdtypeで表示を切り替える（boolean→2択、categorical→値ごとのスコア行）。 */}
           {selectedCategoricalDtype === "categorical" ? (
             <>
               <SectionLabel
                 label="値ごとのスコア"
                 description={
-                  (hasDynamicCandidates
+                  (categoricalMaterialValues.length > 0
                     ? "値は下の候補（実データに含まれる値）から選びます。"
                     : categoricalValuesUnavailable
                       ? "候補を取得できませんでした（DBへ接続できないか、集計が時間内に終わりませんでした）。値は元データのタグ値と完全に一致する文字列で入力します。"
@@ -543,6 +525,14 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                 }
               />
               {draft.categoricalRows.map((row, i) => {
+                // 候補一覧（categoricalMaterialValues）がある材料は、候補セレクトでの
+                // 選択のみを許可し、値は常にラベルの読み取り専用表示にする（生の
+                // タグ値は画面に出さない——material_catalogに無い値を書く実運用上の
+                // 必要性は基本無く、直接入力を残すとタイプミスがそのまま「静かに
+                // 一致しない行」として残る落とし穴になる）。候補一覧が無い材料
+                // （動的値一覧に対応していない）だけ、
+                // 自由テキスト入力のままにする（選ぶ元となる候補自体が存在しないため）。
+                const hasDynamicCandidates = categoricalMaterialValues.length > 0;
                 // 選択中の値のラベルは、取得済みの候補一覧（MaterialSpec.value_labels
                 // 由来）から引く。候補一覧に無い値（編集を開いた時点で
                 // 既存軸が保持していたが、実データが変わり現在は候補から外れた値等）は
@@ -637,22 +627,6 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
           )}
         </div>
       )}
-    </>
-  );
-}
-
-/** 項の「必須」の切り替えと、その説明。 */
-function RequiredToggle({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) {
-  return (
-    <>
-      <label className="inline-flex items-center gap-1 text-[length:var(--font-size-sm)]">
-        <Checkbox checked={checked} onCheckedChange={onChange} aria-label="必須" />
-        必須
-      </label>
-      <InfoPopoverButton
-        ariaLabel="「必須」の説明"
-        description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
-      />
     </>
   );
 }

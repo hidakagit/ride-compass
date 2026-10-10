@@ -32,7 +32,18 @@ function niceTicks(min: number, max: number): number[] {
   return ticks;
 }
 
-/** `referenceRange`（材料の参考点の値域）があれば横軸をその範囲に固定し、ドラッグ中に
+/** 矢印キーごとに、動かす座標（0=入力値・1=スコア）と向き。 */
+const ARROW_MOVES = new Map<string, readonly [0 | 1, 1 | -1]>([
+  ["ArrowRight", [0, 1]],
+  ["ArrowLeft", [0, -1]],
+  ["ArrowUp", [1, 1]],
+  ["ArrowDown", [1, -1]],
+]);
+
+/** 折れ点(breakpoints)をドラッグ・矢印キーで調整できる曲線エディタ。既存の数値入力行
+ * （正確な値の入力・行の追加削除）はそのまま残し、この曲線はその可視化＋補助的な操作手段
+ * として上に添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
+ * `referenceRange`（材料の参考点の値域）があれば横軸をその範囲に固定し、ドラッグ中に
  * 見た目のスケールが動かないようにする（材料の参考点が無い場合は現在のbreakpointsの
  * 値から自動スケールする）。 */
 export function BreakpointCurveEditor({
@@ -102,20 +113,12 @@ export function BreakpointCurveEditor({
   // その10倍）。ドラッグ操作の代替手段として、キーボード操作・スクリーンリーダー
   // 利用者にも折れ点を動かす手段を確保する。
   function handleKeyDown(e: ReactKeyboardEvent<SVGCircleElement>, index: number) {
-    const bigStep = e.shiftKey ? 10 : 1;
-    if (e.key === "ArrowRight") {
-      e.preventDefault();
-      onChangePoint(index, 0, breakpoints[index][0] + xSnapStep * bigStep);
-    } else if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      onChangePoint(index, 0, breakpoints[index][0] - xSnapStep * bigStep);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      onChangePoint(index, 1, breakpoints[index][1] + bigStep);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      onChangePoint(index, 1, breakpoints[index][1] - bigStep);
-    }
+    const move = ARROW_MOVES.get(e.key);
+    if (!move) return;
+    e.preventDefault();
+    const [pos, sign] = move;
+    const step = (pos === 0 ? xSnapStep : 1) * (e.shiftKey ? 10 : 1);
+    onChangePoint(index, pos, breakpoints[index][pos] + sign * step);
   }
 
   const dragging = draggingIndex != null ? breakpoints[draggingIndex] : null;
