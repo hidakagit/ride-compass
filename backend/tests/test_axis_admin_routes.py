@@ -11,9 +11,9 @@
 - DBの失敗の503 → `test_admin_db_unavailable.py`
 
 ここで見るのは、口ごとの受け渡し（無い軸・断られた書き込みを状態コードへ変えること・
-応答に地図表示を添えること）と、ルーターが自分で持つ検証（URLと本文の軸の一致・配信の実装の有無）。
+応答に地図表示を添えること）と、ルーターが自分で持つ検証（URLと本文の軸の一致）。
 
-**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無。注入するサービス（軸の書き込み・
+**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合。注入するサービス（軸の書き込み・
 分布の計算（DB））は依存の差し替えで与える。どれも読むだけなので、応答を差し替えるだけで呼ばれ方は見ない。
 地図表示の導出（domain）と材料カタログは本物を通し、材料は性質ごとに本物のカタログから選ぶ。
 """
@@ -28,7 +28,6 @@ from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.value_distribution import ValueDistribution
 from tests.admin_auth import AUTH_HEADERS
-from tests.bound_fake import bound
 
 
 def _static_materials(dtype: str) -> list[str]:
@@ -37,7 +36,6 @@ def _static_materials(dtype: str) -> list[str]:
 
 BASE = "/api/admin/axis-definitions"
 NUM_A, NUM_B = _static_materials("numeric")[:2]
-BOOL_A = _static_materials("boolean")[0]
 #: 地図に塗れる（タイルに向きによらない値を持つ）数値の材料。
 RAMP_NUM = next(
     m
@@ -133,14 +131,6 @@ def preview():
 
 @pytest.fixture
 def seams(monkeypatch):
-    def served_dedicated_way_value_material(materials):
-        return NUM_A if list(materials) == [NUM_A] else None
-
-    monkeypatch.setattr(
-        axis_admin,
-        "served_dedicated_way_value_material",
-        bound(axis_admin.served_dedicated_way_value_material, served_dedicated_way_value_material),
-    )
     monkeypatch.setattr(axis_admin, "AXIS_DEFINITIONS", {REFERENCED_AXIS: stored(REFERENCED_AXIS)})
 
 
@@ -258,41 +248,17 @@ class TestWrite:
 
 
 class TestPayloadValidation:
-    """本文の検証。拒否は422で、レジストリへは届かない。値の不変条件は`check_axis_definition`へ渡し、
-    ルーターが持つのは配信の実装に照らす検証だけ。"""
+    """本文の検証。拒否は422で、レジストリへは届かない。値の不変条件は`check_axis_definition`へ渡す。"""
 
-    @pytest.mark.parametrize(
-        ("fields", "reason"),
-        [
-            ({"shape": linear_shape("ghost")}, "存在しない材料・軸を指しています（ghost）"),
-            (
-                {"dedicated_way_value_layer": True, "shape": linear_shape(NUM_A, NUM_B)},
-                "専用配信の軸は",
-            ),
-            (
-                {
-                    "dedicated_way_value_layer": True,
-                    "priority_overrides": [{"material": BOOL_A, "equals": "true", "value": 0}],
-                },
-                "専用配信の軸は",
-            ),
-        ],
-        ids=["値の不変条件に通らない", "配信実装の無い専用レイヤー", "0次条件の材料も数える専用レイヤー"],
-    )
-    def test_rejected(self, client, registry, fields, reason):
-        response = client.post(BASE, json=payload(**fields))
+    def test_rejected(self, client, registry):
+        response = client.post(BASE, json=payload(shape=linear_shape("ghost")))
 
         assert response.status_code == 422
-        assert reason in response.json()["detail"][0]["msg"]
+        assert "存在しない材料・軸を指しています（ghost）" in response.json()["detail"][0]["msg"]
         assert registry.calls == []
 
-    @pytest.mark.parametrize(
-        "fields",
-        [{"shape": linear_shape(REFERENCED_AXIS)}, {"dedicated_way_value_layer": True}],
-        ids=["今ある軸の参照", "配信実装のある材料1つの専用レイヤー"],
-    )
-    def test_accepted(self, client, fields):
-        assert client.post(BASE, json=payload(**fields)).status_code == 201
+    def test_accepted(self, client):
+        assert client.post(BASE, json=payload(shape=linear_shape(REFERENCED_AXIS))).status_code == 201
 
 
 class TestPreviews:

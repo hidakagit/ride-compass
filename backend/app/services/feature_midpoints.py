@@ -1,6 +1,6 @@
 """タイル内のフィーチャーの値をDBから引く（鍵ごとの値を配る配信サービスが共有する）。"""
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sized
 from typing import Any, TypeVar
 
 import numpy as np
@@ -10,11 +10,11 @@ from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import mark_failed
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
-T = TypeVar("T")
+Features = TypeVar("Features", bound=Sized)
 
 
-async def tile_features(read: Awaitable[dict[str, T] | None], fields: dict[str, Any]) -> dict[str, T] | None:
-    """タイル内のフィーチャーの鍵→値を読む。
+async def tile_features(read: Awaitable[Features | None], fields: dict[str, Any]) -> Features | None:
+    """タイル内のフィーチャーの値（鍵→値・フィーチャーごとの材料）を読む。
 
     DB障害・取込範囲外・フィーチャーが無いタイルは None（どれだったかは`fields`へ記録する）。
     """

@@ -8,7 +8,7 @@
 - 町字は廃止の日の無い行のうち、区画にする町字区分（`MACHIAZA_TYPE_LEVELS`）のもの。大字・町の親は市区町村（区）、丁目・字の
   親は大字（大字の名前の無い字は市区町村か区）。ABR に大字自身の行が無い大字（代表点が無く取り込まれていないものも）は、
   子の町字IDの頭4桁で1つにまとめ、子の代表点の重心を代表点にする。
-- 表に入れるのは、代表点が取込の範囲（道路の成功した最新の取込の範囲。`road_graph_repository.py: INGESTED_BBOX_SQL`）の中に
+- 表に入れるのは、代表点が取込の範囲（道路の成功した最新の取込の範囲。`source_models.py: INGESTED_BBOX_SQL`）の中に
   ある区画と、その祖先（祖先の代表点は範囲の外でもよい）。道路を取り込んでいなければ何も入れない。
 - 鍵は区画ごとに、書き始める段の違う別形を作る（`search_keys`）。丁目は区切り付き（「西新宿2-」）、字は「字」を挟む形と
   挟まない形。大字・町の段までの区画の鍵だけが続き（`continuable`）に使われる。
@@ -42,7 +42,7 @@ from app.domain.address_area import (
     standardize_address,
 )
 from app.domain.place_search import PlaceMatchLevel
-from app.infrastructure.road_graph_repository import INGESTED_BBOX_SQL
+from app.infrastructure.source_models import INGESTED_BBOX_SQL
 from app.infrastructure.source_models import (
     ABR_BLOCKS_SOURCE_SQL,
     ABR_CITIES_SOURCE_SQL,

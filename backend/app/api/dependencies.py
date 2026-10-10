@@ -179,11 +179,11 @@ async def get_dedicated_way_value_service(
     axis_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    """地図のレンズ（軸の値の専用配信）の、軸id駆動な単一の注入点。
+    """地図のレンズ（軸の値の配信）の、軸id駆動な単一の注入点。
 
     `axis_id`はパスパラメータで、ルーター側と同名でなければFastAPIが解決できない。
     router側で軸ごとのサービスをそれぞれ`Depends`するとリクエストごとにDBセッションが
-    重複して開くため、この関数自体が軸から配信を選んで1セッションで済ませる。配信できない`axis_id`には
+    重複して開くため、この関数自体が軸から配信を組んで1セッションで済ませる。公開軸でない`axis_id`には
     Noneを返し、呼び出し元が404を返す。
     """
     async with get_session_factory()() as session:
@@ -191,7 +191,7 @@ async def get_dedicated_way_value_service(
 
 
 async def get_axis_inspector_service(weather_service: WeatherService = Depends(get_weather_service)):
-    """区間インスペクタ。専用配信の材料（値は地図のレンズと同じ経路で引く）と道の内訳を、同じセッションで順に引く
+    """区間インスペクタ。配信のサービスが配る材料（値は地図のレンズと同じ経路で引く）と道の内訳を、同じセッションで順に引く
     ——別々に開くと、先に引いた材料のセッションが要求の終わりまで接続を持ったまま、内訳がもう1本を取る。"""
     async with get_session_factory()() as session:
         repository = RoadGraphRepository(session)

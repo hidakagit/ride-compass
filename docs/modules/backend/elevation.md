@@ -73,7 +73,7 @@ DEMが返すのは地表面の標高で、桁や坑道の高さではない—�
 区間は向きを持たない1行で、標高も順方向の値だけを持つ。逆向きは読み出し時に導く
 （始点↔終点、上り↔下り、平均勾配は符号反転）。地形の
 物理量は進行方向に依存しないため、この変換は厳密に正しい。変換はSQLが行う
-（`road_graph_repository.py: material_from_clause`）ので、材料の式も評価も向きを
+（`material_joins.py: material_from_clause`）ので、材料の式も評価も向きを
 知らない。
 
 ## 経路の集計（`domain/route.py: route_elevation_gain`）

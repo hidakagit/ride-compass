@@ -103,7 +103,7 @@ paths:
 | `tile_cache`のうち土地被覆タイル（PNG） | 起動直後と24時間ごとに、今開けているラスタ構成でない世代を消す（[caching-retention.md](caching-retention.md)「無効化」）。容量上限の対象でもある |
 | `tile_cache`のうち地域のMVTタイル（路面・点。鍵`region/<系統>/v<世代>/…`） | 起動直後と24時間ごとに、配っていない世代を消す（[caching-retention.md](caching-retention.md)「無効化」）。容量上限の対象でもある |
 | `msm`（予報の`.om`ファイル） | 同期のたびに予報窓の外を削除 |
-| `tile_persistent_cache`（way_id別の動的値のpickle） | 容量上限＋`expire`による失効 |
+| `tile_persistent_cache`（way_id別の動的値・タイルのフィーチャーごとの材料のpickle） | 容量上限＋`expire`による失効 |
 | `road_network`（取込範囲全体の道路網の配列、世代ごとの置き場。メモリマップで開く） | 作ったときに同じ形の古い世代を削除、起動後に形の違う置き場を削除 |
 
 これらをRedisへ移さない。

@@ -120,7 +120,7 @@
 | `time_scope` | "always"\|"night_only" | 特定時間帯のみ重みを持つか |
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
-| `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
+| `dedicated_way_value_layer` | bool | ルート未確定時の地図がこの軸を配信の値で塗るか（配信はどの公開軸の値も返す。[dynamic-way-values.md](dynamic-way-values.md)） |
 
 **表示に関するフィールドは、軸idの分岐をコードへ持たないための宣言**である。
 
@@ -152,8 +152,8 @@
   評価する。ただし全termが欠損した場合は、残る項が無く「寄与0の合計＝0」と「観測値が0」を
   区別できないため、`required`の有無によらず軸全体が欠損になる。
 - `CategoricalShape`: 単一`material`の値を`mapping`（カテゴリ値→スコア）で引く。
-  材料の列は材料と入口によって別の形で届く——ルート選びの分類材料は語彙への番号の列
-  （`domain/attributes.py: CategoricalColumn`。欠損は番号0）、Pythonの値の入口（区間の内訳・専用way値配信）の
+  材料の列は材料と入口によって別の形で届く——ルート選びと地図の配信の分類材料は語彙への番号の列
+  （`domain/attributes.py: CategoricalColumn`。欠損は番号0）、Pythonの値の入口（区間の内訳）の
   分類材料は文字列のobject配列（欠損は`None`）、真偽材料は数値配列（1.0/0.0、欠損は`NaN`。
   `material_catalog.material_array_columns`が数値の行列へ載せる）。
   `evaluate_categorical`は、番号の列なら語彙の値ごとに1回引いた表を番号で配り、それ以外は
@@ -171,16 +171,16 @@
 `material`の値が`equals`と一致する場合、shape評価をスキップし`value`をそのまま返す
 （探索除外のハードフィルタ`domain/hard_filters.py: DEFAULT_HARD_FILTERS`とは別の仕組み）。
 
-**一致の判定は1本**（`_priority_override_mask`）で、Pythonの値で持つ入口（区間の内訳・専用way値配信）も
-材料の値を配列にして同じ関数を通す。材料の値は入口ごとに別の形で届く——区間の内訳と配信は
-Pythonの値、ルート選びは材料の型ごとの配列で、分類の材料は語彙への番号の列、「不明」を持つ真偽の材料
+**一致の判定は1本**（`_priority_override_mask`）で、Pythonの値で持つ入口（区間の内訳）も
+材料の値を配列にして同じ関数を通す。材料の値は入口ごとに別の形で届く——区間の内訳は
+Pythonの値、ルート選びと地図の配信は材料の型ごとの配列で、分類の材料は語彙への番号の列、「不明」を持つ真偽の材料
 は1.0/0.0/NaNの数値の配列になる。判定を2本持つと、この形の違いで区間の内訳とルート選びが同じ道に違う答えを出す。
 `equals`は`CategoricalShape.mapping`のキーと同じ読み方（`flag_or_value_name`）で、`"true"`/`"false"`だけを
 真偽と読み、それ以外は書いたとおりの値の名前として比べる。欠損（None・NaN）はどの条件にも当たらない。
 
-**地図の色は0次条件を表せない。** タイルの式（`TileInputSpec`）に条件を載せる形が無いため、0次条件を持つ軸は
-地図に出さない（下の「地図表示ルールの自動導出」）。専用way値配信も、配信する材料以外に置いた条件は
-当たるかを決められないため全道路を落とし、符号付き材料の生値は塗らない（[dynamic-way-values.md](dynamic-way-values.md)）。
+**タイルの式は0次条件を表せない。** タイルの式（`TileInputSpec`）に条件を載せる形が無いため、0次条件を持つ軸は
+タイルでは塗らない（下の「地図表示ルールの自動導出」）。地図の配信（[dynamic-way-values.md](dynamic-way-values.md)）は
+ルート選びと同じ評価を通すので条件も当てるが、0次条件を持つ軸の符号付き材料の生値は塗らない（下の「地図が塗るもの」）。
 条件を落として塗ると、条件の当たる道で地図の色とルート選び・区間の内訳が食い違う。
 
 ### 軸の階層
@@ -331,9 +331,9 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 ### 地図が塗るもの（`domain/map_paint.py`）
 
 `map_paint(definition)`が、地図がその軸について塗るものを1つの値（`MapPaint`）で返す。ルート確定前の全道路の塗り
-（ramp・[専用way値配信](dynamic-way-values.md)）・ルート確定後のルート線の色分け・凡例は、どれもこの値に従うので、
-同じ軸の色分けはルートの有無でスケールも段も変わらない。塗る値の種類だけが要る読み手（専用配信の写し
-`dynamic_way_values.py: transform_dedicated_way_values`・区間表示へ載せる材料`evaluation.py: displayed_material_ids`）も、
+（ramp・[地図の配信](dynamic-way-values.md)）・ルート確定後のルート線の色分け・凡例は、どれもこの値に従うので、
+同じ軸の色分けはルートの有無でスケールも段も変わらない。塗る値の種類だけが要る読み手（配信の写し
+`dynamic_way_values.py: paint_feature_values`・区間表示へ載せる材料`evaluation.py: displayed_material_ids`）も、
 この値の`value`を読む。`GET /api/axis-catalog`は軸ごとにこの値を`map_paint`として配る。
 
 | 欄 | 意味 |
@@ -523,14 +523,6 @@ idのまま出す。書き込み時のガード・削除の断り（下の「書
 
 組み合わせに使われる軸を公開しないこと（`check_internal_axis_not_published`）は含めず、書き込みだけが見る——時刻で
 変わる軸が公開軸を組み合わせる形（上の動的材料と静的材料を混在させない条件が案内する形）を拒むことになるため。
-
-### 書き込み時だけの検証（`AxisDefinitionPayload`）
-
-`dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-（`services/dedicated_way_values.py: DEDICATED_WAY_VALUE_SERVICES`、材料ごとに登録）がある
-材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
-（配信側はそういう軸を未知の`axis_id`と同じく404で返す）。照らす相手はこのプロセスが組み立てた配信の実装で、
-値の不変条件ではないため読み込みでは見ない——実装の無い軸の配信は404で済み、起動を止める理由にならない。
 
 ### 書き込み時のガード（`AxisRegistryAdminService`）
 

@@ -7,7 +7,7 @@
 実行する層が持ち、ここは別名の列に対する式だけを持つ。
 
 式はテーブルのエイリアスを固定で参照する。FROM句は読み出し側が組み立てる（`em`・`wm`は
-`infrastructure/road_graph_repository.py: material_from_clause`が、式が読む列を持つ派生の表を結んで与える）:
+`infrastructure/material_joins.py: material_from_clause`が、式が読む列を持つ派生の表を結んで与える）:
 
 | 別名 | 何 |
 |---|---|
