@@ -21,6 +21,7 @@ from cachetools import LRUCache, TTLCache, cached
 from shapely.geometry.base import BaseGeometry
 
 from app.domain.jma_area import NEAREST_LIMIT_DEG, ResolvedArea, resolve_area
+from app.infrastructure.data_paths import DATA_DIR
 from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.jma_warning_client import fetch_area_data
 
@@ -30,8 +31,7 @@ logger = logging.getLogger("ridecompass.jma_area_boundaries")
 #: https://www.data.jma.go.jp/developer/gis.html にある。
 SOURCE_URL = "https://www.data.jma.go.jp/developer/gis/20260226_AreaInformationCity_weather_GIS.zip"
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "jma_area"
-BOUNDARY_PATH = DATA_DIR / (SOURCE_URL.rsplit("/", 1)[1].removesuffix(".zip") + ".json")
+BOUNDARY_PATH = DATA_DIR / "jma_area" / (SOURCE_URL.rsplit("/", 1)[1].removesuffix(".zip") + ".json")
 
 class AreaBoundaries:
     def __init__(self, codes: list[str], geometries: list[BaseGeometry]):

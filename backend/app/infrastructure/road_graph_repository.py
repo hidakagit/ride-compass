@@ -17,6 +17,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator, Iterable, Sequence
+from itertools import batched
 
 import numpy as np
 import shapely
@@ -505,8 +506,10 @@ def way_from_clause(expressions: list[str], source: str | None = None) -> str:
             + material_from_clause(expressions, "w.osm_way_id"))
 
 
+_WAY_MATERIAL_COLUMN_PREFIX = "m_"
+
 _WAY_MATERIAL_SELECT_SQL = ", ".join(
-    f"({expr}) AS m_{name}" for name, expr in sorted(material_value_sql().items())
+    f"({expr}) AS {_WAY_MATERIAL_COLUMN_PREFIX}{name}" for name, expr in sorted(material_value_sql().items())
 )
 
 
@@ -536,8 +539,6 @@ _SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_values_sql(
     "TABLESAMPLE SYSTEM (:sample_percent)", "")
 _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_values_sql(
     "", " WHERE w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
-
-_WAY_MATERIAL_COLUMN_PREFIX = "m_"
 
 #: 地図のフィーチャー1つぶんの土地被覆。区間を指す鍵なら区間の値、指さなければ（`:segment_index`がNULL）
 #: way1本の値——タイルと同じ切り替えで読む。
@@ -597,20 +598,14 @@ LEFT JOIN LATERAL {nodes_lookup_sql('re.from_node_id')} nf ON true
 LEFT JOIN LATERAL {nodes_lookup_sql('re.to_node_id')} nt ON true
 """
 
-#: 材料の式と付随列を1つの内包から並べる（別々に書くと`ORDER BY`がずれても気付けない）。
-MATERIAL_ARRAY_COLUMN_ORDER: tuple[str, ...] = (
-    *sorted(material_value_sql()),
-    *_EXTRA_MATERIAL_ARRAY_COLUMNS,
-)
+# 列の並びとSQLを1つの辞書から導く（別々に並べると、並びがずれても気付けない）。
+_EDGE_MATERIAL_ARRAY_EXPRESSIONS = {**dict(sorted(material_value_sql().items())), **_EXTRA_MATERIAL_ARRAY_COLUMNS}
+MATERIAL_ARRAY_COLUMN_ORDER: tuple[str, ...] = tuple(_EDGE_MATERIAL_ARRAY_EXPRESSIONS)
 
 _EDGE_MATERIAL_ARRAYS_SQL = text(
     "SELECT "
     + ", ".join(
-        f"array_agg(({expr}) ORDER BY ids.ord) AS c_{name}"
-        for name, expr in (
-            *sorted(material_value_sql().items()),
-            *_EXTRA_MATERIAL_ARRAY_COLUMNS.items(),
-        )
+        f"array_agg(({expr}) ORDER BY ids.ord) AS c_{name}" for name, expr in _EDGE_MATERIAL_ARRAY_EXPRESSIONS.items()
     )
     + _EDGE_MATERIAL_ARRAYS_FROM
 )
@@ -694,12 +689,19 @@ def _scanned_relations(plan: object) -> set[str]:
 
 
 def _float_array(values: list) -> np.ndarray:
-    return np.array([np.nan if v is None else float(v) for v in values], dtype=np.float64)
+    """NoneはNaNになる。"""
+    return np.array(values, dtype=np.float64)
 
 
-def _chunked(items: list, size: int):
-    for start in range(0, len(items), size):
-        yield items[start:start + size]
+def _bbox_params(bbox: BoundingBox) -> dict[str, float]:
+    return {
+        "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
+        "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
+    }
+
+
+def _tile_params(z: int, x: int, y: int, bbox: BoundingBox) -> dict[str, object]:
+    return {"z": z, "x": x, "y": y, **_bbox_params(bbox)}
 
 
 class RoadGraphRepository:
@@ -739,10 +741,7 @@ class RoadGraphRepository:
 
     async def is_covered(self, bbox: BoundingBox) -> bool:
         """その範囲の生データを取り込んでいるか。判定は取込の宣言から導く。"""
-        row = await self._session.execute(text(f"SELECT covered FROM ({COVERAGE_SQL}) c"), {
-            "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
-            "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
-        })
+        row = await self._session.execute(text(f"SELECT covered FROM ({COVERAGE_SQL}) c"), _bbox_params(bbox))
         return bool(row.scalar())
 
     async def get_ingested_area(self) -> BoundingBox | None:
@@ -757,15 +756,16 @@ class RoadGraphRepository:
 
     # --- グラフ --------------------------------------------------------------
 
-    async def stream_network_edges(self, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
+    def stream_network_edges(self, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
         """取込範囲全体の区間を`chunk_size`行ずつ流す（`_NETWORK_EDGES_SQL`の並び）。"""
-        result = await self._session.stream(_NETWORK_EDGES_SQL)
-        async for chunk in result.partitions(chunk_size):
-            yield chunk
+        return self._stream(_NETWORK_EDGES_SQL, chunk_size)
 
-    async def stream_network_nodes(self, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
+    def stream_network_nodes(self, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
         """区間の端点になりうるノード全件を`chunk_size`行ずつ流す（`osm_node_id`の昇順）。"""
-        result = await self._session.stream(_NETWORK_NODES_SQL)
+        return self._stream(_NETWORK_NODES_SQL, chunk_size)
+
+    async def _stream(self, statement: TextClause, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
+        result = await self._session.stream(statement)
         async for chunk in result.partitions(chunk_size):
             yield chunk
 
@@ -797,7 +797,7 @@ class RoadGraphRepository:
             wanted.setdefault((edge.osm_way_id, edge.segment_index), []).append(edge.forward)
         keys = sorted(wanted)
         result: dict[str, LeanEdge] = {}
-        for chunk in _chunked(keys, ID_CHUNK_SIZE):
+        for chunk in batched(keys, ID_CHUNK_SIZE):
             rows = (await self._session.execute(_EDGE_GEOMETRIES_SQL, {
                 "way_ids": [k[0] for k in chunk],
                 "segment_indexes": [k[1] for k in chunk],
@@ -832,7 +832,7 @@ class RoadGraphRepository:
         hard_filter_ids = hard_filter_columns()
         hard_filter_flags = np.empty((n, len(hard_filter_ids)), dtype=bool)
         for i, name in enumerate(hard_filter_ids):
-            hard_filter_flags[:, i] = [bool(v) for v in raw[f"{_HARD_FILTER_COLUMN_PREFIX}{name}"]]
+            hard_filter_flags[:, i] = np.array(raw[f"{_HARD_FILTER_COLUMN_PREFIX}{name}"], dtype=bool)
 
         numeric_values = np.empty((n, len(numeric_ids)), dtype=np.float64)
         for i, material_id in enumerate(numeric_ids):
@@ -847,7 +847,7 @@ class RoadGraphRepository:
             bearing_deg=_float_array(raw["bearing_deg"]),
             mid_lat=_float_array(raw["mid_lat"]),
             mid_lon=_float_array(raw["mid_lon"]),
-            elevation_present=np.array([bool(v) for v in raw["elevation_present"]], dtype=bool),
+            elevation_present=np.array(raw["elevation_present"], dtype=bool),
             elevation_gain_m=_float_array(raw["elevation_gain_m"]),
             elevation_loss_m=_float_array(raw["elevation_loss_m"]),
         )
@@ -884,8 +884,7 @@ class RoadGraphRepository:
             params["sample_percent"] = sample_percent
         else:
             statement = _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL
-            params.update(xmin=bbox.min_longitude, ymin=bbox.min_latitude,
-                          xmax=bbox.max_longitude, ymax=bbox.max_latitude)
+            params.update(_bbox_params(bbox))
         rows = await self._session.execute(statement, params)
         return [(float(row.length_m), _material_values_from_row(row))
                 for row in rows if row.length_m > 0]
@@ -949,13 +948,6 @@ class RoadGraphRepository:
 
     # --- タイル --------------------------------------------------------------
 
-    def _tile_params(self, z: int, x: int, y: int, bbox: BoundingBox) -> dict[str, object]:
-        return {
-            "z": z, "x": x, "y": y,
-            "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
-            "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
-        }
-
     async def get_road_surface_tile_mvt(
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> bytes | None:
@@ -972,7 +964,7 @@ class RoadGraphRepository:
         正常応答でNoneとは区別される）。
         """
         result = await self._session.execute(sql, {
-            **self._tile_params(z, x, y, bbox),
+            **_tile_params(z, x, y, bbox),
             "layer_name": layer_name, "extent": TILE_EXTENT,
         })
         covered, tile = result.one()
@@ -987,23 +979,20 @@ class RoadGraphRepository:
     ) -> dict[str, tuple[float, float]] | None:
         """動的値配信層（風）向けに、指定タイルのフィーチャーごとの中ほどの`(緯度, 経度)`を返す。
         鍵はタイルが焼いた`feature_key`と同じもの。取込範囲外はNone、範囲内0件は空。"""
-        result = await self._session.execute(
-            _FEATURE_MIDPOINTS_IN_TILE_SQL, self._tile_params(z, x, y, bbox))
-        covered, midpoints = result.one()
-        if not covered:
-            return None
-        return {str(key): (float(value[0]), float(value[1]))
-                for key, value in (midpoints or {}).items()}
+        return await self._feature_pairs_in_tile(_FEATURE_MIDPOINTS_IN_TILE_SQL, z, x, y, bbox)
 
     async def get_feature_gradient_inputs_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox
     ) -> dict[str, tuple[float, float]] | None:
         """勾配配信層向けに、フィーチャーごとの`(gradient_percent, road_bearing_deg)`を返す。
         勾配の無い区間は平均から除き、向き（両端を結ぶ方位）が定まらないフィーチャーは返さない。"""
-        result = await self._session.execute(
-            _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL, self._tile_params(z, x, y, bbox))
-        covered, inputs = result.one()
+        return await self._feature_pairs_in_tile(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL, z, x, y, bbox)
+
+    async def _feature_pairs_in_tile(
+        self, sql: TextClause, z: int, x: int, y: int, bbox: BoundingBox
+    ) -> dict[str, tuple[float, float]] | None:
+        """`(covered, フィーチャーの鍵→2つの数の組)`の1行を返すSQLを流す。取込範囲外はNone、範囲内0件は空。"""
+        covered, pairs = (await self._session.execute(sql, _tile_params(z, x, y, bbox))).one()
         if not covered:
             return None
-        return {str(key): (float(value[0]), float(value[1]))
-                for key, value in (inputs or {}).items()}
+        return {str(key): (float(value[0]), float(value[1])) for key, value in (pairs or {}).items()}
