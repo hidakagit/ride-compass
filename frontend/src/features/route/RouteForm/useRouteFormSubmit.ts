@@ -1,15 +1,6 @@
 import { useState } from "react";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 export type RouteMode = "loop" | "destination";
-
-/** 候補数の指定を使わない生成なら、backendが返す決まった候補数。指定を使うならnull。
- * 経由地を伴う目的地ルートは、backendが候補数の指定を使わず決まった数を返す
- * （`route_request.py: applied_max_routes`、数は生成物から）。入力欄の表示・送る値・
- * 「条件が変わった」の比較は、どれもこの関数で揃える。 */
-export function fixedRouteCount(routeMode: RouteMode, waypointCount: number): number | null {
-  return routeMode === "destination" && waypointCount > 0 ? routeGenerateConfig.routes_with_waypoints : null;
-}
 
 interface UseRouteFormSubmitOptions {
   routeMode: RouteMode;

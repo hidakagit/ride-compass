@@ -43,6 +43,11 @@ LOOP_MAX_OVERLAP_RATIO = 0.7
 # `目標/2 ± 許容/2`へ戻す）。
 LOOP_TO_OUTBOUND_RATIO_MIN = 2.0
 LOOP_TO_OUTBOUND_RATIO_MAX = 2.3
+# 距離ありで置いた点を通るか目的地で終わるときの、中継点から終点までの帰りの長さ／終点からの逆向きの木の長さの想定範囲。
+# 帰りは走った道を避けて探すので最短より長くなる。周回の比（帰り≈往路×1.0〜1.3）と同じ見込みを置き、
+# 周回の比から導く（片方だけ変えると、周回と目的地で帰りの見込みが食い違う）。
+RETURN_TO_SHORTEST_RATIO_MIN = LOOP_TO_OUTBOUND_RATIO_MIN - 1.0
+RETURN_TO_SHORTEST_RATIO_MAX = LOOP_TO_OUTBOUND_RATIO_MAX - 1.0
 # リング中心（タイブレーク「リング中心に近い順」の基準）の比率。上下限の単純平均ではなく
 # 目標距離をこの比率で割った値を使う——許容が目標距離以上のとき下限が0でクランプされ、
 # 上下限の算術平均だと中心が0付近まで引き下げられ極端に短い往路が上位に来るため。
@@ -92,6 +97,32 @@ def turnaround_ring_m(distance_km: float, tolerance_km: float) -> tuple[float, f
         lower_m = max(0.0, (target_m - tolerance_m) / 2.0)
         upper_m = (target_m + tolerance_m) / 2.0
     return lower_m, upper_m, target_m / RING_CENTER_RATIO
+
+
+def relay_band(
+    fixed_m: float, outbound_m: np.ndarray, return_shortest_m: np.ndarray, distance_km: float, tolerance_km: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """距離ありで、置いた点を通るか目的地で終わるときの、中継点の帯と並べる鍵（中継点ごと）。
+
+    中継点ごとの全長の見込み（前段`fixed_m`＋往路`outbound_m`＋帰りの最短`return_shortest_m`×
+    `[RETURN_TO_SHORTEST_RATIO_MIN, MAX]`）が目標±許容に収まる中継点を帯に入れる。見込みの幅が許容の幅より広い
+    中継点は、帰りを最短の`MIN`倍として見る（`turnaround_ring_m`が範囲の反転で往路の2倍へ戻すのと同じ）。
+    届かない（長さが有限でない）中継点は帯に入らない。
+    鍵は全長の見込みの中央（帰り×MINとMAXの平均）と目標のずれ（m）で、周回のリング中心からのずれと同じく
+    目標より短すぎる経路も長すぎる経路も対称に扱う。
+    """
+    target_m = distance_km * 1000.0
+    tolerance_m = tolerance_km * 1000.0
+    head_m = fixed_m + np.asarray(outbound_m, dtype=float)
+    shortest_m = np.asarray(return_shortest_m, dtype=float)
+    low_m = head_m + shortest_m * RETURN_TO_SHORTEST_RATIO_MIN
+    high_m = head_m + shortest_m * RETURN_TO_SHORTEST_RATIO_MAX
+    too_wide = high_m - low_m > 2.0 * tolerance_m
+    high_m = np.where(too_wide, low_m, high_m)
+    with np.errstate(invalid="ignore"):
+        in_band = (low_m >= target_m - tolerance_m) & (high_m <= target_m + tolerance_m)
+    center_m = head_m + shortest_m * (RETURN_TO_SHORTEST_RATIO_MIN + RETURN_TO_SHORTEST_RATIO_MAX) / 2.0
+    return in_band, np.abs(center_m - target_m)
 
 
 def ring_closeness_m(ring_length_m: np.ndarray, ring_center_m: float) -> np.ndarray:

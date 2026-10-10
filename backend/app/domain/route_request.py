@@ -39,16 +39,6 @@ MAX_ASSUMED_SPEED_KMH = 60.0
 # 想定速度の値の範囲。速度を受けるどの入口（ルート生成・地図の配信・区間インスペクタ）もこの型で書く。範囲の検査は
 # NaN・無限大も断る。
 AssumedSpeedKmh = Annotated[float, Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH)]
-# 経由地を伴う生成が返す候補の数。経由地があるとレグごとの代替が組合せで増えるため、候補数の
-# 指定を使わず単一経路にする。
-ROUTES_WITH_WAYPOINTS = 1
-
-
-def applied_max_routes(max_routes: int, *, has_waypoints: bool) -> int:
-    """その生成で実際に使う候補数の上限。画面も同じ値を生成物で受け取り、候補数の入力欄に出す。"""
-    return ROUTES_WITH_WAYPOINTS if has_waypoints else max_routes
-
-
 def request_error(message: str) -> PydanticCustomError:
     """要求の誤り。文は画面の結果欄へそのまま出るので、利用者が読める日本語で書く
     （`ValueError`は「Value error, 」の前置きが付いて返る）。"""
@@ -86,9 +76,10 @@ class FixedPoints:
 
 @dataclass(frozen=True)
 class DistanceTarget:
-    """全長の目標に合う候補を探す（距離あり）。置いた点はまだ受けず、出発地へ戻る周回だけを作る。"""
+    """置いた点を順に通り、全長が目標に合う候補を探す（距離あり）。"""
 
     distance_km: float
+    points: FixedPoints
 
 
 @dataclass(frozen=True)

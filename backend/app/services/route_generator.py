@@ -5,11 +5,14 @@
 並べてラベルを付ける。仕上げの戦略は距離の有無で分かれ、どちらを使うかは要求の検証が型で選ぶ
 （`domain/route_request.py: RouteTarget`）。生成の中では距離の有無を見直さない。
 
-- 距離あり（`_DistanceFinish`）: 起点からの一対全最短経路木で目標距離の半分付近に到達する折返し点を、往路の
-  軸的な良さの順に選び、往路と別の復路を探索して周回にし、距離許容範囲でフィルタして、総合難易度の昇順で
+- 距離あり（`_DistanceFinish`）: 最後の固定点からの一対全最短経路木で、全長が目標に合う中継点（折返し点）を往路の
+  軸的な良さの順に選び、それまでに走った道を避けた帰りで終点へ結び、距離許容範囲でフィルタして、総合難易度の昇順で
   上位`max_routes`件を返す。距離は目標±`distance_tolerance_km`の厳格フィルタであり、スコアとは混ぜない。
-- 距離なし（`_NoDistanceFinish`）: 置いた所へ良い道で向かう（経由地の無い目的地ルートは代替経路と最速の1本、
-  経由地があれば素のA*で1本）。
+- 距離なし（`_NoDistanceFinish`）: 最後の固定点から終点へ良い道で向かう代わりの道を`max_routes`件まで出す。目的地が
+  あれば所要時間が最短の1本を基準線として含める。
+
+どちらの仕上げも、自由に選ぶ部分（最後の固定点から先）だけがそれまでに走った道を避け、置いた点どうしの区間は素直な道で
+結ぶ。
 
 候補の形は公開軸の重み配分で決まる（例: 自転車インフラの重みを100%にすると、往路が
 自転車インフラ上を通る折返し点ほど上位に選ばれる）。探索・経路計算・評価値の取得は`RoadGraphEngine`へ委譲する。
@@ -147,15 +150,13 @@ class _Finish(Protocol):
 
 @dataclass(frozen=True)
 class _DistanceFinish:
-    """距離ありの仕上げ: 折返し点を往路の良さの順に選び、往路を避けた復路で出発地へ閉じ、全長が目標±許容に入る周回を作る。
-
-    置いた点はまだ受けない（`domain/route_request.py: DistanceTarget`）ので、前段は出発地で止まっていて、
-    折返し点は出発地から選ぶ。
-    """
+    """距離ありの仕上げ: 最後の固定点から中継点を往路の良さの順に選び、それまでに走った道を避けた帰りで終点
+    （目的地、無ければ出発地）へ結び、全長が目標±許容に入る候補を作る。"""
 
     distance_km: float
     distance_tolerance_km: float
     max_routes: int
+    points: FixedPoints
 
     @property
     def log_label(self) -> str:
@@ -163,20 +164,26 @@ class _DistanceFinish:
 
     @property
     def log_detail(self) -> str:
-        return f"target_km={self.distance_km:.1f} max_routes={self.max_routes}"
+        return (
+            f"target_km={self.distance_km:.1f} max_routes={self.max_routes} "
+            f"waypoints={len(self.points.waypoints)} destination={self.points.destination is not None}"
+        )
 
     async def select(self, engine: "RoadGraphEngine", context: "_RoadGraphContext", fixed: "FixedLegs") -> _Selection:
-        # 折返し点候補を往路の軸的な良さの順に選定する（一対全木、エンジン側）。
+        # 中継点候補を往路の軸的な良さの順に選定する（一対全木、エンジン側）。
         pool_size = turnaround_pool_size(self.max_routes)
         select_started = time.monotonic()
         turnarounds = await engine.select_loop_turnarounds(
-            context, self.distance_km, self.distance_tolerance_km, pool_size
+            context, fixed, self.points.destination, self.distance_km, self.distance_tolerance_km, pool_size
         )
         select_ms = round((time.monotonic() - select_started) * 1000)
         if not turnarounds:
             return _Selection.empty(
                 f"起点から片道{self.distance_km / 2:.1f}km前後で到達できる折返し地点が見つかりませんでした。"
-                "距離や除外する道路の設定を変えてお試しください。",
+                "距離や除外する道路の設定を変えてお試しください。"
+                if not self.points.waypoints and self.points.destination is None
+                else f"置いた地点を通って全長{self.distance_km:.1f}km前後になる経路が見つかりませんでした。"
+                "距離や地点、除外する道路の設定を変えてお試しください。",
                 f"turnarounds=0 select_ms={select_ms}",
             )
 
@@ -194,7 +201,7 @@ class _DistanceFinish:
                 break
             examined += 1
             try:
-                loop = await engine.trace_loop_from_turnaround(context, turnaround)
+                loop = await engine.trace_loop_from_turnaround(context, fixed, turnaround)
             except RoutingError as exc:
                 # 個々の候補の失敗は準正常(道路網次第で起きる)。件数はINFOサマリに含め、
                 # 理由はDEBUGで補足する。全滅した場合のみ後段でWARNINGになる。
@@ -212,9 +219,9 @@ class _DistanceFinish:
                     loop.bearing, loop.distance_km, self.distance_km, self.distance_tolerance_km,
                 )
                 continue
-            # 採用済みの候補と周回全体（往路＋復路、進行方向は無視）で重複しすぎるものは
-            # 捨て、プールの次の折返し点へ進む。
-            if traced and engine.is_loop_too_similar(context, loop, traced):
+            # 採用済みの候補と前段のあとの道（往路＋帰り、進行方向は無視）で重複しすぎるものは
+            # 捨て、プールの次の中継点へ進む。
+            if traced and engine.is_loop_too_similar(context, fixed, loop, traced):
                 dedup_skipped += 1
                 continue
             traced.append(loop)
@@ -228,11 +235,13 @@ class _DistanceFinish:
             return _Selection.empty(self._describe_no_traced_reason(failed, filtered_out), summary)
         return _Selection(by_closeness_to_target(traced, self.distance_km), self._arrange, summary)
 
-    @staticmethod
-    def _arrange(candidates: list[RouteCandidate]) -> list[RouteCandidate]:
-        # 同点は評価前に付けた「目標距離に近い順」を安定ソートで引き継ぐ。名前はエンジンが方位から付けたもの
+    def _arrange(self, candidates: list[RouteCandidate]) -> list[RouteCandidate]:
+        # 同点は評価前に付けた「目標距離に近い順」を安定ソートで引き継ぐ。周回の名前はエンジンが方位から付けたもの
         # （同じ方位に複数並びうるので、idは並びの位置から作る）。
-        return _label(sorted(candidates, key=difficulty_order), "loop", spliceable=False)
+        ordered = sorted(candidates, key=difficulty_order)
+        if self.points.destination is None:
+            return _label(ordered, "loop", spliceable=False)
+        return _label(ordered, "destination", "目的地ルート", spliceable=True)
 
     def _describe_no_traced_reason(self, failed: int, filtered_out: int) -> str:
         """周回候補が1本も残らなかったときの、利用者へ見せる要約を組み立てる。
@@ -253,23 +262,18 @@ class _DistanceFinish:
 
 @dataclass(frozen=True)
 class _NoDistanceFinish:
-    """距離なしの仕上げ: 前段の最後の固定点から、終点へ良い道で向かう。
+    """距離なしの仕上げ: 前段の最後の固定点から、終点（目的地、無ければ出発地）へ良い道で向かう。
 
-    経由地が無い目的地ルートは、via-node方式で互いに異なる代替経路を`max_routes`件まで選び、所要時間が最短の
-    基準線を1本含める。経由地があるとき（終点が出発地のときも）は、最後の固定点から終点まで素のA*で結んだ1本にする。
+    via-node方式で互いに異なる代わりの道を最後の区間で`max_routes`件まで選ぶ。目的地があれば所要時間が最短の
+    基準線を1本含める。
     """
 
     points: FixedPoints
     max_routes: int
 
     @property
-    def _destination_alternatives(self) -> Coordinates | None:
-        """via-node方式で代替経路を選ぶときの目的地。経由地があるか終点が出発地ならNone。"""
-        return None if self.points.waypoints else self.points.destination
-
-    @property
     def log_label(self) -> str:
-        return "generate(destination)" if self._destination_alternatives is not None else "generate(via_waypoints)"
+        return "generate(destination)" if self.points.destination is not None else "generate(via_waypoints)"
 
     @property
     def log_detail(self) -> str:
@@ -279,56 +283,35 @@ class _NoDistanceFinish:
         )
 
     async def select(self, engine: "RoadGraphEngine", context: "_RoadGraphContext", fixed: "FixedLegs") -> _Selection:
-        destination = self._destination_alternatives
-        if destination is None:
-            return await self._trace_to_end(engine, context, fixed)
-        return await self._select_alternatives(engine, context, destination)
-
-    async def _trace_to_end(
-        self, engine: "RoadGraphEngine", context: "_RoadGraphContext", fixed: "FixedLegs",
-    ) -> _Selection:
-        destination = self.points.destination
-        trace_started = time.monotonic()
-        try:
-            traced = await engine.trace_to_end(context, fixed, destination)
-        except RoutingError as exc:
-            logger.debug("trace to end failed: %s", exc)
-            return _Selection.empty(_UNREACHABLE_POINTS_REASON, f"trace failed: {exc}")
-        summary = f"distance_km={traced.distance_km:.1f} trace_ms={round((time.monotonic() - trace_started) * 1000)}"
-
-        def arrange(candidates: list[RouteCandidate]) -> list[RouteCandidate]:
-            # 常に1本で順位を持たないので、画面は番号でなくこの名前を出す。
-            return _label(
-                candidates, "waypoints", "目的地ルート" if destination is not None else "経由地ルート",
-                spliceable=destination is not None,
-            )
-
-        return _Selection([traced], arrange, summary)
-
-    async def _select_alternatives(
-        self, engine: "RoadGraphEngine", context: "_RoadGraphContext", destination: Coordinates,
-    ) -> _Selection:
         """`select_via_nodes`が確定済みの経路だけを返すため、候補ごとの再探索・失敗スキップが無く「選定→評価」の2段で済む。
 
-        所要時間が最短の経路を基準線として必ず1本含め（件数を切るときも残す）、最速の印を付ける。軸の重みを
+        目的地があれば、所要時間が最短の経路を基準線として必ず1本含め（件数を切るときも残す）、最速の印を付ける。軸の重みを
         すべて0にしたときの経路であり、軸設定に沿った候補が何分余計にかかるかを対価として
         読めるようにするため。並びは周回と同じ総合難易度の昇順で、基準線も難易度の位置に並ぶ。
         """
+        destination = self.points.destination
         select_started = time.monotonic()
-        traced = await engine.select_via_nodes(context, destination, self.max_routes)
+        traced = await engine.select_via_nodes(context, fixed, destination, self.max_routes)
         select_ms = round((time.monotonic() - select_started) * 1000)
         if not traced:
             side = context.no_candidates_side
-            return _Selection.empty(
-                "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。"
-                if side == "origin"
-                else "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。",
-                f"no via-node candidates side={side or 'unknown'} select_ms={select_ms}",
-            )
+            if self.points.waypoints:
+                reason = _UNREACHABLE_POINTS_REASON
+            elif side == "origin":
+                reason = "起点から走り出せる道が見つかりませんでした。出発地を道路沿いへ動かしてお試しください。"
+            else:
+                reason = "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
+            return _Selection.empty(reason, f"no via-node candidates side={side or 'unknown'} select_ms={select_ms}")
+        if destination is None:
+            def arrange_loops(candidates: list[RouteCandidate]) -> list[RouteCandidate]:
+                kept, _ = keep_routes_with_baseline(candidates, None, self.max_routes)
+                return _label(kept, "loop", "経由地ルート", spliceable=False)
+
+            return _Selection(traced, arrange_loops, f"select_ms={select_ms}")
 
         # 所要時間だけで選んだ経路を基準線として必ず1本含める。軸設定に沿った候補と
         # 同じ経路になることもあるため、その場合は候補を増やさず既存の1本へ印を付ける。
-        fastest = await engine.select_fastest_route(context, destination)
+        fastest = await engine.select_fastest_route(context, fixed, destination)
         fastest_index: int | None = None
         if fastest is not None:
             same = next((i for i, t in enumerate(traced) if t.data == fastest.data), None)
@@ -430,11 +413,14 @@ class RouteGenerator:
         distance_tolerance_km: float,
         max_routes: int,
         start_time: datetime,
+        points: FixedPoints | None = None,
     ) -> list[RouteCandidate]:
-        """距離ありの生成。今は置いた点を受けず、出発地へ戻る周回だけを作る（`_DistanceFinish`）。"""
+        """距離ありの生成。置いた点（`points`。省略時は無し）の経由地を順に通り、全長が目標±許容に入る経路で目的地
+        （無ければ起点）へ向かう（`_DistanceFinish`）。"""
+        points = points or FixedPoints(waypoints=[], destination=None)
         return await self._generate(
-            origin, FixedPoints(waypoints=[], destination=None), distance_km, start_time,
-            _DistanceFinish(distance_km, distance_tolerance_km, max_routes),
+            origin, points, distance_km, start_time,
+            _DistanceFinish(distance_km, distance_tolerance_km, max_routes, points),
         )
 
     async def generate_via_waypoints(
@@ -449,7 +435,7 @@ class RouteGenerator:
         """距離なしの生成。置いた経由地を順に通り、目的地（省略時は起点）へ向かう（`_NoDistanceFinish`）。
 
         `distance_km`は探索の範囲の見積もりにだけ使う参考値で、実際の距離は経由地の配置で決まる（距離フィルタは
-        行わない）。経由地が1つ以上あると、レグごとの代替案が組合せで増えるため単一経路のままで、`max_routes`は使わない。
+        行わない）。
         """
         points = FixedPoints(waypoints=waypoints, destination=destination)
         return await self._generate(origin, points, distance_km, start_time, _NoDistanceFinish(points, max_routes))
@@ -506,9 +492,12 @@ class RouteGenerator:
         evaluate_started = time.monotonic()
         candidates = selection.arrange(await self._evaluate_and_aggregate(context, selection.traced, start_time))
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
+        # 候補ごとの同じ道を2度目に走る距離の割合（選んだ順。並べ直す前）。
+        repeated = ",".join(f"{share:.2f}" for share in self._engine.repeated_shares(context, selection.traced))
         logger.info(
-            "%s origin=%s %s -> candidates=%d %s prepare_ms=%d fixed_ms=%d finish_ms=%d evaluate_ms=%d total_ms=%d",
-            finish.log_label, origin_label, finish.log_detail, len(candidates), selection.summary,
+            "%s origin=%s %s -> candidates=%d %s repeated=%s "
+            "prepare_ms=%d fixed_ms=%d finish_ms=%d evaluate_ms=%d total_ms=%d",
+            finish.log_label, origin_label, finish.log_detail, len(candidates), selection.summary, repeated,
             prepare_ms, fixed_ms, finish_ms, evaluate_ms, round((time.monotonic() - started) * 1000),
         )
         return candidates

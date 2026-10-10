@@ -26,7 +26,7 @@ from app.domain.difficulty import OverallDifficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.route_request import DEFAULT_MAX_ROUTES, MAX_ROUTES
+from app.domain.route_request import DEFAULT_MAX_ROUTES, MAX_ROUTES, FixedPoints
 from app.domain.time_zone import JST
 from app.services import route_generator
 from app.services.road_graph_engine import FixedLegs, RoadGraphEngine
@@ -59,7 +59,7 @@ def _candidate(key: str, difficulty: float | None = 10.0, **fields) -> RouteCand
 
 
 def _route(key: str, distance_km: float = 10.0, bearing: int | None = 0) -> TracedLoop:
-    return TracedLoop(bearing=bearing, distance_km=distance_km, data=[key], leg_of_edge=[0])
+    return TracedLoop(bearing=bearing, distance_km=distance_km, data=[key], leg_of_edge=[0], reversible=False)
 
 
 def _turnaround(outcome: TracedLoop | Exception) -> LoopTurnaround:
@@ -88,16 +88,13 @@ class FakeEngine:
     """`RoadGraphEngine`の代役（層の境目）。`routes`は評価の答え（経路の鍵 → 候補）。"""
 
     def __init__(self, *, routes=None, context=..., prepare_error=None, turnarounds=(), similar=(),
-                 fixed_error=None, end=None, end_error=None, via=(), fastest=None, build_error=None,
-                 drop_evaluated=False):
+                 fixed_error=None, via=(), fastest=None, build_error=None, drop_evaluated=False):
         self.routes = routes or {}
         self.context = SimpleNamespace(destination_correction=None, no_candidates_side=None) if context is ... else context
         self.prepare_error = prepare_error
         self.turnarounds = list(turnarounds)
         self.similar = set(similar)
         self.fixed_error = fixed_error
-        self.end = end
-        self.end_error = end_error
         self.via = list(via)
         self.fastest = fastest
         self.build_error = build_error
@@ -113,51 +110,52 @@ class FakeEngine:
     async def trace_fixed_points(self, context, waypoints):
         if self.fixed_error is not None:
             raise self.fixed_error
-        return FixedLegs(segments=[[0]] * len(waypoints), last_node=0, length_m=0.0)
+        return FixedLegs(segments=[[0]] * len(waypoints), nodes=[0] * (len(waypoints) + 1), length_m=0.0)
 
     @_as_engine
-    async def trace_to_end(self, context, fixed, destination):
-        if self.end_error is not None:
-            raise self.end_error
-        return self.end
-
-    @_as_engine
-    async def select_loop_turnarounds(self, context, distance_km, distance_tolerance_km, pool_size):
+    async def select_loop_turnarounds(self, context, fixed, destination, distance_km, distance_tolerance_km, pool_size):
         return list(self.turnarounds)
 
     @_as_engine
-    async def trace_loop_from_turnaround(self, context, turnaround):
+    async def trace_loop_from_turnaround(self, context, fixed, turnaround):
         if isinstance(turnaround.data, Exception):
             raise turnaround.data
         return turnaround.data
 
     @_as_engine
-    def is_loop_too_similar(self, context, candidate, accepted):
+    def is_loop_too_similar(self, context, fixed, candidate, accepted):
         return candidate.data[0] in self.similar
 
     @_as_engine
-    async def select_via_nodes(self, context, destination, max_routes):
+    async def select_via_nodes(self, context, fixed, destination, max_routes):
         return list(self.via)
 
     @_as_engine
-    async def select_fastest_route(self, context, destination):
+    async def select_fastest_route(self, context, fixed, destination):
         return self.fastest
 
     @_as_engine
     def build_traced_from_edge_ids(self, context, edge_ids, destination):
         if self.build_error is not None:
             raise self.build_error
-        return TracedLoop(bearing=None, distance_km=3.0, data=list(edge_ids), leg_of_edge=[0] * len(edge_ids))
+        return TracedLoop(
+            bearing=None, distance_km=3.0, data=list(edge_ids), leg_of_edge=[0] * len(edge_ids), reversible=False)
+
+    @_as_engine
+    def repeated_shares(self, context, traced):
+        return [0.0] * len(traced)
 
     @_as_engine
     async def evaluate_loops(self, context, traced, start_time):
         return [] if self.drop_evaluated else [self.routes[t.data[0]] for t in traced]
 
 
-async def _loops(engine: FakeEngine | RouteGenerator, max_routes: int = DEFAULT_MAX_ROUTES) -> list[RouteCandidate]:
-    """目標10km±1kmの周回。理由を読むテストは、作った`RouteGenerator`を渡す。"""
+async def _loops(
+    engine: FakeEngine | RouteGenerator, max_routes: int = DEFAULT_MAX_ROUTES, points: FixedPoints | None = None,
+) -> list[RouteCandidate]:
+    """目標10km±1kmの距離ありの生成（`points`を省けば周回）。理由を読むテストは、作った`RouteGenerator`を渡す。"""
     generator = engine if isinstance(engine, RouteGenerator) else RouteGenerator(engine)
-    return await generator.generate_loops(ORIGIN, 10.0, 1.0, max_routes, START)
+    return await generator.generate_loops(ORIGIN, 10.0, 1.0, max_routes, START, points=points)
 
 
 async def _no_distance(engine: FakeEngine | RouteGenerator, waypoints, destination, max_routes: int = 3):
@@ -215,7 +213,7 @@ async def test_too_large_search_area_gives_no_candidates_and_says_why(caplog):
 )
 async def test_route_values_are_rebuilt_from_its_segments(segments, expected):
     evaluated = _candidate("w", segments=segments, overall_difficulty=OverallDifficulty(average=99.0, load=99.0))
-    engine = FakeEngine(end=_route("w", bearing=None), routes={"w": evaluated})
+    engine = FakeEngine(via=[_route("w", bearing=None)], routes={"w": evaluated})
 
     (candidate,) = await _no_distance(engine, [WAYPOINT], None)
 
@@ -343,26 +341,71 @@ async def test_loops_that_all_fall_out_say_why(outcomes, reason, caplog):
     assert _warned(caplog)
 
 
-# ---- 距離なし・経由地あり ----
+# ---- 距離あり・置いた点あり ----
 
 
 @pytest.mark.parametrize(
-    ("destination", "identity"),
+    ("points", "identities"),
     [
-        (None, ("waypoints-00", "waypoints", "経由地ルート", False)),
-        (DESTINATION, ("waypoints-00", "waypoints", "目的地ルート", True)),
+        # 出発地へ戻るなら周回と同じく方位の名前
+        (FixedPoints(waypoints=[WAYPOINT], destination=None),
+         [("loop-00", "loop", "方位-easy", False), ("loop-01", "loop", "方位-hard", False)]),
+        # 目的地で終わるなら目的地ルートで、乗り換えの元にできる
+        (FixedPoints(waypoints=[], destination=DESTINATION),
+         [("destination-00", "destination", "目的地ルート", True), ("destination-01", "destination", "目的地ルート", True)]),
     ],
 )
-async def test_waypoint_route_is_one_route_that_can_be_spliced_only_when_it_ends_at_a_destination(destination, identity):
-    engine = FakeEngine(end=_route("w", bearing=None), routes={"w": _candidate("w")})
+async def test_distance_routes_through_placed_points_are_named_by_where_they_end(points, identities):
+    engine = FakeEngine(turnarounds=[_turnaround(_route(k)) for k in ("hard", "easy")],
+                        routes={"hard": _candidate("hard", 30.0), "easy": _candidate("easy", 10.0)})
 
-    # 候補数の指定によらず1本
-    assert _identities(await _no_distance(engine, [WAYPOINT], destination, max_routes=5)) == [identity]
+    result = await _loops(engine, points=points)
+
+    # 距離を決めた生成は、所要時間が最短の1本を足さない（目標の距離と噛み合わない）
+    assert (_identities(result), _fastest(result)) == (identities, [])
 
 
-@pytest.mark.parametrize("failing", ["fixed_error", "end_error"])  # 置いた点どうし・最後の点から終点まで
-async def test_waypoints_that_cannot_be_connected_give_no_candidates_and_say_why(failing, caplog):
-    generator = RouteGenerator(FakeEngine(**{failing: RoutingError("到達不能")}))
+async def test_distance_routes_through_placed_points_without_a_relay_say_so(caplog):
+    generator = RouteGenerator(FakeEngine())
+
+    with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
+        assert await _loops(generator, points=FixedPoints(waypoints=[WAYPOINT], destination=None)) == []
+
+    assert generator.last_no_candidates_reason == (
+        "置いた地点を通って全長10.0km前後になる経路が見つかりませんでした。距離や地点、除外する道路の設定を変えてお試しください。")
+    assert _warned(caplog)
+
+
+# ---- 距離なし・経由地あり ----
+
+
+async def test_waypoint_routes_back_to_the_origin_come_in_several_without_the_fastest():
+    engine = FakeEngine(via=[_route(k, bearing=None) for k in ("hard", "easy", "mid")],
+                        fastest=_route("fastest", bearing=None),
+                        routes={"hard": _candidate("hard", 30.0), "easy": _candidate("easy", 10.0),
+                                "mid": _candidate("mid", 20.0), "fastest": _candidate("fastest", 5.0)})
+
+    result = await _no_distance(engine, [WAYPOINT], None, max_routes=2)
+
+    # 難易度の高い側から切る。出発地へ戻る経路は乗り換えの元にできない
+    assert _identities(result) == [("loop-00", "loop", "経由地ルート", False), ("loop-01", "loop", "経由地ルート", False)]
+    assert (_keys(result), _fastest(result)) == (["easy", "mid"], [])
+
+
+async def test_waypoint_routes_to_a_destination_add_the_fastest():
+    result = await _no_distance(_destination_engine("fastest", hard=30.0, easy=10.0, fastest=20.0), [WAYPOINT], DESTINATION)
+
+    assert _identities(result) == [(f"destination-0{i}", "destination", "目的地ルート", True) for i in range(3)]
+    assert _fastest(result) == ["fastest"]
+
+
+@pytest.mark.parametrize("failing", ["fixed_error", "via"])  # 置いた点どうし・最後の点から終点まで
+@pytest.mark.parametrize("side", [None, "origin"])  # 最後の点から走り出せなくても、起点のせいにしない
+async def test_waypoints_that_cannot_be_connected_give_no_candidates_and_say_why(failing, side, caplog):
+    generator = RouteGenerator(FakeEngine(
+        context=SimpleNamespace(destination_correction=None, no_candidates_side=side),
+        **({"fixed_error": RoutingError("到達不能")} if failing == "fixed_error" else {"via": []}),
+    ))
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
         assert await _no_distance(generator, [WAYPOINT], None) == []

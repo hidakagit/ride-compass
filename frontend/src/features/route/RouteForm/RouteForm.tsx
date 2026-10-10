@@ -1,7 +1,6 @@
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
-import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -9,7 +8,7 @@ import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
 import SavedPlacesPanel from "@/features/route/SavedPlacesPanel/SavedPlacesPanel";
 import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import RoutePoints from "./RoutePoints";
-import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
+import type { RouteMode } from "./useRouteFormSubmit";
 import { Button } from "@/components/ui/Button/Button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -89,8 +88,6 @@ export default function RouteForm({
   savedConditionsPanel,
 }: RouteFormProps) {
   const { distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput, routeMode, changeRouteMode } = conditions;
-  const fixedCount = fixedRouteCount(routeMode, conditions.waypoints.length);
-  const maxRoutesRelevant = fixedCount === null;
 
   // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
@@ -123,36 +120,27 @@ export default function RouteForm({
               目的地
             </ToggleGroupItem>
           </ToggleGroup>
-          {/* 経由地があるとbackendは決まった数へ固定する（route_request.py:
-              applied_max_routes）。押せない状態で残す——消えると壊れて見えるうえ、
-              複数候補へ広げる予定があるため置き場を動かさない。理由は隣の(i)の奥。 */}
-          <div className="flex items-center gap-2 data-[disabled=true]:opacity-55" data-disabled={!maxRoutesRelevant}>
+          <div className="flex items-center gap-2">
             <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
-            {!maxRoutesRelevant && (
-              <InfoPopover triggerAriaLabel="候補数を変えられない理由">
-                経由地を置いている間は、その地点を通る経路を{fixedCount}本だけ引きます。候補数は経由地を
-                消すと使えます。
-              </InfoPopover>
-            )}
             <div className="inline-flex items-center gap-2">
               <Button
                 variant="stepper"
                 size="sm"
                 onClick={() => stepMaxRoutes(-1)}
-                disabled={!maxRoutesRelevant || Number(maxRoutesInput) <= MIN_ROUTES}
+                disabled={Number(maxRoutesInput) <= MIN_ROUTES}
                 aria-label="候補数を減らす"
-                usage="一度に作る候補の数を減らします。経由地を置いている間は変えられません。"
+                usage="一度に作る候補の数を減らします。"
               >
                 ‹
               </Button>
-              <span className="min-w-[2.5em] text-center tabular-nums">{`${fixedCount ?? maxRoutesInput}件`}</span>
+              <span className="min-w-[2.5em] text-center tabular-nums">{`${maxRoutesInput}件`}</span>
               <Button
                 variant="stepper"
                 size="sm"
                 onClick={() => stepMaxRoutes(1)}
-                disabled={!maxRoutesRelevant || Number(maxRoutesInput) >= MAX_ROUTES}
+                disabled={Number(maxRoutesInput) >= MAX_ROUTES}
                 aria-label="候補数を増やす"
-                usage="一度に作る候補の数を増やします。経由地を置いている間は変えられません。"
+                usage="一度に作る候補の数を増やします。"
               >
                 ›
               </Button>

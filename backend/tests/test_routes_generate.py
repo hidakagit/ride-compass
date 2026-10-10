@@ -166,12 +166,12 @@ async def test_a_destination_route_ends_at_the_destination_with_up_to_the_reques
     assert all(_ends(route) == (_node(SOUTH_WEST), _node(NORTH_EAST)) for route in result["routes"])
 
 
-async def test_a_waypoint_route_is_a_single_route_whatever_count_is_asked_for(client):
-    """経由地があるとレグごとの代替案が組合せで増えるため、常に1件。使った件数もそう返す。"""
-    status = await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], max_routes=5)
+async def test_a_waypoint_route_returns_to_the_origin_with_up_to_the_requested_count(client):
+    result = (await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], max_routes=2))["result"]
 
-    assert len(status["result"]["routes"]) == 1
-    assert status["result"]["conditions"]["max_routes"] == 1
+    assert 1 <= len(result["routes"]) <= 2
+    assert result["conditions"]["max_routes"] == 2
+    assert all(_ends(route) == (_node(SOUTH_WEST), _node(SOUTH_WEST)) for route in result["routes"])
 
 
 async def test_a_spliced_route_is_evaluated_as_sent(client):

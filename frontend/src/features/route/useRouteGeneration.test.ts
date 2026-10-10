@@ -153,7 +153,7 @@ describe("送る要求", () => {
     expect(sentRequest()).toMatchObject({ destination: A });
   });
 
-  it("経由地があると、候補数の入力に関わらず決まった数を送り、経由地は置いた順に送る", async () => {
+  it("経由地があっても入力の候補数を送り、経由地は置いた順に送る", async () => {
     const rendered = renderGeneration();
     act(() => rendered.result.current.conditions.changeRouteMode("destination"));
     act(() => rendered.result.current.conditions.setMaxRoutesInput("4"));
@@ -163,7 +163,7 @@ describe("送る要求", () => {
 
     await submit(rendered);
 
-    expect(sentRequest()).toMatchObject({ max_routes: routeGenerateConfig.routes_with_waypoints, waypoints: [B, A] });
+    expect(sentRequest()).toMatchObject({ max_routes: 4, waypoints: [B, A] });
   });
 });
 

@@ -126,9 +126,9 @@ class RouteSegmentDetail(StrictModel):
         return self
 
 
-#: 候補の種類。周回（方位を持つ）・経由地（指定した経由地を順に通る1本。目的地の有無を問わない）・
-#: 目的地（経由地の無い目的地への互いに異なる経路）・合成（区間を乗り換えて組み立てた経路）。
-RouteKind = Literal["loop", "waypoints", "destination", "spliced"]
+#: 候補の種類。周回（出発地へ戻る経路。経由地の有無を問わない）・目的地（目的地で終わる経路。経由地の有無を問わない）・
+#: 合成（区間を乗り換えて組み立てた経路）。
+RouteKind = Literal["loop", "destination", "spliced"]
 
 
 class RouteCandidate(StrictModel):
