@@ -26,10 +26,8 @@ const RECORDS = (numbers) => `query Records($o: String!, $n: String!) { reposito
 export async function readTasks(gh, config, query) {
   const { owner, number, statusField, priorityField, sizeField, startField, urgentLabel } = config.project;
   const tasks = [];
-  let ranks = [];
   for (let c = null; ; ) {
     const p = (await gh.gql(ITEMS, { o: owner, n: number, q: query, st: statusField, p: priorityField, sz: sizeField, s: startField, c })).organization.projectV2;
-    ranks = p.field?.options.map((o) => o.name) ?? [];
     for (const { content: t, status, priority, size, start } of p.items.nodes.filter((i) => i.content?.number)) {
       const labels = t.labels.nodes.map((l) => l.name);
       tasks.push({
@@ -37,7 +35,7 @@ export async function readTasks(gh, config, query) {
         startOn: start?.date ?? null, blocked: t.blockedBy.nodes.some((b) => b.state !== "CLOSED"),
       });
     }
-    if (!p.items.pageInfo.hasNextPage) return { tasks, ranks };
+    if (!p.items.pageInfo.hasNextPage) return { tasks, ranks: p.field?.options.map((o) => o.name) ?? [] };
     c = p.items.pageInfo.endCursor;
   }
 }
@@ -137,10 +135,11 @@ export async function readActive(get, config) {
 export function ready(config, { tasks, ranks }, running, now = new Date()) {
   const rank = (p) => ranks.indexOf(p ?? config.project.unsetPriority);
   return tasks
-    .filter((t) => kindOf(config, t.status) && !running.some((r) => r.number === t.number))
+    .map((t) => ({ ...t, kind: kindOf(config, t.status) }))
+    .filter((t) => t.kind && !running.some((r) => r.number === t.number))
     .filter((t) => t.status === config.review || !waitsFor(config, t, now))
     .sort((a, b) => b.urgent - a.urgent || rank(a.priority) - rank(b.priority) || a.number - b.number)
-    .map((t) => ({ number: t.number, kind: kindOf(config, t.status) }));
+    .map(({ number, kind }) => ({ number, kind }));
 }
 
 // 種類ごとに、枠（coordinator.slots）から動いている数を引いた分だけ上から選ぶ。
@@ -148,6 +147,9 @@ export function pick(config, candidates, running) {
   const free = Object.fromEntries(Object.entries(config.coordinator.slots).map(([kind, n]) => [kind, n - running.filter((r) => r.kind === kind).length]));
   return candidates.filter((t) => free[t.kind]-- > 0);
 }
+
+// 状況の更新の書き出し。putStatus はこれで始まる更新を見回りのものとみる。
+const STATUS_HEAD = "振り出しの見回り";
 
 // 状況の更新の中身。気づくべきもの（想定を超えたタスク・進行中なのに動いている担当が無いタスク・振り出せる仕事があるのに空いた枠・
 // 一番新しい実行が失敗したタスク）があれば At risk。working と expected は workload の結果、runs は担当の実行の新しい順（終わったものは
@@ -165,7 +167,7 @@ export function summary(config, { watcher, tasks, working, expected, runs, start
     ...(idle ? [`- 振り出せる仕事があるのに枠が空いている: ${idle}`] : []),
     ...[...latest.values()].filter((r) => r.conclusion === "failure" && tasks.some((t) => t.number === r.number)).map((r) => `- #${r.number} の${r.kind}担当の実行が失敗で終わった [実行](${r.url})`),
   ];
-  const lines = [`振り出しの見回り（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
+  const lines = [`${STATUS_HEAD}（${watcher}）が書く。中身が変わったときだけ書き換える。`, "", "### 気づくべきもの", ...(notes.length ? notes : ["無し"])];
   for (const [kind, n] of Object.entries(config.coordinator.slots)) {
     const rows = [...runs.filter((r) => r.kind === kind && !r.conclusion).map((r) => `- #${r.number} [実行](${r.url})`), ...started.filter((t) => t.kind === kind).map((t) => `- #${t.number}（いま起こした）`)];
     lines.push("", `### ${kind}担当（${rows.length}/${n}）`, ...(rows.length ? rows : ["無し"]));
@@ -181,7 +183,7 @@ export async function putStatus(gh, config, { status, body }) {
     statusUpdates(first: 1, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { id status body creator { login } } } } } }`,
     { o: config.project.owner, n: config.project.number })).organization.projectV2;
   const latest = p.statusUpdates.nodes[0];
-  const ours = latest?.creator?.login === config.claude && latest.body?.startsWith("振り出しの見回り") ? latest : null;
+  const ours = latest?.creator?.login === config.claude && latest.body?.startsWith(STATUS_HEAD) ? latest : null;
   if (ours?.status === status && ours.body === body) return false;
   await gh.write([ours?.status === status ? ["updateProjectV2StatusUpdate", { statusUpdateId: ours.id, status, body }] : ["createProjectV2StatusUpdate", { projectId: p.id, status, body }]]);
   return true;
