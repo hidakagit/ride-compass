@@ -9,7 +9,6 @@
 from pathlib import Path
 
 import pytest
-
 from git_repo import git
 from script_module import load_script
 
