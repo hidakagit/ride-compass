@@ -7,11 +7,9 @@ export function formatErrorDetail(detail: unknown): string | undefined {
   if (detail == null) return undefined;
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
-    const messages = detail
-      .map((item) =>
-        item && typeof item === "object" && "msg" in item ? String((item as { msg: unknown }).msg) : null,
-      )
-      .filter((msg): msg is string => msg !== null);
+    const messages = detail.flatMap((item) =>
+      item && typeof item === "object" && "msg" in item ? [String(item.msg)] : [],
+    );
     if (messages.length > 0) return messages.join(" / ");
   }
   return JSON.stringify(detail);

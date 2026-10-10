@@ -19,6 +19,8 @@ export function mapOverlayEdge(edge: Edge): { [MAP_OVERLAY_EDGE_ATTRIBUTE]: Edge
 export function measureMapOverlayEdges(canvas: DOMRect): RouteFitObscuredPx {
   const obscured: RouteFitObscuredPx = {};
   for (const element of document.querySelectorAll(`[${MAP_OVERLAY_EDGE_ATTRIBUTE}]`)) {
+    const edge = element.getAttribute(MAP_OVERLAY_EDGE_ATTRIBUTE);
+    if (edge !== "left" && edge !== "right" && edge !== "top" && edge !== "bottom") continue;
     const rect = element.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
     const depth: Record<Edge, number> = {
@@ -27,8 +29,6 @@ export function measureMapOverlayEdges(canvas: DOMRect): RouteFitObscuredPx {
       top: rect.bottom - canvas.top,
       bottom: canvas.bottom - rect.top,
     };
-    const edge = element.getAttribute(MAP_OVERLAY_EDGE_ATTRIBUTE);
-    if (edge !== "left" && edge !== "right" && edge !== "top" && edge !== "bottom") continue;
     obscured[edge] = Math.max(obscured[edge] ?? 0, depth[edge]);
   }
   return obscured;
