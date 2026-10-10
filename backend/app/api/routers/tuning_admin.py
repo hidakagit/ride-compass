@@ -18,7 +18,7 @@ from app.api.dependencies import get_tuning_service
 from app.domain.road import rolling_resistance_subjects
 from app.domain.strict_model import StrictModel
 from app.domain.traffic import stop_seconds_subjects
-from app.domain.tuning import TUNING_PARAMETERS_BY_ID, tuning_parameters_by_effect, tuning_value
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID, TuningParameter, tuning_parameters_by_effect, tuning_value
 from app.infrastructure.tuning_overrides import TuningOverrideError
 from app.services.tuning_service import TuningService
 
@@ -51,9 +51,15 @@ class TuningUpdateRequest(StrictModel):
     value: float | None
 
 
-def _view(param_id: str, overridden_ids: set[str]) -> TuningParameterView:
-    parameter = TUNING_PARAMETERS_BY_ID[param_id]
-    subjects = {**rolling_resistance_subjects(), **stop_seconds_subjects()}.get(param_id)
+def _subjects() -> dict[str, tuple[str, ...]]:
+    """較正値のid → 名前へ添える対象。要求ごとに1回だけ作り、較正値の1件ずつへ渡す。"""
+    return {**rolling_resistance_subjects(), **stop_seconds_subjects()}
+
+
+def _view(
+    parameter: TuningParameter, overridden_ids: set[str], subjects_by_id: dict[str, tuple[str, ...]]
+) -> TuningParameterView:
+    subjects = subjects_by_id.get(parameter.id)
     return TuningParameterView(
         id=parameter.id,
         label=f"{parameter.label}（{'／'.join(subjects)}）" if subjects else parameter.label,
@@ -75,7 +81,8 @@ async def list_tuning_parameters(
 ) -> list[TuningParameterView]:
     """較正値を効き方の順（`tuning_parameters_by_effect`）に返す。"""
     overridden = await service.overridden_parameter_ids()
-    return [_view(p.id, overridden) for p in tuning_parameters_by_effect()]
+    subjects_by_id = _subjects()
+    return [_view(p, overridden, subjects_by_id) for p in tuning_parameters_by_effect()]
 
 
 @router.put("/{param_id}", response_model=TuningParameterView)
@@ -92,4 +99,4 @@ async def update_tuning_parameter(
         overridden = await service.save_override(param_id, request.value)
     except TuningOverrideError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return _view(param_id, overridden)
+    return _view(parameter, overridden, _subjects())
