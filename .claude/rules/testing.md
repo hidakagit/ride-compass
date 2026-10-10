@@ -2,7 +2,8 @@
 paths:
   - "backend/tests/**"
   - "backend/pytest.ini"
-  - "frontend/src/**/*.test.{ts,tsx}"
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.test.tsx"
   - "frontend/src/testing/**"
   - "frontend/vitest.{setup.ts,config.mts}"
   - "frontend/e2e/**"
