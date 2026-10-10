@@ -1,10 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// 実backend・開発DBへ向けて回すe2e（frontend/e2e-live/）。CIには載せない。何を守るか・前提・走らせ方・誰がいつ回すかは
-// .claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」。backendはここから起動しない——DBの向け先・.envは人ごとに違い、
-// 設定ファイルが向け先を決めることになるため。前提はglobalSetupが最初に確かめる。
+// 実backend（開発DBへ向けた手元のbackendか本番のbackend）へ向けて回すe2e（frontend/e2e-live/）。CIには載せない。何を守るか・前提・
+// 走らせ方・誰がいつ回すかは.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」。backendはここから起動しない——DBの
+// 向け先・.envは人ごとに違い、設定ファイルが向け先を決めることになるため。前提はglobalSetupが最初に確かめる。
 
-/** `frontend/e2e/`（3100）・devサーバー（3000）と取り合わないポート。backendの基礎地図のURLとCORSもこのオリジンに合わせる。 */
+/** `frontend/e2e/`（3100）・devサーバー（3000）と取り合わないポート。手元のbackendの基礎地図のURLもこのオリジンに合わせる。 */
 const LIVE_PORT = 3200;
 export const LIVE_ORIGIN = `http://localhost:${LIVE_PORT}`;
 
@@ -23,6 +23,8 @@ export default defineConfig({
     // 見つからない部品を押そうとして、シナリオの時間切れまで待ち続けない（枝の失敗として出して次の枝へ進む）。
     actionTimeout: 15_000,
     trace: "retain-on-failure",
+    // アプリはbackendを別オリジンとして呼ぶが、本番のbackendのCORSは本番のfrontendのオリジンしか許さない。
+    launchOptions: { args: ["--disable-web-security"] },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
