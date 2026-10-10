@@ -124,7 +124,7 @@ export default function RouteSplicePanel({
         <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")} id="splice-heading">
           区間の乗り換え
         </h3>
-        {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
+        {/* 使い方は画面へ書かずここへ置く（.claude/rules/screen.md「冗長なものは削る」）。 */}
         {/* 押す所（24px四方）の余りを両脇の間に重ね、デスクトップのパネルの幅に1行で収める。「‹」は余りをカードの余白へ寄せる。 */}
         <InfoPopover triggerAriaLabel="区間の乗り換えの説明" triggerClassName="-mx-1">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に

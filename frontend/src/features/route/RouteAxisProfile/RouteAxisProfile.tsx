@@ -78,7 +78,7 @@ export default function RouteAxisProfile({
 
   // 評価に使っていない軸（重み0）はnullを返し、AxisContributionBarの凡例から落とす。
   // 内訳は候補ごとに縦へ伸びるため、使っていない軸まで並べると狭い幅で「このルートで
-  // 何が効いたか」が読めなくなる（設計原則「消さずに薄くする」の例外）。
+  // 何が効いたか」が読めなくなる（.claude/rules/screen.md「消さずに薄くする」の例外）。
   const renderAxisDetail = (axis: CatalogAxis) => {
     if ((weights[axis.axisId] ?? 0) <= 0) return null;
     // 折れ点を通す前の生値。単位が定まらない軸（合成軸等）はbackendがrawValueUnitを
