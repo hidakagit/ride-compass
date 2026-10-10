@@ -2,6 +2,7 @@
 
 入口:
 - モデルの組み立て（`AxisDefinition`・`BreakpointLinearShape`・`CategoricalShape`。管理APIの本文もDBの行もここを通る）
+- 密度の軸の見分け（`averages_density`）
 - 軸の外に照らす検査（`check_axis_definition`）・軸の集合の検査（`check_axis_set`）と書き込みのガード
   （`check_publish_immutability`・`check_material_exclusivity`・`check_internal_axis_not_published`）
 - 軸1本の評価（`evaluate_axis_array`・`evaluate_axis_values`）と生値（`axis_raw_value_array`・`raw_values`・
@@ -41,12 +42,15 @@ NAN = float("nan")
 DYNAMIC = next(iter(axis_definitions.REQUEST_DYNAMIC_MATERIAL_IDS))
 
 
-def material(material_id: str, label: str, dtype: material_catalog.MaterialDType) -> material_catalog.MaterialSpec:
+def material(
+    material_id: str, label: str, dtype: material_catalog.MaterialDType, *, additive: bool = False
+) -> material_catalog.MaterialSpec:
     return material_catalog.MaterialSpec(
         material_id=material_id,
         label=label,
         description=label,
         dtype=dtype,
+        additive=additive,
         tile_property=None,
         coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
     )
@@ -57,6 +61,8 @@ def catalog(monkeypatch):
     specs = {
         "num_a": material("num_a", "数値A", "numeric"),
         "num_b": material("num_b", "数値B", "numeric"),
+        "count_a": material("count_a", "回数A", "numeric", additive=True),
+        "count_b": material("count_b", "回数B", "numeric", additive=True),
         "flag": material("flag", "旗", "boolean"),
         "cat": material("cat", "種類", "categorical"),
         DYNAMIC: material(DYNAMIC, "時刻の材料", "numeric"),
@@ -252,6 +258,52 @@ class TestCheckAxisDefinition:
         definition = axis(priority_overrides=[PriorityCondition(material=material_id, equals=equals, value=0.0)])
 
         axis_definitions.check_axis_definition(definition, {})
+
+    @pytest.mark.parametrize(
+        "breakpoints",
+        [[(0.0, 0.0), (1.5, 40.0), (12.0, 100.0)], [(1.0, 0.0), (10.0, 100.0)]],
+        ids=["上に凸の折れ線", "0で0点から始まらない直線"],
+    )
+    def test_an_axis_summing_only_counts_per_km_must_score_in_proportion_to_the_count(self, breakpoints):
+        """探索の費用は回数×傾きで足すので、傾きが1つに決まらない折れ線では、探索とルートの値が食い違い、点数の和が道の
+        切り方で変わる。"""
+        shape = linear(MaterialTerm(material="count_a"), MaterialTerm(material="count_b", weight=1.5), breakpoints=breakpoints)
+
+        refused_by_check(axis(shape=shape), "「0のとき0点」ともう1点")
+
+    @pytest.mark.parametrize(
+        ("terms", "breakpoints"),
+        [
+            ([MaterialTerm(material="count_a")], [(0.0, 0.0), (9.58, 100.0)]),
+            ([MaterialTerm(material="count_a"), MaterialTerm(material="num_a")], [(0.0, 0.0), (1.5, 40.0), (12.0, 100.0)]),
+        ],
+        ids=["回数だけの軸の0からの直線", "回数でない材料も読む軸の折れ線"],
+    )
+    def test_a_line_from_zero_or_a_bend_on_an_axis_reading_more_than_counts_is_accepted(self, terms, breakpoints):
+        axis_definitions.check_axis_definition(axis(shape=linear(*terms, breakpoints=breakpoints)), {})
+
+
+@pytest.mark.usefixtures("catalog")
+@pytest.mark.parametrize(
+    ("definition", "averaged"),
+    [
+        # 本番の停止密度の軸の形（重みが1でない項を持つ）。
+        (axis(shape=linear(MaterialTerm(material="count_a"), MaterialTerm(material="count_b", weight=1.5))), True),
+        # 重み0の項は読まない。
+        (axis(shape=linear(MaterialTerm(material="count_a"), MaterialTerm(material="num_a", weight=0.0))), True),
+        # 密度でない材料（勾配の%等）を読む。
+        (axis(shape=linear(MaterialTerm(material="count_a"), MaterialTerm(material="num_a"))), False),
+        # 他の軸を項に持つ（中の軸の点数は密度でない）。
+        (axis(shape=linear(MaterialTerm(material="count_a"), MaterialTerm(material="other_axis"))), False),
+        (axis(shape=linear(MaterialTerm(material="count_a"), preprocess="abs")), False),
+        (axis(shape=CategoricalShape(material="cat", mapping={"x": 50.0})), False),
+    ],
+    ids=["停止密度", "重み0の項", "密度でない材料", "他の軸", "前処理abs", "対応表の軸"],
+)
+def test_only_axes_reading_counts_per_km_as_they_are_are_density_axes(definition, averaged):
+    """密度の軸は、ビンと候補の点数を回数の平均から作り、探索の費用では回数の足し算として持つ。密度でない値を
+    平均すると、短い急坂のような区間のつらさがならされて消える。"""
+    assert axis_definitions.averages_density(definition) is averaged
 
 
 class TestPublishImmutability:
