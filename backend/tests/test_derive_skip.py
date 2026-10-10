@@ -149,7 +149,6 @@ async def world(road_graph_engine, road_network_root):
             assert await derive_cli.run(postgis_database_url()) == 0
             yield conn
         finally:
-            await conn.execute(f"DROP SCHEMA IF EXISTS {derive_cli._WORK_SCHEMA} CASCADE")
             await conn.execute("DELETE FROM tuning_overrides WHERE param_id = $1", SIGNAL_RADIUS)
             await empty_ingested_tables(conn)
             await conn.execute("TRUNCATE derived_data_meta")
@@ -165,13 +164,16 @@ class Ran:
 
 @pytest.fixture
 def ran(world, monkeypatch) -> Ran:
-    """段の関数が呼ばれるたびに`Ran`へ書く。段そのものは本物を通す。"""
+    """段の関数が呼ばれるたびに`Ran`へ書く。段そのものは本物を通す。
+
+    段が受ける接続は作業用のスキーマを`search_path`の先頭に置くので、`current_schema()`がそのスキーマを指す。
+    """
     seen = Ran()
     for stage in derive_cli.STAGES:
         async def derive(conn, *, _real=stage.module.derive, _name=stage.name, **tuning):
             seen.stages.append(_name)
             seen.work_tables.update(row["table_name"] for row in await conn.fetch(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = $1", derive_cli._WORK_SCHEMA))
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"))
             return await _real(conn, **tuning)
 
         monkeypatch.setattr(stage.module, "derive", derive)
@@ -338,17 +340,18 @@ class Touched:
 
 #: この接続が表を触った数のうち、まだ書き出していないもの（公式の文書「The Cumulative Statistics System」の
 #: `pg_stat_xact_user_tables`。トランザクションの途中から読める）。書き出しは待機に入るときなので、前のトランザクションの分も
-#: 残っている——段の前と後を同じトランザクションの中で読んで差を取る。
+#: 残っている——段の前と後を同じトランザクションの中で読んで差を取る。`public`でない側は、段が受ける接続の
+#: `current_schema()`（`search_path`の先頭の作業用のスキーマ）。
 _TOUCHED_SQL = """
 SELECT schemaname, relname, coalesce(seq_scan, 0) + coalesce(idx_scan, 0) AS scans,
        n_tup_ins + n_tup_del AS rows, n_tup_ins + n_tup_upd + n_tup_del AS written
-FROM pg_stat_xact_user_tables WHERE schemaname IN ('public', $1)
+FROM pg_stat_xact_user_tables WHERE schemaname IN ('public', current_schema())
 """
 
 
 async def _counts(conn: asyncpg.Connection) -> dict[tuple[str, str], dict[str, int]]:
     return {(row["schemaname"], row["relname"]): {kind: row[kind] for kind in ("scans", "rows", "written")}
-            for row in await conn.fetch(_TOUCHED_SQL, derive_cli._WORK_SCHEMA)}
+            for row in await conn.fetch(_TOUCHED_SQL)}
 
 
 def _ancestors(name: str) -> set[str]:
@@ -382,7 +385,7 @@ async def test_each_stage_declares_what_it_reads_and_writes(world, monkeypatch):
             grew = {table: {kind: n - before.get(table, {}).get(kind, 0) for kind, n in counts.items()}
                     for table, counts in after.items()}
             work = {name: counts for (schema, name), counts in grew.items()
-                    if schema == derive_cli._WORK_SCHEMA and name in derived}
+                    if schema != "public" and name in derived}
             touched[_name] = Touched(
                 sources={name.removeprefix("source_features_") for (schema, name), counts in grew.items()
                          if schema == "public" and name.startswith("source_features_") and counts["scans"]},
