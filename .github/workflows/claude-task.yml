@@ -1,5 +1,5 @@
 # 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。振り出し（claude-dispatch.yml）が起こす。手でも起こせる:
-#   gh workflow run claude-task.yml -R hidakagit/ride-compass -f issue=<置き場の issue の番号> -f kind=<作る|確かめる>
+#   gh workflow run claude-task.yml -R ridecompass/ride-compass -f issue=<置き場の issue の番号> -f kind=<作る|確かめる>
 # 担当は .claude/skills/task-work/SKILL.md の「作る担当」「確かめる担当」の手順を進める。
 # このリポジトリは公開で、Actions の記録は誰でも読める。担当の出力の全文（show_full_output）と報告（display_report）は出さない。
 name: Claude Task

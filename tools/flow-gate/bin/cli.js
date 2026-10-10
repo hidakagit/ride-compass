@@ -53,7 +53,7 @@ function userEnv(name) {
   return new RegExp(`${name}\\s+REG_SZ\\s+(\\S+)`).exec(execFileSync("reg", ["query", "HKCU\\Environment", "/v", name], { encoding: "utf8" }))[1];
 }
 export const bot = () => new GitHub(userEnv("FLOW_BOT_TOKEN")); // 置き場へ書くのは hidakagit-bot だけ
-export const code = () => new GitHub(userEnv("GH_TOKEN")); // コードのリポジトリ（hidakagit のもの）を読み、担当を起こす
+export const code = () => new GitHub(userEnv("GH_TOKEN")); // コードのリポジトリを hidakagit の名義で読み、担当を起こす
 export const holds = () => holdRemote(`https://github.com/${config.repository}.git`, userEnv("FLOW_BOT_TOKEN")); // 持つ印も置き場に置く
 
 // 引数を読む。usage は使い方の1行で、試しを持つ道具は `[--dry-run]` を書く。ok は引数（--dry-run を除いたもの）が正しいか。

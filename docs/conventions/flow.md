@@ -115,7 +115,7 @@ issue の番号。`tools/flow-gate/src/hold.js`）が持つ。印は番号ごと
   拾われる。実行の持ち時間（`coordinator.watchForMinutes`。GitHub のジョブの上限6時間より短い）が過ぎたら、次の実行を
   `workflow_dispatch` で起こしてから終える。1周の失敗では止まらず、最後に通った周（無ければ実行の始まり）から
   `coordinator.watchFailMinutes` のあいだ1周も通らなかったときだけ失敗で終わって次を起こさない（GitHub の失敗の知らせが届く）。
-  途切れたら、手で `gh workflow run claude-dispatch.yml -R hidakagit/ride-compass`（Actions の画面の Run workflow でもよい）で起こし直す。
+  途切れたら、手で `gh workflow run claude-dispatch.yml -R ridecompass/ride-compass`（Actions の画面の Run workflow でもよい）で起こし直す。
   定期の起動（`schedule`）は使わない。
   `node tools/flow-gate/bin/dispatch.js --dry-run` で、何を起こすか・状況の更新に何を書くかを見られる。
 - **担当のワークフローの1回**:
@@ -159,7 +159,7 @@ issue の番号。`tools/flow-gate/src/hold.js`）が持つ。印は番号ごと
   セッションは gh の既定が hidakagit で、付け忘れると hidakagit の名義で書かれうるので、必ず付ける）。名義の誤りを止めるのはこのトークンの範囲だけ（gh はトークンをホストごとにしか選べず、権限の拒否の
   規則は先頭の変数の代入を越えて当たるので、付けた打ち方と付け忘れた打ち方を見分けられない）。
 - **止める**: Claude Dispatch を無効にする。ユーザーがチャットで頼めば、開発機の対話のセッションが
-  `gh workflow disable "Claude Dispatch" -R hidakagit/ride-compass` で打つ（ユーザーが Actions の画面の Disable workflow で打ってもよい）。動いている見回りは次の1回で無効と読み、状況の更新に
+  `gh workflow disable "Claude Dispatch" -R ridecompass/ride-compass` で打つ（ユーザーが Actions の画面の Disable workflow で打ってもよい）。動いている見回りは次の1回で無効と読み、状況の更新に
   止めていると書いて、振り出さずに終える（次の見回りも起こさない）。戻すときは `gh workflow enable` のあと `gh workflow run`（画面なら Enable workflow のあと Run workflow）。
   担当は止める・戻すを打てない（下の「担当の権限」の拒否の一覧）。
   利用の上限で後始末が止めた時刻（変数 `coordinator.pauseVariable`）を早く解くなら、コードのリポジトリの Settings → Secrets and

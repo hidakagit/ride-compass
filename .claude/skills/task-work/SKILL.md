@@ -58,7 +58,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      backend は `/health` の `commit`（宛先は docs/architecture/tech-stack.md「本番の宛先」。backend は、Pull Request の差分に
      `scripts/deploy_backend_gate.py: DEPLOY_PATHS` に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>`
      が 0 で終われば出ている（本番の commit が手元に無ければ先に `git fetch origin`）。
-     出ていなければ、master の CI の一番新しい実行（`gh run list -R hidakagit/ride-compass --workflow ci.yml --branch master --limit 1 --json databaseId,headSha`）を
+     出ていなければ、master の CI の一番新しい実行（`gh run list -R ridecompass/ride-compass --workflow ci.yml --branch master --limit 1 --json databaseId,headSha`）を
      作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。まだ出ていなければ、同じ `gh run list` で一番新しい
      実行を引き直し、待った実行と違えばそれを同じく待って見直す（master の CI は待ちを一番新しい1件だけにし、新しい実行が来ると古い待ちを
      取り消す。`.github/workflows/ci.yml` の `concurrency`）。待ち直す回数に上限は置かない（押されて取り消された待ちには、押した新しい実行が
@@ -115,24 +115,24 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    `--api <本番の backend>` のように tech-stack.md「本番の宛先」の名で書く（値を含む書き込みは、自動モードの判定に
    `[Excess Sensitive Detail]` で断られうる。`--attach` の付いた書き込みそのものは断られない）。
    前の Pull Request が開いたまま残っていれば、新しく出さずに push し、撮り直したキャプチャを `attach.js` で足す。
-   本文を直すときは `gh issue edit <番号> -R hidakagit/ride-compass --body-file <ファイル>` で書き換える（直すと CI が形を照らし直す。`gh pr edit` と、欄を選ばない
+   本文を直すときは `gh issue edit <番号> -R ridecompass/ride-compass --body-file <ファイル>` で書き換える（直すと CI が形を照らし直す。`gh pr edit` と、欄を選ばない
    `gh pr view` は、組織を読む権限の無いトークンでは断られる）。
    出したら（push したら）、Pull Request の CI の実行（master と合わせた版。`ci.yml`・Docs Consistency・Claude Gate のどれも）の id を
-   `gh run list -R hidakagit/ride-compass --commit "$(git rev-parse HEAD)" --event pull_request --json databaseId` で引く
+   `gh run list -R ridecompass/ride-compass --commit "$(git rev-parse HEAD)" --event pull_request --json databaseId` で引く
    （ID は手で写さずにこの形で渡す）。
-   0件なら `gh pr view <番号> -R hidakagit/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
+   0件なら `gh pr view <番号> -R ridecompass/ride-compass --json mergeable` を見て、`CONFLICTING` なら待たずに下の
    「落ちたら」と同じく master を取り込んで push する。それ以外（`MERGEABLE`・まだ決まっていない `UNKNOWN`）なら、同じ2つを打ち直す。
-   打ち直しの前に `sleep` を置かない。id が出たら、出た id ごとに `gh run watch <id> --compact -i 30 -R hidakagit/ride-compass --exit-status`
+   打ち直しの前に `sleep` を置かない。id が出たら、出た id ごとに `gh run watch <id> --compact -i 30 -R ridecompass/ride-compass --exit-status`
    で終わるまで前に出したまま待つ（Bash の `timeout` を上限の 600000 にして打つ。上限で止まったら同じコマンドを打ち直す。裏へ回さない）。
-   全部が終わったら、`gh pr checks <番号> -R hidakagit/ride-compass --required` で必須のチェックが全部 `pass` で、出た名前が
-   ルールセットの必須のチェック（`gh api repos/hidakagit/ride-compass/rules/branches/master --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`）
+   全部が終わったら、`gh pr checks <番号> -R ridecompass/ride-compass --required` で必須のチェックが全部 `pass` で、出た名前が
+   ルールセットの必須のチェック（`gh api repos/ridecompass/ride-compass/rules/branches/master --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`）
    と揃っていることを見る。揃っていなければまだ起きていない実行があるので、`gh run list` から打ち直す。`gh pr checks --watch` では待たない。
    落ちたら `git merge origin/master` で今の master を取り込み、失敗を直して（手元で回す場面と範囲は
    .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing.md「テストが落ちたときの直し方」）、4 から続ける。
    取り消し（`cancelled`）で終わったチェックも「落ちたら」と同じに扱う。master を取り込んでも直すものが無ければ（GitHub Actions の
-   障害でランナーが付かなかった等）、`gh run rerun <id> --failed -R hidakagit/ride-compass` で流し直して `gh run watch` から待ち直す。
+   障害でランナーが付かなかった等）、`gh run rerun <id> --failed -R ridecompass/ride-compass` で流し直して `gh run watch` から待ち直す。
    `backend/app` を変えたときは、必須でないワークフロー Mutation PR（`.github/workflows/mutation-pr.yml`）も走り、変えた関数の変異のうち
-   テストが気づかないもの（生き残り）を、変えた行への注記（`gh run view <id> -R hidakagit/ride-compass` の ANNOTATIONS）と実行の要約に出す。
+   テストが気づかないもの（生き残り）を、変えた行への注記（`gh run view <id> -R ridecompass/ride-compass` の ANNOTATIONS）と実行の要約に出す。
    これも終わるまで待って読み、生き残りのうち利用者や運用に見える振る舞いが変わるものは、それを落とすテストを足して 4 から続ける
    （足すかの判断は .claude/rules/testing.md「そのテストは要るか」）。足さないもの（振る舞いが変わらない書き換え・テストで確かめない
    約束）と、変わったのにどのテストも通らない関数は、Pull Request の本文の検証に1件1行で理由を書く。
@@ -146,7 +146,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
   hidakagit に届き、直すのは普通のタスクにする。
 - Pull Request の出来事ごとのステータスの行き先は `tools/flow-gate/src/gate.js: Gate.pullRequest` が持つ（読み方は
   `docs/conventions/flow.md`「ステータスと割り当て」）。
-- Pull Request を閉じた・マージしたのに検証中のまま止まったら、先に `gh pr view <番号> -R hidakagit/ride-compass --json state` で
+- Pull Request を閉じた・マージしたのに検証中のまま止まったら、先に `gh pr view <番号> -R ridecompass/ride-compass --json state` で
   Pull Request の状態を見る。`OPEN` なら閉じる・マージする操作そのものが通っていないので、打ち直す（確かめる担当の4・5）。
   `CLOSED`・`MERGED` なのにステータスが動かないときは、ゲートが出来事を受け損ねたので、Claude がゲートの行き先へ動かす（閉じたなら
   `move.js <番号> 未着手 <理由>`、マージなら残りが無ければ `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed`、
@@ -157,10 +157,10 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
 
 **確かめる担当**（検証中。作った担当とは別）
 1. 作業ブランチを取る（`git fetch origin` と
-   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R hidakagit/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
+   `git checkout -B orch/tasks-<番号> origin/orch/tasks-<番号>`）。依存のファイルが master と違えば、作る担当の2のとおり入れ直す。Pull Request（`gh pr view <番号> -R ridecompass/ride-compass --json title,body,comments,reviews`。本文のキャプチャ・差分）・Pull Request の CI・issue の完了の条件・変更が届く範囲（要るなら画面）を
    確かめる。作る担当の報告を読み写さず、自分で見る（画面なら変更後を自分で撮る。作る担当の5と同じ道具・脚本・応答で撮り、
    変更前は撮り直さずに作る担当が貼った画像と比べる。作る担当がコメントに脚本を貼っていれば、作業ツリーの外へ写して同じ引数で撮る）。
-   貼った画像は、`gh api repos/hidakagit/ride-compass/issues/<Pull Request の番号>/comments --jq '.[].body'` で添付の URL
+   貼った画像は、`gh api repos/ridecompass/ride-compass/issues/<Pull Request の番号>/comments --jq '.[].body'` で添付の URL
    （`https://github.com/user-attachments/assets/…`）を拾い、`curl -sSL -o <作業ツリーの外のファイル> <URL>` で取り出して Read で見る。
    添付は認証なしで取れるので、トークンを付けない。Pull Request が無ければ（ボードで
    検証中へ動かした等）、作る担当の5のとおりに出してから確かめる。CI は Pull Request の必須のチェック全部（master と合わせた版。
@@ -193,7 +193,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    無いものは、本文の完了の条件へチェックの無い行として足し、2 の結果にどのコメントから足したかを書く。足した行は閉じる理由に
    しない（4 の「満たしていない」には当てない）。マージすると残りとして未着手へ戻り、作る担当がマージのあとの残りとして済ませる。
 4. 1 で「満たしていない」とした条件のどれかに当たれば、足りないことを書いて Pull Request を閉じる（`gh pr close <番号> --comment <理由>`）。
-   閉じたかは `gh pr view <番号> -R hidakagit/ride-compass --json state` で
+   閉じたかは `gh pr view <番号> -R ridecompass/ride-compass --json state` で
    `CLOSED` が出るかで見て、`OPEN` のままなら閉じ直す。ゲートが未着手へ戻す。それ以外の気づき（本文の数字の誤り・書き漏れ・使われない import 等）は閉じる理由にせず、2 の結果に書く。
    そのうち Pull Request の範囲の中で master に残るもの（差分が変えたものを書いたまま直し漏れた文書の行・使われない import 等）は、
    3 の「着手より後に届いた依頼」と同じく本文の完了の条件へチェックの無い行として足し、2 の結果に足したことを書く（マージすると
@@ -210,9 +210,9 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    同じ口の `commit`）を issue にコメントで書いてからマージする。読むだけの口で取れない（本番の DB・ログが要る）なら、マージせずに、要る前の値と
    取り方をコメントに書いて 4 のとおり Pull Request を閉じ、issue にラベル「開発機が要る」を付ける（開発機の対話のセッションが前の値を取って
    ラベルを外すと、作る担当が出し直す）。
-   そのあと Pull Request を squash でマージする（`gh pr merge <番号> -R hidakagit/ride-compass --squash`）。CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も
+   そのあと Pull Request を squash でマージする（`gh pr merge <番号> -R ridecompass/ride-compass --squash`）。CI は 1 で通ったのを見ているので、待たずに打つ。master の CI も
    待たない（ゲートが閉じる）。通ったかは
-   `gh pr view <番号> -R hidakagit/ride-compass --json state` で `MERGED` が出るかで見て、`OPEN` のままなら打ち直す。
+   `gh pr view <番号> -R ridecompass/ride-compass --json state` で `MERGED` が出るかで見て、`OPEN` のままなら打ち直す。
 6. master と競合してマージできなければ、`git fetch origin` で今の master を取ってから
    `git -c merge.conflictStyle=diff3 merge origin/master` で取り込み（`diff3` は競合の塊に合流点の行を `|||||||` の下に出す）、
    競合の塊ごとに、合流点の行を両側がどう変えたかで解き方を決める。
