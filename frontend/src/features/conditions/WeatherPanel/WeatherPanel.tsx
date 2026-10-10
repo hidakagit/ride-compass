@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
@@ -85,18 +85,69 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
 
   const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.twilight));
 
-  const meanings: { term: string; value: string }[] = [
+  const items: { term: string; value: string; stat: ReactNode }[] = [
     {
       term: "気温",
       value:
         `${temperature}℃` +
         (amedas.apparent_temperature_c != null ? `（体感 ${amedas.apparent_temperature_c.toFixed(1)}℃）` : ""),
+      stat: (
+        <>
+          <ThermometerIcon size={16} />
+          <span className="sr-only">気温: </span>
+          <Value unit="℃">{temperature}</Value>
+        </>
+      ),
     },
-    ...(wind ? [{ term: "風", value: `${wind.direction.label}の風 ${wind.speedMs.toFixed(1)}m/s` }] : []),
-    ...(amedas.precipitation_10min_mm != null
-      ? [{ term: "降水量", value: `${amedas.precipitation_10min_mm.toFixed(1)}mm（直近10分間）` }]
+    ...(wind
+      ? [
+          {
+            term: "風",
+            value: `${wind.direction.label}の風 ${wind.speedMs.toFixed(1)}m/s`,
+            stat: (
+              <>
+                <span
+                  className="inline-flex transition-transform duration-200"
+                  style={{ transform: `rotate(${wind.direction.deg + 180}deg)` }}
+                >
+                  <WindDirectionArrowIcon size={16} />
+                </span>
+                <span className="sr-only">{wind.direction.label}の風: </span>
+                <Value unit="m/s">{wind.speedMs.toFixed(1)}</Value>
+              </>
+            ),
+          },
+        ]
       : []),
-    ...(weatherDisplay != null ? [{ term: "天気", value: weatherDisplay.label }] : []),
+    ...(amedas.precipitation_10min_mm != null
+      ? [
+          {
+            term: "降水量",
+            value: `${amedas.precipitation_10min_mm.toFixed(1)}mm（直近10分間）`,
+            stat: (
+              <>
+                <RaindropIcon size={16} />
+                <span className="sr-only">降水量: </span>
+                <Value unit="mm">{amedas.precipitation_10min_mm.toFixed(1)}</Value>
+              </>
+            ),
+          },
+        ]
+      : []),
+    ...(weatherDisplay != null
+      ? [
+          {
+            term: "天気",
+            value: weatherDisplay.label,
+            stat: (
+              <>
+                <weatherDisplay.Icon size={16} />
+                <span className="sr-only">天気: {weatherDisplay.label}</span>
+              </>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -111,47 +162,12 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
           {/* 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
               （はみ出した分は横へ流し、ヘッダーを2行にしない）。ボタンの中に置くのでdivでなくspan。 */}
           <span className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <Stat>
-              <ThermometerIcon size={16} />
-              <span className="sr-only">気温: </span>
-              <Value unit="℃">{temperature}</Value>
-            </Stat>
-
-            <Divider />
-
-            {wind && (
-              <Stat>
-                <span
-                  className="inline-flex transition-transform duration-200"
-                  style={{ transform: `rotate(${wind.direction.deg + 180}deg)` }}
-                >
-                  <WindDirectionArrowIcon size={16} />
-                </span>
-                <span className="sr-only">{wind.direction.label}の風: </span>
-                <Value unit="m/s">{wind.speedMs.toFixed(1)}</Value>
-              </Stat>
-            )}
-
-            {amedas.precipitation_10min_mm != null && (
-              <>
-                <Divider />
-                <Stat>
-                  <RaindropIcon size={16} />
-                  <span className="sr-only">降水量: </span>
-                  <Value unit="mm">{amedas.precipitation_10min_mm.toFixed(1)}</Value>
-                </Stat>
-              </>
-            )}
-
-            {weatherDisplay != null && (
-              <>
-                <Divider />
-                <Stat>
-                  <weatherDisplay.Icon size={16} />
-                  <span className="sr-only">天気: {weatherDisplay.label}</span>
-                </Stat>
-              </>
-            )}
+            {items.map(({ term, stat }, index) => (
+              <Fragment key={term}>
+                {index > 0 && <Divider />}
+                <Stat>{stat}</Stat>
+              </Fragment>
+            ))}
           </span>
         </Button>
       </PopoverTrigger>
@@ -162,7 +178,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
           <span className="ml-2 tabular-nums">{formatJstHourMinute(new Date(amedas.observed_at))}</span>
         </p>
         <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[length:var(--font-size-sm)]">
-          {meanings.map(({ term, value }) => (
+          {items.map(({ term, value }) => (
             <div key={term} className="contents">
               <dt className="text-[var(--color-muted)]">{term}</dt>
               <dd className="m-0 tabular-nums">{value}</dd>
