@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
@@ -74,6 +74,8 @@ interface RouteOutcomeProps {
  */
 export default function RouteOutcome({ results, generation, splice, routeWeights }: RouteOutcomeProps) {
   const axisCatalog = useAxisCatalog();
+  // 道のりのグラフが下から積む軸の並び。同じ参照を渡し、描き直しのたびにグラフの形を組み直させない。
+  const axisOrder = useMemo(() => axisCatalog.axes.map((axis) => axis.axisId), [axisCatalog.axes]);
   const { routes, selectedRouteId, selectedRouteSegment, reusedRouteId } = results;
   // 乗り換えで作った経路と同じ道だったので選んだ行。一覧の見える範囲の外にあっても、選んだことが見えるように出す。
   const reusedRowRef = useRef<HTMLButtonElement>(null);
@@ -287,7 +289,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                   <DifficultyProfile
                     segments={route.segments}
                     overallDifficulty={route.overall_difficulty?.average ?? null}
-                    axisOrder={axisCatalog.axes.map((axis) => axis.axisId)}
+                    axisOrder={axisOrder}
                     axisColors={axisCatalog.axisColors}
                     scaleKm={longestDistanceKm}
                     selected={selectedRouteSegment}

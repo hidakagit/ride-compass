@@ -199,29 +199,28 @@ function createsRevisit(
  * 積み上げても互いに影響しない（`buildSplicedShape`）。
  */
 export function stretchAlternativeGroups(
-  baseEdgeIds: readonly string[],
-  candidates: readonly { id: string; edgeIds: readonly string[]; shape: RouteGeometryShape }[],
+  baseShape: SplicedRouteShape,
+  candidates: readonly { id: string; shape: SplicedRouteShape }[],
   // 割る下限（km）は**省略できない**。backendの較正値（`domain/tuning.py`が宣言し、
   // 起動時のカタログ取得で届く）で、ここに既定を持つと**届かなかったときに下限なし＝
   // 共有地点すべてで区間を割る**という、較正したのとは別の切り方で黙って動く。
   // backend側の`tuning_value`は宣言に無いidをその場で落とす。受ける側も同じにする。
-  options: { baseShape: RouteGeometryShape; minSplitLengthKm: number },
+  minSplitLengthKm: number,
 ): StretchGroup[] {
   const alternatives: StretchAlternative[] = [];
   const seen = new Set<string>();
-  const { baseShape, minSplitLengthKm } = options;
   // 区間を割るために元ルートの累積距離を1回だけ求める（候補ごとに作り直さない）。
   const baseCumulativeKm = cumulativeDistancesKm(baseShape.coordinates);
   // 折り返しの判定に使う元ルートのNode集合。候補ごとに作り直さない。
   const baseNodeSet = new Set(baseShape.nodeIds);
   for (const candidate of candidates) {
-    const pairs = pairedStretches(baseEdgeIds, candidate.edgeIds).flatMap((pair) =>
+    const pairs = pairedStretches(baseShape.edgeIds, candidate.shape.edgeIds).flatMap((pair) =>
       splitPairedStretch(baseShape, candidate.shape, pair, minSplitLengthKm, baseCumulativeKm),
     );
     for (const pair of pairs) {
       // 差し替え後に通るEdgeは相手側の範囲そのもの。両端の共有Edgeを目印に切り出す形には
       // できない——共有**地点**で割った区間は、両端に共有Edgeを持たない。
-      const edgeIds = candidate.edgeIds.slice(pair.target.start, pair.target.end);
+      const edgeIds = candidate.shape.edgeIds.slice(pair.target.start, pair.target.end);
       if (createsRevisit(baseShape.nodeIds, baseNodeSet, candidate.shape.nodeIds, pair.displayed, pair.target)) {
         continue;
       }
@@ -252,8 +251,9 @@ export function stretchAlternativeGroups(
   return groups;
 }
 
-/** 乗り換えを適用した後の経路の形。次に選べる区間の計算と、地図の描画が同じものを見る。 */
-interface SplicedRouteShape extends RouteGeometryShape {
+/** 経路の形（Edge id列＋区間を割るための形）。元ルート・乗り換え先・乗り換えを適用した後の経路が同じ形を持ち、
+ * 次に選べる区間の計算と地図の描画が同じものを見る。 */
+export interface SplicedRouteShape extends RouteGeometryShape {
   edgeIds: string[];
 }
 

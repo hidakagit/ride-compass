@@ -4,6 +4,7 @@
 // AxisScoringSection.tsx・AxisMapDisplaySection.tsx）から使う。見た目は
 // docs/modules/frontend/frontend-design-system.mdのトークンに従い、説明文は地の文ではなく(ⓘ)に畳む。
 
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
@@ -21,6 +22,28 @@ export function InfoPopoverButton({ ariaLabel, description }: { ariaLabel: strin
 export function MaterialInfoButton({ option }: { option: AxisMaterialOption | undefined }) {
   if (!option) return null;
   return <InfoPopoverButton ariaLabel={`${option.label}の説明`} description={option.description} />;
+}
+
+/** 材料の行の「必須」チェックと、その説明の(ⓘ)。 */
+export function RequiredCheckbox({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+}) {
+  return (
+    <>
+      <label className="inline-flex items-center gap-1 text-[length:var(--font-size-sm)]">
+        <Checkbox checked={checked} onCheckedChange={onCheckedChange} aria-label="必須" />
+        必須
+      </label>
+      <InfoPopoverButton
+        ariaLabel="「必須」の説明"
+        description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
+      />
+    </>
+  );
 }
 
 /** 見出し＋詳しい説明は(ⓘ)ポップオーバーへ折りたたむ（表示名・既定重み欄で既に使っている
