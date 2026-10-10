@@ -1,8 +1,7 @@
-# タスクの流れのゲート（tools/flow-gate/）の検査と公開。製品の CI（ci.yml）と分けて持ち、タスク管理だけの変更で
-# 製品の重い検査とデプロイを走らせない（置き場の定義は .github/taskflow-paths）。
+# タスクの流れのゲート（tools/flow-gate/）の検査と公開。製品の CI（ci.yml）と分ける理由と、どの変更でも走らせる理由は
+# docs/architecture/tech-stack.md「CIの実行枠」。
 #
-# - flow-gate: lint とテスト。コードのリポジトリの必須チェックに置く。数十秒で終わるので変更されたパスで飛ばさず、
-#   どの変更でも走らせる（ワークフローを paths で飛ばすと必須チェックが Pending のまま残る。docs/architecture/tech-stack.md「CIの実行枠」）。
+# - flow-gate: lint とテスト。コードのリポジトリの必須チェックに置く。
 #   Pull Request では本文の形（.github/pull_request_template.md）も照らす。本文は master のコミットになるので、本文を直した
 #   （edited）ときも照らし直す。
 # - deploy-gate: master への push で flow-gate が通ったら、ゲートと回答フォームを Cloudflare へ公開する。

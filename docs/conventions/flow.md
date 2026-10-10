@@ -34,9 +34,7 @@
 | Claude（hidakagit-bot の名義） | 作業・問いとコメントを書く・実施の順番・検証中の確かめとマージ・Project の欄の規模と優先度 |
 | ユーザー（hidakagit） | 判断を回答フォームで答える（開発機の対話のセッションではチャットで。.claude/skills/ask/SKILL.md「答え」）。本番での最後の確かめ。表にある遷移ならボードでステータスを動かす（表に無い移動はゲートが戻す）。ラベル（`急ぎ` 等）を付け外しする |
 
-- Claude は GitHub の置き場へ、hidakagit-bot のトークン（ユーザー環境変数 `FLOW_BOT_TOKEN`）でだけ書く。hidakagit の
-  トークンで書かない。
-  gh で置き場を打つときは、読むときも `GH_TOKEN` に `FLOW_BOT_TOKEN` の値を渡す（「担当」の「名義」）。
+- Claude が置き場へ書く名義とトークンは「担当」の「名義」が持つ（開発機の対話のセッションも同じ）。
 - ゲートは自分の書き込み（送り主 `flow.config.json: gate`）を無視する。組み込みの自動化「Auto-add to project」
   （段階は「Auto-add sub-issues to project」）が issue を Project に入れると、ゲートが入口（下）を処理する。
 
@@ -78,9 +76,7 @@
 流れの道具（`tools/flow-gate/bin/`）は、どの作業ツリーで打っても master の版で書く。打った作業ツリーの `tools/flow-gate` が
 `origin/master` と違えば、道具が master の版を一時の場所へ取り出して打ち直し、そのことを1行出す（`tools/flow-gate/bin/cli.js`）。
 試し（`--dry-run`）は書かないので作業ツリーの版で動き、道具を変える作業ブランチでは、変えた道具を試しの形で流して確かめる
-（.claude/skills/task-work/SKILL.md「書き込みのある道具を流す」）。試しを持つのは
-`move.js`・`after.js`・`dispatch.js` だけで、ほかの道具（`ask.js`・`field.js`・`stage.js`・`claim.js`・`hold.js`・`attach.js`）は
-`--dry-run` を読み捨てて、作業ツリーの版で本当に書く。
+（.claude/skills/task-work/SKILL.md「書き込みのある道具を流す」）。
 
 - 未着手 → 進行中: 担当のワークフローが、最初の段（引き受ける）で動かす（「担当」）。開発機の対話のセッションは、タスクを持ってから
   理由を付けて動かす（.claude/skills/dev-session/SKILL.md「開発機の対話のセッション」）。
@@ -128,8 +124,7 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
   1. 引き受ける（`tools/flow-gate/bin/claim.js`）: 作るなら未着手 → 進行中へ動かせたときだけ、確かめるなら検証中のときだけ進み、
      issue に着手（担当の種類・実行へのリンク）を書く。待っていた実行は前の実行が終わってからここで照らされ、行き先が無ければ
      何もせず終わる（「1つのタスクを触るのは1者だけ」）。
-  2. 準備: `ci.yml` の backend と同じ PostgreSQL + PostGIS、Read が PDF をページで読むための `poppler-utils`、backend と frontend の依存、
-     e2e を手元で回すための Playwright の Chromium（`ci.yml` の e2e と同じ入れ方）を入れ、担当の権限（「担当の権限」）を渡す。
+  2. 準備（`.github/workflows/claude-task.yml` の段）。
   3. 担当を起こす。持ち時間はジョブの `timeout-minutes` で、超えると Actions がジョブを止める。担当の実行は、担当が手番を終えた
      最初の発言で終わる。裏で動かす道具（Bash の `run_in_background`・Monitor・ScheduleWakeup・
      cron の道具・Workflow）は担当のワークフローが外してある（`claude_args` の `--disallowedTools` と環境変数
@@ -158,10 +153,12 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
      （ステータス・ジョブの結果・時間・手数）は写さない。PR も報告も出さずに終わった担当の理由は、この最後の発言で読む。
 - **名義**: 置き場へは hidakagit-bot（secret `FLOW_BOT_TOKEN`）、コードのリポジトリへは hidakagit（secret `CODE_TOKEN`。
   `GITHUB_TOKEN` で打ったマージは master の CI とデプロイを起こさないため）、Claude は契約のトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`）。
-  どのトークンがどこへ届くかは docs/architecture/tech-stack.md「秘密の値とトークン」が持つ。`CODE_TOKEN` はコードのリポジトリにだけ
-  届き、置き場に届かない。担当のワークフローは gh の既定（`GH_TOKEN`）に `CODE_TOKEN` を置くので、担当が置き場へ打つときは
-  `GH_TOKEN=$FLOW_BOT_TOKEN` を付ける（付け忘れると断られる）。名義の誤りを止めるのはこのトークンの範囲だけ（gh はトークンをホストごとにしか選べず、権限の拒否の規則は先頭の変数の代入を越えて当たるので、
-  付けた打ち方と付け忘れた打ち方を見分けられない）。
+  どのトークンがどこへ届くかは docs/architecture/tech-stack.md「秘密の値とトークン」が持つ。Claude は置き場へ hidakagit-bot の
+  トークンでだけ書き、hidakagit のトークンで書かない（開発機の対話のセッションでは、同じ値をユーザー環境変数 `FLOW_BOT_TOKEN` に持つ）。
+  `CODE_TOKEN` はコードのリポジトリにだけ届き、置き場に届かない。担当のワークフローは gh の既定（`GH_TOKEN`）に `CODE_TOKEN` を
+  置くので、gh で置き場を打つときは、読むときも `GH_TOKEN=$FLOW_BOT_TOKEN` を付ける（担当は付け忘れると断られる。開発機の対話の
+  セッションは gh の既定が hidakagit で、付け忘れると hidakagit の名義で書かれうるので、必ず付ける）。名義の誤りを止めるのはこのトークンの範囲だけ（gh はトークンをホストごとにしか選べず、権限の拒否の
+  規則は先頭の変数の代入を越えて当たるので、付けた打ち方と付け忘れた打ち方を見分けられない）。
 - **止める**: Actions の画面で Claude Dispatch を無効にする（Disable workflow）。動いている見回りは次の1回で無効と読み、状況の更新に
   止めていると書いて、振り出さずに終える（次の見回りも起こさない）。戻すときは Enable workflow のあと Run workflow。
   利用の上限で後始末が止めた時刻（変数 `coordinator.pauseVariable`）を早く解くなら、コードのリポジトリの Settings → Secrets and
@@ -194,7 +191,11 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 
 **自動で進めないもの**: 本番 DB へ書く・本番のデータや設定を消す・取り消せない操作は、担当がしない（本番の接続情報も持たない）。
 要るときは、書く中身（打つスクリプト・対象・前後に読んで比べるもの）を作業ブランチか issue のコメントに置き、「開発機が要る」の
-とおり返す。開発機の対話のセッションが.claude/skills/dev-session/SKILL.md「本番へ書く」のとおり進める。ユーザーに打たせる問いにしない。
+とおり返す。開発機の対話のセッションが.claude/skills/dev-session/SKILL.md「本番へ書く」のとおり進める（完全に消す操作をユーザーが打つのも、
+その節のとおり開発機の対話のセッションのチャットで渡す）。ユーザーに打たせる問いにしない。
+マージの前に済ませる本番への書き込み（コードが新しく読む表を作る等。.claude/rules/deployment-sync.md「コミットと同時に揃えるもの」）が
+要る変更は、作る担当が Pull Request を出す前に返す（出すとゲートが検証中へ動かし、確かめる担当がマージする）。作ったコードは作業ブランチへ
+push し、書く中身はそのコードから出す。書き込みが済んでラベルが外れると、次の作る担当が作業ブランチから続けて Pull Request を出す。
 Claude が持たない権限の操作（クラウドの画面・外部サービスの登録・GitHub のリポジトリの設定やトークン）だけは、`ask.js` で問う。
 問いの文の頭に「PC での操作:」と書き、判断材料に手順と確かめ方を書く。
 済んだら次のステータスを未着手に、できなければ補足に理由を、と判断材料に書く。未着手で答えが来たら、Claude が確かめ方のとおりに

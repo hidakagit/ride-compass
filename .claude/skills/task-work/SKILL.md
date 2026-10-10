@@ -9,7 +9,7 @@ description: "タスクを作る担当・確かめる担当として進める手
 報告をして終える。次の担当を起こすのは振り出しなので、担当は触れない。
 
 **範囲の外の気づき**: 作業の中で見つけた、今のタスクの範囲の外のもの（流れの改善点に限らず、製品のコード・文書・テストの誤りや
-残骸も。[fixing.md](../../rules/fixing.md)「人が見るしかないもの」の2）は、報告に書くだけで終えない。
+残骸も）は、報告に書くだけで終えない。
 1件ずつ、次のどれかをしてから終える。今の差分で直せるものは直す（.claude/skills/file-issue/SKILL.md「改善を起票する」）。
 1. 寄せる: 直す場所が同じ開いた issue（探し方は.claude/skills/file-issue/SKILL.md「前後関係と組」の「探す」）があれば、そこへコメントで書く（.claude/skills/file-issue/SKILL.md「改善を起票する」の「重ねない」）。
 2. 起こす: 無ければ、.claude/skills/file-issue/SKILL.md「改善を起票する」の「書き方」のとおり起票する（種類は気づきの性質で選ぶ）。
@@ -59,8 +59,12 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      `scripts/deploy_backend_gate.py: DEPLOY_PATHS` に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>`
      が 0 で終われば出ている（本番の commit が手元に無ければ先に `git fetch origin`）。
      出ていなければ、master の CI の一番新しい実行（`gh run list -R hidakagit/ride-compass --workflow ci.yml --branch master --limit 1 --json databaseId,headSha`）を
-     作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。マージのコミットを含む実行（`headSha` がマージのコミットかその後の版）が
-     終わっても出ていなければ（失敗・取り消し）、問わずに、上の時間を待つ残りと同じく着手可能日を翌日にして終える。
+     作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。まだ出ていなければ、同じ `gh run list` で一番新しい
+     実行を引き直し、待った実行と違えばそれを同じく待って見直す（master の CI は待ちを一番新しい1件だけにし、新しい実行が来ると古い待ちを
+     取り消す。`.github/workflows/ci.yml` の `concurrency`）。待ち直す回数に上限は置かない（押されて取り消された待ちには、押した新しい実行が
+     必ずあり、master へのコミットが止まれば終わる。外の上限は担当のジョブの持ち時間）。
+     マージのコミットを含む実行（`headSha` がマージのコミットかその後の版）のうち一番新しいものが終わっても出ておらず（失敗・取り消し）、
+     それより新しい実行が無いときだけ、問わずに、上の時間を待つ残りと同じく着手可能日を翌日にして終える。
      出たら、判断材料にユーザーが見る版を書く。frontend に届く変更は「画面右上のメニュー（︙）の『バージョン表示』の版が <見た時点の
      本番の `commit` の頭8文字> なら修正を含む版。違えば、それより後の版が出ていて、それも修正を含む」、backend にだけ届く変更は
      開く URL と見た時点の `started_at`（「`started_at` がこの時刻以降なら修正を含む版」）。
@@ -78,7 +82,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    コードのリポジトリの規則で断られるので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
    Pull Request の実行だけを待つ（作業ブランチへの push で走るかは .claude/skills/run-checks/SKILL.md「検査の置き場（手元・作業ブランチのCI・masterのCI）」）。
-5. コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
+5. マージの前に済ませる本番への書き込みが要り、まだ済んでいなければ、出さずに `docs/conventions/flow.md`「担当」の「自動で進めないもの」のとおり返す。
+   コードのリポジトリに Pull Request を出す（`gh pr create --base master --head orch/tasks-<番号>`。
    hidakagit の名義で打つ。担当は gh の既定（`GH_TOKEN`）が `CODE_TOKEN`
    （`docs/conventions/flow.md`「担当」の「名義」）、開発機の対話のセッションは gh のログインのままでよい）。
    題名と本文は、そのまま master のコミットになる（`docs/conventions/flow.md`「コミット」）。本文は `.github/pull_request_template.md`
@@ -125,22 +130,24 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    .claude/skills/run-checks/SKILL.md「手元の検査の回し方」で、この失敗の再現はその1。直し方は .claude/rules/testing.md「テストが落ちたときの直し方」）、4 から続ける。
    取り消し（`cancelled`）で終わったチェックも「落ちたら」と同じに扱う。master を取り込んでも直すものが無ければ（GitHub Actions の
    障害でランナーが付かなかった等）、`gh run rerun <id> --failed -R hidakagit/ride-compass` で流し直して `gh run watch` から待ち直す。
+   `backend/app` を変えたときは、必須でないワークフロー Mutation PR（`.github/workflows/mutation-pr.yml`）も走り、変えた関数の変異のうち
+   テストが気づかないもの（生き残り）を、変えた行への注記（`gh run view <id> -R hidakagit/ride-compass` の ANNOTATIONS）と実行の要約に出す。
+   これも終わるまで待って読み、生き残りのうち利用者や運用に見える振る舞いが変わるものは、それを落とすテストを足して 4 から続ける
+   （足すかの判断は .claude/rules/testing.md「そのテストは要るか」）。足さないもの（振る舞いが変わらない書き換え・テストで確かめない
+   約束）と、変わったのにどのテストも通らない関数は、Pull Request の本文の検証に1件1行で理由を書く。
 6. issue の本文を直し（経緯・完了の条件のチェック。マージのあとでないとできない条件だけをチェックの無いまま残す）、
    Pull Request へのリンクをコメントに書いて報告する。Pull Request を出すと、ゲートが検証中へ動かし、確かめる担当に渡る。
 
 **Pull Request のあと**（ゲートが、コードのリポジトリの Webhook から届く Pull Request の出来事で動かす）
-- コードのリポジトリは、master に入れる前に必須チェック（`ci.yml` の `ci-ok`・Docs Consistency・Claude Gate の `flow-gate` 等）が Pull Request で通ることを
+- コードのリポジトリは、master に入れる前に必須チェック（名前は docs/architecture/tech-stack.md「CIの実行枠（リポジトリがpublicである間の前提）」）が Pull Request で通ることを
   求める（ルールセット。管理者にも効く）。最新の master の取り込みは求めない。それぞれ通った Pull Request の組み合わせで壊れたものは
   master の CI が捕まえ、通るまで本番へは出ない（`ci.yml` の `deploy-backend`・`deploy-frontend`）。落ちた知らせは GitHub の通知（Actions の失敗）で
   hidakagit に届き、直すのは普通のタスクにする。
-- 開いた（開き直された） → 進行中なら検証中。ほかの状態なら何もしない
-- マージされずに閉じた → 未着手（閉じたときのコメントを作る担当が読んでやり直す）。master と競合して Merge が押せない
-  ときも、確かめる人が「競合」と書いて閉じる
-- マージされた → 残り（チェックの無い完了の条件）が無ければ完了（completed）、あれば残りを書いて未着手（作る担当が残りを済ませる）。
-  残りがユーザーの確かめの行だけなら、確かめる担当がマージした同じ回で、本番に出てから問いを置いて回答待ちにする（下の 3）
+- Pull Request の出来事ごとのステータスの行き先は `tools/flow-gate/src/gate.js: Gate.pullRequest` が持つ（読み方は
+  `docs/conventions/flow.md`「ステータスと割り当て」）。
 - Pull Request を閉じた・マージしたのに検証中のまま止まったら、先に `gh pr view <番号> -R hidakagit/ride-compass --json state` で
   Pull Request の状態を見る。`OPEN` なら閉じる・マージする操作そのものが通っていないので、打ち直す（確かめる担当の4・5）。
-  `CLOSED`・`MERGED` なのにステータスが動かないときは、ゲートが出来事を受け損ねたので、Claude が上の行き先へ動かす（閉じたなら
+  `CLOSED`・`MERGED` なのにステータスが動かないときは、ゲートが出来事を受け損ねたので、Claude がゲートの行き先へ動かす（閉じたなら
   `move.js <番号> 未着手 <理由>`、マージなら残りが無ければ `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed`、
   あれば `move.js <番号> 未着手 <理由>`）。検証中のまま残ったタスクは確かめる担当へ振り出されるので、確かめる担当が1でこれに当たる。
 - Pull Request を開いたのに検証中へ入らなかったら（ゲートが開いた出来事を受け損ねた）、作る担当の実行が終わるときに後始末が
@@ -163,15 +170,19 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    「消えた」制約に本文の処置が無ければ満たしていない。
    確かめるのは、完了の条件と、変更が届く利用者に見える結果（画面・API の応答・テストが見る振る舞い）を先にする。
    **書き込みのある道具を流す**: 本物の GitHub へ書く道具（`tools/flow-gate/bin/`）の振る舞いは、写しを作って書き込みを差し替えずに、
-   道具の試しの形で流す。後始末は `node tools/flow-gate/bin/after.js --dry-run <issue の番号> <作る|確かめる> <実行のファイル> <実行の URL> <ジョブの結果>`
-   （実行のファイルは、確かめたい終わり方の発言の並び（例: 利用の上限の `error` を持つ発言）を作業ツリーの外に書いて渡す）、振り出しは
-   `node tools/flow-gate/bin/dispatch.js --dry-run`。どちらも本物の状態を読み、止める時刻・動かす遷移・書くはずのコメントを「（試し）」と
-   出すだけで書かない。書く呼び出しそのもの（リポジトリの変数の PATCH・POST 等）は、試しの形では通らないのでコードを読んで見る。
+   道具の試しの形（`--dry-run`）で流す。試しを持つ道具は使い方の1行に `[--dry-run]` を書いてあり、持たない道具は `--dry-run` を断って
+   何もせずに終える（`tools/flow-gate/bin/cli.js: args`）。後始末（`after.js`）の実行のファイルは、確かめたい終わり方の発言の並び
+   （例: 利用の上限の `error` を持つ発言）を作業ツリーの外に書いて渡す。試しは本物の状態を読み、止める時刻・動かす遷移・書くはずの
+   コメントを「（試し）」と出すだけで書かない。試しを持たない道具と、書く呼び出しそのもの（リポジトリの変数の PATCH・POST 等）は、
+   試しの形では通らないのでコードを読んで見る。
 2. 確かめた結果を、満たしていてもいなくても issue にコメントで書く（見出し「確かめた結果」）。完了の条件の1件ごとに、
    何をどう見て（実行したコマンド・開いた画面）何が出たかを書き、撮った画面は Pull Request へ `attach.js` で貼る
    （貼り方と貼れないときの扱い・添える説明の中の本番の宛先は、作る担当の5と同じ）。
 3. ユーザーが見るべきだと判断したら（利用者から見える振る舞い・モジュールの設計が変わる等）、完了の条件に確かめてもらう行
-   （`- [ ] ユーザーが確かめる: …`）を足し、理由を書く。マージは確認を待たない。
+   （`- [ ] ユーザーが確かめる: …`）を足し、理由を書く。マージは確認を待たない。ただし issue の答えがマージの前にユーザーの確認を
+   求めていて、その確認の答えがまだ無ければ、マージせずに確認を `ask.js` で問い、Pull Request は開いたまま残す（答えの範囲を
+   広げて読まない。.claude/skills/ask/SKILL.md「答え」）。未着手で答えが返ると、作る担当が開いたままの Pull Request を検証中へ入れ
+   （「Pull Request のあと」）、次の確かめる担当がマージする。
    マージしたあと、残りがユーザーの確かめの行だけなら、同じ回で `ask.js` で問う（作る担当を起こし直さない）。本番の実物で
    確かめてほしいときは、作る担当の3の「本番に出てから問う」のとおり、本番に出てから判断材料に版を書いて問う。
    残りが開発機にしか無いもの（`docs/conventions/flow.md`「担当」の「開発機が要る」）で確かめる行だけなら、マージの前に issue にラベル「開発機が要る」を
