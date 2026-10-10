@@ -57,13 +57,10 @@ GROUP BY r.osm_way_id, r.segment_index, (vc).value
 """
 
 
-def _landcover_columns() -> list[tuple[str, str]]:
-    """(割合の項目名, 表の列名) の対応。"""
-    return [(name, "lc_" + landcover_key(name)) for name, _ in PERCENT_CLASSES]
+#: (割合の項目名, 表の列名) の対応。
+_LANDCOVER_COLUMNS = [(name, "lc_" + landcover_key(name)) for name, _ in PERCENT_CLASSES]
 
-
-def _value_columns() -> list[str]:
-    return ["lc_valid_pixels", *(column for _, column in _landcover_columns())]
+_VALUE_COLUMNS = ["lc_valid_pixels", *(column for _, column in _LANDCOVER_COLUMNS)]
 
 
 def _reused_edges_sql(previous: str | None) -> str:
@@ -81,29 +78,27 @@ FROM road_edges e JOIN {previous}.road_edges p
 
 def _copy_reused_sql(previous: str) -> str:
     """前回の値を写す。前回に値の無かった区間は前回の表に行が無く、今回も行を持たない。"""
-    columns = ", ".join(_value_columns())
     return f"""
-INSERT INTO edge_landcover (osm_way_id, segment_index, {columns})
-SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in _value_columns())}
+INSERT INTO edge_landcover (osm_way_id, segment_index, {", ".join(_VALUE_COLUMNS)})
+SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in _VALUE_COLUMNS)}
 FROM _reused r JOIN {previous}.edge_landcover p
   ON p.osm_way_id = r.osm_way_id AND p.segment_index = r.segment_index
 """
 
 
-def _insert_landcover_sql() -> str:
-    return f"""
-INSERT INTO edge_landcover (osm_way_id, segment_index, {", ".join(_value_columns())})
-SELECT osm_way_id, segment_index, valid_pixels, {", ".join(f"p.{name}" for name, _ in _landcover_columns())}
+_INSERT_LANDCOVER = f"""
+INSERT INTO edge_landcover (osm_way_id, segment_index, {", ".join(_VALUE_COLUMNS)})
+SELECT osm_way_id, segment_index, valid_pixels, {", ".join(f"p.{name}" for name, _ in _LANDCOVER_COLUMNS)}
 FROM ({class_percentages_sql(_COUNT_CLASSES)}) p
 """
 
 
-async def _derive_edges(conn: asyncpg.Connection, previous: str | None) -> int:
+async def _derive_edges(conn: asyncpg.Connection, previous: str | None) -> None:
     started = time.perf_counter()
     tiles = await conn.fetchval(f"SELECT count(*) FROM {LANDCOVER_TILES_SQL} t")
     if not tiles:
         logger.warning("土地被覆タイルが1枚も取り込まれていません")
-        return 0
+        return
 
     edges = await conn.fetchval("SELECT count(*) FROM road_edges")
     await conn.execute(_reused_edges_sql(previous))
@@ -116,11 +111,10 @@ async def _derive_edges(conn: asyncpg.Connection, previous: str | None) -> int:
     await conn.execute("ANALYZE _rings")
     logger.info("土地被覆: 帯 %d本を作った。重なる画素を数える",
                 await conn.fetchval("SELECT count(*) FROM _rings"))
-    updated = int((await conn.execute(_insert_landcover_sql())).split()[-1])
+    updated = int((await conn.execute(_INSERT_LANDCOVER)).split()[-1])
 
     logger.info("土地被覆: 数えた区間 %d/%d本に値が付いた / タイル %d枚 / %.1f秒",
                 updated, edges - reused, tiles, time.perf_counter() - started)
-    return updated
 
 
 # --- 道への集約 -------------------------------------------------------------
@@ -128,7 +122,7 @@ async def _derive_edges(conn: asyncpg.Connection, previous: str | None) -> int:
 
 def _way_rollup_sql() -> str:
     """道の値は区間から導く。長さで重み付けた平均にするのは、どちらも割合のため。"""
-    columns = [column for _, column in _landcover_columns()]
+    columns = [column for _, column in _LANDCOVER_COLUMNS]
     # 割合を持つ区間が1本も無い道は集約に出ず、行を持たない。倍精度で平均してからREALの列へ入れる——REALのまま足すと
     # 丸めで100をわずかに超え、表の制約に断られる。
     averaged = ", ".join(
