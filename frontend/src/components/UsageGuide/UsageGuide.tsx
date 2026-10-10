@@ -7,7 +7,13 @@ import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { cn } from "@/lib/cn";
-import { USAGE_GUIDE_ATTRIBUTE, isUnselectedTab, usageTargetOf, type UsageTarget } from "./usageTarget";
+import {
+  USAGE_GUIDE_ATTRIBUTE,
+  isInUsageGuide,
+  isUnselectedTab,
+  usageTargetOf,
+  type UsageTarget,
+} from "./usageTarget";
 
 /** 押してから離すまでにこれ以上動いたら、押したのではなく動かした（なぞった・スクロールした）とみなす。 */
 const TAP_SLOP_PX = 10;
@@ -22,10 +28,6 @@ const TOUCH_EVENTS = ["touchstart", "touchmove", "touchend"] as const;
 interface UsageGuideProps {
   /** 説明を見る状態を終える（「やめる」・Escのときだけ）。 */
   onEnd: () => void;
-}
-
-function isInGuide(event: Event): boolean {
-  return event.target instanceof Element && event.target.closest(`[${USAGE_GUIDE_ATTRIBUTE}]`) !== null;
 }
 
 /** 止めている押し操作の外で、部品を押す（開くボタンで浮きパネルを開く、タブを切り替える）。押す間は`passing`を立てる。 */
@@ -65,14 +67,14 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       setTarget(element ? usageTargetOf(element) : null);
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (isInGuide(event)) return;
+      if (isInUsageGuide(event.target)) return;
       down = { x: event.clientX ?? 0, y: event.clientY ?? 0 };
       event.stopPropagation();
       event.preventDefault();
     };
     // 押せない（disabled）ボタンにはclickが届かないため、離したときに決める。
     const onPointerUp = (event: PointerEvent) => {
-      if (isInGuide(event)) return;
+      if (isInUsageGuide(event.target)) return;
       event.stopPropagation();
       const start = down;
       down = null;
@@ -84,12 +86,12 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       down = null;
     };
     const stopMouse = (event: Event) => {
-      if (passing.current || isInGuide(event)) return;
+      if (passing.current || isInUsageGuide(event.target)) return;
       event.stopPropagation();
       event.preventDefault();
     };
     const stopTouch = (event: Event) => {
-      if (isInGuide(event)) return;
+      if (isInUsageGuide(event.target)) return;
       event.stopPropagation();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -99,7 +101,7 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
         onEndRef.current();
         return;
       }
-      if (isInGuide(event)) return;
+      if (isInUsageGuide(event.target)) return;
       if (event.key === "Enter" || event.key === " ") {
         event.stopPropagation();
         event.preventDefault();
@@ -110,26 +112,32 @@ export default function UsageGuide({ onEnd }: UsageGuideProps) {
       }
     };
 
-    window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("pointerup", onPointerUp, true);
-    window.addEventListener("pointercancel", onPointerCancel, true);
-    window.addEventListener("keydown", onKeyDown, true);
-    for (const type of MOUSE_EVENTS) window.addEventListener(type, stopMouse, true);
-    for (const type of TOUCH_EVENTS) window.addEventListener(type, stopTouch, true);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("pointerup", onPointerUp, true);
-      window.removeEventListener("pointercancel", onPointerCancel, true);
-      window.removeEventListener("keydown", onKeyDown, true);
-      for (const type of MOUSE_EVENTS) window.removeEventListener(type, stopMouse, true);
-      for (const type of TOUCH_EVENTS) window.removeEventListener(type, stopTouch, true);
-    };
+    const listening = new AbortController();
+    const options = { capture: true, signal: listening.signal };
+    window.addEventListener("pointerdown", onPointerDown, options);
+    window.addEventListener("pointerup", onPointerUp, options);
+    window.addEventListener("pointercancel", onPointerCancel, options);
+    window.addEventListener("keydown", onKeyDown, options);
+    for (const type of MOUSE_EVENTS) window.addEventListener(type, stopMouse, options);
+    for (const type of TOUCH_EVENTS) window.addEventListener(type, stopTouch, options);
+    return () => listening.abort();
   }, []);
 
   // 説明している部品を枠で示す。下部シートの中をスクロールしても部品に付いていくよう、測り直す。
   useEffect(() => {
     if (target === null) return;
-    const measure = () => setHighlight(target.element.getBoundingClientRect());
+    const measure = () => {
+      const next = target.element.getBoundingClientRect();
+      setHighlight((current) =>
+        current !== null &&
+        current.left === next.left &&
+        current.top === next.top &&
+        current.width === next.width &&
+        current.height === next.height
+          ? current
+          : next,
+      );
+    };
     measure();
     window.addEventListener("scroll", measure, true);
     window.addEventListener("resize", measure);
