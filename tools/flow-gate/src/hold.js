@@ -3,9 +3,14 @@
 import { readActive, runOf } from "./dispatch.js";
 import { again } from "./github.js";
 
-// その番号の種類「開発機」の終わっていない実行（GitHub の実行の形のまま）。
-const holds = async (gh, config, number) => (await readActive((path) => gh.rest("GET", path), config))
-  .filter((r) => { const [n, kind] = runOf(r.display_title); return Number(n) === Number(number) && kind === "開発機"; });
+// 実行（GitHub の実行の形のまま）が、その番号の種類「開発機」のものか。
+const isHold = (run, number) => {
+  const [n, kind] = runOf(run.display_title);
+  return Number(n) === Number(number) && kind === "開発機";
+};
+
+// その番号の種類「開発機」の終わっていない実行。
+const holds = async (gh, config, number) => (await readActive((path) => gh.rest("GET", path), config)).filter((r) => isHold(r, number));
 
 // 動いている種類「開発機」の実行があれば、それを held で返す（誰の実行かは道具には分からないので、どうするかは打った者が決める）。
 // 無ければ持つ実行を mine で返す: 待っている種類「開発機」の実行があれば、前に打って落ちたときに起こしたものとみて、起こし直さずに
@@ -36,8 +41,7 @@ export async function hold(gh, config, number, wait) {
 // （src/dispatch.js: ready）。
 export async function release(gh, config, number, id) {
   const path = `/repos/${config.code.repository}/actions/runs/${id}`;
-  const [n, kind] = runOf((await gh.rest("GET", path)).display_title);
-  if (Number(n) !== Number(number) || kind !== "開発機") throw new Error(`実行 ${id} は #${number} の種類「開発機」の実行ではない`);
+  if (!isHold(await gh.rest("GET", path), number)) throw new Error(`実行 ${id} は #${number} の種類「開発機」の実行ではない`);
   return again(true, async () => {
     const run = await gh.rest("GET", path);
     if (run.status !== "completed") await gh.rest("POST", `${path}/cancel`);
