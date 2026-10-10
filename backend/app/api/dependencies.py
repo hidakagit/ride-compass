@@ -11,7 +11,7 @@ MSMの同期）だけは`main.py`が組み立てる。
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import AsyncIterator, Protocol
 
-from cachetools import LRUCache
+from cachetools import LRUCache, TTLCache
 from fastapi import Depends
 
 from app.config import settings
@@ -33,7 +33,7 @@ from app.infrastructure.place_area_query import PlaceAreaQuery
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.stop_place_search import StopPlaceSearchQuery
 from app.infrastructure.wbgt_client import new_forecast_cache, new_point_master_cache
-from app.services.axis_preview_service import AxisPreviewService
+from app.services.axis_preview_service import AxisPreviewService, new_sample_cache
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.db_status_service import DbStatusService
 from app.services.dedicated_way_values import (
@@ -141,11 +141,19 @@ def get_route_generation_setup_opener() -> RouteGenerationSetupOpener:
     return _open_route_generation_setup
 
 
-async def get_axis_preview_service():
+#: 軸スタジオの分布の標本。サービスはリクエストごとに作られるため、プロセスの側で持つ。
+_axis_preview_sample_cache = new_sample_cache()
+
+
+def get_axis_preview_sample_cache() -> TTLCache:
+    return _axis_preview_sample_cache
+
+
+async def get_axis_preview_service(sample_cache: TTLCache = Depends(get_axis_preview_sample_cache)):
     """軸スタジオの実データの読み出し。全表走査寄りのため、タイル配信保護用の短いcommand_timeoutで
     キャンセルされないようルート生成用のセッション工場を使う。"""
     async with get_route_generation_session_factory()() as session:
-        yield AxisPreviewService(RoadGraphRepository(session))
+        yield AxisPreviewService(RoadGraphRepository(session), sample_cache)
 
 
 @asynccontextmanager

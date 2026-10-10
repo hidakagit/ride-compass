@@ -10,7 +10,6 @@ DBに繋がらない状態は、本物のアプリのセッション工場を接
 """
 
 import pytest
-from cachetools import TTLCache
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -24,7 +23,7 @@ from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.tuning import TUNING_PARAMETERS
 from app.main import app
-from app.services import axis_preview_service
+from app.services.axis_preview_service import new_sample_cache
 from tests.admin_auth import AUTH_HEADERS
 
 UNREACHABLE_DATABASE_URL = "postgresql+asyncpg://ridecompass:ridecompass@127.0.0.1:1/ridecompass"
@@ -95,7 +94,7 @@ def database_down(monkeypatch):
     for name in ("get_session_factory", "get_route_generation_session_factory"):
         monkeypatch.setattr(dependencies, name, lambda: async_sessionmaker(engine))
     # 分布の標本は一度読むとプロセスに持つため、読んでいない状態から始める。
-    monkeypatch.setattr(axis_preview_service, "_sample_cache", TTLCache(maxsize=1, ttl=60))
+    monkeypatch.setitem(app.dependency_overrides, dependencies.get_axis_preview_sample_cache, new_sample_cache)
 
 
 # debug_modeの切替の口も本物で叩くため、切り替えた状態を後のテストへ残さない。

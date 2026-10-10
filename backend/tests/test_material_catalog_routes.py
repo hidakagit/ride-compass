@@ -21,7 +21,7 @@ from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
 from app.domain.value_distribution import EMPTY_SPREAD, ValueSpread
-from app.services.axis_preview_service import AxisPreviewService
+from app.services.axis_preview_service import AxisPreviewService, new_sample_cache
 from app.services.material_coverage_service import build_material_coverage_report
 from tests.admin_auth import AUTH_HEADERS
 
@@ -67,7 +67,7 @@ def values_url(material_id: str) -> str:
 
 
 def test_get_material_values_returns_each_value_with_its_label(admin_credentials, preview):
-    preview(AxisPreviewService(FakeRepositoryForMaterialValues(values=["cycleway"])))
+    preview(AxisPreviewService(FakeRepositoryForMaterialValues(values=["cycleway"]), new_sample_cache()))
 
     response = client.get(values_url("highway"), headers=AUTH_HEADERS)
 
@@ -78,7 +78,7 @@ def test_get_material_values_returns_each_value_with_its_label(admin_credentials
 
 
 def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials, preview):
-    preview(AxisPreviewService(FakeRepositoryForMaterialValues(error=ConnectionRefusedError("db down"))))
+    preview(AxisPreviewService(FakeRepositoryForMaterialValues(error=ConnectionRefusedError("db down")), new_sample_cache()))
 
     response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)
 
