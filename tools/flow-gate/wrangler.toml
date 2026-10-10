@@ -7,7 +7,11 @@ compatibility_date = "2026-09-01"
 workers_dev = true
 # 問いの形（question_template.md）を src/index.js が文字列として読む。
 rules = [{ type = "Text", globs = ["**/question_template.md"], fallthrough = true }]
+# 定時の突き合わせ（src/index.js: scheduled）。時刻は UTC。回答フォームの Worker には置かない。
+[triggers]
+crons = ["*/15 * * * *"]
 
 [env.form]
 name = "ride-compass-answer"
 workers_dev = true
+triggers = { crons = [] }
