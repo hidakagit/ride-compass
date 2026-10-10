@@ -21,6 +21,12 @@ export function toggleHiddenKey(store: HiddenLegendKeys, axisId: string, key: st
   return withHiddenKeys(store, axisId, current.includes(key) ? current.filter((k) => k !== key) : [...current, key]);
 }
 
+/** 凡例の全段をまとめて切り替えたあとの隠す段。1つのチェックで両方向を兼ねる（全部表示中なら全部隠し、1つでも
+ * 隠れていれば全部出す）。 */
+export function hiddenAfterToggleAll(legend: readonly { key: string }[], hidden: readonly string[]): string[] {
+  return hidden.length === 0 ? legend.map((entry) => entry.key) : [];
+}
+
 /** いま描いている凡例に実在する鍵だけ。保存先は段の綴りや段数が変わる前の値も持ちうるため、
  * 保存値の長さをそのまま使うと、隠れた段が無いのに絞り込み中に見える。 */
 export function presentHiddenKeys(legend: readonly { key: string }[], hidden: readonly string[]): readonly string[] {

@@ -30,8 +30,7 @@ function legendSwatchStyle(entry: LegendEntry): CSSProperties {
   return { background, width: entry.diameterPx, height: entry.diameterPx };
 }
 
-// 凡例をチェックボックス一覧として描画する共通部品（MapOverlayControls.tsx・
-// LensControl.tsxで共用）。行の中身（チェックボックス+スウォッチ+ラベルと、行の説明の（i）は`LegendRow`）
+// 凡例をチェックボックス一覧として描画する共通部品。行の中身（チェックボックス+スウォッチ+ラベルと、行の説明の（i）は`LegendRow`）
 // だけを担い、リスト/行自体の見た目
 // （レンズの一覧か、▶パネル内の単列か等）は呼び出し側がclassNameで
 // 指定する——文脈で項目数・レイアウトが異なるため。

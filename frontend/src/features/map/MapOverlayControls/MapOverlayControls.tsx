@@ -18,6 +18,7 @@ import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } fr
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import LegendRow, { DescriptionToggle, RowDescription } from "@/features/map/LegendCheckboxList/LegendRow";
 import { PointIconSwatch } from "@/features/map/layers/pointIcon";
+import { hiddenAfterToggleAll } from "@/features/map/view/legendFilters";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import {
   ChooseItemsIcon,
@@ -153,65 +154,60 @@ function LegendDetails({
       className="flex flex-col gap-2"
       data-usage="チェックを外した段階は、地図から隠れます。見出しのチェックで、その全部をまとめて切り替えます。"
     >
-      {axes.map((axis, axisIndex) => (
-        <div key={axis.axisId ?? axisIndex} className="flex flex-col gap-1">
-          {axis.axisId ? (
-            // 1つのチェックボックスで両方向を兼ねる（全部表示中なら全部隠す、1つでも隠れていれば全部出す）。
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <Checkbox
-                checked={axis.hiddenKeys.length === 0}
-                onCheckedChange={() =>
-                  onAxisSetHidden(
-                    axis.axisId!,
-                    axis.hiddenKeys.length === 0 ? axis.legend.map((entry) => entry.key) : [],
-                  )
-                }
-                aria-label={axis.label ? `${axis.label}をまとめて表示/非表示` : "凡例の全段階をまとめて表示/非表示"}
+      {axes.map(({ axisId, ...axis }, axisIndex) => (
+        <div key={axisId ?? axisIndex} className="flex flex-col gap-1">
+          {axisId ? (
+            <>
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <Checkbox
+                  checked={axis.hiddenKeys.length === 0}
+                  onCheckedChange={() => onAxisSetHidden(axisId, hiddenAfterToggleAll(axis.legend, axis.hiddenKeys))}
+                  aria-label={axis.label ? `${axis.label}をまとめて表示/非表示` : "凡例の全段階をまとめて表示/非表示"}
+                />
+                <span className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
+                  {/* 軸の名前が無いのは、軸が1本だけでチップ名で足りる凡例（道の線）。地図の色分けと同じ名前にする。 */}
+                  {axis.label || "凡例"}
+                </span>
+              </label>
+              <LegendCheckboxList
+                legend={axis.legend}
+                hiddenKeys={axis.hiddenKeys}
+                onToggle={(key) => onEntryToggle(axisId, key)}
+                listClassName="m-0 flex list-none flex-col gap-0.5 p-0"
+                rowClassName="flex items-center gap-1.5 text-[length:var(--font-size-sm)]"
+                rowFallbackClassName={FALLBACK_ROW_CLASS}
+                renderSwatch={renderSwatch}
               />
-              <span className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
-                {/* 軸の名前が無いのはルートの凡例。地図の色分けの凡例と同じ状態なので、同じ名前にする。 */}
-                {axis.label || "凡例"}
-              </span>
-            </label>
+            </>
           ) : (
-            axis.label && (
-              <div className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
-                {axis.label}
-              </div>
-            )
-          )}
-          {axis.axisId ? (
-            <LegendCheckboxList
-              legend={axis.legend}
-              hiddenKeys={axis.hiddenKeys}
-              onToggle={(key) => onEntryToggle(axis.axisId!, key)}
-              listClassName="m-0 flex list-none flex-col gap-0.5 p-0"
-              rowClassName="flex items-center gap-1.5 text-[length:var(--font-size-sm)]"
-              rowFallbackClassName={FALLBACK_ROW_CLASS}
-              renderSwatch={renderSwatch}
-            />
-          ) : (
-            <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
-              {axis.legend.map((entry) => {
-                const hidden = axis.hiddenKeys.includes(entry.key);
-                return (
-                  <li key={entry.key} className={cn(entry.isFallback && FALLBACK_ROW_CLASS)}>
-                    <LegendRow entry={entry}>
-                      <div
-                        className={cn(
-                          "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
-                          hidden && "opacity-50",
-                        )}
-                      >
-                        {renderSwatch(entry)}
-                        <span className="min-w-0 flex-1">{entry.label}</span>
-                        {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
-                      </div>
-                    </LegendRow>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              {axis.label && (
+                <div className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
+                  {axis.label}
+                </div>
+              )}
+              <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+                {axis.legend.map((entry) => {
+                  const hidden = axis.hiddenKeys.includes(entry.key);
+                  return (
+                    <li key={entry.key} className={cn(entry.isFallback && FALLBACK_ROW_CLASS)}>
+                      <LegendRow entry={entry}>
+                        <div
+                          className={cn(
+                            "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
+                            hidden && "opacity-50",
+                          )}
+                        >
+                          {renderSwatch(entry)}
+                          <span className="min-w-0 flex-1">{entry.label}</span>
+                          {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
+                        </div>
+                      </LegendRow>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </div>
       ))}
@@ -262,7 +258,7 @@ function FilteredMark({ className }: { className?: string }) {
 }
 
 /** ONのレイヤーが凡例の絞り込みで一部を隠しているか。OFFの間は地図に何も出さないため数えない。 */
-function isLegendFiltered(layer: OverlayLayerChip): boolean {
+export function isLegendFiltered(layer: OverlayLayerChip): boolean {
   return layer.on && (layer.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0);
 }
 

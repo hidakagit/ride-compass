@@ -12,7 +12,6 @@
  * 横へ割り付ける（1本なら中央）。線の太さは意味を運ばず、線種が運ぶのは値が無いこと（タグが無い道）だけ
  * ——1本の線へ2つの分類を載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
-import { sceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
@@ -20,7 +19,7 @@ import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { noDataDashExpression } from "@/features/map/scene/sceneBuilders";
+import { noDataDashExpression, sceneSourceId, valueInExpression } from "@/features/map/scene/sceneBuilders";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
@@ -92,14 +91,16 @@ function missingOf(track: RoadTrack): unknown {
 
 /** 道の値が分類のどれかに入るか。 */
 function knownMatch(track: RoadTrack): unknown {
-  const values = roadTrackAxis(track).categories.flatMap((category) => [...category.values]);
-  return ["in", valueOf(track), ["literal", values]];
+  return valueInExpression(
+    valueOf(track),
+    roadTrackAxis(track).categories.flatMap((category) => [...category.values]),
+  );
 }
 
 function colorExpression(track: RoadTrack): unknown[] {
   const value = valueOf(track);
   const cases = roadTrackAxis(track).categories.flatMap((category) => [
-    ["in", value, ["literal", [...category.values]]],
+    valueInExpression(value, category.values),
     category.color,
   ]);
   return ["case", ...cases, palette.semantic.no_data];
@@ -114,7 +115,7 @@ function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpe
   const hidden = roadTrackAxis(track).categories.filter((category) => hiddenKeys.includes(category.key));
   const values = hidden.flatMap((category) => [...category.values]);
   const conditions: unknown[] = [];
-  if (values.length > 0) conditions.push(["!", ["in", valueOf(track), ["literal", values]]]);
+  if (values.length > 0) conditions.push(["!", valueInExpression(valueOf(track), values)]);
   const hasMissing = roadTrackHasMissing(track);
   if (hiddenKeys.includes(ROAD_OTHER_KEY)) {
     const known = knownMatch(track);
@@ -169,7 +170,7 @@ export const roadLineGroup = declareGroup<RoadLineState>((state) => {
       },
       visible: state.visible[track.attr_id] === true,
       hitTargets: [ROAD_LINE_HIT_TARGET],
-      ...(filter === undefined ? {} : { filter }),
+      filter,
     };
   });
 

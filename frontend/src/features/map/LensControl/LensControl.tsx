@@ -3,6 +3,7 @@
 import { Popover, PopoverContent, PopoverTrigger, POPOVER_COLLISION_PADDING_PX } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
+import { hiddenAfterToggleAll } from "@/features/map/view/legendFilters";
 import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, layerDataStatusNotice, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
@@ -66,6 +67,24 @@ const ROUTE_ONLY_BADGE = "ルート後のみ";
 /** 凡例の段の見本（ピルの帯と開いた先の一覧で同じ形）。 */
 const LEGEND_BAR_CLASS = "inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]";
 
+/** 軸の外に固定で並べる色分け。総合難易度はルートの線にだけ色を付ける（周りの道を塗る値を持たない）。 */
+const FIXED_LENS_OPTIONS: readonly LensOption[] = [
+  {
+    id: LENS_NONE_ID,
+    label: FIXED_LENS_LABELS[LENS_NONE_ID],
+    color: LENS_NEUTRAL_COLOR,
+    unused: false,
+    routeOnly: false,
+  },
+  {
+    id: LENS_DIFFICULTY_ID,
+    label: FIXED_LENS_LABELS[LENS_DIFFICULTY_ID],
+    color: LENS_NEUTRAL_COLOR,
+    unused: false,
+    routeOnly: true,
+  },
+];
+
 const GROUP_HEADING_CLASS = cn(textVariants({ variant: "note" }), "basis-full pt-0.5 tracking-wide");
 
 function LensSwatch({ color }: { color: string }) {
@@ -99,35 +118,30 @@ export default function LensControl({
   const [open, setOpen] = useState(false);
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
   const statusNotice = layerDataStatusNotice(dataStatus);
-  const current =
-    FIXED_LENS_LABELS[lens] !== undefined
-      ? { label: FIXED_LENS_LABELS[lens], color: LENS_NEUTRAL_COLOR }
-      : (axisOptions.find((option) => option.id === lens) ?? { label: lens, color: LENS_NEUTRAL_COLOR });
+  const current = [...FIXED_LENS_OPTIONS, ...axisOptions].find((option) => option.id === lens) ?? {
+    label: lens,
+    color: LENS_NEUTRAL_COLOR,
+    routeOnly: false,
+  };
   const used = axisOptions.filter((option) => !option.unused);
   const unused = axisOptions.filter((option) => option.unused);
-  // 総合難易度はルートの線にだけ色を付ける（周りの道を塗る値を持たない）。
   const routeOnlyBadge = (routeOnly: boolean) =>
     routeOnly && !hasDetail ? <Badge variant="warning">{ROUTE_ONLY_BADGE}</Badge> : null;
-  const currentRouteOnly =
-    !hasDetail && (lens === LENS_DIFFICULTY_ID || axisOptions.some((option) => option.id === lens && option.routeOnly));
+  const currentRouteOnly = !hasDetail && current.routeOnly;
 
   const select = (id: LensId) => {
     onLensChange(id);
     setOpen(false);
   };
 
-  function renderOption(id: LensId, label: string, color: string, routeOnly = false) {
+  function renderOption(option: LensOption) {
     return (
-      <ToggleGroupItem key={id} value={id}>
-        <LensSwatch color={color} />
-        {label}
-        {routeOnlyBadge(routeOnly)}
+      <ToggleGroupItem key={option.id} value={option.id}>
+        <LensSwatch color={option.color} />
+        {option.label}
+        {routeOnlyBadge(option.routeOnly)}
       </ToggleGroupItem>
     );
-  }
-
-  function renderAxis(option: LensOption) {
-    return renderOption(option.id, option.label, option.color, option.routeOnly);
   }
 
   return (
@@ -196,12 +210,11 @@ export default function LensControl({
             aria-label={LENS_SCREEN_NAME}
             usage="押した項目で、地図の道路（ルートを作った後はルートの線）を色分けします。"
           >
-            {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
-            {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR, true)}
+            {FIXED_LENS_OPTIONS.map(renderOption)}
             {used.length > 0 && <span className={GROUP_HEADING_CLASS}>評価軸に使用中</span>}
-            {used.map(renderAxis)}
+            {used.map(renderOption)}
             {unused.length > 0 && <span className={GROUP_HEADING_CLASS}>未使用</span>}
-            {unused.map(renderAxis)}
+            {unused.map(renderOption)}
           </ToggleGroup>
           <label
             className={cn(
@@ -238,9 +251,7 @@ export default function LensControl({
               <label className="mb-1 flex cursor-pointer items-center gap-1.5 font-semibold text-[var(--color-muted)]">
                 <Checkbox
                   checked={hiddenLegendKeys.length === 0}
-                  onCheckedChange={() =>
-                    onSetHiddenLegendKeys(hiddenLegendKeys.length === 0 ? legend.map((entry) => entry.key) : [])
-                  }
+                  onCheckedChange={() => onSetHiddenLegendKeys(hiddenAfterToggleAll(legend, hiddenLegendKeys))}
                   aria-label="凡例の全段階をまとめて表示/非表示"
                 />
                 凡例

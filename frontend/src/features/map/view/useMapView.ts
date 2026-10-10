@@ -20,6 +20,7 @@ import {
 import type { LensId } from "@/lib/mapDisplay/routeStyleModes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 import type MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
+import { isLegendFiltered } from "@/features/map/MapOverlayControls/MapOverlayControls";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -50,7 +51,7 @@ import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 /** 凡例のチェックを地図の絞り込みへ反映するまでの遅れ。連続で何行も外す操作を、描き直し
  * 1回へまとめる（チェックの見た目は即座に変わる）。 */
-const LEGEND_FILTER_DEBOUNCE_MS = 400;
+export const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 const ROUTE_LAYER_ID = "route";
 const INITIAL_HIDDEN: HiddenLegendKeys = initiallyHiddenLegendKeys();
@@ -222,9 +223,7 @@ export function useMapView({
         })),
       // 数えるのは地図に出ているもの（色分けと、出しているレイヤー）だけ。出していないレイヤーの最初に隠す行
       // （路面のデータなし等）まで数えると、地図に何も欠けていないのに最初から押せる。
-      anyLegendHidden:
-        lensHidden.length > 0 ||
-        chips.some((chip) => chip.on && (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0)),
+      anyLegendHidden: lensHidden.length > 0 || chips.some(isLegendFiltered),
       onShowAllLegendRows: () => setHidden(NONE_HIDDEN),
     },
     redrawMap: () => setRefreshToken((token) => token + 1),
