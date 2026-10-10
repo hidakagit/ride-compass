@@ -142,6 +142,17 @@ def _definitions_of(existing: Mapping[str, tuple[AxisDefinition, int]]) -> dict[
     return {axis_id: definition for axis_id, (definition, _) in existing.items()}
 
 
+def _checked_after_write(
+    existing: Mapping[str, tuple[AxisDefinition, int]], axis_id: str, definition: AxisDefinition,
+) -> dict[str, AxisDefinition]:
+    """`axis_id`を`definition`で足す・差し替えた後の全軸を、確定してよいかを確かめてから返す。"""
+    existing_definitions = _definitions_of(existing)
+    check_internal_axis_not_published(definition, existing_definitions)
+    after = {**existing_definitions, axis_id: definition}
+    _check_loadable_after_write(after, axis_id)
+    return after
+
+
 class AxisRegistryAdminService:
     """軸定義CRUD管理APIのユースケース層。
 
@@ -172,10 +183,7 @@ class AxisRegistryAdminService:
         existing = await self._repository.list_all_with_sort_order()
         if definition.axis_id in existing:
             raise ValueError(f"axis_id={definition.axis_id} は既に存在します")
-        existing_definitions = _definitions_of(existing)
-        check_internal_axis_not_published(definition, existing_definitions)
-        after = {**existing_definitions, definition.axis_id: definition}
-        _check_loadable_after_write(after, definition.axis_id)
+        after = _checked_after_write(existing, definition.axis_id, definition)
         sort_order = max((order for _, order in existing.values()), default=-1) + 1
         await self._write(definition, sort_order)
         return after
@@ -190,10 +198,7 @@ class AxisRegistryAdminService:
         # 公開済みかどうかは**DB側の既存の状態**で判定する。payloadのis_publishedを見ると、
         # 未公開を装って公開済み軸の更新を通す抜け道になる。
         check_publish_immutability(existing_definition, "updated", definition)
-        existing_definitions = _definitions_of(existing)
-        check_internal_axis_not_published(definition, existing_definitions)
-        after = {**existing_definitions, axis_id: definition}
-        _check_loadable_after_write(after, axis_id)
+        after = _checked_after_write(existing, axis_id, definition)
         await self._write(definition, sort_order)
         return after
 

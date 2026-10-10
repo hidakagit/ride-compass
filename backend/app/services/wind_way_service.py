@@ -42,7 +42,7 @@ class WindWayService:
 
     #: 返す生値の材料id。この材料を参照する軸の配信を担当する。
     material_id = WIND_DRAG_RATIO
-    material_ids = (WIND_DRAG_RATIO,)
+    material_ids = (material_id,)
     conditions_type = WindConditions
     undetermined_by_bearing = False
 
@@ -83,14 +83,13 @@ class WindWayService:
                 log_throttled_warning(_CATEGORY, "風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
                 return {}
 
-            passage_hours = np.zeros(len(keys))
             context = DynamicAxisRequestContext(
                 bearing_deg=np.full(len(keys), conditions.bearing_deg, dtype=float),
                 departure_wind=None,
                 travel_speed_ms=kmh_to_ms(conditions.speed_kmh),
                 wind_series=series,
                 start=target,
-                passage_hours=passage_hours,
+                passage_hours=np.zeros(len(keys)),
                 wind_points=series.lattice.points_of(latitudes, longitudes),
             )
             values = evaluate_dynamic_material_arrays(context)[self.material_id]
