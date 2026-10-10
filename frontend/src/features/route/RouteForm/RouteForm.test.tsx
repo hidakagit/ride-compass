@@ -262,13 +262,13 @@ describe("RouteForm 出発地", () => {
     [true, "現在地", ORIGIN_MARK_COLOR],
     [false, "現在地を取得できていません", ORIGIN_MARK_FALLBACK_COLOR],
   ])(
-    "現在地を取れたか（%s）で名前を「%s」とし、印の色を変え、現在地に戻す操作は出さない",
+    "現在地を取れたか（%s）で名前を「%s」とし、印の色を変え、現在地に戻す操作は押せなくしておく",
     (originLocated, name, color) => {
       renderForm({ originLocated });
 
-      expect(detail("出発地")).toHaveTextContent(`出発地${name}地図で選ぶ`);
+      expect(detail("出発地")).toHaveTextContent(`出発地${name}`);
       expect(originMark()).toHaveStyle({ color });
-      expect(screen.queryByRole("button", { name: "出発地を現在地に戻す" })).not.toBeInTheDocument();
+      expect(button("出発地を現在地に戻す")).toBeDisabled();
     },
   );
 
@@ -460,11 +460,11 @@ describe("RouteForm 経由地", () => {
 });
 
 describe("RouteForm 目的地", () => {
-  it("目的地が無い間は「未設定」と出して消す操作を出さず、押すと目的地を置ける状態を上げる", async () => {
+  it("目的地が無い間は「未設定」と出して消す操作を押せなくしておき、地図で選ぶ操作を押すと目的地を置ける状態を上げる", async () => {
     const { armPinRole } = renderForm({ routeMode: "destination", destination: null });
 
     expect(detail("目的地")).toHaveTextContent("目的地未設定");
-    expect(screen.queryByRole("button", { name: "目的地を消す" })).not.toBeInTheDocument();
+    expect(button("目的地を消す")).toBeDisabled();
 
     await userEvent.click(button("目的地を地図で選ぶ"));
 

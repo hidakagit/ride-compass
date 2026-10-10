@@ -6,6 +6,7 @@ import Disclosure from "@/components/Disclosure/Disclosure";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
 import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
@@ -322,7 +323,13 @@ export default function Home() {
   function renderGenerationOutcomeNote() {
     const { outcome } = generation;
     if (!outcome) return null;
-    if (outcome.kind === "failed") return <ErrorText>{outcome.message}</ErrorText>;
+    if (outcome.kind === "failed") {
+      return (
+        <ErrorText>
+          <GuideText text={outcome.message} />
+        </ErrorText>
+      );
+    }
     return (
       <p role="status" className={textVariants({ variant: "hint" })}>
         {outcome.message}
