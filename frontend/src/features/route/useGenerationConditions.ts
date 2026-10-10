@@ -33,7 +33,7 @@ function applyEachField<T extends object>(apply: { [K in keyof T]-?: (value: T[K
 // モードに入ったとき（切り替えた・開き直した）に置ける役割。目的地モードで何も置いていなければ、次のタップで目的地を
 // 置ける。既に置いてあれば、次のタップは経由地の追加かもしれないので自動では武装しない（目的地が意図せず上書きされる）。
 function pinRoleOnEnter(mode: RouteMode, destination: Coordinates | null, waypointCount: number): PinRole | null {
-  return mode === "destination" && destination === null && waypointCount === 0 ? "destination" : null;
+  return null;
 }
 
 interface GenerationConditionsInputs {
@@ -116,7 +116,6 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   const placeFound = useCallback(
     (role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) => {
       const point = { latitude: candidate.latitude, longitude: candidate.longitude };
-      if (role !== "origin") setRouteMode("destination");
       if (role === "waypoint" && waypointIndex !== null) moveWaypoint(waypointIndex, point);
       else placePin(role, point);
       setArmedPinRole(null);

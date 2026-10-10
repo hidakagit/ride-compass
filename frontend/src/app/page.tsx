@@ -506,10 +506,10 @@ export default function Home() {
                 if (!routeInspectionEnabled) return;
                 results.selectSegment(selection);
               }}
-              waypoints={conditions.routeMode === "destination" ? conditions.waypoints : []}
+              waypoints={conditions.waypoints}
               onWaypointRemove={conditions.removeWaypoint}
               onWaypointMove={conditions.moveWaypoint}
-              destination={conditions.routeMode === "destination" ? conditions.destination : null}
+              destination={conditions.destination}
               onDestinationClear={conditions.clearDestination}
               armedPinRole={pinPlacementArmedRole}
               pointEditingEnabled={pointEditingEnabled}

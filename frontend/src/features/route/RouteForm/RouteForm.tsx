@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import type { GenerationConditionsState } from "@/features/route/useGenerationConditions";
@@ -8,9 +10,7 @@ import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
 import SavedPlacesPanel from "@/features/route/SavedPlacesPanel/SavedPlacesPanel";
 import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import RoutePoints from "./RoutePoints";
-import type { RouteMode } from "./useRouteFormSubmit";
 import { Button } from "@/components/ui/Button/Button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
@@ -87,7 +87,8 @@ export default function RouteForm({
   exclusionsPanel,
   savedConditionsPanel,
 }: RouteFormProps) {
-  const { distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput, routeMode, changeRouteMode } = conditions;
+  const { distanceInput, setDistanceInput, maxRoutesInput, setMaxRoutesInput } = conditions;
+  const [distanceOn, setDistanceOn] = useState(true);
 
   // 範囲の端ではボタンを押せなくするので、足した値は範囲を出ない。
   function stepMaxRoutes(delta: number) {
@@ -101,25 +102,7 @@ export default function RouteForm({
           重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
           重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
       <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
-        {/* モードと候補数は同じ行に置く。候補数はどちらのモードでも効く共通の条件で、
-            モードごとの入力（距離／地点）とは別の階層にある。 */}
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <ToggleGroup
-            className="shrink-0"
-            value={routeMode}
-            onValueChange={(mode) => changeRouteMode(mode as RouteMode)}
-            aria-label="ルート生成モード"
-          >
-            <ToggleGroupItem value="loop" usage="出発地から出て出発地へ戻る、指定した距離のルートを作ります。">
-              周回
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="destination"
-              usage="地図で置いた目的地へ向かうルートを作ります。経由地を置くと、そこを通ります。"
-            >
-              目的地
-            </ToggleGroupItem>
-          </ToggleGroup>
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-2">
             <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
             <div className="inline-flex items-center gap-2">
@@ -161,28 +144,40 @@ export default function RouteForm({
             onPlaceFound={onPlaceFound}
             savedPlaces={savedPlaces}
           />
-          {routeMode === "loop" && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
-                距離
-              </label>
+          <div className="flex items-center gap-2">
+            <label className={cn(textVariants({ variant: "hint" }), "flex flex-shrink-0 items-center gap-1")}>
               <input
-                id="route-form-distance"
-                type="range"
-                min={MIN_DISTANCE_KM}
-                max={MAX_DISTANCE_KM}
-                step={1}
-                value={distanceInput}
-                onChange={(e) => setDistanceInput(e.target.value)}
-                className="h-6 min-w-0 flex-1"
-                data-usage={`周回するルートの長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
+                type="checkbox"
+                checked={distanceOn}
+                onChange={(e) => setDistanceOn(e.target.checked)}
+                data-usage="外すと全長を決めずに、置いた地点へ良い道で向かうルートを作ります。"
               />
-              <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distanceInput}km</span>
-              <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
-                ±{DISTANCE_TOLERANCE_KM}km
-              </span>
-            </div>
-          )}
+              全長の目標
+            </label>
+            <input
+              id="route-form-distance"
+              aria-label="全長の目標"
+              type="range"
+              min={MIN_DISTANCE_KM}
+              max={MAX_DISTANCE_KM}
+              step={1}
+              value={distanceInput}
+              disabled={!distanceOn}
+              onChange={(e) => setDistanceInput(e.target.value)}
+              className="h-6 min-w-0 flex-1 disabled:opacity-40"
+              data-usage={`ルート全体の長さを決めます。作る候補は、この距離の±${DISTANCE_TOLERANCE_KM}kmに入るものだけです。`}
+            />
+            {distanceOn ? (
+              <>
+                <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distanceInput}km</span>
+                <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0 tabular-nums")}>
+                  ±{DISTANCE_TOLERANCE_KM}km
+                </span>
+              </>
+            ) : (
+              <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>決めない</span>
+            )}
+          </div>
         </div>
       </TabsContent>
 

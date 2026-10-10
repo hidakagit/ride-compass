@@ -79,7 +79,6 @@ export default function RoutePoints({
   savedPlaces,
 }: RoutePointsProps) {
   const {
-    routeMode,
     waypoints,
     removeWaypoint,
     destination,
@@ -96,11 +95,10 @@ export default function RoutePoints({
   // 地図で置く状態の地点を見せる（目的地モードへ入ったときに目的地を置ける状態にする等、押さずに武装することがある）。
   // 何も押していない・押した経由地が消えた間は目的地。
   function shown(): PointTarget {
-    if (routeMode === "loop") return { role: "origin" };
     if (armedPinRole === "waypoint") return { role: "waypoint", index: waypointToReplace };
     if (armedPinRole !== null) return { role: armedPinRole };
     if (chosen === null || (chosen.role === "waypoint" && chosen.index !== null && chosen.index >= waypointCount)) {
-      return { role: "destination" };
+      return { role: "origin" };
     }
     return chosen;
   }
@@ -146,7 +144,7 @@ export default function RoutePoints({
     const observer = new ResizeObserver(fit);
     observer.observe(strip);
     return () => observer.disconnect();
-  }, [namesShown, originName, destinationName, waypointCount, routeMode]);
+  }, [namesShown, originName, destinationName, waypointCount]);
 
   function renderDetail() {
     const common = { originLocated, mapCenter, savedPlaces };
@@ -278,8 +276,6 @@ export default function RoutePoints({
       />
     );
   }
-
-  if (routeMode === "loop") return renderDetail();
 
   const chipClass =
     "rounded-full border border-[var(--color-border)] aria-pressed:border-[var(--color-accent)] aria-pressed:bg-[var(--color-accent-bg)] aria-pressed:shadow-[inset_0_0_0_1px_var(--color-accent)]";

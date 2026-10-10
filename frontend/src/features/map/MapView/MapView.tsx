@@ -479,6 +479,26 @@ export default function MapView({
         if (feature.geometry.type !== "Point") throw new Error(`点の層 ${point.attr_id} の地物が点でない`);
         const [lng, lat] = feature.geometry.coordinates;
         const pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
+        if (point.point_name_property !== null && feature.properties[point.point_name_property]) {
+          const actions = document.createElement("div");
+          actions.style.cssText = "display:flex; gap:6px; margin-top:6px;";
+          for (const [role, label] of [
+            ["waypoint", "経由地に足す"],
+            ["destination", "目的地にする"],
+          ] as const) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = label;
+            button.style.cssText =
+              "border:1px solid var(--color-accent); color:var(--color-accent-strong); border-radius:9999px; padding:2px 10px;";
+            button.onclick = () => {
+              latest.current.onPinPlace(role, { latitude: lat, longitude: lng });
+              popupRef.current?.remove();
+            };
+            actions.appendChild(button);
+          }
+          pointContent.appendChild(actions);
+        }
         popupRef.current?.remove();
         setRoadPopup(null);
         popupRef.current = new maplibregl.Popup({ closeButton: true })
