@@ -17,7 +17,7 @@ from app.domain.geo import (
     km_per_degree_longitude,
 )
 from app.domain.leg_costs import LegCostArrays
-from app.domain.route import RouteCandidate, merge_difficulty
+from app.domain.route import RouteDraft, merge_difficulty
 from app.domain.routing import TurnExpandedStructure, pareto_layer_index, time_bin_of
 from app.domain.wind import cruise_hours, kmh_to_ms
 
@@ -385,7 +385,7 @@ def best_first(ranked: list[int], best: int) -> list[int]:
     return [best, *(node for node in ranked if node != best)]
 
 
-def pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
+def pick_better_candidate(forward: RouteDraft, reverse: RouteDraft) -> RouteDraft:
     """順方向・逆回り候補のうち、区間の合成difficultyの距離加重平均（`merge_difficulty`）が小さい
     （走りやすい）方を採用する。逆回り側が算出不能（segments欠損等）なら順方向を採用する
     （比較不能を「逆回りの方が良い」とは解釈しない、安全側）。
@@ -397,7 +397,7 @@ def pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> R
     return forward
 
 
-def difficulty_order(candidate: RouteCandidate) -> float:
+def difficulty_order(candidate: RouteDraft) -> float:
     """候補を返す並びの鍵。周回・目的地とも総合難易度の昇順で、先頭が最も易しい候補という
     契約で配る。平均は難易度の桁へ丸めてあるので、その桁で同点になる。算出不能の候補は末尾へ回す。"""
     if candidate.overall_difficulty is None:
@@ -406,8 +406,8 @@ def difficulty_order(candidate: RouteCandidate) -> float:
 
 
 def keep_routes_with_baseline(
-    candidates: list[RouteCandidate], baseline: RouteCandidate | None, max_routes: int
-) -> tuple[list[RouteCandidate], RouteCandidate | None]:
+    candidates: list[RouteDraft], baseline: RouteDraft | None, max_routes: int
+) -> tuple[list[RouteDraft], RouteDraft | None]:
     """目的地ルートの候補を`difficulty_order`で並べて`max_routes`件へ切り、残った候補と、印を付ける
     基準線（所要時間だけで選んだ経路）を返す。
 
