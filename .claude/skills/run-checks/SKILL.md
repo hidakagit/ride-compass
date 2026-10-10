@@ -27,7 +27,8 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
     根の `scripts/` の道具は `scripts` で `pytest tests/<テストのファイル> -q`。
     **frontendのコマンドに`npx`を付けない**。**例外は`tsc --noEmit`**で、プロジェクト全体で1回通す（Next.jsの生成型が無い
     作業ツリーでは、`tsc`の前に`next typegen`を回す）。所要時間と生成型の前提は[setup.md](../../../docs/architecture/setup.md)「テスト」。
-  - **静的検査とテストの両方が落ちていれば、静的検査を先に全部直してからテストを回す**。
+  - **静的検査とテストの両方が落ちていれば、静的検査を先に全部直してからテストを回す**。静的検査も、1件直すたびに
+    回し直さず、出た指摘を全部直してから次の1回を回す。
   - backendに`ruff format`をかけない（CIは`ruff check`だけを回す）。
   - **影響範囲が自分でも分からないときは、範囲を導出してから絞る**: `pytest backend/tests -q --co`
     （収集のみ）でimportが壊れたファイルを出し、変更したシンボルをgrepして参照元を出し、そこで挙がった

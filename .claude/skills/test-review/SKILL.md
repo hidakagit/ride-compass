@@ -1,6 +1,6 @@
 ---
 name: test-review
-description: "backend のテストを、変異テストの全部の測りで見直す（測りを起こす・待つ・結果を読む・消す／直すタスクにする・記録する・片付ける）。テストの定期の見直しをするとき・テストの見直しを頼まれたときに使う。"
+description: "backend のテストを、変異テストの全部の測りで見直す（測りを起こす・待つ・結果を読む・消す／直すタスクにする・記録する）。テストの定期の見直しをするとき・テストの見直しを頼まれたときに使う。"
 ---
 
 ## テストの見直しを回す
@@ -25,7 +25,7 @@ backend のテストを、.claude/rules/testing-review.md「テストを変異�
 
     gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=master
 
-- `--ref` と `-f ref=` の違い・一覧の口・成果物の保持の日数は .claude/skills/run-checks/SKILL.md「変異テストでテストの効きを測る」。
+- `-f ref=` で渡す測る版・一覧の口・成果物の保持の日数は .claude/skills/run-checks/SKILL.md「変異テストでテストの効きを測る」。
 - 起こした実行の id は、`gh run list -R ridecompass/ride-compass --workflow mutation.yml -L 1 --json databaseId,createdAt,status` で
   取り、`createdAt` が起こした時刻のあとであることを見る。
 - 同じワークフローが動いていれば、終わるまで待ってから始まる（`concurrency: mutation`）。
@@ -115,4 +115,5 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 2. 記録する issue の完了の条件を確かめ、残りが無ければ閉じる（`GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed`）。
    消す段階を作ったときは「消す段階が全部閉じている」の行が残るので閉じず、段階が全部閉じたあとで担当が確かめて閉じる
    （file-issue「段階に分ける」）。どちらも、終えたら持ちを手放す（dev-session「持つ」）。
-3. ユーザーへ報告する: 観点ごとの数・起こしたタスク・止めたならその理由。
+3. ユーザーへ報告する: 前回の記録する issue の 1 のコメントと比べた観点ごとの数の違いと、そこから言える結論を先に、次に起こしたタスク・
+   止めたならその理由。
