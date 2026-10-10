@@ -1,4 +1,4 @@
-"""`scripts/prod_route_check.py`のテスト（本番・ネットワークには触れない）。
+"""`backend/scripts/prod_route_check.py`のテスト（本番・ネットワークには触れない）。
 
 ここで見ないもの: 本番へ要求を送って結果を待つ口（`generate`・`main`）と、ワークフローから呼ぶ所の結線。
 待ちの上限はワークフローの段の`timeout-minutes`も持つ。
@@ -9,9 +9,7 @@ from datetime import datetime
 import pytest
 
 from app.api.routers.routes import RouteGenerateRequest
-from tests.script_module import load_script
-
-check = load_script("prod_route_check")
+from scripts import prod_route_check as check
 
 GRADIENT = {
     "axis_id": "gradient",

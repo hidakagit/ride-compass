@@ -56,7 +56,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
      **本番に出てから問う**: 本番の実物（画面・API）で確かめてほしい問いは、マージの版が本番に出てから置く。出たかを見る口は
      変更が届く側で決まる: frontend は `/api/version`、
      backend は `/health` の `commit`（宛先は docs/architecture/tech-stack.md「本番の宛先」。backend は、Pull Request の差分に
-     `scripts/deploy_backend_gate.py: DEPLOY_PATHS` に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>`
+     `backend/scripts/deploy_backend_gate.py: DEPLOY_PATHS` に当たるファイルがあるときだけ見る）。`git merge-base --is-ancestor <マージのコミット> <本番の commit>`
      が 0 で終われば出ている（本番の commit が手元に無ければ先に `git fetch origin`）。
      出ていなければ、master の CI の一番新しい実行（`gh run list -R ridecompass/ride-compass --workflow ci.yml --branch master --limit 1 --json databaseId,headSha`）を
      作る担当の5と同じく `gh run watch` で終わるまで前に出したまま待ってから見直す。まだ出ていなければ、同じ `gh run list` で一番新しい
@@ -206,7 +206,7 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    どの行にも付けない。
    **マージの前の本番の値**: マージすると本番へ自動で出て前の版が消えるので、完了の条件に本番での前後の比べ（.claude/rules/fixing.md「性能は本番で測る」等）が
    残っていて、今の本番の版で取った前の値が issue に無ければ、マージの前に取る。本番を読むだけの口（書き込まない要求で画面・API を外から通す。
-   `scripts/prod_route_check.py` と同じ口）で、その行と同じ要求・同じ測り方で取り、値・要求・取った時点の本番の版（作る担当の3の「本番に出てから問う」と
+   `backend/scripts/prod_route_check.py` と同じ口）で、その行と同じ要求・同じ測り方で取り、値・要求・取った時点の本番の版（作る担当の3の「本番に出てから問う」と
    同じ口の `commit`）を issue にコメントで書いてからマージする。読むだけの口で取れない（本番の DB・ログが要る）なら、マージせずに、要る前の値と
    取り方をコメントに書いて 4 のとおり Pull Request を閉じ、issue にラベル「開発機が要る」を付ける（開発機の対話のセッションが前の値を取って
    ラベルを外すと、作る担当が出し直す）。

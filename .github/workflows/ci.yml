@@ -16,8 +16,9 @@
 #   @playwright/testを上げる変更（Dependabot等）が、そのままimageも上げる。
 # - e2e-scan: e2eのうち全状態の走査（幅 × 段階ごとに1本）を、幅ごとに段階の数だけの別ジョブ（--shard）で走らせる。
 # - frontend-image・backend-image: 本番の像を同じDockerfileで作り、起こせるかを見る（何を見るかは各ジョブの上）。
-# - changes: 変更されたパスから、どのジョブとデプロイを走らせるかをジョブごとに決める（scripts/ci_changes.py。
-#   決め方は docs/architecture/tech-stack.md「CIの実行枠」）。
+# - scripts: 根の scripts/ の道具のテスト（scripts/tests/）。PostGIS も backend の依存も要らない。
+# - changes: 変わった置き場（backend/・frontend/・scripts/）から、どのジョブとデプロイを走らせるかを決める
+#   （決め方は docs/architecture/tech-stack.md「CIの実行枠」）。
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。changes が成功し、ほかのジョブが changes の決めたとおりに
 #   終わった（走らせるなら成功、飛ばすならスキップ）ときだけ通し、それ以外は落とす。通す形を列挙するのは、
 #   GitHub Actions の障害でランナーが付かずに取り消されたジョブが、needs の結果に cancelled として渡らないことがあるため
@@ -59,7 +60,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # master の実行とジョブの一覧を読む（scripts/ci_changes.py の比べる相手）。
+    # master の実行の一覧を読む（下の BASE）。
     permissions:
       contents: read
       actions: read
@@ -75,11 +76,41 @@ jobs:
         run: |
           version=$(jq -er '.packages["node_modules/@playwright/test"].version' frontend/package-lock.json)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # 各置き場は自分のテストを自分の中に持ち、置き場が変わったときだけその置き場の検査を走らせる。それ以外の変更
+      # （文書・タスク管理・ほかのワークフロー等）では何も走らせない。CI の定義（このファイル・.github/actions/）を変えたら、
+      # その定義で全部を走らせて確かめる。走らせるジョブの組はここだけが持ち（run）、ジョブの if と ci-ok が読む。
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci_changes.py
+        run: |
+          # master の push は、直前のコミット（github.event.before）でなく、master の祖先のうち push の実行が成功で
+          # 終わった一番近いコミットと比べる。直前のコミットの実行が失敗で終わったか、待ちのまま取り消された
+          # （concurrency）とき、その変更は検査もデプロイもされていないので、この実行の判定に入れる。
+          # 一覧の並びは公式の文書に無いので、並びに頼らず祖先の側から辿る（見つからなければすべて走らせる）。
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=master&event=push&status=success&per_page=100" --jq '.workflow_runs[].head_sha') || ok=""
+            BASE=$(git rev-list --first-parent --skip=1 "$GITHUB_SHA" | awk 'NR == FNR { ok[$0] = 1; next } !found && ($0 in ok) { print; found = 1 }' <(printf '%s\n' "$ok") -)
+            echo "比べる相手: ${BASE:-無し}"
+          fi
+          area() { grep -qE "$1" <<< "$changed" && echo true || echo false; }
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}"; then
+            # 比べる相手が無い（手での実行・成功した master の実行が見つからない）ときは、すべて走らせる。
+            backend=true; frontend=true; scripts=true
+          else
+            changed=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+            if [ "$(area '^(\.github/workflows/ci\.yml|\.github/actions/)')" = true ]; then
+              backend=true; frontend=true; scripts=true
+            else
+              backend=$(area '^backend/'); frontend=$(area '^frontend/'); scripts=$(area '^scripts/')
+            fi
+          fi
+          push=$([ "$GITHUB_EVENT_NAME" = push ] && echo true || echo false)
+          run=$(jq -nc --argjson b "$backend" --argjson f "$frontend" --argjson s "$scripts" --argjson push "$push" \
+            '{backend: $b, "api-contract": ($b or $f), "backend-image": $b, frontend: $f, e2e: $f, "e2e-scan": $f, "frontend-image": $f,
+              scripts: $s, "deploy-backend": ($b and $push), "deploy-frontend": ($f and $push)}')
+          echo "$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
   backend:
     needs: changes
@@ -303,8 +334,24 @@ jobs:
       - uses: actions/checkout@v5
       - run: docker build backend --tag backend-check
       - run: docker run --rm backend-check python -c "import app.main"
+  scripts:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.run)['scripts']
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # 版はbackendの依存の宣言から取る（backendジョブと同じ版）。
+      - run: pip install $(grep -hE '^pytest==' ../backend/requirements-dev.txt)
+      - run: python -m pytest -q
   ci-ok:
-    needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, frontend-image, backend-image]
+    needs: [changes, backend, api-contract, frontend, e2e, e2e-scan, frontend-image, backend-image, scripts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
