@@ -5,26 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { mapDisplay } from "@/types/generated/mapDisplay";
+import { jmaDeliveryOf, jmaTileUrlAt } from "@/testing/jmaDeliveries";
 
-import { jmaTilePayload, type JmaDelivery } from "./jmaDelivery";
+import { jmaTilePayload } from "./jmaDelivery";
 
 type Handler = (params: { url: string }, abort: AbortController) => Promise<{ data: ArrayBuffer | Uint8Array }>;
 
 const BASETIME = "20260924000000";
 const VALIDTIME = "20260924010000";
 const FRAME = { basetime: BASETIME, member: "none", validtime: VALIDTIME };
-const deliveryOf = (id: string) =>
-  mapDisplay.weatherElements
-    .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
-    .find((delivery) => delivery.id === id)!;
 /** そのコマのタイルのテンプレート（描画ペイロードが持つもの）と、地図ライブラリが座標を埋めたURL。 */
-const TEMPLATE = jmaTilePayload("rasterTile", deliveryOf("inund"), FRAME).tileUrlTemplate;
-const at = (template: string, x: number, y: number) =>
-  template.replace("{z}", "5").replace("{x}", String(x)).replace("{y}", String(y));
+const TEMPLATE = jmaTilePayload("rasterTile", jmaDeliveryOf("inund"), FRAME).tileUrlTemplate;
+const at = (template: string, x: number, y: number) => jmaTileUrlAt(template, 5, x, y);
 const EMPTY_PNG_URL = at(TEMPLATE, 28, 12);
 const PRESENT_PNG_URL = at(TEMPLATE, 28, 13);
-const EMPTY_PBF_URL = at(jmaTilePayload("vectorTile", deliveryOf("flood"), FRAME).tileUrlTemplate, 28, 12);
+const EMPTY_PBF_URL = at(jmaTilePayload("vectorTile", jmaDeliveryOf("flood"), FRAME).tileUrlTemplate, 28, 12);
 const INDEX = {
   available: true,
   coverage: { min_longitude: 122, min_latitude: 24, max_longitude: 146, max_latitude: 46 },

@@ -84,45 +84,52 @@ function dashableMissingCondition(value: AxisValueSource): unknown {
  * 塗らない——欠損を番兵へ倒した値で段を引くと、評価できない道が最良の段の色になる。
  * 凡例で隠した段は、値の届き方によらず透明にして下の路面の線を見せる（配信値はfeature-stateで載り、
  * 絞り込みからは読めないため、隠し方をこれ1つにそろえる）。 */
-function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): unknown {
-  const value = valueExpression(axisId, axis.value);
-  const loading = axis.value.kind === "delivered" && axis.value.loading;
-  const cases: unknown[] = [];
-  for (const band of axis.bands) {
-    const color = axis.hiddenBandKeys.includes(band.key) ? palette.semantic.hidden : band.color;
-    cases.push([">=", value, band.lowerBound], color);
-  }
-  const missing = missingCondition(axisId, axis.value);
+function colorExpression(axis: AxisLineState["axes"][number], missing: unknown, loading: boolean): unknown {
+  const value = valueExpression(axis.axisId, axis.value);
+  const shown = (key: string, color: string) => (axis.hiddenBandKeys.includes(key) ? palette.semantic.hidden : color);
+  const cases = axis.bands.flatMap((band) => [[">=", value, band.lowerBound], shown(band.key, band.color)]);
   if (missing === null) return ["case", ...cases, palette.semantic.no_data];
   const undetermined =
     axis.value.kind === "delivered"
       ? [
-          ["boolean", ["feature-state", axisUndeterminedStateKey(axisId)], false],
-          axis.hiddenBandKeys.includes(LEGEND_UNDETERMINED_KEY)
-            ? palette.semantic.hidden
-            : palette.semantic.undetermined,
+          ["boolean", ["feature-state", axisUndeterminedStateKey(axis.axisId)], false],
+          shown(LEGEND_UNDETERMINED_KEY, palette.semantic.undetermined),
         ]
       : [];
   // 取得中の色は「値なし」を隠していても残す——消すと「まだ来ていない」と「隠した」が
   // 区別できなくなる。
-  const missingColor = loading
-    ? palette.semantic.loading
-    : axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)
-      ? palette.semantic.hidden
-      : palette.semantic.no_data;
+  const missingColor = loading ? palette.semantic.loading : shown(LEGEND_NO_DATA_KEY, palette.semantic.no_data);
   return ["case", ...undetermined, missing, missingColor, ...cases, palette.semantic.no_data];
+}
+
+type SplitDelivered = {
+  readonly values: ReadonlyMap<string, number>;
+  readonly undetermined: ReadonlyMap<string, true>;
+};
+
+const splitByDelivered = new WeakMap<ReadonlyMap<string, number | null>, SplitDelivered>();
+
+/** 配信の値を、値のある道と向きで決まらない道へ分ける。同じ配信の結果からは同じ参照を返す——当てる側は
+ * 参照が同じなら道ごとに比べ直さない。 */
+function splitDelivered(delivered: ReadonlyMap<string, number | null>): SplitDelivered {
+  const cached = splitByDelivered.get(delivered);
+  if (cached !== undefined) return cached;
+  const values = new Map<string, number>();
+  const undetermined = new Map<string, true>();
+  for (const [featureId, value] of delivered) {
+    if (value === null) undetermined.set(featureId, true);
+    else values.set(featureId, value);
+  }
+  const split = { values, undetermined };
+  splitByDelivered.set(delivered, split);
+  return split;
 }
 
 function featureStatesFor(state: AxisLineState): MapSceneFeatureStates {
   const states = new Map<string, ReadonlyMap<string, MapSceneFeatureStateValue>>();
   for (const axis of state.axes) {
     if (axis.value.kind !== "delivered") continue;
-    const values = new Map<string, number>();
-    const undetermined = new Map<string, true>();
-    for (const [featureId, value] of axis.value.values) {
-      if (value === null) undetermined.set(featureId, true);
-      else values.set(featureId, value);
-    }
+    const { values, undetermined } = splitDelivered(axis.value.values);
     states.set(axisFeatureStateKey(axis.axisId), values);
     states.set(axisUndeterminedStateKey(axis.axisId), undetermined);
   }
@@ -153,7 +160,7 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
       sourceLayer: state.sourceLayer ?? undefined,
       type: "line",
       paint: {
-        "line-color": colorExpression(axis.axisId, axis),
+        "line-color": colorExpression(axis, missing, loading),
         "line-width": axis.underlay ? UNDERLAY_WIDTH_PX : mapDisplay.road.lineWidthPx,
         // 取得中は薄くしない——薄くすると「まだ来ていない」と「対象外」が区別できない。
         "line-opacity": axis.underlay
@@ -214,13 +221,12 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
       return ["case", comparison, input.trueValue ?? 0, input.falseValue ?? 0];
     }
     if (input.categories) {
-      const value = [
+      return [
         "match",
         ["coalesce", ["get", input.property], "__unknown__"],
         ...Object.entries(input.categories).flatMap(([key, score]) => [key, score * input.weight]),
         0,
       ];
-      return value;
     }
     if (input.breakpoints) {
       // 欠損は寄与0にする。coalesceで端へ倒すとinterpolateが端の値（例: -1）を返し、寄与0にならない。

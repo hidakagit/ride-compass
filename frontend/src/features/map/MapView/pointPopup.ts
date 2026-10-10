@@ -1,9 +1,9 @@
 // 点（事故・POI・立ち寄り先）を押したときのポップアップの本文。
 // 値はOSMタグ由来で第三者が編集できるため、HTML文字列を経由せずテキストノードで組む
-// （`Popup.setHTML()`はサニタイズしない。docs/modules/frontend/static-map-layers.md参照）。
+// （`Popup.setHTML()`はサニタイズしない）。
 import type { PointAxis } from "@/features/map/scene/groups/points";
 
-// line-height 1.4はサイドバーの他カード（components/ui/Card等）に近い密度に合わせている。
+// 行間はサイドバーの他のカードに近い密度に合わせる。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 
 function popupBody(lines: readonly string[]): HTMLDivElement {

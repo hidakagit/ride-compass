@@ -1,11 +1,15 @@
 """変異テストの結果を集計する。backend の下で、測った版と同じ版のチェックアウトで打つ（テスト関数の行数を tests/ から数える）。
 
-引数: 成果物を取ってきた場所（gh run download で mutation-<番号> のディレクトリが並ぶ所）［当て直しの成果物の場所］
+引数: 成果物を取ってきた場所（gh run download で mutation-<番号> のディレクトリが並ぶ所）［当て直しの成果物の場所（成果物ごとの
+ディレクトリが並ぶ所。名前は問わない）］
 出すもの（標準出力と、同じ場所の summary.json・pertest.json・survivors.json）:
 - 層ごとの変異スコア（95%の幅つき）。テストの当たらない変異は回していないので、別に数える
 - テスト1本ごとの発見と重なり（ほかに無い発見・全部の発見を保つ最小の組・広く壊れたときにしか落ちない）と、その行数
 状態の読み方: 終わりの値 0 は生き残り、1 は落ちた、2〜4 は集める時点で落ちた（変異が import やパラメータの組を壊した。
 素の版では集まる）、時間切れは止まらなくなったもの。落ちた・集める時点で落ちた・時間切れを見つけた側に数える。
+基準（BASE1・BASE2。plan.py）を一緒に回していれば、その関数の基準で落ちたテストは、変異の回で落ちても見つけたに数えない
+（落ちたテストが全部それなら、その変異は生き残り）。集める時点の失敗はテストの名前でなくファイルで記録されるので、そのファイルの
+中でその関数を通るテストが見つけたとする。
 """
 import ast
 import collections
@@ -38,14 +42,35 @@ for d in shard_dirs:
             m, t, _when = line.rstrip("\n").split("\t")
             kills[m].add(t)
 
+def fn_of(m):
+    return m.partition(":")[2] or m.partition("__mutmut_")[0]
+
+
+def expand(tests, fn):
+    """落ちた記録を、その関数を通るテストの名前にそろえる（集める時点の失敗はファイルで記録される）。"""
+    out = set()
+    for t in tests:
+        out |= {t} if "::" in t else {u for u in tbf.get(fn, ()) if u.startswith(t + "::")}
+    return out
+
+
 untested = [r[1] for r in rows if r[2] == 0]
 planned = [r[1] for r in rows if r[2] > 0]
 done = [m for m in planned if m in results]
 print("変異", len(rows), "テストの当たらない変異", len(untested), "回す変異", len(planned), "済んだ", len(done))
+base_ran = {fn_of(m) for m in results if m.startswith("BASE1:")} & {fn_of(m) for m in results if m.startswith("BASE2:")}
+baseline_failed = {f: expand(kills.get("BASE1:" + f, set()) | kills.get("BASE2:" + f, set()), f) for f in base_ran}
+baseline_failed = {f: v for f, v in baseline_failed.items() if v}
+failed = {m: expand(kills.get(m, set()), fn_of(m)) for m in done}
+credited = {m: failed[m] - baseline_failed.get(fn_of(m), set()) for m in done}
+print("基準を回した関数", len(base_ran), "基準で落ちたテストのある関数", len(baseline_failed),
+      "基準の無い関数の変異", sum(1 for m in done if fn_of(m) not in base_ran))
 
 
 def status(m):
     s = results[m]["status"]
+    if s == "killed" and failed[m] and not credited[m]:
+        return "survived"  # 落ちたのが基準でも落ちるテストだけ
     if s in ("killed", "survived", "timeout"):
         return s
     if s in ("exit 2", "exit 3", "exit 4"):
@@ -72,7 +97,7 @@ res = {m: status(m) for m in done}
 # 当て直し（テスト全体を当てた生き残り。importtime.py）で落ちたものを「テスト全体で落ちた」へ移す。どのテストが
 # 落ちたかは、テストごとの発見に足さない（記録のテストの外で見つけたもので、重なりの数を変えない）。
 if RECHECK_ART:
-    for d in glob.glob(os.path.join(RECHECK_ART, "mutation-*")):
+    for d in glob.glob(os.path.join(RECHECK_ART, "*")):
         path = os.path.join(d, "results.jsonl")
         if os.path.exists(path):
             for line in open(path, encoding="utf-8"):
@@ -86,7 +111,7 @@ for m in done:
     by["全体"][res[m]] += 1
 no_test_by = collections.Counter(layer(m) for m in untested)
 no_test_by["全体"] = len(untested)
-summary = {}
+summary = {"変異の数": {"planned": len(planned), "done": len(done)}}
 print("\n| 層 | 回した変異 | 落ちた | 集める時点で落ちた | 時間切れ | テスト全体で落ちた | 生き残り | ほか | スコア | 95%の幅 |"
       " テストの当たらない変異 |")
 for name in sorted(by, key=lambda x: (x == "全体", x)):
@@ -102,16 +127,17 @@ for name in sorted(by, key=lambda x: (x == "全体", x)):
 survivors = sorted(m for m in done if res[m] == "survived")
 odd = {m: results[m] for m in done if res[m] not in ("killed", "survived", "timeout", "collect", "full")}
 killed = [m for m in done if res[m] == "killed"]
-print("\n落ちたが失敗の記録が無い", sum(1 for m in killed if not kills.get(m)), "／ ほかの終わり方", len(odd))
+print("\n落ちたが失敗の記録が無い", sum(1 for m in killed if not failed[m]), "／ ほかの終わり方", len(odd))
 
 covering: dict[str, int] = collections.defaultdict(int)
 for m in done:
     for t in tbf.get(m.partition("__mutmut_")[0], ()):
         covering[t] += 1
 found = collections.defaultdict(set)
-for m in killed:
-    for t in kills.get(m, ()):
-        found[t].add(m)
+for m in done:
+    if res[m] in ("killed", "collect"):
+        for t in credited[m]:
+            found[t].add(m)
 
 fn_lines: dict[tuple[str, str], int] = {}
 
@@ -191,5 +217,6 @@ json.dump(survivors, open(os.path.join(ART, "survivors.json"), "w", encoding="ut
 json.dump({"odd": odd, "zero": sorted(zero), "no_cover_any": sorted(no_cover_any), "unique": sorted(unique),
            "chosen": sorted(chosen), "broad_only": sorted(broad_only),
            "found": {t: sorted(v) for t, v in found.items()},
+           "baseline_failed": {f: sorted(v) for f, v in baseline_failed.items()},
            "per_file": {f: dict(r) for f, r in per_file.items()}, "lines": flines},
           open(os.path.join(ART, "pertest.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=0)

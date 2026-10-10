@@ -10,16 +10,13 @@ import { addProtocol } from "maplibre-gl";
 
 import { debugLog } from "@/lib/debugLog";
 
-import { readJmaTileUrl } from "@/features/map/layers/jmaDelivery";
-import {
-  buildJmaTileIndexLookup,
-  isKnownEmptyTile,
-  type JmaTileIndexLookup,
-  type JmaTileIndexResponse,
-} from "@/features/map/layers/jmaTileIndex";
+import { readJmaTileUrl, type JmaTileRef } from "@/features/map/layers/jmaDelivery";
+import { buildJmaTileIndexLookup, isKnownEmptyTile, type JmaTileIndexLookup } from "@/features/map/layers/jmaTileIndex";
+import type { JmaTileIndexResponse } from "@/types/route";
 
 /** タイルURLへ付けるスキーム。`jmatile://https://host/...`の形になる。 */
 const JMA_TILE_PROTOCOL = "jmatile";
+const PROTOCOL_PREFIX = `${JMA_TILE_PROTOCOL}://`;
 
 /** 1x1の完全に透明なPNG（全チャネル0）。空と分かっているタイルの代わりに返す。
  *
@@ -78,8 +75,7 @@ function publishFailures(next: ReadonlyMap<string, string>): void {
   for (const listener of failureListeners) listener();
 }
 
-function markDeliveryFailed(realUrl: string): void {
-  const ref = readJmaTileUrl(realUrl);
+function markDeliveryFailed(ref: JmaTileRef | null): void {
   if (!ref || tileFailures.get(ref.delivery.id) === ref.frameUrl) return;
   const next = new Map(tileFailures);
   next.set(ref.delivery.id, ref.frameUrl);
@@ -88,8 +84,7 @@ function markDeliveryFailed(realUrl: string): void {
 
 /** 配信元が応答した（中身の有無は問わない）。疎な格子状タイルの404もここに当たる——
  * 空であることを配信元が答えているため、その要素の配信は生きている。 */
-function markDeliveryHealthy(realUrl: string): void {
-  const ref = readJmaTileUrl(realUrl);
+function markDeliveryHealthy(ref: JmaTileRef | null): void {
   if (!ref || !tileFailures.has(ref.delivery.id)) return;
   const next = new Map(tileFailures);
   next.delete(ref.delivery.id);
@@ -98,12 +93,12 @@ function markDeliveryHealthy(realUrl: string): void {
 
 /** `jmatile://`を剥がして実URLへ戻す。 */
 function toRealUrl(url: string): string {
-  return url.replace(new RegExp(`^${JMA_TILE_PROTOCOL}://`), "");
+  return url.startsWith(PROTOCOL_PREFIX) ? url.slice(PROTOCOL_PREFIX.length) : url;
 }
 
 /** タイルURLへスキームを付ける。 */
 export function withJmaTileProtocol(url: string): string {
-  return `${JMA_TILE_PROTOCOL}://${url}`;
+  return `${PROTOCOL_PREFIX}${url}`;
 }
 
 async function handleJmaTileRequest(
@@ -111,7 +106,8 @@ async function handleJmaTileRequest(
   abortController: AbortController,
 ): Promise<{ data: ArrayBuffer | Uint8Array }> {
   const realUrl = toRealUrl(params.url);
-  if (isKnownEmptyTile(lookup, realUrl)) {
+  const ref = readJmaTileUrl(realUrl);
+  if (isKnownEmptyTile(lookup, ref)) {
     // ネットワークへ出さない。ベクタとラスタで空の表現が違うため拡張子で分ける。
     return { data: emptyTileBytes(realUrl) };
   }
@@ -121,32 +117,25 @@ async function handleJmaTileRequest(
   } catch (error) {
     // 中断（パン・ズームでMapLibreが要求を取り消す）は障害ではない。到達できないことは
     // 5xxと同じく配信の失敗として記録し、例外はそのままMapLibreへ返す。
-    if (!(error instanceof DOMException && error.name === "AbortError")) markDeliveryFailed(realUrl);
+    if (!(error instanceof DOMException && error.name === "AbortError")) markDeliveryFailed(ref);
     throw error;
   }
-  if (!response.ok) {
-    // どの失敗も空タイルとして返す。MapLibreは失敗タイルを再試行しないため、ここで例外に
-    // すると以後その位置が永久に空白になる。ただし**404と5xxは意味が違う**——疎な格子状
-    // タイルで404は正常系だが、5xxは配信の障害で、キキクルのように「平常時は透明」が
-    // 正常系のレイヤーでは利用者が危険度ゼロと誤読しうる。区別して記録する。
-    if (response.status !== 404) {
-      debugLog(
-        "weather",
-        "JMAタイルの取得に失敗しました（空タイルで代替）",
-        {
-          url: realUrl,
-          status: response.status,
-        },
-        "warn",
-      );
-      markDeliveryFailed(realUrl);
-    } else {
-      markDeliveryHealthy(realUrl);
-    }
+  // どの失敗も空タイルとして返す。MapLibreは失敗タイルを再試行しないため、ここで例外に
+  // すると以後その位置が永久に空白になる。ただし**404と5xxは意味が違う**——疎な格子状
+  // タイルで404は正常系だが、5xxは配信の障害で、キキクルのように「平常時は透明」が
+  // 正常系のレイヤーでは利用者が危険度ゼロと誤読しうる。区別して記録する。
+  if (!response.ok && response.status !== 404) {
+    debugLog(
+      "weather",
+      "JMAタイルの取得に失敗しました（空タイルで代替）",
+      { url: realUrl, status: response.status },
+      "warn",
+    );
+    markDeliveryFailed(ref);
     return { data: emptyTileBytes(realUrl) };
   }
-  markDeliveryHealthy(realUrl);
-  return { data: await response.arrayBuffer() };
+  markDeliveryHealthy(ref);
+  return { data: response.ok ? await response.arrayBuffer() : emptyTileBytes(realUrl) };
 }
 
 /** MapLibreへプロトコルを登録する（多重登録は無害だが1回で足りる）。 */

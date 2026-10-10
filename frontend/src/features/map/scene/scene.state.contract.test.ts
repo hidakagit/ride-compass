@@ -43,7 +43,6 @@ const DEDICATED_AXES = dedicatedWayValueAxesFromCatalogAxes([
   catalogEntry({ axis_id: "ded2", dedicated_way_value_layer: true }),
 ]);
 
-type State = SceneState;
 const CATALOG = { rampAxes: RAMP_AXES, dedicatedAxes: DEDICATED_AXES };
 
 /** 表示ONのレイヤーだけを持つ状態。 */
@@ -55,12 +54,11 @@ function shown(layerVisibility: Record<string, boolean>, look: SceneStateOverrid
 // ——ここで組み立て直すと、規則を変えたときテストだけが古い綴りのまま残る。
 const areaLayerId = (role: keyof typeof AREA_SOURCE_ID) => sceneLayerId(AREA_SOURCE_ID[role], role);
 const roadLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
-const axisLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const pointLayerId = (role: string) =>
   sceneLayerId(POINT_TILE_SOURCES[POINT_LAYERS.find((layer) => layer.attr_id === role)!.tile_kind].sourceId, role);
 
 /** 空から作り直す経路（スタイルを差し替えた後に通るのはこちら）。 */
-function rebuild(map: unknown, state: State) {
+function rebuild(map: unknown, state: SceneState) {
   applyScene(map as never, buildMapScene(sceneInputsFrom(state)), { reset: true });
 }
 
@@ -69,7 +67,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("表示ONにしたものだけが見えている", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, shown({ elevation: true, landcover: false, hillshade: false }));
+      rebuild(map, shown({ elevation: true, landcover: false, hillshade: false }));
 
       expect(handle.layer(areaLayerId("elevation"))?.visibility).toBe("visible");
       expect(handle.layer(areaLayerId("landcover"))?.visibility).toBe("none");
@@ -81,9 +79,9 @@ describe("状態を地図へ伝えた結果", () => {
     it("世代が届いた後に同じ状態を伝えると、道路の線が見えている", () => {
       const { map, handle } = createRecordingMap();
       const state = shown({ surface: true });
-      rebuild(map as never, { ...state, tileVersions: null });
+      rebuild(map, { ...state, tileVersions: null });
 
-      rebuild(map as never, state);
+      rebuild(map, state);
 
       expect(handle.sources()).toContain(ROAD_LINE_SOURCE_ID);
       expect(handle.layer(roadLayerId("surface"))?.visibility).toBe("visible");
@@ -93,7 +91,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("路面と道路種別を同時に出すと、線が左右へ分かれる", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, shown({ surface: true, highway: true }));
+      rebuild(map, shown({ surface: true, highway: true }));
 
       const offsets = ROAD_TRACKS.map((track) => handle.layer(roadLayerId(track.attr_id))?.paint["line-offset"]).filter(
         (value) => value !== undefined,
@@ -107,7 +105,7 @@ describe("状態を地図へ伝えた結果", () => {
 
       // 行の鍵は源泉の宣言から取る（書き写すと、行の鍵を変えたときにこの検査だけが黙って何も隠さなくなる）。
       const firstRow = ROAD_TRACKS.find((track) => track.attr_id === "surface")!.display_axes[0].categories[0].key;
-      rebuild(map as never, shown({ surface: true }, { hiddenLegendKeys: { surface: [firstRow] } }));
+      rebuild(map, shown({ surface: true }, { hiddenLegendKeys: { surface: [firstRow] } }));
 
       expect(handle.layer(roadLayerId("surface"))?.filter).toBeDefined();
     });
@@ -117,7 +115,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("表示ONにした点が見え、同じタイルを分け合う点は互いの種別を混ぜない", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, shown({ stop_poi: true }));
+      rebuild(map, shown({ stop_poi: true }));
 
       const stop = handle.layer(pointLayerId("stop_poi"));
       expect(stop?.visibility).toBe("visible");
@@ -249,7 +247,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("配られた値は、道路のソースの地物へ載り、塗っている軸の線が見える", () => {
       const { map, handle } = createRecordingMap();
       rebuild(
-        map as never,
+        map,
         shown(
           { surface: true },
           { paintedAxisId: "ded1", dedicatedWayValues: delivered({ ded1: { w1: 3 }, ded2: { w1: 7 } }) },
@@ -257,8 +255,8 @@ describe("状態を地図へ伝えた結果", () => {
       );
 
       expect(handle.featureState(ROAD_LINE_SOURCE_ID, "w1")).toEqual({ ded1Value: 3, ded2Value: 7 });
-      expect(handle.layer(axisLayerId("ded1"))?.visibility).toBe("visible");
-      expect(handle.layer(axisLayerId("ded2"))?.visibility).toBe("none");
+      expect(handle.layer(roadLayerId("ded1"))?.visibility).toBe("visible");
+      expect(handle.layer(roadLayerId("ded2"))?.visibility).toBe("none");
     });
 
     it("塗っているramp軸は、その材料のレイヤーが出ている間だけ下敷きになる", () => {
@@ -266,10 +264,10 @@ describe("状態を地図へ伝えた結果", () => {
       const opacityWith = (surface: boolean) => {
         const { map, handle } = createRecordingMap();
         rebuild(
-          map as never,
+          map,
           sceneState({ catalog: { rampAxes }, look: { paintedAxisId: "paved", layerVisibility: { surface } } }),
         );
-        return handle.layer(axisLayerId("paved"))?.paint["line-opacity"];
+        return handle.layer(roadLayerId("paved"))?.paint["line-opacity"];
       };
 
       expect(opacityWith(true)).toBe(mapDisplay.road.underlayOpacity);
@@ -280,6 +278,10 @@ describe("状態を地図へ伝えた結果", () => {
 
 describe("レイヤーを横断する要求", () => {
   const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+
+  /** 地図へ足したレイヤーの宣言（足した順）。 */
+  const addedLayers = (handle: ReturnType<typeof createRecordingMap>["handle"]) =>
+    handle.trace.filter((entry) => entry.call === "addLayer").map((entry) => entry.args[2]);
 
   /** 宣言された描き方に合う中身を、全要素ぶん作る。**名指ししない**——母集団は源泉の
    * 宣言（生成物）なので、backendが要素を増やせばそのまま対象になる。 */
@@ -298,36 +300,25 @@ describe("レイヤーを横断する要求", () => {
   }
 
   /** 出せるものを全部出した状態。チップのidは各グループの宣言から取る。 */
-  function everythingVisible(): State {
+  function everythingVisible(): SceneState {
     const visibility: Record<string, boolean> = {};
     for (const track of ROAD_TRACKS) visibility[track.attr_id] = true;
     for (const layer of POINT_LAYERS) visibility[layer.attr_id] = true;
-    for (const role of ["elevation", "landcover", "hillshade"]) visibility[role] = true;
+    for (const role of Object.keys(AREA_SOURCE_ID)) visibility[role] = true;
     visibility.route = true;
     const mode = { id: "difficulty", label: "難易度", colorExpression: ["literal", "#16a34a"], legend: [] };
+    const line = {
+      type: "LineString",
+      coordinates: [
+        [139.7, 35.6],
+        [139.71, 35.61],
+      ],
+    };
     const candidate = {
       id: "a",
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [139.7, 35.6],
-          [139.71, 35.61],
-        ],
-      },
+      geometry: line,
       segments: [
-        {
-          start_longitude: 139.7,
-          start_latitude: 35.6,
-          end_longitude: 139.71,
-          end_latitude: 35.61,
-          geometry: {
-            type: "LineString",
-            coordinates: [
-              [139.7, 35.6],
-              [139.71, 35.61],
-            ],
-          },
-        },
+        { start_longitude: 139.7, start_latitude: 35.6, end_longitude: 139.71, end_latitude: 35.61, geometry: line },
       ],
     };
     // 絞り込みの式も検証の対象にするため、凡例の先頭の行と「値なし」を隠しておく。
@@ -361,13 +352,13 @@ describe("レイヤーを横断する要求", () => {
   it("スタイルを差し替えても、同じ状態を伝え直せば元へ戻る", () => {
     const { map, handle } = createRecordingMap();
     const state = everythingVisible();
-    rebuild(map as never, state);
+    rebuild(map, state);
     const before = handle.layerOrder();
     // 空振りしていないこと（載っていなければ比較は常に通る）。
     expect(before.length).toBeGreaterThan(mapDisplay.weatherElements.length);
 
     handle.dropEverything();
-    rebuild(map as never, state);
+    rebuild(map, state);
 
     expect(handle.layerOrder()).toEqual(before);
   });
@@ -380,7 +371,7 @@ describe("レイヤーを横断する要求", () => {
     const sources = Object.fromEntries(
       handle.trace.filter((entry) => entry.call === "addSource").map((entry) => [entry.args[0], entry.args[1]]),
     );
-    const layers = handle.trace.filter((entry) => entry.call === "addLayer").map((entry) => entry.args[2]);
+    const layers = addedLayers(handle);
     // 空振りしていないこと（載っていなければ検証は常に通る）。
     expect(layers.length).toBeGreaterThan(mapDisplay.weatherElements.length);
 
@@ -400,9 +391,7 @@ describe("レイヤーを横断する要求", () => {
   it("feature-stateを読む式は、feature-stateを読めるプロパティにだけ置かれる", () => {
     const { map, handle } = createRecordingMap();
     rebuild(map, everythingVisible());
-    const layers = handle.trace
-      .filter((entry) => entry.call === "addLayer")
-      .map((entry) => entry.args[2] as Record<string, unknown> & { id: string; type: string });
+    const layers = addedLayers(handle) as (Record<string, unknown> & { id: string; type: string })[];
     const readsState = (expression: unknown): boolean =>
       Array.isArray(expression) && (expression[0] === "feature-state" || expression.some(readsState));
     const spec = latest as unknown as Record<string, Record<string, { expression?: { parameters?: string[] } }>>;
@@ -430,10 +419,10 @@ describe("レイヤーを横断する要求", () => {
     const state = everythingVisible();
 
     const ready = createRecordingMap();
-    rebuild(ready.map as never, state);
+    rebuild(ready.map, state);
 
     const pending = createRecordingMap();
-    rebuild(pending.map as never, { ...state, tileVersions: null });
+    rebuild(pending.map, { ...state, tileVersions: null });
 
     const gated = ready.handle.sources().filter((id) => !pending.handle.sources().includes(id));
     // 世代で守られているソースが実際にあること（0件なら、この検査は何も見ていない）。

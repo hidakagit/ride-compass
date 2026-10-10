@@ -18,6 +18,7 @@ from app.batch.source_adapters.npa_honhyo import HonhyoRows
 from app.domain.accident import PartyType
 from app.domain.material_catalog import ACCIDENT_COUNT_PER_KM_YEAR
 from app.infrastructure import derived_data_meta, road_network_store
+from app.infrastructure.derived_data_freshness import derived_tables
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.source_models import PARTY_TYPE_CODES
 from tests.conftest import postgis_database_url, raw_connection
@@ -35,7 +36,7 @@ WAYS = (
     (200, [3, 4], {"highway": "residential"}),
 )
 ONEWAY = {"oneway": "yes"}
-DERIVED = tuple(table.name for table in derive_cli.derived_tables())
+DERIVED = tuple(table.name for table in derived_tables())
 #: 派生の表と一緒に空にする記録（段の指紋・世代）。指紋を残すと、空にした表を作り直さずに段を飛ばしうる。
 RECORDS = ("derived_stages", "derived_data_meta")
 

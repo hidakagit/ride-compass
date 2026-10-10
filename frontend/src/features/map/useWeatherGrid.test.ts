@@ -9,6 +9,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { heldReplies, inTurn, onBackend } from "@/testing/backendServer";
+import refreshIntervals from "@/types/generated/refresh-intervals.json";
 import type { WindGridPoint } from "@/types/weather";
 
 import { windGridDetailSpacingDegForZoom, type MapViewport } from "@/features/map/layers/windLayer";
@@ -86,7 +87,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     serveGrid([point(35, 139), point(35.1, 139)], [point(35, 139, 5)]);
     const { result } = render(true, WIDE);
     await fetched(result);
-    act(() => vi.advanceTimersByTime(3 * 60 * 60 * 1000));
+    act(() => vi.advanceTimersByTime(refreshIntervals.msm_seconds * 1000));
     await vi.waitFor(() =>
       expect(result.current.grid.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
         [35, 5],
@@ -141,7 +142,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     serveDetail([point(35.61, 139.71)], [point(35.61, 139.71, 5)]);
     const { result } = render(true, ZOOMED);
     await fetched(result, true);
-    act(() => vi.advanceTimersByTime(3 * 60 * 60 * 1000));
+    act(() => vi.advanceTimersByTime(refreshIntervals.msm_seconds * 1000));
     await vi.waitFor(() => {
       expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([3]);
       expect(result.current.detail?.points.map((p) => p.wind_speed_ms[0])).toEqual([5]);

@@ -12,7 +12,6 @@
  * 横へ割り付ける（1本なら中央）。線の太さは意味を運ばず、線種が運ぶのは値が無いこと（タグが無い道）だけ
  * ——1本の線へ2つの分類を載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
-import { sceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
@@ -20,7 +19,7 @@ import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { noDataDashExpression } from "@/features/map/scene/sceneBuilders";
+import { noDataDashExpression, sceneSourceId, valueInExpression } from "@/features/map/scene/sceneBuilders";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
@@ -90,14 +89,18 @@ function missingOf(track: RoadTrack): unknown {
   return ["==", valueOf(track), ""];
 }
 
-function knownValues(track: RoadTrack): readonly unknown[] {
-  return roadTrackAxis(track).categories.flatMap((category) => [...category.values]);
+/** 道の値が分類のどれかに入るか。 */
+function knownMatch(track: RoadTrack): unknown {
+  return valueInExpression(
+    valueOf(track),
+    roadTrackAxis(track).categories.flatMap((category) => [...category.values]),
+  );
 }
 
 function colorExpression(track: RoadTrack): unknown[] {
   const value = valueOf(track);
   const cases = roadTrackAxis(track).categories.flatMap((category) => [
-    ["in", value, ["literal", [...category.values]]],
+    valueInExpression(value, category.values),
     category.color,
   ]);
   return ["case", ...cases, palette.semantic.no_data];
@@ -105,17 +108,17 @@ function colorExpression(track: RoadTrack): unknown[] {
 
 /** 分類に入る道は濃く、それ以外（その他・不明）は薄く（消さずに薄くする）。 */
 function opacityExpression(track: RoadTrack): unknown[] {
-  return ["case", ["in", valueOf(track), ["literal", [...knownValues(track)]]], ROAD.knownOpacity, ROAD.unknownOpacity];
+  return ["case", knownMatch(track), ROAD.knownOpacity, ROAD.unknownOpacity];
 }
 
 function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpecification | undefined {
   const hidden = roadTrackAxis(track).categories.filter((category) => hiddenKeys.includes(category.key));
   const values = hidden.flatMap((category) => [...category.values]);
   const conditions: unknown[] = [];
-  if (values.length > 0) conditions.push(["!", ["in", valueOf(track), ["literal", values]]]);
+  if (values.length > 0) conditions.push(["!", valueInExpression(valueOf(track), values)]);
   const hasMissing = roadTrackHasMissing(track);
   if (hiddenKeys.includes(ROAD_OTHER_KEY)) {
-    const known: unknown[] = ["in", valueOf(track), ["literal", [...knownValues(track)]]];
+    const known = knownMatch(track);
     conditions.push(hasMissing ? ["any", missingOf(track), known] : known);
   }
   if (hasMissing && hiddenKeys.includes(LEGEND_NO_DATA_KEY)) conditions.push(["!", missingOf(track)]);
@@ -150,25 +153,26 @@ export const roadLineGroup = declareGroup<RoadLineState>((state) => {
   const offsets = offsetsFor(shown.length);
   const offsetOf = new Map(shown.map((track, index) => [track.attr_id, offsets[index] ?? 0]));
 
-  const layers: SceneLayerEntry[] = ROAD_TRACKS.map((track) => ({
-    role: track.attr_id,
-    tier: "observedLine",
-    source: ROAD_LINE_SOURCE_ID,
-    sourceLayer: tiles.sourceLayer,
-    type: "line",
-    paint: {
-      "line-color": colorExpression(track),
-      "line-width": ROAD.lineWidthPx,
-      "line-opacity": opacityExpression(track),
-      ...(roadTrackHasMissing(track) ? { "line-dasharray": noDataDashExpression(missingOf(track)) } : {}),
-      "line-offset": offsetOf.get(track.attr_id) ?? 0,
-    },
-    visible: state.visible[track.attr_id] === true,
-    hitTargets: [ROAD_LINE_HIT_TARGET],
-    ...(trackFilter(track, state.hiddenKeys[track.attr_id] ?? []) === undefined
-      ? {}
-      : { filter: trackFilter(track, state.hiddenKeys[track.attr_id] ?? []) }),
-  }));
+  const layers: SceneLayerEntry[] = ROAD_TRACKS.map((track) => {
+    const filter = trackFilter(track, state.hiddenKeys[track.attr_id] ?? []);
+    return {
+      role: track.attr_id,
+      tier: "observedLine",
+      source: ROAD_LINE_SOURCE_ID,
+      sourceLayer: tiles.sourceLayer,
+      type: "line",
+      paint: {
+        "line-color": colorExpression(track),
+        "line-width": ROAD.lineWidthPx,
+        "line-opacity": opacityExpression(track),
+        ...(roadTrackHasMissing(track) ? { "line-dasharray": noDataDashExpression(missingOf(track)) } : {}),
+        "line-offset": offsetOf.get(track.attr_id) ?? 0,
+      },
+      visible: state.visible[track.attr_id] === true,
+      hitTargets: [ROAD_LINE_HIT_TARGET],
+      filter,
+    };
+  });
 
   layers.push({
     role: "inspected",

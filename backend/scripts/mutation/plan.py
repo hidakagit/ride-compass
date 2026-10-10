@@ -3,7 +3,8 @@
 書くもの（環境変数 MUT_OUT の場所）:
 - rows.json: 変異ごとの（ファイル・変異・当てるテストの数・記録の段で測ったテストの秒の合計）
 - all.txt: テストの当たる変異を全部、種を固定した無作為の並びで。分けて回すときは行を順に配る（ランナーごとに
-  無作為の標本になり、途中で止まっても回した分が偏らない）。この台本の隣に一覧（recheck.txt・only.txt）があれば、その中身
+  無作為の標本になり、途中で止まっても回した分が偏らない）。環境変数 MUT_WITH_BASELINE があれば、関数ごとの基準も混ぜる。
+  この台本の隣に一覧（recheck.txt・only.txt）があれば、その中身
 テストの当たらない変異は回しても見つけようがないので、all.txt に入れず別に数える。
 """
 import collections
@@ -57,5 +58,13 @@ for listed in ("recheck.txt", "only.txt"):
         pool = [line.strip() for line in open(os.path.join(HERE, listed), encoding="utf-8") if line.strip()]
         print(listed, "の一覧を回す")
         break
+else:
+    # 環境変数 MUT_WITH_BASELINE があれば、全部の変異に、テストの当たる関数ごとの基準（BASE1・BASE2）を混ぜて1つの一覧にする
+    # （定期の測り。.github/workflows/mutation.yml。analyze.py が基準で落ちたテストを見つけたに数えない）。
+    if os.environ.get("MUT_WITH_BASELINE"):
+        funcs = sorted({r[1].partition("__mutmut_")[0] for r in rows if r[2] > 0})
+        pool += [f"{k}:{f}" for f in funcs for k in ("BASE1", "BASE2")]
+        random.Random(661).shuffle(pool)
+        print("基準を混ぜる", len(funcs), "関数")
 open(os.path.join(OUT, "all.txt"), "w", encoding="utf-8").write("\n".join(pool) + "\n")
 print("all.txt", len(pool), "件")

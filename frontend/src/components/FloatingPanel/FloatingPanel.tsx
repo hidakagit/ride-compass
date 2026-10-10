@@ -76,7 +76,7 @@ export default function FloatingPanel({
         )}
         style={{
           width: `min(${widthRem}rem, calc(100vw - 2 * var(--space-3)))`,
-          maxHeight: maxHeightPx === undefined ? undefined : `${maxHeightPx}px`,
+          maxHeight: maxHeightPx,
         }}
       >
         <div

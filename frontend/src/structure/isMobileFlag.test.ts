@@ -7,12 +7,13 @@
  * どの幅でもスマホ幅でないと答え続け、スマホでもデスクトップの配置で描く。
  */
 import { readFileSync } from "node:fs";
-import path from "node:path";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { SRC_ROOT } from "./sourceTree";
 
 describe("CSSとの取り決め", () => {
   it("globals.cssは幅のメディアクエリの中で`--is-mobile`を立てる", () => {
-    const css = readFileSync(path.resolve(process.cwd(), "src/app/globals.css"), "utf-8");
+    const css = readFileSync(join(SRC_ROOT, "app/globals.css"), "utf-8");
     const mediaBlock = css.match(/@media \(max-width:[\s\S]*?\)\s*\{[\s\S]*?\n\}/);
 
     expect(mediaBlock).not.toBeNull();

@@ -83,6 +83,23 @@ describe("WeatherPanel 観測値", () => {
     expect(screen.queryByText("降水量:")).not.toBeInTheDocument();
   });
 
+  it.each([
+    { missing: "なし", overrides: {}, expected: ["気温", "|", "東の風", "|", "降水量", "|", "天気"] },
+    { missing: "風", overrides: { wind_speed_ms: null }, expected: ["気温", "|", "降水量", "|", "天気"] },
+    {
+      missing: "風・降水量・天気",
+      overrides: { wind_speed_ms: null, precipitation_10min_mm: null, weather_code: null },
+      expected: ["気温"],
+    },
+  ])("区切り線は、出ている項目どうしの間にだけ出る（欠け: $missing）", ({ overrides, expected }) => {
+    render(<WeatherPanel amedas={observation(overrides)} loading={false} error={null} />);
+    const row = screen.getByRole("button").firstElementChild!;
+    const shown = Array.from(row.children).map((child) =>
+      child.getAttribute("aria-hidden") === "true" ? "|" : child.querySelector(".sr-only")!.textContent!.split(":")[0],
+    );
+    expect(shown).toEqual(expected);
+  });
+
   it("天気はbackendが実測から導いたコードで出し、日の出から日の入りまでを昼とする", () => {
     const { unmount } = render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
     const dayIcon = screen.getByText(/^天気:/).parentElement!.innerHTML;

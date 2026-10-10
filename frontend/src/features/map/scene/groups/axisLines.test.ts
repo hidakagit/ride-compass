@@ -6,7 +6,7 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 
 import { rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
-import { catalogEntry, tileInput } from "@/testing/catalogAxes";
+import { catalogEntry, rampEntry, tileInput } from "@/testing/catalogAxes";
 import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 import axisRampExpectations from "@/types/generated/axis-ramp-expectations.json";
 import type { AxisCatalogEntry } from "@/types/route";
@@ -26,12 +26,21 @@ const BANDS = [
   { key: "b1", lowerBound: 5, color: "#dc2626" },
 ];
 
-function opacityOf(value: AxisLineState["axes"][number]["value"], underlay = false): unknown {
-  const state: AxisLineState = {
+type AxisValue = AxisLineState["axes"][number]["value"];
+
+/** 軸1本だけを出している線の宣言。 */
+function groupFor(
+  value: AxisValue,
+  { bands = THREE_BANDS, hiddenBandKeys = [], underlay = false }: Partial<AxisLineState["axes"][number]> = {},
+) {
+  return axisLineGroup.build({
     sourceLayer: "road",
-    axes: [{ axisId: "gradient", visible: true, bands: BANDS, value, hiddenBandKeys: [], underlay }],
-  };
-  return axisLineGroup.build(state).layers[0].paint?.["line-opacity"];
+    axes: [{ axisId: "ax", visible: true, bands, value, hiddenBandKeys, underlay }],
+  });
+}
+
+function opacityOf(value: AxisValue, underlay = false): unknown {
+  return groupFor(value, { bands: BANDS, underlay }).layers[0].paint?.["line-opacity"];
 }
 
 describe("レンズの線の濃さ", () => {
@@ -46,7 +55,7 @@ describe("レンズの線の濃さ", () => {
   });
 });
 
-// 以下は式をMapLibreと同じ評価器（docs/architecture/tech-stack.md）で実際に評価し、
+// 以下は式をMapLibreと同じ評価器（`testing/mapExpressions.ts: evaluateExpression`）で実際に評価し、
 // 1本の道がどの色になるか・残るかを見る。式の形を見ると、同じ意味の別の書き方で落ちる。
 const TRANSPARENT = "rgba(0,0,0,0)";
 
@@ -64,12 +73,8 @@ const TILE_VALUE = {
   unknown: ["!", ["has", "v"]],
 };
 
-function layerFor(value: AxisLineState["axes"][number]["value"], hiddenBandKeys: readonly string[] = []) {
-  const state: AxisLineState = {
-    sourceLayer: "road",
-    axes: [{ axisId: "ax", visible: true, bands: THREE_BANDS, value, hiddenBandKeys, underlay: false }],
-  };
-  return axisLineGroup.build(state).layers[0];
+function layerFor(value: AxisValue, hiddenBandKeys: readonly string[] = []) {
+  return groupFor(value, { hiddenBandKeys }).layers[0];
 }
 
 describe("レンズの線の線種", () => {
@@ -96,10 +101,8 @@ describe("タイルの材料から塗る軸", () => {
     expect(evaluate(layer.paint?.["line-opacity"], { v: 15 })).toBe(mapDisplay.road.knownOpacity);
   });
 
-  const color =
-    (value: AxisLineState["axes"][number]["value"], hidden: readonly string[]) =>
-    (properties: Record<string, unknown>) =>
-      evaluate(layerFor(value, hidden).paint?.["line-color"], properties);
+  const color = (value: AxisValue, hidden: readonly string[]) => (properties: Record<string, unknown>) =>
+    evaluate(layerFor(value, hidden).paint?.["line-color"], properties);
 
   it("中ほどの段を隠すと、その段の道だけが透明になる（上の段は残る）", () => {
     const of = color(TILE_VALUE, ["mid"]);
@@ -140,20 +143,7 @@ describe("配信された値で塗る軸", () => {
     ]);
     /** 配信の値を地図へ載せたとき、その道が受け取るfeature-stateで塗った色。 */
     const colorOf = (featureId: string, hidden: readonly string[] = []) => {
-      const state: AxisLineState = {
-        sourceLayer: "road",
-        axes: [
-          {
-            axisId: "ax",
-            visible: true,
-            bands: THREE_BANDS,
-            value: { kind: "delivered", values, loading: false },
-            hiddenBandKeys: hidden,
-            underlay: false,
-          },
-        ],
-      };
-      const group = axisLineGroup.build(state);
+      const group = groupFor({ kind: "delivered", values, loading: false }, { hiddenBandKeys: hidden });
       const featureState = Object.fromEntries(
         [...(group.sources[0].featureStates ?? [])].flatMap(([key, byFeature]) =>
           byFeature.has(featureId) ? [[key, byFeature.get(featureId)]] : [],
@@ -212,14 +202,7 @@ describe("ramp軸の式は、backendの表（形ごとの軸と道）で評価�
 describe("buildAxisRampUnknownExpression", () => {
   it("換算の係数が届いていない材料を使う軸は、どの道も「不明」", () => {
     const tile_inputs = [tileInput({ property: "v", weight: 1, needs_runtime_scale: true })];
-    const display = {
-      kind: "ramp" as const,
-      label: "scaled",
-      category: "roadCondition",
-      tile_inputs,
-      thresholds: [10],
-    };
-    const [axis] = rampAxesFromCatalogAxes([catalogEntry({ axis_id: "scaled", map_paint: { tiles: display } })], {});
+    const [axis] = rampAxesFromCatalogAxes([rampEntry("scaled", [10], { map_paint: { tiles: { tile_inputs } } })], {});
 
     expect(evaluate(buildAxisRampUnknownExpression(axis), { v: 5 })).toBe(true);
   });

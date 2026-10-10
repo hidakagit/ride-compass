@@ -50,13 +50,6 @@ export interface RampAxis extends CatalogAxis {
   bandLabelsOverride?: readonly string[];
 }
 
-/** 公開軸の表示名の辞書（軸id→軸定義の`label`）。**ここに無い軸idを画面へ出さない**——
- * 引けなかったときに軸idで埋めると、内部名（例: `wind`）がそのまま画面に出る。
- * 軸の名前は軸定義の`label`だけが持つ。 */
-export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Record<string, string> {
-  return Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.label]));
-}
-
 /** `runtimeScales`（GET /api/axis-catalogのtile_runtime_scales、tile property名→スケール係数）は、
  * `needs_runtime_scale`なtile_inputの`weight`へ構築時に一度だけ掛け合わせて解決する（地図の式は
  * 解決済みのweightだけを見る）。
@@ -119,17 +112,20 @@ export interface DedicatedWayValueAxis extends CatalogAxis {
 export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogEntry[]): DedicatedWayValueAxis[] {
   return axes
     .filter((axis) => axis.dedicated_way_value_layer)
-    .map((axis) => ({
-      ...catalogAxisFromEntry(axis),
-      needsTime: axis.dynamic_way_value_conditions.includes("at"),
-      needsBearing: axis.dynamic_way_value_conditions.includes("bearing_deg"),
-      needsSpeed: axis.dynamic_way_value_conditions.includes("speed_kmh"),
-      undeterminedByBearing: axis.dynamic_way_value_undetermined_by_bearing,
-      display: {
-        kind: axis.map_paint.value.kind,
-        boundaries: axis.map_paint.thresholds,
-        legend: axis.map_paint.legend,
-        bandLabels: axis.map_paint.band_labels ?? undefined,
-      },
-    }));
+    .map((axis) => {
+      const base = catalogAxisFromEntry(axis);
+      return {
+        ...base,
+        needsTime: base.wayValueConditions.includes("at"),
+        needsBearing: base.wayValueConditions.includes("bearing_deg"),
+        needsSpeed: base.wayValueConditions.includes("speed_kmh"),
+        undeterminedByBearing: axis.dynamic_way_value_undetermined_by_bearing,
+        display: {
+          kind: base.mapValueKind,
+          boundaries: axis.map_paint.thresholds,
+          legend: axis.map_paint.legend,
+          bandLabels: axis.map_paint.band_labels ?? undefined,
+        },
+      };
+    });
 }
