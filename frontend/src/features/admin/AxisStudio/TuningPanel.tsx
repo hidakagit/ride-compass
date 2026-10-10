@@ -8,7 +8,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { listTuningParameters, updateTuningParameter, type TuningParameter } from "@/features/admin/adminApi";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { textVariants } from "@/components/ui/Text/Text";
-import { dotVariants } from "@/components/ui/Dot/Dot";
+import { Dot } from "@/components/ui/Dot/Dot";
 import { cn } from "@/lib/cn";
 import { getQueryClient } from "@/lib/queryClient";
 
@@ -32,10 +32,7 @@ function TuningRow({
 }) {
   return (
     <li className="flex items-center gap-2 border-b border-[var(--color-border)] py-1">
-      <span
-        className={parameter.overridden ? dotVariants({ tone: "accent" }) : dotVariants({ tone: "none" })}
-        aria-hidden="true"
-      />
+      <Dot tone={parameter.overridden ? "accent" : "none"} aria-hidden="true" />
       <InfoPopover
         triggerAriaLabel={`${parameter.label}の説明`}
         label={parameter.label}

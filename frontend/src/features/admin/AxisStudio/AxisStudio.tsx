@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
@@ -121,16 +121,28 @@ export default function AxisStudio() {
     else if (republished) setNotice(null);
   }
 
-  // 待ちの印は、自分が立てたものだけを外す（待つ間にほかの軸で立てた印を外すと、その軸の待ちの間に押せてしまう）。
-  const clearUnpublishing = (axisId: string) =>
-    setUnpublishingAxisId((current) => (current === axisId ? null : current));
+  /** 一覧の行の操作を、その軸に待ちの印を立てて打つ。失敗は一覧の上に出す。 */
+  async function runRowAction(
+    axisId: string,
+    setPendingAxisId: React.Dispatch<React.SetStateAction<string | null>>,
+    action: () => Promise<void>,
+  ) {
+    setPendingAxisId(axisId);
+    try {
+      await action();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      // 待ちの印は、自分が立てたものだけを外す（待つ間にほかの軸で立てた印を外すと、その軸の待ちの間に押せてしまう）。
+      setPendingAxisId((current) => (current === axisId ? null : current));
+    }
+  }
 
   async function handleAdjustPublished(def: AxisDefinitionResponse) {
     // 公開済み軸の材料・計算式・折れ点を変えるには一度下書きへ戻す必要がある
     // （backendの`check_publish_immutability`）。その手順をここで畳む。
     setNotice(null);
-    setUnpublishingAxisId(def.axis_id);
-    try {
+    await runRowAction(def.axis_id, setUnpublishingAxisId, async () => {
       await unpublishAxisDefinition(def.axis_id);
       await reload();
       // 待つ間に別のフォームを開いていたら、そのフォームを替えない（打ちかけの入力が消える）。この軸は下書きのまま残る。
@@ -140,11 +152,7 @@ export default function AxisStudio() {
       }
       setRepublishAxisId(def.axis_id);
       setEditingAxisId(def.axis_id);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      clearUnpublishing(def.axis_id);
-    }
+    });
   }
 
   function handleDuplicate(def: AxisDefinitionResponse) {
@@ -156,28 +164,18 @@ export default function AxisStudio() {
   async function handleUnpublish(axisId: string) {
     // 公開済み軸を下書きへ戻す。一般ユーザー向けの軸カタログから即座に消えるが、利用者の画面は保存した
     // 重みのキーをカタログへ合わせ直す（features/route/routePreferenceSync.ts）ので、消えた軸の重みは残らない。
-    setUnpublishingAxisId(axisId);
-    try {
+    await runRowAction(axisId, setUnpublishingAxisId, async () => {
       await unpublishAxisDefinition(axisId);
       await reload();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      clearUnpublishing(axisId);
-    }
+    });
   }
 
   // 消せるか（ほかの軸が参照している・最後の1軸）はbackendが判定し、断った理由をそのまま出す。
   async function handleDelete(axisId: string) {
-    setDeletingAxisId(axisId);
-    try {
+    await runRowAction(axisId, setDeletingAxisId, async () => {
       await deleteAxisDefinition(axisId);
       await reload();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeletingAxisId((current) => (current === axisId ? null : current));
-    }
+    });
   }
 
   const editingDefinition = definitions?.find((d) => d.axis_id === editingAxisId) ?? null;
@@ -206,16 +204,22 @@ export default function AxisStudio() {
   const draftDefs = definitions?.filter((d) => !d.is_published) ?? [];
   const publishedDefs = definitions?.filter((d) => d.is_published) ?? [];
 
-  function renderRowMain(def: AxisDefinitionResponse) {
+  function renderRow(def: AxisDefinitionResponse, actions: ReactNode) {
     return (
-      <div className="flex min-w-0 flex-col">
-        <span className={textVariants({ variant: "heading" })}>{def.label}</span>
-        <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
-          {def.axis_id} ・ {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
-          {materialIdsOf(def.shape)
-            .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
-            .join("・")}
-        </span>
+      <div
+        key={def.axis_id}
+        className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
+      >
+        <div className="flex min-w-0 flex-col">
+          <span className={textVariants({ variant: "heading" })}>{def.label}</span>
+          <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
+            {def.axis_id} ・ {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
+            {materialIdsOf(def.shape)
+              .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
+              .join("・")}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1">{actions}</div>
       </div>
     );
   }
@@ -239,13 +243,10 @@ export default function AxisStudio() {
 
         <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="draft">
           {draftDefs.length === 0 && <p className={textVariants({ variant: "hint" })}>下書きの軸はありません。</p>}
-          {draftDefs.map((def) => (
-            <div
-              key={def.axis_id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
-            >
-              {renderRowMain(def)}
-              <div className="flex flex-wrap gap-1">
+          {draftDefs.map((def) =>
+            renderRow(
+              def,
+              <>
                 <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
                   編集
                 </Button>
@@ -260,9 +261,9 @@ export default function AxisStudio() {
                 >
                   削除
                 </Button>
-              </div>
-            </div>
-          ))}
+              </>,
+            ),
+          )}
         </TabsContent>
 
         <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="published">
@@ -280,13 +281,10 @@ export default function AxisStudio() {
               </li>
             </ul>
           )}
-          {publishedDefs.map((def) => (
-            <div
-              key={def.axis_id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
-            >
-              {renderRowMain(def)}
-              <div className="flex flex-wrap gap-1">
+          {publishedDefs.map((def) =>
+            renderRow(
+              def,
+              <>
                 <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
                   表示だけ編集
                 </Button>
@@ -307,9 +305,9 @@ export default function AxisStudio() {
                 >
                   非公開に戻す
                 </Button>
-              </div>
-            </div>
-          ))}
+              </>,
+            ),
+          )}
         </TabsContent>
       </Tabs>
 
