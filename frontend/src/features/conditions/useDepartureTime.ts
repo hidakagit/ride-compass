@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { DEPARTURE_STEP_MS } from "@/features/conditions/rideConditions";
+import { floorToDepartureStep } from "@/features/conditions/rideConditions";
 
 // 「今」は出発時刻として選べる値の刻みで進める。これより細かく進めてもどの気象レイヤーが選ぶ
 // フレームも変わらないまま、時刻をキーに持つ取得（useDedicatedWayValues）だけが無効化される。
@@ -10,7 +10,7 @@ import { DEPARTURE_STEP_MS } from "@/features/conditions/rideConditions";
 const NOW_POLL_INTERVAL_MS = 30 * 1000;
 
 function steppedNow(): Date {
-  return new Date(Math.floor(Date.now() / DEPARTURE_STEP_MS) * DEPARTURE_STEP_MS);
+  return new Date(floorToDepartureStep(Date.now()));
 }
 
 interface DepartureTime {

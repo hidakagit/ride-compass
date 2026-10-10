@@ -276,10 +276,8 @@ export function buildSplicedShape(
   for (const alternative of applied) {
     const targetShape = shapeOf(alternative.candidateId);
     if (!targetShape) continue;
-    const from = targetShape.edgePointOffsets[alternative.targetStretch.start];
-    const to = targetShape.edgePointOffsets[alternative.targetStretch.end];
-    const head = current.edgePointOffsets[alternative.stretch.start];
-    const tail = current.edgePointOffsets[alternative.stretch.end];
+    const { start: from, end: to } = stretchCoordinateRange(targetShape.edgePointOffsets, alternative.targetStretch);
+    const { start: head, end: tail } = stretchCoordinateRange(current.edgePointOffsets, alternative.stretch);
     const edgeIds = [
       ...current.edgeIds.slice(0, alternative.stretch.start),
       ...alternative.edgeIds,
