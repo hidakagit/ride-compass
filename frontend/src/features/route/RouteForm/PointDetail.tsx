@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge/Badge";
-import { Button } from "@/components/ui/Button/Button";
+import { Button, buttonVariants } from "@/components/ui/Button/Button";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { SavedPlaceIcon, SavePlaceIcon } from "@/components/ui/icons/icons";
+import { PlaceOnMapIcon, SavedPlaceIcon, SavePlaceIcon } from "@/components/ui/icons/icons";
 import { Input } from "@/components/ui/Input/Input";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -41,7 +41,8 @@ interface PointDetailProps {
   placed: boolean;
   /** 地図で置く操作の名前（地図で選ぶ／地図で追加／地図で置き直す）。 */
   armLabel: string;
-  /** 地図で置く操作の右に並べる別の操作（消す・現在地に戻す）。 */
+  /** 地図で置く操作の右に並べる別の操作（消す・現在地に戻す。どれもアイコンだけの形）。要らない間も出し入れせず、押せない形で
+   * 渡す（押した直後に並びが動くと、続けて押したときに別の操作に当たる）。 */
   extra?: React.ReactNode;
   /** 地図で置く状態の間に、打つ欄の中に出す文言。置いた数を隠さないため、経由地を足す間は件数を添える。 */
   armedHint?: string;
@@ -139,6 +140,13 @@ export default function PointDetail({
   );
   // 引けない間・引けなかったときは辺りを出さない（名前と出どころは出ている）。
   const area = found?.area ?? (areaPoint !== null ? (placedArea.data ?? null) : null);
+
+  // アイコンだけの操作なので、押せない・押している間の名前も読み上げと吹き出しで伝える。
+  const armToggleName = full
+    ? `${title}は上限まで置いてあります`
+    : armed
+      ? `${title}の指定をやめる`
+      : `${title}を${armLabel}`;
 
   function closeList() {
     lookup.close({ clearText: true });
@@ -249,49 +257,47 @@ export default function PointDetail({
           <div className={raised ? "hidden" : "contents"}>
             <Toggle
               variant="plain"
-              className={
-                armed
-                  ? "flex-none rounded-sm bg-[var(--color-accent)] px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--color-surface)]"
-                  : "flex-none rounded-sm px-1.5 py-1 text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]"
-              }
+              className={cn(
+                buttonVariants({ size: "panelIcon" }),
+                "flex-none data-[state=on]:border-[var(--color-accent)] data-[state=on]:bg-[var(--color-accent)] data-[state=on]:text-white",
+              )}
               pressed={armed}
               disabled={full}
-              aria-label={
-                full ? `${title}は上限まで置いてあります` : armed ? `${title}の指定をやめる` : `${title}を${armLabel}`
-              }
+              aria-label={armToggleName}
+              title={armToggleName}
               onClick={onArmToggle}
               usage={usage}
             >
-              {armed ? "やめる" : full ? "上限" : armLabel}
+              <PlaceOnMapIcon />
             </Toggle>
             {extra}
-            {at !== null &&
-              (savedHere !== null ? (
-                <Button
-                  size="panelIcon"
-                  className="ml-auto flex-none"
-                  aria-label={`「${savedHere.name}」の保存をやめる`}
-                  onClick={() => savedPlaces.remove(savedHere)}
-                  usage="保存した地点から外します。置いた地点はそのまま残ります。"
-                >
-                  <SavedPlaceIcon />
-                </Button>
-              ) : (
-                <Button
-                  size="panelIcon"
-                  className="ml-auto flex-none"
-                  aria-label="地点を保存"
-                  aria-haspopup="dialog"
-                  aria-expanded={naming}
-                  onClick={() => {
-                    setPlaceNameDraft(null);
-                    setNaming(true);
-                  }}
-                  usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
-                >
-                  <SavePlaceIcon />
-                </Button>
-              ))}
+            {savedHere !== null ? (
+              <Button
+                size="panelIcon"
+                className="ml-auto flex-none"
+                aria-label={`「${savedHere.name}」の保存をやめる`}
+                onClick={() => savedPlaces.remove(savedHere)}
+                usage="保存した地点から外します。置いた地点はそのまま残ります。"
+              >
+                <SavedPlaceIcon />
+              </Button>
+            ) : (
+              <Button
+                size="panelIcon"
+                className="ml-auto flex-none"
+                aria-label="地点を保存"
+                disabled={at === null}
+                aria-haspopup="dialog"
+                aria-expanded={naming}
+                onClick={() => {
+                  setPlaceNameDraft(null);
+                  setNaming(true);
+                }}
+                usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
+              >
+                <SavePlaceIcon />
+              </Button>
+            )}
           </div>
         </div>
 

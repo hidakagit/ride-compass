@@ -1,7 +1,7 @@
 /**
  * `RouteSettingsPanel/HardFilterPanel.tsx`——「除外」タブ。除外できる道路の種類ごとの切り替えと、既定へ戻す操作。
  *
- * 見るもの: 種類の切り替えを押すとその種類だけを反転した値を上げること、既定と違う間だけ既定へ戻す操作を出すこと。
+ * 見るもの: 種類の切り替えを押すとその種類だけを反転した値を上げること、既定と違う間だけ既定へ戻す操作を押せること。
  *
  * ここで見ないもの: 保存値を今の項目へ揃えること → `features/route/useGenerationConditions.test.ts`（このパネルは
  * 全項目の揃った値を受け取る）。生成の要求へ載せること → `features/route/useRouteGeneration.test.ts`。
@@ -9,7 +9,7 @@
  *
  * 種類・名前・既定は生成物（`route-generate-config.json`）から読み、テストに書き写さない。
  */
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -38,9 +38,10 @@ describe("HardFilterPanel", () => {
     expect(onHardFiltersChange).toHaveBeenCalledExactlyOnceWith(CUSTOMIZED);
   });
 
-  it("既定と違う種類があるときだけ既定へ戻す操作を出し、押すと既定を上げる", async () => {
+  it("既定と違う種類があるときだけ既定へ戻す操作を押せ、押すと既定を上げる", async () => {
     renderPanel(DEFAULT_HARD_FILTERS);
-    expect(screen.queryByRole("button", { name: "除外を既定値に戻す" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "除外を既定値に戻す" })).toBeDisabled();
+    cleanup();
 
     const onHardFiltersChange = renderPanel(CUSTOMIZED);
     await userEvent.click(screen.getByRole("button", { name: "除外を既定値に戻す" }));

@@ -94,7 +94,7 @@ export function useLocation(): UseLocationResult {
             id: "location",
             label: "現在地",
             effect:
-              "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップしてください。",
+              "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、「ルート設定」の「出発地を地図で選ぶ」を押して地図をタップしてください。",
             onRetry: handleLocateMe,
           }
         : null,

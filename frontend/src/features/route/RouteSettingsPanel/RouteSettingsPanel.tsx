@@ -14,6 +14,7 @@ import { axisCatalogFetchFailure, retryAxisCatalogFetch, useAxisCatalog } from "
 import type { CatalogAxis } from "@/lib/catalogAxis";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
+import { RetryIcon } from "@/components/ui/icons/icons";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { cn } from "@/lib/cn";
 import { legendChipBodyClass, legendChipClass, legendIconClass } from "@/components/ui/AxisLegend/axisLegend";
@@ -195,8 +196,8 @@ export default function RouteSettingsPanel({
           role="status"
         >
           <span>{`${catalogFailure.label}を取得できませんでした。${catalogFailure.effect}`}</span>
-          <Button variant="warning" size="xs" onClick={retryAxisCatalogFetch}>
-            再試行
+          <Button variant="warning" size="panelIcon" aria-label="再試行" onClick={retryAxisCatalogFetch}>
+            <RetryIcon />
           </Button>
         </p>
       )}

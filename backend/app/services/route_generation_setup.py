@@ -4,11 +4,18 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime
+from typing import assert_never
 
 from app.domain.evaluation import resolve_penalty_strength
 from app.domain.route import Coordinates, RouteCandidate
 from app.domain.route_preference import RoutePreference
-from app.domain.route_request import RouteTarget, SplicedTarget, WaypointsTarget, applied_max_routes
+from app.domain.route_request import (
+    DistanceTarget,
+    NoDistanceTarget,
+    RouteTarget,
+    SplicedTarget,
+    applied_max_routes,
+)
 from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
@@ -99,36 +106,42 @@ async def generate_route_candidates(
     max_routes: int,
     distance_tolerance_km: float,
 ) -> GeneratedRoutes:
-    """`open_setup`で組んだエンジンで、対象（周回・経由地と目的地・差し替えた経路）の候補を作る。"""
-    has_waypoints = isinstance(target, WaypointsTarget) and bool(target.waypoints)
+    """`open_setup`で組んだエンジンで、対象（距離あり・距離なし・差し替えた経路）の候補を作る。
+
+    仕上げの戦略は要求の検証が型で選び済みで、ここは型ごとの入口へ渡すだけ（距離の有無を見直さない）。
+    """
+    has_waypoints = isinstance(target, NoDistanceTarget) and bool(target.points.waypoints)
     applied_max = applied_max_routes(max_routes, has_waypoints=has_waypoints)
     async with open_setup() as setup:
         generator = setup.generator
-        if isinstance(target, SplicedTarget):
-            candidates = await generator.generate_spliced_route(
-                origin=origin,
-                destination=target.destination,
-                distance_km=target.distance_km,
-                edge_ids=target.edge_ids,
-                start_time=start_time,
-            )
-        elif isinstance(target, WaypointsTarget):
-            candidates = await generator.generate_via_waypoints(
-                origin=origin,
-                waypoints=target.waypoints,
-                distance_km=target.distance_km,
-                destination=target.destination,
-                max_routes=applied_max,
-                start_time=start_time,
-            )
-        else:
-            candidates = await generator.generate_loops(
-                origin=origin,
-                distance_km=target.distance_km,
-                distance_tolerance_km=distance_tolerance_km,
-                max_routes=applied_max,
-                start_time=start_time,
-            )
+        match target:
+            case SplicedTarget():
+                candidates = await generator.generate_spliced_route(
+                    origin=origin,
+                    destination=target.destination,
+                    distance_km=target.distance_km,
+                    edge_ids=target.edge_ids,
+                    start_time=start_time,
+                )
+            case NoDistanceTarget():
+                candidates = await generator.generate_via_waypoints(
+                    origin=origin,
+                    waypoints=target.points.waypoints,
+                    distance_km=target.distance_km,
+                    destination=target.points.destination,
+                    max_routes=applied_max,
+                    start_time=start_time,
+                )
+            case DistanceTarget():
+                candidates = await generator.generate_loops(
+                    origin=origin,
+                    distance_km=target.distance_km,
+                    distance_tolerance_km=distance_tolerance_km,
+                    max_routes=applied_max,
+                    start_time=start_time,
+                )
+            case _:
+                assert_never(target)
         return GeneratedRoutes(
             candidates=candidates,
             no_candidates_reason=generator.last_no_candidates_reason if not candidates else None,

@@ -19,7 +19,7 @@ interface FirstVisitIntroProps {
   /** 最初の一手の場所を、スマホ（下部タブ）とPC（左のパネル）で言い分ける。 */
   isMobile: boolean;
   /** 最初の位置の取得が決着して、位置が分からないと分かったか。真の間は出発地の印が灰色の仮の地点なので、
-   * 「地図で選ぶ」で置く手順を案内する（決着するまでは「はじめは現在地」のまま）。 */
+   * 「出発地を地図で選ぶ」で置く手順を案内する（決着するまでは「はじめは現在地」のまま）。 */
   locationUnknown: boolean;
 }
 
@@ -62,9 +62,13 @@ export default function FirstVisitIntro({ isMobile, locationUnknown }: FirstVisi
             <PinMark role="origin" size={14} color={locationUnknown ? ORIGIN_MARK_FALLBACK_COLOR : undefined} />
           </span>
           <span>
-            {locationUnknown
-              ? "現在地が分からないため、この灰色の印は仮の地点です。「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップすると、そこが出発地になります。"
-              : "この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。"}
+            <GuideText
+              text={
+                locationUnknown
+                  ? "現在地が分からないため、この灰色の印は仮の地点です。「ルート設定」の「出発地を地図で選ぶ」を押して地図をタップすると、そこが出発地になります。"
+                  : "この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。"
+              }
+            />
           </span>
         </li>
         <li>

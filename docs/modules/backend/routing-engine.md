@@ -13,8 +13,8 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル座標の型（路面のズーム`RoadTileZoom`・列と行`TileIndex`。ほかのレイヤーのズームの型はそのレイヤーの宣言の隣）と、列・行がズームの範囲にあるかの検査`check_tile_index`も持ち、タイルを受ける入口（path・本文）はどれもこれで書く。タイル配信・取込・派生バッチ・推計気象分布の画素（`infrastructure/jma_suikei_client.py`）もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せない）・`route_search.py`（探索が候補を選ぶ判断の値と手順。折返し点・復路・代替経路の間引きのしきい値、往路と周回全長の比の範囲と折返し点を探すリング、候補を同じとみなす距離の粒度、目的地を寄せてよい距離、候補の並べ方（パレート層と難易度）・同点の組・離れているかの判定・逆回りとの比べ方・A*の下界・迂回率の測り方と共有の粒度、応答の候補の並び）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）・`route_request.py`（ルート生成の要求が受け付ける値の範囲（返す候補数の既定と上限・経由地を伴う生成の候補数・想定速度の既定と範囲の型`AssumedSpeedKmh`を含む。想定速度は地図の配信・区間インスペクタの入口も同じ型で受ける）と、その外れを知らせる文。経由地・目的地から探索の範囲を決める`search_distance_km`。要求の検証と、画面が操作を止める上限の生成物が同じ宣言を読む。検証を通った要求が何を生成するか（周回・経由地と目的地・差し替えた経路）の型も持つ）・`leg_costs.py`（レグごとのコスト配列の合成。静的スコア行列・重み・0次フィルタ・風の予報から、探索のコストと区間の表示が読む配列を時刻ビンごとに作る。外部とやり取りせず配列だけを受け取るので、エンジンの途中状態を組まずに確かめられる。下記「レグ別コスト配列」） |
-| services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py`・`route_generation_setup.py`（エンジンの組み立てと評価条件の既定の解決。組んだエンジンで要求の対象の候補を作る段取り`generate_route_candidates`） |
+| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル座標の型（路面のズーム`RoadTileZoom`・列と行`TileIndex`。ほかのレイヤーのズームの型はそのレイヤーの宣言の隣）と、列・行がズームの範囲にあるかの検査`check_tile_index`も持ち、タイルを受ける入口（path・本文）はどれもこれで書く。タイル配信・取込・派生バッチ・推計気象分布の画素（`infrastructure/jma_suikei_client.py`）もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せない）・`route_search.py`（探索が候補を選ぶ判断の値と手順。折返し点・復路・代替経路の間引きのしきい値、往路と周回全長の比の範囲と折返し点を探すリング、候補を同じとみなす距離の粒度、目的地を寄せてよい距離、候補の並べ方（パレート層と難易度）・同点の組・離れているかの判定・逆回りとの比べ方・A*の下界・迂回率の測り方と共有の粒度、応答の候補の並び）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）・`route_request.py`（ルート生成の要求が受け付ける値の範囲（返す候補数の既定と上限・経由地を伴う生成の候補数・想定速度の既定と範囲の型`AssumedSpeedKmh`を含む。想定速度は地図の配信・区間インスペクタの入口も同じ型で受ける）と、その外れを知らせる文。経由地・目的地から探索の範囲を決める`search_distance_km`。要求の検証と、画面が操作を止める上限の生成物が同じ宣言を読む。検証を通った要求が何を生成するか（距離あり・距離なし・差し替えた経路）の型も持ち、仕上げの戦略を選ぶのはこの型だけ）・`leg_costs.py`（レグごとのコスト配列の合成。静的スコア行列・重み・0次フィルタ・風の予報から、探索のコストと区間の表示が読む配列を時刻ビンごとに作る。外部とやり取りせず配列だけを受け取るので、エンジンの途中状態を組まずに確かめられる。下記「レグ別コスト配列」） |
+| services | `route_generator.py`（戦略層。生成の骨組みと、距離の有無で分かれる仕上げの戦略）・`road_graph_engine.py`・`graph_service.py`・`route_generation_setup.py`（エンジンの組み立てと評価条件の既定の解決。組んだエンジンで要求の対象の候補を作る段取り`generate_route_candidates`） |
 | infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`detour_ratio_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`container_memory.py`（このプロセスのコンテナのメモリ上限。読み込む量の上限を導く）・`derived_data_meta.py`（派生データの世代と、今の派生の表を作った全ソースの取込。世代はバッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路。配信するタイルのために生データの世代も一緒に読む） |
 | api | `routes.py` |
 
@@ -119,7 +119,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 |---|---|---|
 | 周回 | 往路（基準点=起点、`offset=0`、`+1`） | 復路（基準点=起点、`offset=目標距離÷速度`、`-1`）——`select_loop_turnarounds`が合成 |
 | 目的地ルート（via-node） | 前向き木（同上） | 後ろ向き木（基準点=目的地、`offset=直線距離×迂回率÷速度`、`-1`）——`select_via_nodes`が合成 |
-| 経由地ルート（`trace_loop`） | レグ0 | レグk（基準点=レグ起点、`offset=累積実距離÷速度`、`+1`）を逐次合成 |
+| 経由地ルート（前段`trace_fixed_points`・仕上げ`trace_to_end`） | レグ0 | レグk（基準点=レグ起点、`offset=累積実距離÷速度`、`+1`）を逐次合成 |
 
 `TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`は
 そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../architecture/design-principles.md)10）。
@@ -158,8 +158,24 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
 `RouteGenerator`は`RoadGraphEngine`を直接受け取り、そのメソッド（`prepare`・
-`select_loop_turnarounds`・`trace_loop`・`evaluate_loops`等）を呼ぶだけで、探索の内部には
-立ち入らない。候補の中身（`TracedLoop.data`）もエンジン固有の形として読まない。
+`select_loop_turnarounds`・`trace_fixed_points`・`evaluate_loops`等）を呼ぶだけで、探索の内部には
+立ち入らない。候補の中身（`TracedLoop.data`・前段の結果`FixedLegs`）もエンジン固有の形として読まない。
+
+**探索して候補を作る生成は、どれも1本の骨組み（`RouteGenerator._generate`）を通る**: 探索の土台（`prepare`）→
+前段（`engine.trace_fixed_points`。出発地から置いた経由地を置いた順に区間ごとのA*で結び、区間ごとの道・最後の固定点・
+実距離を持つ。経由地が無ければ出発地で止まる）→ 仕上げの戦略（最後の固定点から先の経路を選ぶ）→ 評価と集約
+（`_evaluate_and_aggregate`）→ 戦略の並べ方とラベル（`_label`）。仕上げの戦略は距離の有無で分かれる:
+
+| 戦略 | 入口 | 何を解くか |
+|---|---|---|
+| 距離あり（`_DistanceFinish`） | `generate_loops` | 決めた長さを走り切る周回。下の折返し点の選び方・往路を避けた復路・距離の厳格フィルタ |
+| 距離なし（`_NoDistanceFinish`） | `generate_via_waypoints` | 置いた所へ良い道で向かう。経由地の無い目的地ルートは代替経路と最速の1本（下の`generate_via_waypoints`）、経由地があれば最後の固定点から終点まで素のA*で1本 |
+
+どちらの戦略を使うかは要求の検証（`api/routers/routes.py: RouteGenerateRequest._resolve_target`）が型
+（`domain/route_request.py: RouteTarget`）で1回だけ選び、生成の組み立て（`services/route_generation_setup.py: generate_route_candidates`）は
+型ごとの入口へ渡すだけで、距離の有無を見直さない。距離ありの型は置いた点をまだ持たず、出発地へ戻る周回だけを作る。
+1回の生成は、段ごとの所要時間（`prepare_ms`・`fixed_ms`・`finish_ms`・`evaluate_ms`・`total_ms`）と戦略の中間結果の
+減り方を持つ1行で残り、候補が0件ならWARNINGになる。
 
 候補の形は公開軸の重み配分で決まる（フロンティア方式）:
 起点からの一対全最短経路木（軸重み付きコスト）で目標距離の半分付近に到達する折返し点を
@@ -188,12 +204,15 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 
 ```
 RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_routes)
-        │
+        │  骨組み（_generate）へ、距離ありの仕上げ（_DistanceFinish）を渡す
         ▼
   engine.prepare(origin, radius_km)
         │  1リクエスト分の共有準備（Road Graph構築等）。失敗時はNone→候補0件
         ▼
-  engine.select_loop_turnarounds(context, distance_km, distance_tolerance_km, pool_size)
+  engine.trace_fixed_points(context, [])
+        │  前段。距離ありは置いた点を持たないので、区間を結ばず出発地で止まる
+        ▼
+  仕上げ: engine.select_loop_turnarounds(context, distance_km, distance_tolerance_km, pool_size)
         │  折返し点候補を、往路の軸的な良さの順に最大pool_size件（互いに似た往路は
         │  間引き済み）返す。空なら候補0件
         ▼
@@ -213,7 +232,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  difficulty／寄与度／生値・材料値等）を付ける。候補を返す経路はすべてこの
         │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
-  candidates.sort(overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾)
+  仕上げの並べ方: overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾
         │  _labelがid（loop-00..）と種類を付ける（本数は上の逐次処理がmax_routes件で止めている）
         ▼
   RouteCandidate一覧
@@ -344,16 +363,16 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 外へ出た時点でも打ち切るのはこのため（実測: 打ち切りが無いと30km規模の索引で16.9分、
 その間イベントループを握るためbackend全体が止まる）。
 
-### `generate_via_waypoints`（経由地・目的地指定）
+### `generate_via_waypoints`（距離なし。経由地・目的地指定）
 
-`generate_loops`の折返し点選定・距離フィルタとは独立した経路生成。
+距離なしの仕上げ（`_NoDistanceFinish`）を使う入口で、`generate_loops`の折返し点選定・距離フィルタは通らない。
 `destination`省略時は起点に戻る周回（常に1件）。
 距離（`distance_km`）はここでは探索の範囲で、要求の検証（`api/routers/routes.py: RouteGenerateRequest._resolve_target`）が
 置いた点のうち最も遠いものより必ず長く決める——画面は送らず、送られても使わない。
 
 `destination`指定時は、経由地の有無で分岐する:
 
-- **経由地が無い（起点→目的地のみ）**: `_generate_destination_routes`が
+- **経由地が無い（起点→目的地のみ）**: 仕上げが
   `engine.select_via_nodes`（via-node方式、後述）で`max_routes`件まで互いに異なる
   代替経路を生成する。`overall_difficulty`昇順（`generate_loops`と同じ規約）に並べ、種類`destination`と
   `direction_label="目的地ルート"`を全件に付ける（下の「応答の候補のid・種類・最速の印」）。
@@ -369,8 +388,8 @@ import済みの参照が古い辞書を指したままになる）。差し替�
   比べる基準が無くなる）。**`max_routes`が1のときは基準線を残さない**（切り方は`domain/route_search.py: keep_routes_with_baseline`）——基準線は比べる
   相手があって初めて基準であり、1本だけ返すときに残すと返る唯一の候補が常に時間最短に
   なって軸の重みが結果に現れない。
-- **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
-  従来どおり`trace_loop`で単一経路を生成する（候補数は指定によらず`route_request.py:
+- **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるため代替経路を作らず、
+  前段が置いた点まで結んだ道に、仕上げの`engine.trace_to_end`が終点までの1区間を足した単一経路を生成する（候補数は指定によらず`route_request.py:
   applied_max_routes`が`ROUTES_WITH_WAYPOINTS`に決め、生成条件の応答にもその値が載る。画面は同じ値を
   生成物`route-generate-config.json`の`routes_with_waypoints`で受け取る）。常に1本で順位を持たないので、種類
   `waypoints`と、目的地があれば`direction_label="目的地ルート"`・無ければ`"経由地ルート"`を付け、画面は番号の代わりに
@@ -412,8 +431,8 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 グラフ構造自体は必要になった時点でEdgeを実体化するlazy構築のままで、「lazy」が指すのは
 グラフ構築であってコスト計算ではない）。周回候補は
 `select_loop_turnarounds`（起点からの一対全最短経路木で折返し点を選ぶ）＋
-`trace_loop_from_turnaround`（往路＋復路A*）が担い、経由地・目的地指定ルートは
-`trace_loop`が指定地点列を順にA*で結ぶ。
+`trace_loop_from_turnaround`（往路＋復路A*）が担い、経由地を置いたルートは
+`trace_fixed_points`（前段）と`trace_to_end`（仕上げ）が指定地点列を順にA*で結ぶ。
 
 ### `prepare(origin, radius_km, waypoints=None)`
 
@@ -587,7 +606,7 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
 `trace_loop_from_turnaround`と違い、選ばれたNodeの経路（前向き＋後ろ向きの経路復元の
 連結）がそのまま最終候補になる（`turn_expanded_path_from_state`/
 `turn_expanded_path_from_state_to_source`で確定済み、候補ごとに失敗しうる探索が無い）ため、戻り値の`TracedLoop`一覧が
-`RouteGenerator._generate_destination_routes`にとってそのまま`evaluate_loops`への入力になる。
+距離なしの仕上げ（`route_generator.py: _NoDistanceFinish`）にとってそのまま`evaluate_loops`への入力になる。
 
 ### `select_fastest_route`（好みの重みを0にしたときの基準線）
 
@@ -606,11 +625,13 @@ A*のヒューリスティックも秒の下界にする（直線距離÷出せ�
 引き継ぐ。レグは経路の所要時間が半分になる位置で割る（合成経路と同じ`leg_of_edge_by_half`へ走行秒を渡す）——他の候補と同じく往路レグ・
 復路レグへ概ね半分ずつ割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
 
-### `trace_loop`（経由地・目的地指定ルート）
+### `trace_fixed_points`・`trace_to_end`（前段と、素のA*の仕上げ）
 
-`select_loop_turnarounds`/`trace_loop_from_turnaround`は周回候補（フロンティア方式）
-専用で、経由地・目的地指定ルート（`generate_via_waypoints`）は本メソッドが指定地点列を
-順にA*で結ぶ（`bearing=None`固定、戻り値の`data`は経路上の区間の番号列）。
+`trace_fixed_points`は出発地から置いた経由地を順に区間ごとのA*で結ぶ（区間0は`prepare`の往路レグ、区間kは
+区間の起点を基準点にそれまでの実距離ぶんの経過時間で合成し`context.legs`へ足す）。`trace_to_end`は前段の最後の
+固定点から終点（目的地、無ければ`prepare`がスナップ済みの起点のNode）まで同じ形で1区間を結び、前段と合わせた1本を
+返す（`bearing=None`固定、戻り値の`data`は経路上の区間の番号列）。周回の折返し点の選定と目的地ルートのvia-nodeは
+起点から探すので、前段が出発地で止まっているときだけ使う。
 
 ### `evaluate_loops`（実ジオメトリ取得・評価）
 

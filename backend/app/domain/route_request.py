@@ -77,19 +77,26 @@ def search_distance_km(farthest_km: float) -> int:
 
 
 @dataclass(frozen=True)
-class LoopTarget:
-    """起点へ戻る周回候補を、目標距離で探す。"""
+class FixedPoints:
+    """出発地のあとに順に通る、置いた点の並び。経由地を置いた順に通り、目的地（無ければ出発地）で終わる。"""
+
+    waypoints: list[Coordinates]
+    destination: Coordinates | None
+
+
+@dataclass(frozen=True)
+class DistanceTarget:
+    """全長の目標に合う候補を探す（距離あり）。置いた点はまだ受けず、出発地へ戻る周回だけを作る。"""
 
     distance_km: float
 
 
 @dataclass(frozen=True)
-class WaypointsTarget:
-    """経由地・目的地を通る1本を探す。`distance_km`は置いた点から決めた探索の範囲。"""
+class NoDistanceTarget:
+    """置いた点を順に通り、終点へ良い道で向かう候補を探す（距離なし）。`distance_km`は置いた点から決めた探索の範囲。"""
 
     distance_km: float
-    waypoints: list[Coordinates]
-    destination: Coordinates | None
+    points: FixedPoints
 
 
 @dataclass(frozen=True)
@@ -101,5 +108,5 @@ class SplicedTarget:
     edge_ids: tuple[str, *tuple[str, ...]]
 
 
-# 検証を通った要求が何を生成するか。生成はこれだけを見て分岐する。
-RouteTarget = LoopTarget | WaypointsTarget | SplicedTarget
+# 検証を通った要求が何を生成するか。距離の有無（仕上げの戦略）は要求の検証がここで1回だけ選び、生成は型だけを見る。
+RouteTarget = DistanceTarget | NoDistanceTarget | SplicedTarget

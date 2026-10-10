@@ -24,10 +24,11 @@ from app.domain.route_request import (
     MAX_WAYPOINTS,
     MIN_ROUTES,
     AssumedSpeedKmh,
-    LoopTarget,
+    DistanceTarget,
+    FixedPoints,
+    NoDistanceTarget,
     RouteTarget,
     SplicedTarget,
-    WaypointsTarget,
     check_spliced_edge_count,
     check_waypoint_count,
     search_distance_km,
@@ -176,15 +177,15 @@ class RouteGenerateRequest(StrictModel):
 
     @model_validator(mode="after")
     def _resolve_target(self) -> "RouteGenerateRequest":
-        # 経由地・目的地を置いたときの距離は探索の範囲で、置いた点から決める（`search_distance_km`）。
-        # 周回では距離が目標そのものなので送られた値が要る。
+        # 仕上げの戦略（距離あり・距離なし）を選ぶのはここだけ。経由地・目的地を置いたときは距離なしで、距離は
+        # 探索の範囲として置いた点から決める（`search_distance_km`）。周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
             if self.spliced_edge_ids:
                 raise ValueError("spliced_edge_ids requires destination")
             if self.distance_km is None:
                 raise ValueError("distance_km is required without waypoints/destination")
-            self._target = LoopTarget(distance_km=self.distance_km)
+            self._target = DistanceTarget(distance_km=self.distance_km)
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
         distance_km = search_distance_km(max(haversine_distance_km(origin, point) for point in points))
@@ -198,14 +199,15 @@ class RouteGenerateRequest(StrictModel):
                 distance_km=distance_km, destination=self.destination, edge_ids=(first, *rest)
             )
         else:
-            self._target = WaypointsTarget(
-                distance_km=distance_km, waypoints=self.waypoints or [], destination=self.destination
+            self._target = NoDistanceTarget(
+                distance_km=distance_km,
+                points=FixedPoints(waypoints=self.waypoints or [], destination=self.destination),
             )
         return self
 
     @property
     def target(self) -> RouteTarget:
-        """検証を通った要求が何を生成するか（周回・経由地と目的地・差し替えた経路）。"""
+        """検証を通った要求が何を生成するか（距離あり・距離なし・差し替えた経路）。"""
         return self._target
 
 

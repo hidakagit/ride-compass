@@ -4,6 +4,7 @@ import { Fragment } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
 import { cardVariants } from "@/components/ui/Card/Card";
+import { ShowOriginIcon } from "@/components/ui/icons/icons";
 import { textVariants } from "@/components/ui/Text/Text";
 import { editDifference, formatDelta, roundToDigits } from "@/features/route/routeEditDiff";
 import { cn } from "@/lib/cn";
@@ -32,8 +33,8 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
     >
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")}>元との違い</h3>
-        <Button size="xs" onClick={onShowOrigin} usage="元にしたルートへ切り替えます。">
-          元を見る
+        <Button size="panelIcon" aria-label="元を見る" onClick={onShowOrigin} usage="元にしたルートへ切り替えます。">
+          <ShowOriginIcon />
         </Button>
       </div>
       <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
