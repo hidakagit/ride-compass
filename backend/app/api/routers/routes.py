@@ -234,10 +234,9 @@ class GenerationConditions(StrictModel):
     waypoints: list[Coordinates] | None
     # 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
     destination: Coordinates | None
-    # 距離なしの目的地ルートで、`destination`がメインの道路網から孤立した
-    # Node（歩道橋・私有地内通路等）にスナップされたため、実際にはアクセス可能な最寄りNode
-    # へ補正して探索した場合の座標。補正しなかった（`destination`をそのまま使えた）場合は
-    # None。
+    # `destination`の一番近いNodeから出て戻れない（メインの道路網から孤立した歩道橋・私有地内通路、
+    # 一方通行の袋等）ため、出て戻れる最寄りNodeへ寄せ直して探索した場合の座標。寄せ直さなかった
+    # （`destination`をそのまま使えた）場合はNone。
     corrected_destination: Coordinates | None = None
     # ISO8601（JST）。周回の風評価は生成時刻に依存するため、厳密な再現はできない点に注意
     generated_at: str

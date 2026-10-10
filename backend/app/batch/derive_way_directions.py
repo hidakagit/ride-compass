@@ -12,6 +12,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows
 from app.domain import divided_carriageway as dc
 from app.infrastructure.source_models import WAYS_SOURCE_SQL
 from app.domain.traffic import direction_sql
@@ -65,7 +66,7 @@ async def _derive_divided(conn: asyncpg.Connection) -> None:
 async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         await conn.execute("TRUNCATE way_directions")
-        count = int((await conn.execute(_INSERT_DIRECTIONS)).split()[-1])
+        count = affected_rows(await conn.execute(_INSERT_DIRECTIONS))
         logger.info("通行方向を決めた: %d本", count)
         await _derive_divided(conn)
         ways = await conn.fetchval("SELECT count(*) FROM road_ways")

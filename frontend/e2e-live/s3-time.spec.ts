@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
-  allLayersOn,
   branch,
   chooseLens,
   expectNoOwnFailures,
@@ -13,6 +12,7 @@ import {
   settleMap,
   type Watch,
 } from "./live";
+import { allLayersOn } from "../e2e/fixtures";
 
 // S3 時刻で変わる入力。実行した時刻に任せず、欠陥の境界から代表点を選ぶ: 日本時間とUTCで日付が異なる時間帯
 // （日本時間0〜8時台）と同じ時間帯の1点ずつ、気象庁のタイルは偶数ズームと奇数ズームの1段ずつ。
@@ -115,15 +115,9 @@ test("S3 時刻で変わる入力", async ({ page }) => {
           const before = watch.wayValues.length;
           await setDeparture(page, tomorrowJst(hour));
           await settleMap(page);
-          await expect
-            .poll(() => watch.wayValues.slice(before).filter((entry) => entry.axisId === axis.axis_id).length, {
-              timeout: 15_000,
-            })
-            .toBeGreaterThan(0);
-          const values = watch.wayValues
-            .slice(before)
-            .filter((entry) => entry.axisId === axis.axis_id)
-            .flatMap((entry) => Object.keys(entry.values));
+          const received = () => watch.wayValues.slice(before).filter((entry) => entry.axisId === axis.axis_id);
+          await expect.poll(() => received().length, { timeout: 15_000 }).toBeGreaterThan(0);
+          const values = received().flatMap((entry) => Object.keys(entry.values));
           expect.soft(values.length, `「${axis.label}」${name}: 道ごとの値を1件も受け取っていない`).toBeGreaterThan(0);
         },
         () => setDeparture(page, original),

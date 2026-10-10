@@ -42,6 +42,8 @@ class PointTileLayer:
         return shape_digest(self.sql, self.source_layer)
 
 
+_CONVENIENCE_GROUP = bindparam("convenience_group", value=StopPlaceGroup.CONVENIENCE.value, type_=Text())
+
 # 種別は`node_kinds.kind`（派生側の分類器が付けたもの）に信号の読み替えを済ませたもので、
 # 位置は`source_features`の点。コンビニだけは立ち寄り先の表（`stop_places`）から足し、店の名前も添える。
 _POI_KIND_EXPR = stop_kind_sql("nm")
@@ -113,7 +115,7 @@ _POI_TILE_MVT_SQL = text(
     bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())),
     bindparam("cluster_eps_m", value=POI_CLUSTER_EPS_M, type_=Float()),
     bindparam("cluster_pad_deg", value=_POI_CLUSTER_PAD_DEG, type_=Float()),
-    bindparam("convenience_group", value=StopPlaceGroup.CONVENIENCE.value, type_=Text()),
+    _CONVENIENCE_GROUP,
 )
 
 # 事故。表示に使う値（死亡事故か・自転車が絡むか・発生年）は生データの列から都度導く。判定の
@@ -160,7 +162,7 @@ _STOP_PLACE_TILE_MVT_SQL = text(
             WHERE mvt.geom IS NOT NULL
         ) AS tile
     """
-).bindparams(bindparam("convenience_group", value=StopPlaceGroup.CONVENIENCE.value, type_=Text()))
+).bindparams(_CONVENIENCE_GROUP)
 
 #: 名前→点のレイヤー。
 POINT_TILE_LAYERS: dict[str, PointTileLayer] = {

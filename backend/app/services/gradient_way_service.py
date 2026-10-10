@@ -10,14 +10,14 @@ from app.domain.gradient import GRADIENT_VALUE_DECIMALS, LENS_PERPENDICULAR_BAND
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.cache_identity import cache_identity
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import log_external_call, mark_failed
+from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.infrastructure.road_graph_repository import (
     FEATURE_GRADIENT_INPUTS_SHAPE,
     ROAD_SURFACE_TILE_SHAPE,
     RoadGraphRepository,
 )
+from app.services.feature_midpoints import tile_features
 from app.services.tile_version_service import served_tile_version
 
 #: 勾配の値の作り方の署名。キャッシュの鍵に入り、変われば勾配のタイル値だけを作り直す。
@@ -38,7 +38,7 @@ class GradientConditions:
 class GradientWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
     material_id = GRADIENT_PERCENT
-    material_ids = (GRADIENT_PERCENT,)
+    material_ids = (material_id,)
     conditions_type = GradientConditions
     #: 走行方位に直角に近い道は、値をNone（その向きでは決まらない）で返す。
     undetermined_by_bearing = True
@@ -72,18 +72,9 @@ class GradientWayService:
                 return cached
             fields["cache"] = "miss"
 
-            try:
-                inputs = await self._repository.get_feature_gradient_inputs_in_tile(z, x, y, bbox)
-            except DB_UNAVAILABLE_ERRORS as exc:
-                mark_failed(fields, exc)
-                return {}
+            inputs = await tile_features(self._repository.get_feature_gradient_inputs_in_tile(z, x, y, bbox), fields)
             if inputs is None:
-                fields["postgis"] = "uncovered"
                 return {}
-            if not inputs:
-                fields["postgis"] = "empty"
-                return {}
-            fields["feature_count"] = len(inputs)
 
             # 指定方位に対して直角に近い道路は`effective_gradient`がNoneを返す。0%として配ると、実際には
             # 急な坂の道が凡例の「平坦」の段へ入り区別できなくなる。落とすと値の無い道（データなし）と

@@ -8,7 +8,7 @@
 //       import の指定子・型の位置・オブジェクトの鍵の位置は除く。
 //   (b) 画面の文∩本番の軸名・現象の語: 日本語を含む文字列・テンプレートの断片・JSX の文のうち、語を含むもの。語は生成物の
 //       名前（鍵が label の日本語の値で3字以上）と、--axis-catalog で渡した軸カタログ（本番の backend の /api/axis-catalog の応答）の
-//       軸の label・chip_label。渡さなければ軸名は入らない。
+//       軸の label。渡さなければ軸名は入らない。
 //   (c) 重み・閾値の文脈の数値リテラル（関数の中を含む）: 0・1 を除く数値で、比べる式の片側・`||`／`??` の右・Math.min／max の引数か、
 //       名前が重み・閾値・上下限を表す宣言・引数の既定・代入の値になっているもの。
 //   (d) 宣言の意味の鍵を名指す分岐: 文字列リテラルと、鍵を表す名前（key・id・kind 等）の値を比べる式・そうした値で分ける switch の case と、
@@ -91,7 +91,7 @@ const generatedIdentifiers = new Set(generated.map(({ value }) => value).filter(
 function axisCatalogWords() {
   if (!values["axis-catalog"]) return [];
   const catalog = JSON.parse(readFileSync(values["axis-catalog"], "utf-8"));
-  return catalog.axes.flatMap((axis) => [axis.label, axis.chip_label]).filter(Boolean);
+  return catalog.axes.map((axis) => axis.label);
 }
 
 /** 現象の語は、生成物が名前として配る値（鍵が label）のうち3字以上のもの。2字以下は「風」「時間」のような一般語と区別できない。 */
@@ -103,21 +103,18 @@ const words = [...new Set([...phenomenonWords, ...axisCatalogWords()])].sort((a,
 const KEY_NAME =
   /^(key|id|kind|role|source|group|property|level|type|tier|category|layerId|axisId|attrId)$|(Id|Key|_id|_key|_kind)$/;
 const LIMIT_NAME = /weight|threshold|min|max|limit|ratio|share|bound|floor|ceil|cap|tolerance|eps|default/i;
-const COMPARISON = new Set([
-  ts.SyntaxKind.LessThanToken,
-  ts.SyntaxKind.LessThanEqualsToken,
-  ts.SyntaxKind.GreaterThanToken,
-  ts.SyntaxKind.GreaterThanEqualsToken,
-  ts.SyntaxKind.EqualsEqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsEqualsToken,
-  ts.SyntaxKind.EqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsToken,
-]);
 const EQUALITY = new Set([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
   ts.SyntaxKind.ExclamationEqualsEqualsToken,
   ts.SyntaxKind.EqualsEqualsToken,
   ts.SyntaxKind.ExclamationEqualsToken,
+]);
+const COMPARISON = new Set([
+  ...EQUALITY,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
 ]);
 
 /** 式の最後の名前（`a.b.key` なら key、`x` なら x、`a["key"]` なら key）。 */
@@ -209,8 +206,7 @@ for (const file of sources) {
     }
 
     const phrase =
-      ts.isStringLiteral(node) ||
-      ts.isNoSubstitutionTemplateLiteral(node) ||
+      isStringLike(node) ||
       ts.isTemplateHead(node) ||
       ts.isTemplateMiddle(node) ||
       ts.isTemplateTail(node) ||

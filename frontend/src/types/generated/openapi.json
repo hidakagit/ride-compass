@@ -4506,34 +4506,9 @@
       },
       "RouteCandidate": {
         "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id",
-            "default": ""
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "loop",
-              "destination",
-              "spliced"
-            ],
-            "title": "Kind",
-            "default": "loop"
-          },
-          "spliceable": {
-            "type": "boolean",
-            "title": "Spliceable",
-            "default": false
-          },
           "direction_label": {
             "type": "string",
             "title": "Direction Label"
-          },
-          "is_fastest": {
-            "type": "boolean",
-            "title": "Is Fastest",
-            "default": false
           },
           "distance_km": {
             "type": "number",
@@ -4675,16 +4650,33 @@
             },
             "type": "array",
             "title": "Node Ids"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "loop",
+              "destination",
+              "spliced"
+            ],
+            "title": "Kind"
+          },
+          "is_fastest": {
+            "type": "boolean",
+            "title": "Is Fastest"
+          },
+          "spliceable": {
+            "type": "boolean",
+            "title": "Spliceable"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
-          "kind",
-          "spliceable",
           "direction_label",
-          "is_fastest",
           "distance_km",
           "geometry",
           "elevation_gain_m",
@@ -4700,7 +4692,11 @@
           "material_category_shares",
           "edge_ids",
           "edge_point_offsets",
-          "node_ids"
+          "node_ids",
+          "id",
+          "kind",
+          "is_fastest",
+          "spliceable"
         ],
         "title": "RouteCandidate"
       },

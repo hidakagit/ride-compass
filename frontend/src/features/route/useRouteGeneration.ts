@@ -72,16 +72,13 @@ export function useRouteGeneration({
   const [generatedConditions, setGeneratedConditions] = useState<GeneratedConditions | null>(null);
 
   const { routePreferenceToSend } = conditions;
-  const { routeMode, distance, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
+  const { distanceTargeted, distance, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
   // いまの条件から生成の入力を組み立てる。`destinationOverride`はbackendが補正した目的地。
   const buildCurrentGenerationInput = useCallback(
     (destinationOverride?: Coordinates): GenerationInput => {
-      const effectiveDestination = destinationOverride ?? destination;
-      const pointsPlaced = waypoints.length > 0 || effectiveDestination !== null;
       return {
         origin,
-        // 目的地モードで点を置いたときは距離を送らない（全長の目標を置かず、置いた点へ良い道で向かう）。
-        distanceKm: routeMode === "destination" && pointsPlaced ? null : Number(distance),
+        distanceKm: distanceTargeted ? Number(distance) : null,
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
         maxRoutes: Number(maxRoutes),
         assumedSpeedKmh,
@@ -89,12 +86,12 @@ export function useRouteGeneration({
         startTimePinned: departure.pinned,
         hardFilters,
         routePreference: routePreferenceToSend,
-        waypoints: routeMode === "destination" ? waypoints : [],
-        destination: routeMode === "destination" ? effectiveDestination : null,
+        waypoints,
+        destination: destinationOverride ?? destination,
       };
     },
     [
-      routeMode,
+      distanceTargeted,
       distance,
       waypoints,
       destination,
@@ -161,7 +158,7 @@ export function useRouteGeneration({
   }
 
   const routeFormSubmit = useRouteFormSubmit({
-    routeMode,
+    distanceTargeted,
     waypointCount: waypoints.length,
     destinationSet: destination !== null,
     originKnown,

@@ -43,6 +43,7 @@ from app.infrastructure.orm_base import DERIVED, Base
 from app.infrastructure.source_models import Source
 from app.domain.address_area import ADDRESS_AREA_LEVELS, BLOCK_KINDS
 from app.domain.landcover import PERCENT_CLASSES, landcover_key
+from app.domain.material_sql import sql_literals
 from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import DIRECTIONS, NODE_KINDS, POI_COUNT_KINDS, poi_count_column
 
@@ -79,15 +80,14 @@ def landcover_checks(table: str) -> tuple[CheckConstraint, ...]:
 
 def vocabulary_check(table: str, column: str, values: frozenset[str]) -> CheckConstraint:
     """派生の段がSQLで直接書く語彙の列に、domainの宣言の外の値を入れさせない制約。NULLは通す。"""
-    allowed = ", ".join("'" + value.replace("'", "''") + "'" for value in sorted(values))
-    return CheckConstraint(f"{column} IN ({allowed})", name=f"{table}_{column}_known")
+    return CheckConstraint(f"{column} IN ({sql_literals(sorted(values))})", name=f"{table}_{column}_known")
 
 
-def _edge_key(table: str) -> tuple[ForeignKeyConstraint, ...]:
+def _edge_key(table: str) -> ForeignKeyConstraint:
     """区間の値の表が区間を指す外部キー。区間の行を作り直すと、値の行も一緒に消える。"""
-    return (ForeignKeyConstraint(["osm_way_id", "segment_index"],
-                                 ["road_edges.osm_way_id", "road_edges.segment_index"],
-                                 ondelete="CASCADE", name=f"{table}_edge_fkey"),)
+    return ForeignKeyConstraint(["osm_way_id", "segment_index"],
+                                ["road_edges.osm_way_id", "road_edges.segment_index"],
+                                ondelete="CASCADE", name=f"{table}_edge_fkey")
 
 
 class _EdgeKey:
@@ -200,7 +200,7 @@ class EdgeElevationRow(_EdgeKey, Base):
     """
 
     __tablename__ = "edge_elevation"
-    __table_args__ = (*_edge_key("edge_elevation"), {"info": DERIVED})
+    __table_args__ = (_edge_key("edge_elevation"), {"info": DERIVED})
 
     start_elevation_m: Mapped[float] = mapped_column(REAL, nullable=False)
     end_elevation_m: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -218,14 +218,14 @@ class EdgeLandcoverRow(_EdgeKey, _Landcover, Base):
     """区間の周りの帯の土地被覆の割合。有効画素の足りた区間だけが行を持つ。"""
 
     __tablename__ = "edge_landcover"
-    __table_args__ = (*_edge_key("edge_landcover"), *landcover_checks("edge_landcover"), {"info": DERIVED})
+    __table_args__ = (_edge_key("edge_landcover"), *landcover_checks("edge_landcover"), {"info": DERIVED})
 
 
 class EdgeCountsRow(_EdgeKey, _Counts, Base):
     """区間に付く数（事故・交差点・停止要因）。全区間が行を持つ。"""
 
     __tablename__ = "edge_counts"
-    __table_args__ = (*_edge_key("edge_counts"), *count_checks("edge_counts"), {"info": DERIVED})
+    __table_args__ = (_edge_key("edge_counts"), *count_checks("edge_counts"), {"info": DERIVED})
 
 
 class WayDirectionRow(_WayKey, Base):

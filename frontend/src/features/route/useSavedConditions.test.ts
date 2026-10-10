@@ -57,7 +57,7 @@ describe("保存して呼び出す", () => {
     await waitFor(() => expect(result.current.conditions.routePreference).toEqual({ axis_a: 0.4, axis_b: 0.6 }));
     const [filterKey] = Object.keys(DEFAULT_HARD_FILTERS);
     act(() => {
-      result.current.conditions.changeRouteMode("destination");
+      result.current.conditions.setDistanceTargeted(false);
       result.current.conditions.setMaxRoutesInput("3");
       result.current.conditions.placePin("waypoint", A);
       result.current.conditions.setDestination(B);
@@ -71,7 +71,7 @@ describe("保存して呼び出す", () => {
     act(() => result.current.saved.save("荒川へ", false));
 
     act(() => {
-      result.current.conditions.changeRouteMode("loop");
+      result.current.conditions.setDistanceTargeted(true);
       result.current.conditions.setDistanceInput("80");
       result.current.conditions.setMaxRoutesInput("5");
       result.current.conditions.removeWaypoint(0);
@@ -82,7 +82,7 @@ describe("保存して呼び出す", () => {
     act(() => result.current.saved.recall(result.current.saved.saved[0]));
 
     const conditions = result.current.conditions;
-    expect(conditions.routeMode).toBe("destination");
+    expect(conditions.distanceTargeted).toBe(false);
     expect(conditions.distanceInput).toBe("30");
     expect(conditions.maxRoutesInput).toBe("3");
     expect(conditions.waypoints).toEqual([A]);

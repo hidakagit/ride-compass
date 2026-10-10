@@ -1,4 +1,4 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 
 // 何をE2Eの対象にするかは .claude/rules/testing-e2e.md パターン4。
 // 実バックエンド・実外部APIには依存しない（e2e/fixtures.ts）。
@@ -6,6 +6,27 @@ import { defineConfig, devices } from "@playwright/test";
 /** E2E専用のポート。devサーバー（3000）や他の作業ツリーのサーバーと取り合わない。 */
 const E2E_PORT = 3100;
 const E2E_ORIGIN = `http://localhost:${E2E_PORT}`;
+
+/** ブラウザはChromiumだけにする（.claude/rules/testing-e2e.md パターン4）。 */
+export const CHROMIUM_PROJECTS = [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }];
+
+/**
+ * 本番Dockerfileと同じ`node .next/standalone/server.js`を、同じ静的ファイルの配置（prepare-standalone.mjs）で起動する。
+ * 起動だけを行い、ビルドは呼び手が先に済ませる。`cwd`はビルドのあるfrontend（既定はこの設定のある所）。
+ */
+export function standaloneServer(port: number | string, cwd?: string): PlaywrightTestConfig["webServer"] {
+  return {
+    command: "npm run start:standalone",
+    cwd,
+    url: `http://localhost:${port}`,
+    // standaloneのserver.jsは待ち受けるアドレスを環境変数HOSTNAMEから取る。Git Bashはこれへ機械名を
+    // exportするので、固定しないと機械名の解決先（IPv6のアドレス等）でしか待ち受けず、localhostへ届かない。
+    env: { PORT: String(port), HOSTNAME: "localhost" },
+    timeout: 60_000,
+    // 既に動いているサーバー（devサーバー・古いビルド）を使うと、いまのビルドを試さない。
+    reuseExistingServer: false,
+  };
+}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -22,23 +43,7 @@ export default defineConfig({
     baseURL: E2E_ORIGIN,
     trace: "retain-on-failure",
   },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
-  webServer: {
-    // 起動だけを行う。ビルドは`npm run test:e2e`が先に済ませる——ビルドをここへ入れると、
-    // 開発機ではビルドだけで起動待ちの枠を使い切る。本番Dockerfileと同じ
-    // `node .next/standalone/server.js`を、同じ静的ファイルの配置（prepare-standalone.mjs）で起動する。
-    command: "npm run start:standalone",
-    url: E2E_ORIGIN,
-    // standaloneのserver.jsは待ち受けるアドレスを環境変数HOSTNAMEから取る。Git Bashはこれへ機械名を
-    // exportするので、固定しないと機械名の解決先（IPv6のアドレス等）でしか待ち受けず、localhostへ届かない。
-    env: { PORT: String(E2E_PORT), HOSTNAME: "localhost" },
-    timeout: 60_000,
-    // 既に動いているサーバー（devサーバー・古いビルド）を使うと、いまのビルドを試さない。
-    reuseExistingServer: false,
-  },
+  projects: CHROMIUM_PROJECTS,
+  // ビルドは`npm run test:e2e`が先に済ませる——ビルドをここへ入れると、開発機ではビルドだけで起動待ちの枠を使い切る。
+  webServer: standaloneServer(E2E_PORT),
 });

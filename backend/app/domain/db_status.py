@@ -30,9 +30,7 @@ def table_attention(row_count: int, dead_tuples: int, *, analyzed: bool) -> list
         reasons.append(
             "統計を一度も取っていない（プランナの行数推定が実数から外れ、クエリが遅いプランを選びうる）"
         )
-    live = max(row_count, 1)
-    dead_ratio = dead_tuples / (live + dead_tuples)
-    if dead_tuples >= DEAD_TUPLE_WARN_MIN_ROWS and dead_ratio > DEAD_TUPLE_WARN_RATIO:
+    if dead_tuples >= DEAD_TUPLE_WARN_MIN_ROWS and dead_tuples / (row_count + dead_tuples) > DEAD_TUPLE_WARN_RATIO:
         reasons.append(f"不要行が{dead_tuples:,}件（VACUUMが追いついていない）")
     return reasons
 

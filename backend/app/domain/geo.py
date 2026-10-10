@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 from typing import Annotated, NamedTuple, Protocol
 
 import numpy as np
@@ -253,13 +254,14 @@ def _candidates_per_cell(rows: np.ndarray, columns: np.ndarray, size_deg: float,
     return candidates
 
 
-def nearest_point_index(
-    latitude: float, longitude: float, point_latitudes: np.ndarray, point_longitudes: np.ndarray
-) -> int | None:
-    """1地点に球面の距離で最も近い点（`point_*`）の番号。点が無ければNone。同じ距離の点が並べば
+def nearest_point_index(location: LatLon, points: Sequence[LatLon]) -> int | None:
+    """1地点に球面の距離で最も近い点（`points`）の番号。点が無ければNone。同じ距離の点が並べば
     先に並んだ点を選ぶ。"""
-    if len(point_latitudes) == 0:
+    if not points:
         return None
     return int(
-        nearest_point_indices(np.array([latitude]), np.array([longitude]), point_latitudes, point_longitudes)[0]
+        nearest_point_indices(
+            np.array([location.latitude]), np.array([location.longitude]),
+            np.array([p.latitude for p in points]), np.array([p.longitude for p in points]),
+        )[0]
     )

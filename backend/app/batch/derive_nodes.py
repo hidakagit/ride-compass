@@ -15,6 +15,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows
 from app.domain.geo import degrees_covering_m
 from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
 from app.domain.traffic import (
@@ -92,7 +93,7 @@ async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> None:
         await conn.execute("ANALYZE _signal_nodes")
         await conn.execute(_NEAR_SIGNAL, signal_radius_m, degrees_covering_m(signal_radius_m))
         await conn.execute("ANALYZE _near_signal")
-        classified = int((await conn.execute(_INSERT_KINDS)).split()[-1])
+        classified = affected_rows(await conn.execute(_INSERT_KINDS))
         await conn.execute(_INSERT_TURNS)
         # 後ろの段（数）が読む。統計が無いまま読まれると実行計画が桁で外れる。
         await conn.execute("ANALYZE node_kinds, node_turns")

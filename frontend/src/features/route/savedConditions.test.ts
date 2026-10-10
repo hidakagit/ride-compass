@@ -1,7 +1,8 @@
 // @vitest-environment node
 /**
  * `features/route/savedConditions.ts`——保存した生成の条件の一覧を読む・名前の案・何が保存されるかの説明・一覧への入れ方。
- * 読むときは、今の画面が受け付けない件だけを捨ててほかの件を残し、除外は今の項目へ揃える。重みの説明は、上書きしない
+ * 読むときは、今の画面が受け付けない件だけを捨ててほかの件を残し、除外は今の項目へ揃え、前に周回・目的地のモードで
+ * 保存した件は全長の目標の有無へ読み替える。重みの説明は、上書きしない
  * 重みなら既定の配分を、上書きした重みなら公開軸へ揃えた配分を、軸ごとの割合で出す。同じ名前で保存すると上書きする。
  *
  * ここで見ないもの:
@@ -27,7 +28,7 @@ const POINT = { latitude: 35.1, longitude: 139.1 };
 
 const ENTRY: SavedCondition = {
   name: "朝の荒川",
-  routeMode: "destination",
+  distanceTargeted: false,
   distance: "30",
   maxRoutes: "3",
   origin: POINT,
@@ -47,7 +48,7 @@ describe("readSavedConditions", () => {
 
   it.each([
     ["名前が空", { name: " " }],
-    ["知らないモード", { routeMode: "zigzag" }],
+    ["全長の目標の有無が真偽でない", { distanceTargeted: "yes" }],
     ["範囲外の距離", { distance: String(routeGenerateConfig.max_distance_km + 1) }],
     ["範囲外の候補数", { maxRoutes: "0" }],
     ["座標でない出発地", { origin: { latitude: "35" } }],
@@ -60,6 +61,21 @@ describe("readSavedConditions", () => {
 
     expect(readSavedConditions(JSON.stringify([{ ...ENTRY, ...broken }, other]))).toEqual([other]);
   });
+
+  it.each([
+    // 周回は経由地・目的地を置いてあっても隠して使わなかったので、読み替えると外す。
+    { routeMode: "loop", read: { distanceTargeted: true, waypoints: [], destination: null } },
+    { routeMode: "destination", read: { distanceTargeted: false } },
+    { routeMode: "zigzag", read: null },
+  ])(
+    "前にモードで保存した件は、$routeMode を今の形へ読み替える（読めないモードの件は捨てる）",
+    ({ routeMode, read }) => {
+      // 値がundefinedの欄はJSONに書かれない（前の形は全長の目標の有無を持たない）。
+      const before = { ...ENTRY, distanceTargeted: undefined, routeMode };
+
+      expect(readSavedConditions(JSON.stringify([before]))).toEqual(read === null ? [] : [{ ...ENTRY, ...read }]);
+    },
+  );
 
   it("一覧として読めない保存値は空の一覧にする", () => {
     expect(readSavedConditions("{")).toEqual([]);
@@ -79,15 +95,22 @@ describe("readSavedConditions", () => {
   });
 });
 
+// 名前と説明が分ける形: 目的地の有無（無ければ出発地へ戻る周回）・全長の目標の有無・経由地の有無。
+const SHAPES = {
+  loop: { distanceTargeted: true, waypoints: [], destination: null },
+  loopVia: { distanceTargeted: true, waypoints: [POINT], destination: null },
+  destinationVia: { distanceTargeted: false, waypoints: [POINT, POINT], destination: POINT },
+  destinationOnly: { distanceTargeted: false, waypoints: [], destination: POINT },
+  destinationWithDistance: { distanceTargeted: true, waypoints: [], destination: POINT },
+} satisfies Record<string, Partial<SavedCondition>>;
+
 describe("suggestedConditionName", () => {
   it.each([
-    ["周回は距離", { routeMode: "loop" as const, waypoints: [POINT] }, "周回 30km"],
-    [
-      "経由地のある目的地は地点の数",
-      { routeMode: "destination" as const, waypoints: [POINT, POINT] },
-      "目的地 経由2地点",
-    ],
-    ["経由地の無い目的地", { routeMode: "destination" as const, waypoints: [] }, "目的地"],
+    ["戻る周回は距離", SHAPES.loop, "周回 30km"],
+    ["経由地は地点の数", SHAPES.loopVia, "周回 30km 経由1地点"],
+    ["目的地へ経由地を通る", SHAPES.destinationVia, "目的地 経由2地点"],
+    ["目的地だけ", SHAPES.destinationOnly, "目的地"],
+    ["目的地へ全長の目標", SHAPES.destinationWithDistance, "目的地 30km"],
   ])("%s", (_, conditions, expected) => {
     expect(suggestedConditionName({ ...ENTRY, ...conditions })).toBe(expected);
   });
@@ -101,9 +124,11 @@ describe("describeConditions", () => {
   ]);
 
   it.each([
-    ["周回は距離と候補数", { routeMode: "loop" as const }, "周回 30km・候補 3本"],
-    ["経由地のある目的地は地点の数", { routeMode: "destination" as const }, "目的地へ・経由 1地点・候補 3本"],
-    ["経由地の無い目的地", { routeMode: "destination" as const, waypoints: [] }, "目的地へ・候補 3本"],
+    ["戻る周回は距離と候補数", SHAPES.loop, "周回 30km・候補 3本"],
+    ["経由地は地点の数", SHAPES.loopVia, "周回 30km・経由 1地点・候補 3本"],
+    ["目的地へ経由地を通る", SHAPES.destinationVia, "目的地へ・経由 2地点・候補 3本"],
+    ["目的地だけ", SHAPES.destinationOnly, "目的地へ・候補 3本"],
+    ["目的地へ全長の目標", SHAPES.destinationWithDistance, "目的地へ 30km・候補 3本"],
   ])("条件: %s", (_, conditions, expected) => {
     expect(describeConditions({ ...ENTRY, ...conditions }, CATALOG).route).toBe(expected);
   });

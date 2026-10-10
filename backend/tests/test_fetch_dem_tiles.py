@@ -1,7 +1,8 @@
 """標高タイルの取得（scripts/fetch_dem_tiles.py）。
 
 入口は`fetch`。配信元は`httpx.MockTransport`の代役に、置き場は一時ディレクトリに差し替える。取る母集団は
-本物のプロファイルの宣言（製品とズーム）から導き、範囲だけをタイル1枚ぶんへ絞る。
+本物のプロファイルの宣言（製品とズーム）から導き、範囲だけを同じ列に縦に並ぶタイル2枚ぶんへ絞る（置き場の同じ
+ディレクトリへ2枚目を置ける——列のディレクトリが既にあっても書ける——ことも、取れたタイルが全部置かれることで見る）。
 見るのは、宣言した製品をそれぞれのズームで取り、返ったものを置いて404は区域外の印にすることと、
 次の実行がどちらも叩かないこと。
 
@@ -20,7 +21,7 @@ from app.batch.source_profile import Target, load_source_profile
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from scripts import fetch_dem_tiles
 
-#: 範囲に使うz15のタイル（東京）。
+#: 範囲に使うz15のタイル（東京）。この1枚と、同じ列の南隣の1枚を範囲にする。
 ZOOM, X, Y = 15, 29100, 12902
 
 #: 代役が200を返す製品。残りは404（その製品の区域外）を返す。
@@ -28,10 +29,10 @@ SERVED = {"dem5a", "dem"}
 
 
 def _profile():
-    bounds = tile_bounds_lonlat(ZOOM, X, Y)
+    north, south = tile_bounds_lonlat(ZOOM, X, Y), tile_bounds_lonlat(ZOOM, X, Y + 1)
     inset = 1e-6
-    bbox = (bounds.min_latitude + inset, bounds.min_longitude + inset,
-            bounds.max_latitude - inset, bounds.max_longitude - inset)
+    bbox = (south.min_latitude + inset, north.min_longitude + inset,
+            north.max_latitude - inset, north.max_longitude - inset)
     return replace(load_source_profile(None), target=Target(bbox=bbox))
 
 

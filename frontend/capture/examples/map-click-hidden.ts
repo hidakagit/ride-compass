@@ -5,7 +5,8 @@ import type { CaptureScript } from "../context";
 
 const script: CaptureScript = async ({ page, expect, open, clickMap, clickVisible, settle, shot }) => {
   await open();
-  await page.getByRole("radio", { name: "目的地" }).click();
+  await page.getByRole("button", { name: "目的地: 未設定", exact: true }).click();
+  await page.getByRole("button", { name: "目的地を地図で選ぶ" }).click();
   // 地図の左上の隅の点はレイヤーの切り替えの下にあり、clickMap では押せない。
   const hidden = await page.evaluate(() => window.__liveMap().unproject([40, 30]).toArray() as [number, number]);
   await expect(clickMap(hidden)).rejects.toThrow("押せない");

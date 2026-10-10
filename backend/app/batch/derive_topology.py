@@ -18,6 +18,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows
 from app.infrastructure.source_models import ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
@@ -169,4 +170,4 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute("ANALYZE road_edges, road_nodes, road_ways")
 
     logger.info("導出完了: way %d本 → 区間 %d本 / ノード %d点 / %.1f秒",
-                ways, int(edges.split()[-1]), int(nodes.split()[-1]), time.perf_counter() - started)
+                ways, affected_rows(edges), affected_rows(nodes), time.perf_counter() - started)

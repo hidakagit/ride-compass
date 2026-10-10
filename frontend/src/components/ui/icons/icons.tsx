@@ -27,6 +27,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Ruler,
   Save,
   Shield,
   SlidersHorizontal,
@@ -517,6 +518,8 @@ export const VersionIcon = fromLucide(GitCommitHorizontal);
 export const SelectedSpotIcon = fromLucide(MapPin);
 /** 置いた経由地と目的地を一度に消す。ClearAllLayersIconと同じく、消す対象の形（地点のピン）にバツを添える。 */
 export const ClearPointsIcon = fromLucide(MapPinX);
+/** ルートの全長の目標を決める（押している間は全長が目標に合うルートを作る）。 */
+export const DistanceTargetIcon = fromLucide(Ruler);
 /** 地点を地図で置く（地図で選ぶ・地図で追加・地図で置き直す。押している間は地図のタップがその地点を置く）。 */
 export const PlaceOnMapIcon = fromLucide(MapPinned);
 /** 置いた地点を1つ消す。保存したものを消す`DeleteSavedIcon`と同じく、消す操作はごみ箱の形にそろえる。 */

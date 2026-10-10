@@ -61,28 +61,28 @@ def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: 
     entries: list[MaterialCoverageEntry] = []
     for material_id, spec in MATERIAL_CATALOG.items():
         coverage = MATERIAL_COVERAGE_SPECS.get(material_id)
-        if coverage is not None:
-            total = counts.way_total if coverage.population == "way" else counts.edge_total
-            missing = counts.missing_by_material[material_id]
+        if coverage is None:
             entries.append(
-                MaterialCoverageCounted(
+                MaterialCoverageExcluded(
                     material_id=material_id,
                     label=spec.full_label(),
-                    dtype=spec.dtype,
-                    population=coverage.population,
-                    total=total,
-                    missing=missing,
-                    missing_ratio=(missing / total) if total > 0 else None,
-                    source=coverage.source,
-                    missing_semantics=coverage.missing_semantics,
+                    excluded_reason=MATERIAL_COVERAGE_EXCLUSIONS[material_id],
                 )
             )
             continue
+        total = counts.way_total if coverage.population == "way" else counts.edge_total
+        missing = counts.missing_by_material[material_id]
         entries.append(
-            MaterialCoverageExcluded(
+            MaterialCoverageCounted(
                 material_id=material_id,
                 label=spec.full_label(),
-                excluded_reason=MATERIAL_COVERAGE_EXCLUSIONS[material_id],
+                dtype=spec.dtype,
+                population=coverage.population,
+                total=total,
+                missing=missing,
+                missing_ratio=(missing / total) if total > 0 else None,
+                source=coverage.source,
+                missing_semantics=coverage.missing_semantics,
             )
         )
     return MaterialCoverageReport(

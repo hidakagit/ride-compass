@@ -13,6 +13,8 @@ import json
 import os
 import random
 
+from _shared import fn_of
+
 OUT = os.environ["MUT_OUT"]
 st = json.load(open("mutmut-stats.json", encoding="utf-8"))
 tbf = st["tests_by_mangled_function_name"]
@@ -20,7 +22,7 @@ dur = st["duration_by_test"]
 rows = []
 for f in glob.glob("app/**/*.meta", recursive=True):
     for k in json.load(open(f, encoding="utf-8"))["exit_code_by_key"]:
-        tests = tbf.get(k.partition("__mutmut_")[0], [])
+        tests = tbf.get(fn_of(k), [])
         rows.append((f[:-5].replace("\\", "/"), k, len(tests), sum(dur.get(t, 0) for t in tests)))
 json.dump(rows, open(os.path.join(OUT, "rows.json"), "w", encoding="utf-8"), ensure_ascii=False)
 print("変異", len(rows), "テストの当たらない変異", sum(1 for r in rows if r[2] == 0),
@@ -35,6 +37,7 @@ for layer, v in sorted(by.items()):
     print(layer, v[0], v[1], round(v[2]))
 pool = sorted(r[1] for r in rows if r[2] > 0)
 random.Random(661).shuffle(pool)
+tested = sorted({fn_of(m) for m in pool})
 # 一覧があれば、それだけを回す。recheck.txt は runner.py がテスト全体を当てる（importtime.py の説明）。only.txt は
 # 記録のテスト（その関数を通るテスト）で回す——テストを消したあと、消したテストが見つけていた変異を残る側が
 # 落とすかを確かめる。両方あれば recheck.txt を使う。
@@ -44,9 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "baseline.txt")
 if os.path.exists(BASELINE):
     lines = [line.strip() for line in open(BASELINE, encoding="utf-8") if line.strip()]
-    funcs = sorted({r[1].partition("__mutmut_")[0] for r in rows if r[2] > 0})
-    if "*" not in lines:
-        funcs = [f for f in funcs if f in lines]
+    funcs = tested if "*" in lines else [f for f in tested if f in lines]
     kinds = ["BASE1", "BASE2"] + (["ORIG"] if "+orig" in lines else [])
     pool = [f"{k}:{f}" for f in funcs for k in kinds]
     random.Random(661).shuffle(pool)
@@ -62,9 +63,8 @@ else:
     # 環境変数 MUT_WITH_BASELINE があれば、全部の変異に、テストの当たる関数ごとの基準（BASE1・BASE2）を混ぜて1つの一覧にする
     # （定期の測り。.github/workflows/mutation.yml。analyze.py が基準で落ちたテストを見つけたに数えない）。
     if os.environ.get("MUT_WITH_BASELINE"):
-        funcs = sorted({r[1].partition("__mutmut_")[0] for r in rows if r[2] > 0})
-        pool += [f"{k}:{f}" for f in funcs for k in ("BASE1", "BASE2")]
+        pool += [f"{k}:{f}" for f in tested for k in ("BASE1", "BASE2")]
         random.Random(661).shuffle(pool)
-        print("基準を混ぜる", len(funcs), "関数")
+        print("基準を混ぜる", len(tested), "関数")
 open(os.path.join(OUT, "all.txt"), "w", encoding="utf-8").write("\n".join(pool) + "\n")
 print("all.txt", len(pool), "件")

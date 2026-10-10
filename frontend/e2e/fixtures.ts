@@ -15,6 +15,7 @@ import type {
   WeatherWarnings,
 } from "@/types/weather";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import nextConfig from "../next.config";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（
@@ -23,7 +24,7 @@ import nextConfig from "../next.config";
 // レイヤー切替）だけを決定的に検証する。バックエンドプロセスの起動・DB・APIキーが
 // 不要になるぶん、CIが速く安定する。
 
-const API_BASE = "http://localhost:8000";
+export const API_BASE = "http://localhost:8000";
 
 // backend/app/domain/route.py RouteCandidate相当の最小フィクスチャ（1候補）。
 function makeSegment(index: number, coordinates: [number, number][]) {
@@ -258,6 +259,24 @@ export async function seedStoredState(page: Page, entries: Record<string, string
   }, entries);
 }
 
+/** 初回の案内（地図の上に重なる）を閉じた保存状態。 */
+export const INTRO_CLOSED: Record<string, string> = { "ridecompass:first-visit-intro-closed": "true" };
+
+/** 全レイヤーONとデバッグログ（`[map:error]`を読むため）の保存状態。 */
+export function allLayersOn(): Record<string, string> {
+  return {
+    "ridecompass:debug-enabled": "1",
+    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
+  };
+}
+
+/**
+ * スマホのキーボードの高さ（CSS の px）。Apple は高さを公開せず、アプリには実行時に測るよう求めるので、出どころは
+ * 実測: iOS 27 のシミュレータで、6.1 型の iPhone（17e・18 Pro）の英字のキーボードが 301pt（変換の候補の帯なし。
+ * https://github.com/Saffsanity/sill/pull/30 のコミット 9ee69c7）。
+ */
+export const KEYBOARD_HEIGHT = 301;
+
 /**
  * モバイル幅でアプリを開く（APIモックの登録・ビューポート設定・goto）。
  * `routes`は既定のモックの後・goto前に呼ばれる——テストが判定に使う応答はここで上書きする。
@@ -272,7 +291,7 @@ export async function openMobileApp(
   await installApiMocks(page);
   if (routes) await routes(page);
   await page.setViewportSize(MOBILE_VIEWPORT);
-  await seedStoredState(page, { "ridecompass:first-visit-intro-closed": "true", ...storedState });
+  await seedStoredState(page, { ...INTRO_CLOSED, ...storedState });
   await page.goto("/");
 }
 
@@ -293,22 +312,25 @@ export async function openMobileSheet(page: Page, name: MobileSheetName) {
 }
 
 /**
- * 「ルート設定」シートから距離を指定してルートを生成し、完了まで待つ。生成中は
+ * 「ルート設定」シートから全長の目標を指定してルートを生成し、完了まで待つ。生成中は
  * ボタンの名前が「生成中...」へ変わるため、「ルート生成」が再び押せることが完了の合図。
  * @public 撮影の脚本が口（`capture/context.ts`の`fixtures`）越しに呼ぶ。knipは口越しの呼び出しを辿れない。
  */
 export async function generateRoutes(page: Page, { distanceKm = 20 }: { distanceKm?: number } = {}) {
   const sheet = await openMobileSheet(page, "ルート設定");
-  await sheet.getByLabel("距離").fill(String(distanceKm));
+  await sheet.getByLabel("全長の目標", { exact: true }).fill(String(distanceKm));
   await runGeneration(sheet);
   return sheet;
 }
 
 /** 「ルート生成」を押し、生成が終わってボタンが再び押せるまで待つ。`scope`はボタンを含む範囲
  * （スマホ幅はシート、それ以外は画面）。 */
-export async function runGeneration(scope: Page | Locator): Promise<void> {
+export async function runGeneration(
+  scope: Page | Locator,
+  { timeout = 60_000 }: { timeout?: number } = {},
+): Promise<void> {
   await scope.getByRole("button", { name: "ルート生成" }).click();
-  await expect(scope.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
+  await expect(scope.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout });
 }
 
 declare global {
