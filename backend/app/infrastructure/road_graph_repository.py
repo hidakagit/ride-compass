@@ -777,7 +777,7 @@ class RoadGraphRepository:
         """
         relations: set[str] = set()
         for statement in NETWORK_SQL_SOURCES:
-            plan = (await self._session.execute(text(f"EXPLAIN (FORMAT JSON) {statement.text}"),
+            plan: object = (await self._session.execute(text(f"EXPLAIN (FORMAT JSON) {statement.text}"),
                                                 dict.fromkeys(statement.compile().params))).scalar_one()
             relations |= _scanned_relations(json.loads(plan) if isinstance(plan, str) else plan)
         return relations
