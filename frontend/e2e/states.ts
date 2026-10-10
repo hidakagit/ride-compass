@@ -15,7 +15,8 @@ import {
 
 // 走査する画面の状態（.claude/rules/testing-e2e.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後・区間を乗り換えた後）。
 // 土台の上では、画面がARIAで宣言している開閉の部品（`aria-expanded`・`role="tab"`）のうち、最前面で
-// 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅 × 段階ごとに1枚のページで辿り、開いたものは閉じて戻す。
+// 押せるものを押せる限り辿る。押せないものは押さず、違反にもしない。モード（デバッグモード等）は切り替えない。
+// どの状態へも1回だけ入る: 幅 × 段階ごとに1枚のページで辿り、開いたものは閉じて戻す。
 
 export const WIDTHS = {
   mobile: MOBILE_VIEWPORT,
@@ -216,7 +217,7 @@ export function installPageHelpers(): void {
       return { x, y, pressable: !!hit && el.contains(hit) };
     },
     // 落ち着いた: メインスレッドの通信0件・実行中のアニメーション0件・1フレームの間のDOMの変化0件・指紋が前の
-    // フレームと同じ。
+    // フレームと同じ。Playwrightの`networkidle`では済ませない。
     async settle() {
       const deadline = performance.now() + 15_000;
       let previous = "";

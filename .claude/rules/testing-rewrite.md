@@ -69,7 +69,7 @@ paths:
 **起こし直しの成果は、判定の件数で報告する。** 4分類それぞれの件数を書き、とくに
 **「列挙漏れ」の件数**と、**「責務外」「重複」で消した件数**を実測値として扱う。あわせてテスト本数・
 行数（母集団のテストのファイルの`git diff --numstat`の増減。起こし直しの物差しはこれ1つにする。
-変更全体の実装・テスト・文書の増減は別の数で、Pull Request の本文の「増減:」（`.github/pull_request_template.md`）に書く）を**前後の値つき**で書く。前の本数は、`origin/master` との合流点の版のテストを`pytest --collect-only -q`（frontend は `vitest list`）で数える。
+変更全体の実装・テスト・文書の増減は別の数で、Pull Request の本文の「増減:」（`.github/pull_request_template.md`）に書く）を**前後の値つき**で書き、seams 数（`backend/scripts/audit_test_rewrite.py`が出す）も並べる。前の本数は、`origin/master` との合流点の版のテストを`pytest --collect-only -q`（frontend は `vitest list`）で数える。
 
 **起こし直したあとのテストの行数は、前の行数を超えない。** 数えるのは手順3の母集団のテストのファイルの行で、
 起こし直しのコミットの`git diff --numstat`の足した行から消した行を引いた値が0以下であることを、完了の条件にする。
@@ -128,7 +128,7 @@ paths:
 
 **テストファイルから直接importしてよい`app.*`は、対象モジュールと、対象の公開シグネチャが
 要求する型だけ。** それ以外——他モジュールの**関数・サービス・例外・定数**——は触らない。
-例外は、本番の状態を本番の口で作るもの（回数制限の上限まで埋める`infrastructure/rate_limiter.py: check_rate_limit`。testing-backend.md パターン1）で、
+例外は、本番の状態を本番の口で作るもの（回数制限の上限まで埋める`infrastructure/rate_limiter.py: check_rate_limit`。testing.md「ループで実I/Oを繰り返さない」）で、
 経路のテストが境界の直前までを実I/O無しで埋めるために、その口だけを読む。
 入力を組み立てるのに要る値は、対象が受け取る形の値として書くか、対象の名前空間から読む。
 **差し替えが要るのは[確かめる高さ](testing.md#確かめる高さ)が許すもの（プロセス境界・契約の狭い層の境目・
