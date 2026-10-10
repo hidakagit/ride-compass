@@ -301,5 +301,9 @@ jobs:
   deploy-frontend:
     needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push'
+    # 呼ばれた側が像をGitHubのコンテナの置き場へ置く。呼ばれた側のGITHUB_TOKENは、ここで渡した権限より広げられない。
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/deploy-frontend.yml
     secrets: inherit

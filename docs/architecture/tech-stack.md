@@ -98,9 +98,9 @@ Windowsでは`uvicorn --reload`がリローダー親プロセスとワーカー�
 | frontend | `https://ride-compass-frontend.onrender.com` | Render。backendのCORSの許可に無ければ、`deploy-backend.yml`がデプロイのたびに足す |
 | backend | `https://193-123-166-150.sslip.io` | Oracle Cloud VM。VMのnginxがTLS（certbot）を終端し、`127.0.0.1:8000`のコンテナへ渡す。名前はVMの公開IPをsslip.ioで引けるようにしたもので、**IPが変わると宛先も変わる** |
 
-**画面がbackendを呼ぶ宛先はリポジトリに無い。** ブラウザからのAPIは`NEXT_PUBLIC_API_URL`、タイルは
-`NEXT_PUBLIC_TILE_BASE_URL`（[static-map-layers.md](../modules/frontend/static-map-layers.md)）で、どちらも
-Renderのダッシュボードの環境変数にあり、ビルドのときにJSへ埋め込まれる。
+**画面がbackendを呼ぶ宛先は、コードのリポジトリの変数`BACKEND_ORIGIN`にある。** ブラウザからのAPIは`NEXT_PUBLIC_API_URL`、タイルは
+`NEXT_PUBLIC_TILE_BASE_URL`（[static-map-layers.md](../modules/frontend/static-map-layers.md)）、rewritesと管理画面の転送の先は
+`BACKEND_INTERNAL_URL`で、`deploy-frontend.yml`が3つとも`BACKEND_ORIGIN`の値を像のビルドへ渡し、ビルドのときに埋め込まれる。
 
 **frontendのオリジンからbackendへ届くのは、`frontend/next.config.ts`のrewritesにあるタイル類と、管理画面の
 転送（`/admin/api/…`→backendの`/api/admin/…`、Basic認証をサーバー側で付ける）だけ。** それ以外のAPI
@@ -119,7 +119,7 @@ Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で�
 
 | | 稼働先 | `commit`の注入元 |
 |---|---|---|
-| frontend | Render | `RENDER_GIT_COMMIT`（Renderが自動で入れる。設定不要） |
+| frontend | Render | `deploy-frontend.yml`が像のビルドへコミットを渡し、像の`GIT_COMMIT`に入れる（`frontend/Dockerfile`） |
 | backend | Oracle Cloud VM | デプロイワークフローがVM上で`git rev-parse HEAD`を実行し、`GIT_COMMIT`として`docker run`へ渡す |
 
 ローカル開発ではどちらの環境変数も無いため`null`になる。`started_at`（プロセス起動時刻、
@@ -174,24 +174,24 @@ importすると、その変更だけが本番へ届かなくなる**（エラー
 導いてこれを検査する。
 
 **frontend（Render）のデプロイも、masterのCIが通ったコミットを出す。** `ci.yml`の`deploy-frontend`が、
-`deploy-backend`と同じ条件で`deploy-frontend.yml`を呼び、呼ばれた側がRenderのデプロイフックへそのコミットを
-`ref`で渡す（Render公式の[Deploy Hooks](https://render.com/docs/deploy-hooks)。フックのURLはリポジトリの秘密
-`RENDER_FRONTEND_DEPLOY_HOOK_URL`）。
+`deploy-backend`と同じ条件で`deploy-frontend.yml`を呼ぶ。呼ばれた側は、そのコミットから`frontend/Dockerfile`で像を
+ビルドしてGitHubのコンテナの置き場（`ghcr.io/<リポジトリの持ち主>/ride-compass-frontend:<コミット>`、公開）へ置き、
+Renderのデプロイフックへその像を`imgURL`で渡す（Render公式の[Deploy Hooks](https://render.com/docs/deploy-hooks)。
+フックのURLはリポジトリの秘密`RENDER_FRONTEND_DEPLOY_HOOK_URL`）。
 
-- **Renderの自動デプロイは Off にしてある**（ダッシュボードのサービスの Settings → Auto-Deploy）。「After CI
-  Checks Pass」は連携したブランチの**最新のコミットだけ**を、そのコミットのチェックが全部終わってから出す
-  （Render公式の[Deploys](https://render.com/docs/deploys)。待つチェックは選べない）。Claudeの担当や見回りは
-  `workflow_dispatch`で動き、起こした時点のmasterの先頭にチェックを付けて長く動くので、それらが動き続ける間は
-  何も出ない。フックで`ref`を渡して出すと、Renderはそのサービスの自動デプロイを Off にする（同じ文書の
-  「Deploying a specific commit」）。
+- **Renderではビルドしない。** Renderのサービスは、GitHubのリポジトリではなく上の像から出す形にしてある（ダッシュボードの
+  サービスの Settings → Source）。Renderのワークスペースのビルドの時間は無料のプランで月500分で、使い切るとその月の残りは
+  ビルドを止める（Render公式の[Build pipeline](https://render.com/docs/build-pipeline)）。公開のリポジトリのGitHub Actionsは
+  無料なので、ビルドはActionsでする。フックの`imgURL`は、タグ以外がサービスに設定した像のURLと同じでないと断られる
+  （同じDeploy Hooksの文書）ので、リポジトリの持ち主が変わったらサービスの像のURLも直す。
 - **出すかは本番の`/api/version`の`commit`で決める。** CIを通ったコミットが本番のコミットか、その祖先なら出さない
   （後から終わった古いCIの実行）。本番のコミットが読めない・履歴に無いときは出す。backendと違い変更のパスでは
   振り分けない——重い検査が走ったmasterのコミットは全部出す（文書やタスク管理だけの変更は`ci.yml`の`changes`が
   重い検査ごと飛ばすので、デプロイも起動しない）。
 - **出したあと、本番の`/api/version`がそのコミットになるまで待つ。** Renderは最後に頼まれたデプロイを出す
   （同じ文書の「Handling overlapping deploys」）ので、待たずに次へ進むと古いコミットが新しいコミットを上書きしうる。
-  判定・フック・待ちは1つのジョブで1本ずつ走る。上限（30分）までに変わらなければジョブを落とす——Renderのビルドか
-  起動が失敗している（ダッシュボードの Events に出る）。変わるまでの秒数は毎回ジョブのログに出る。
+  判定・ビルド・フック・待ちは1つのジョブで1本ずつ走る。上限（30分）までに変わらなければジョブを落とす——Renderの
+  像の取得か起動が失敗している（ダッシュボードの Events に出る）。変わるまでの秒数は毎回ジョブのログに出る。
 - 待たずに出す手段は`deploy-frontend.yml`の手動起動（`workflow_dispatch`）で、選んだrefの先端を判定なしで出す。
 
 **タイルプロパティを削除する変更はデプロイ順序に制約がある。** backendとfrontendは別

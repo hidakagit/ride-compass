@@ -13,12 +13,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   return NextResponse.json({
     status: "ok",
-    // RenderのWebサービス（gitリポジトリと連携したデプロイ）には`RENDER_GIT_COMMIT`
-    // （デプロイされたコミットのフルSHA）が自動的に環境変数として注入される
-    // （Render側の設定不要）。ローカル開発環境では未設定のためnull。
+    // 本番の像を作るときにdeploy-frontend.ymlが`GIT_COMMIT`（像にしたコミットのフルSHA）を入れる
+    // （frontend/Dockerfile）。手元や、コミットを渡さずに作った像では空か未設定なのでnull。
     // バックエンドの/healthと同じ確認方法: 手元のgit rev-parse HEADと比較する
     // （詳細はdocs/architecture/tech-stack.md「デプロイの反映確認」参照）。
-    commit: process.env.RENDER_GIT_COMMIT ?? null,
+    commit: process.env.GIT_COMMIT || null,
     started_at: STARTED_AT,
   });
 }
