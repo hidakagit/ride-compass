@@ -44,12 +44,14 @@ export function tileContainingLonLat(lon: number, lat: number, zoom: number, min
   return { z, x, y };
 }
 
-/** 表示範囲を覆う道路タイル。地図のズームから、道路タイルが実際に読まれるズームを求めて使う。 */
+/** 表示範囲を覆う道路タイル。地図のズームから、道路タイルが実際に読まれるズームを求めて使う。
+ * 最小ズーム未満では地図が道路タイルを読まず道を描かないので、1枚も並べない（引いても塗る先が無い）。 */
 export function tilesCoveringViewport(
   viewport: { west: number; north: number; east: number; south: number; zoom: number },
   minZoom: number,
   maxZoom: number,
 ): TileXY[] {
+  if (viewport.zoom < minZoom) return [];
   const z = roadTileZoom(viewport.zoom, minZoom, maxZoom);
   const [xStart, yStart] = clampedTileIndex(viewport.west, viewport.north, z);
   const [xEnd, yEnd] = clampedTileIndex(viewport.east, viewport.south, z);
