@@ -132,11 +132,6 @@ def _area_point(node_ids: Sequence[int], coords: dict[int, tuple[float, float]])
     return shape.point_on_surface()
 
 
-def _in_bbox(lat: float, lon: float, bbox: tuple[float, float, float, float]) -> bool:
-    min_lat, min_lon, max_lat, max_lon = bbox
-    return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
-
-
 class _Handoff:
     """別スレッドが積んだまとまりを、非同期側へ流す受け渡し。"""
 
@@ -214,14 +209,12 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
     path = _pbf_path(spec.rows)
     origin.update(_pbf_origin(path))
     matches = _way_matcher(spec.rows)
-    bbox = profile.target.bbox
+    target = profile.target
     logger.info("OSM way: %s", path.name)
 
     incomplete = 0
 
     def work(handoff: _Handoff) -> None:
-        nonlocal incomplete
-
         def sink(way: dict, coords: dict[int, tuple[float, float]]) -> None:
             nonlocal incomplete
             node_ids = way["nodes"]
@@ -232,7 +225,7 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
             if len(points) != len(node_ids):
                 incomplete += 1
                 return
-            if len(points) < 2 or not any(_in_bbox(lat, lon, bbox) for lat, lon in points):
+            if len(points) < 2 or not any(target.contains(lat, lon) for lat, lon in points):
                 return
             handoff.put(SourceRecord(
                 natural_key=str(way["id"]),
@@ -276,7 +269,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
     """
     from app.batch.pbf_source import stream_ways
 
-    bbox = profile.target.bbox
+    target = profile.target
     referenced_by = spec.rows.referenced_by
     standalone = spec.rows.standalone_supply_poi
     way_rows = _referenced_way_rows(spec, profile)
@@ -297,7 +290,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
         def node_sink(node: dict) -> None:
             node_id = node["id"]
             tagged[node_id] = node["tags"]
-            if standalone and has_supply_poi_tag(node["tags"]) and _in_bbox(node["lat"], node["lon"], bbox):
+            if standalone and has_supply_poi_tag(node["tags"]) and target.contains(node["lat"], node["lon"]):
                 seen.add(node_id)
                 handoff.put(SourceRecord(
                     natural_key=str(node_id),
@@ -308,7 +301,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
         def sink(way: dict, coords: dict[int, tuple[float, float]]) -> None:
             if standalone and has_supply_poi_tag(way["tags"]):
                 point = _area_point(way["nodes"], coords)
-                if point is not None and _in_bbox(point.y, point.x, bbox):
+                if point is not None and target.contains(point.y, point.x):
                     handoff.put(SourceRecord(
                         natural_key=str(-way["id"]),
                         geom_wkb=shapely.to_wkb(point),
@@ -321,7 +314,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                 if location is None or node_id in seen:
                     continue
                 lat, lon = location
-                if not _in_bbox(lat, lon, bbox):
+                if not target.contains(lat, lon):
                     continue
                 seen.add(node_id)
                 handoff.put(SourceRecord(

@@ -3,8 +3,8 @@
 履歴は一時的なgitリポジトリで作る。
 
 ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`と、`size`の表・発火は
-周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」と、指示の文書へ置いたファイルごとの閾値を
-無視することは、緩んだ閾値に誰も気づかなくなるので通す。
+周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」と、種類ごとの上限に当たるファイルへ置いた
+ファイルごとの閾値を無視することは、緩んだ閾値に誰も気づかなくなるので通す。
 """
 
 import argparse
@@ -146,5 +146,25 @@ def test_size_holds_instruction_docs_to_the_kind_limit_and_ignores_per_file_thre
 
     assert "| .claude/rules/long.md | 250 | - | 新規 | 200 | 125% | 閾値200超過 |" in out
     assert "| .claude/commands/review.md | 300 | - | 新規 | 500 | 60% |  |" in out
-    assert "指示の文書のファイルごとの閾値（無視した。上限は instruction_limits だけ） 1件: .claude/rules/long.md" in out
+    assert "種類ごとの上限に当たるファイルごとの閾値（無視した。上限は instruction_limits・code_limits だけ） 1件: .claude/rules/long.md" in out
     assert "閾値の見直し（今の行数+15%を100行に切り上げた値より緩い・削除済み） 0件" in out
+
+
+def test_size_holds_code_to_the_kind_limit_beyond_the_external_maximum(repo, monkeypatch, capsys):
+    # コードは外の道具と同じく最大の行数を超えたら発火し、ファイルごとに置いた緩い閾値は効かずに名指しされる。
+    # 生成物は書き手が分けられないので、種類の上限に当てずファイルごとの閾値で見る。
+    _commit(repo, {"app/at.ts": "a\n" * 300, "app/over.ts": "b\n" * 301,
+                   "frontend/src/types/generated/api.d.ts": "g\n" * 400})
+    thresholds = repo / "size_thresholds.json"
+    thresholds.write_text('{"code_limits": {"*.ts": 300},'
+                          ' "thresholds": {"app/over.ts": 400, "frontend/src/types/generated/api.d.ts": 500}}',
+                          encoding="utf-8")
+    monkeypatch.setattr(rc, "SIZE_THRESHOLDS", thresholds)
+
+    assert rc.cmd_size(argparse.Namespace(top=5)) == 0
+    out = capsys.readouterr().out
+
+    assert "| app/at.ts | 300 | - | 新規 | 300 | 100% |  |" in out
+    assert "| app/over.ts | 301 | - | 新規 | 300 | 100% | 閾値300超過 |" in out
+    assert "| frontend/src/types/generated/api.d.ts | 400 | - | 新規 | 500 | 80% |  |" in out
+    assert "種類ごとの上限に当たるファイルごとの閾値（無視した。上限は instruction_limits・code_limits だけ） 1件: app/over.ts" in out

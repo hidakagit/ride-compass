@@ -3491,7 +3491,14 @@
             "title": "Longitude"
           },
           "distance_km": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Distance Km"
           },
           "distance_tolerance_km": {

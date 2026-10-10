@@ -15,7 +15,7 @@ Shapefile。座標は日本測地系2011（EPSG:6668）の経緯度、dbf は CP
 import io
 import zipfile
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,7 +28,7 @@ from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
 from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
-from app.batch.source_adapters.abr import archive_path, prefectures_in_range, read_rows
+from app.batch.source_adapters.abr import archive_path, prefectures_in_range, read_rows, wgs84_transformer
 from app.batch.source_profile import SourceProfile, SourceSpec
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "estat"
@@ -98,15 +98,15 @@ def _boundary_paths(rows: EstatSmallAreaRows, prefectures: list[str]) -> list[Pa
     return paths
 
 
-def range_inputs(profile: SourceProfile) -> AdapterInputs:
-    """範囲に掛かる都道府県を決めるのに読む入力（ABR の市区町村の代表点と、その取った日を宣言する ABR のソース）。"""
-    return AdapterInputs(files=(_city_positions_path(profile),), sources=tuple(abr.name for abr in _abr_sources(profile)))
+def range_inputs(profile: SourceProfile, files: Iterable[Path]) -> AdapterInputs:
+    """範囲に掛かる都道府県を決めるのに読む入力（ABR の市区町村の代表点と、その取った日を宣言する ABR のソース）に、
+    `files`を足したもの。"""
+    return AdapterInputs(files=(_city_positions_path(profile), *files),
+                         sources=tuple(abr.name for abr in _abr_sources(profile)))
 
 
 def estat_small_area_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
-    in_range = range_inputs(profile)
-    return AdapterInputs(files=(*in_range.files, *_boundary_paths(spec.rows, range_prefectures(profile))),
-                         sources=in_range.sources)
+    return range_inputs(profile, _boundary_paths(spec.rows, range_prefectures(profile)))
 
 
 def _to_wgs84(geometry: BaseGeometry, transformer: pyproj.Transformer) -> BaseGeometry:
@@ -145,7 +145,7 @@ async def read_estat_small_areas(spec: SourceSpec, profile: SourceProfile,
     prefectures = range_prefectures(profile)
     paths = _boundary_paths(rows, prefectures)
     origin.update({"survey": rows.survey, "prefectures": prefectures, "files": [file_origin(path) for path in paths]})
-    transformer = pyproj.Transformer.from_crs(_SOURCE_SRID, "EPSG:4326", always_xy=True)
+    transformer = wgs84_transformer(_SOURCE_SRID)
     for path in paths:
         for record in _read_prefecture(path, transformer):
             yield record

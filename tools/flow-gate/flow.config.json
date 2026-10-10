@@ -1,6 +1,6 @@
 {
   "repository": "ridecompass/ride-compass-tasks",
-  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "sizeField": "規模", "startField": "着手可能日", "unsetPriority": "中" },
+  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "sizeField": "規模", "startField": "着手可能日時", "unsetPriority": "中" },
   "gate": "ridecompass-gate[bot]",
   "urls": { "gate": "https://ridecompass-gate.h7g4bin.workers.dev", "form": "https://ride-compass-answer.h7g4bin.workers.dev" },
   "installation": 165726503,

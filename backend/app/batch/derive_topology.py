@@ -132,7 +132,7 @@ SELECT osm_way_id, segment_index, from_node_id, to_node_id,
 FROM _seg
 """
 
-async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
+async def derive(conn: asyncpg.Connection) -> None:
     started = time.perf_counter()
 
     async with conn.transaction():
@@ -168,8 +168,5 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         # 桁で外れる。
         await conn.execute("ANALYZE road_edges, road_nodes, road_ways")
 
-    edge_count = int(edges.split()[-1])
-    node_count = int(nodes.split()[-1])
     logger.info("導出完了: way %d本 → 区間 %d本 / ノード %d点 / %.1f秒",
-                ways, edge_count, node_count, time.perf_counter() - started)
-    return edge_count, node_count
+                ways, int(edges.split()[-1]), int(nodes.split()[-1]), time.perf_counter() - started)

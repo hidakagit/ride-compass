@@ -108,7 +108,6 @@ async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
     target = profile.target
     years = spec.rows.years
     origin["files"] = []
-    min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0
     for year in years:
         path = _existing_honhyo_path(int(year))
@@ -121,7 +120,7 @@ async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
                 if lat is None or lon is None:
                     skipped += 1
                     continue
-                if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
+                if not target.contains(lat, lon):
                     continue
                 natural_key = "-".join((
                     str(year),

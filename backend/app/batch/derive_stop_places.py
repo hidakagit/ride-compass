@@ -157,8 +157,8 @@ ORDER BY normalized_name, merge_key, ST_Distance({ground_m_sql("geom")}, {ground
 _SET_AREAS = f"UPDATE stop_places s SET area = {area_label_sql('s.geom')}"
 
 
-async def derive(conn: asyncpg.Connection) -> int:
-    """立ち寄り先の表を入れ直し、入れた地点の数を返す。"""
+async def derive(conn: asyncpg.Connection) -> None:
+    """立ち寄り先の表を入れ直す。"""
     started = time.perf_counter()
     async with conn.transaction():
         await conn.execute("DELETE FROM stop_places")
@@ -176,4 +176,3 @@ async def derive(conn: asyncpg.Connection) -> int:
     logger.info("立ち寄り先: 群に入った %d件 → 連絡先で寄せて %d件減 → まとめて %d件、寺社の文化財 %d件 → 寺社 %d件、"
                 "辺りの付いた %d件 / %.1f秒", grouped, merged_by_contact, inserted, temple_buildings, temples, located,
                 time.perf_counter() - started)
-    return inserted + temples

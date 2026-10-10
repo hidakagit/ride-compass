@@ -1,7 +1,7 @@
 // 約束 18・24（担当の後始末の行き先と手番の記録の置き場。src/after.js: settle・keepLog）・26（GitHub の一時的な失敗。src/github.js: GitHub）・
 // 27（問いの形と打ち直し。src/move.js: askTask）・28・29・33・34（タスクを持つ印。開発機の対話のセッションが持つ・手放すのと担当の
 // 引き受け。src/hold.js）・30（画像の貼り方。src/attach.js: attach）・31（Pull Request の本文の形。src/rules.js: checkBody）・32（試しを
-// 持たない道具は --dry-run を断る。bin/cli.js: args）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・29 は
+// 持たない道具は --dry-run を断る。bin/cli.js: args）・36（着手可能日時の欄へ書く値の形。src/github.js: setField）を確かめる。設定は架空のもの（fake-github.js: config）を渡し、24・26・27・29 は
 // GitHub（網）だけを、30 は gh を打つ口だけを差し替える。持つ印の置き場は手元の裸のリポジトリで、本物の git が受ける。32・33 は本物の
 // 道具を別のプロセスで打つ（33 は置き場の URL を git の設定で手元へ向ける）。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・ステータスを動かす道具（src/move.js）の表の照らし
@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { keepLog, settle } from "../src/after.js";
-import { GitHub } from "../src/github.js";
+import { GitHub, readTask, setField } from "../src/github.js";
 import { claim, devHolder, holdRemote, readHolds, release, take, workerHolder } from "../src/hold.js";
 import { askTask, moveTask } from "../src/move.js";
 import { attach } from "../src/attach.js";
@@ -158,7 +158,7 @@ test("28 持つ印は1者だけ: 開発機が持つのと担当の引き受け�
   assert.equal(winners.size, 2);
 });
 
-test("29 引き受けは、印・開発機のラベルのあるタスクを作るでも確かめるでも引き受けず、前提・着手可能日は作るだけが待つ。引き受けなければ書かず、印も残さない", async () => {
+test("29 引き受けは、印・開発機のラベルのあるタスクを作るでも確かめるでも引き受けず、前提・着手可能日時は作るだけが待つ。引き受けなければ書かず、印も残さない", async () => {
   const dev = config.coordinator.devLabel;
   const at = async (kind, issue, { held = false } = {}) => {
     const dir = origin();
@@ -176,8 +176,8 @@ test("29 引き受けは、印・開発機のラベルのあるタスクを作�
     assert.deepEqual(await at(kind, {}, { held: true }), [false, false, [devHolder("a")]], kind);
   }
   assert.deepEqual(await at("作る", { blockedBy: ["OPEN"] }), [false, false, []]);
-  assert.deepEqual(await at("作る", { fields: { [config.project.startField]: "2999-01-01" } }), [false, false, []]);
-  assert.deepEqual(await at("確かめる", { blockedBy: ["OPEN"], fields: { [config.project.startField]: "2999-01-01" } }), [true, true, [workerHolder("確かめる", workerUrl)]]);
+  assert.deepEqual(await at("作る", { fields: { [config.project.startField]: "2999-01-01 06:30" } }), [false, false, []]);
+  assert.deepEqual(await at("確かめる", { blockedBy: ["OPEN"], fields: { [config.project.startField]: "2999-01-01 06:30" } }), [true, true, [workerHolder("確かめる", workerUrl)]]);
   assert.deepEqual(await at("作る", { status: config.working }), [false, false, []]);
 });
 
@@ -266,4 +266,18 @@ test("32 試しを持たない道具は --dry-run を断り、書かずに 1 で
     const r = spawnSync(process.execPath, [fileURLToPath(new URL(tool, bin)), "--dry-run", "x", "y", "z", "w", "v", "u"], { encoding: "utf8", env });
     assert.deepEqual([tool, r.status, /試し（--dry-run）を持たないので/.test(r.stderr)], [tool, dry ? 2 : 1, !dry]);
   }
+});
+
+test("36 着手可能日時の欄へは、日本時間の YYYY-MM-DD HH:MM か YYYY-MM-DD（00:00 にそろえる）だけを書き、形の合わない日時は書かずに断る", async () => {
+  const field = config.project.startField;
+  const at = async (value) => {
+    const gh = fakeGitHub({ issue: { number: 7, status: config.todo } });
+    const github = new GitHub("bot-token");
+    const { project, issue } = await readTask(github, config, { number: 7 });
+    const done = await Promise.resolve().then(() => github.write([setField(project, issue.item, field, value)])).then(() => true, (e) => /YYYY-MM-DD HH:MM/.test(e.message) && "断った");
+    return [done, gh.issue.fields[field] ?? null];
+  };
+  assert.deepEqual(await at("2026-10-11 06:30"), [true, "2026-10-11 06:30"]);
+  assert.deepEqual(await at("2026-10-11"), [true, "2026-10-11 00:00"]);
+  for (const value of ["2026-10-11 6:30", "2026-10-11 24:00", "2026-10-11 06:60", "2026-02-30", "2026-10-11T06:30"]) assert.deepEqual(await at(value), ["断った", null], value);
 });

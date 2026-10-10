@@ -1,7 +1,7 @@
 """`api/routers/routes.py`——ルート生成のHTTPの入口。
 
 確かめるのは、HTTPから見える振る舞いだけ: 要求の検証（422）、ジョブの投稿と取得（202・404）、生成の種類
-（周回・目的地・経由地・区間の乗り換え）の振り分け、実際に使った条件のエコー、候補0件の理由、失敗の伝え方、
+（周回・目的地・経由地・区間の乗り換え。距離と置いた点の組み合わせ）の振り分け、実際に使った条件のエコー、候補0件の理由、失敗の伝え方、
 同時実行とレート制限（429）。
 
 裏の生成は本物の`RouteGenerator`とエンジンを、小さな格子の道路網（`tests/route_world.py`）の上で通す。
@@ -18,7 +18,6 @@
 """
 
 import asyncio
-import math
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -28,7 +27,6 @@ import pytest
 
 from app.api import dependencies
 from app.config import settings
-from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
 from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, DEFAULT_MAX_ROUTES, MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
@@ -48,12 +46,14 @@ from tests.route_world import (
     at,
     avoid_axis_declared,
     grid_network,
+    lattice_network,
+    lattice_node,
+    node_point,
     serve_road_network,
 )
 
 #: ASGIの代役がHTTPの相手として名乗る番地（レート制限の鍵になる）。
 CLIENT_HOST = "127.0.0.1"
-FAR_AWAY = {"latitude": 35.80, "longitude": 139.80}  # 格子から約25km。道が無い
 BEYOND_REACH = {"latitude": 37.0, "longitude": 139.8}  # 格子から100km超
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")  # かな・漢字
 #: 画面がいつも送る欄（値は画面の既定）。
@@ -147,6 +147,25 @@ def _node(osm_node_id):
     return f"osm-node-{osm_node_id}"
 
 
+#: 置いた点を通って距離に合わせる生成を見る格子（6×6、1辺約1km）。3×3では、置いた点を通っても距離に合わせる長さが無い。
+LATTICE = lattice_network(6)
+
+
+def _lattice_point(row, col):
+    return node_point(LATTICE, lattice_node(row, col)).model_dump()
+
+
+def _passes_in_order(route, start, stops, end):
+    """経路が`start`から始まり、`stops`を置いた順に通り、`end`で終わる。"""
+    nodes = route["node_ids"]
+    position = 0
+    for stop in stops:
+        if _node(stop) not in nodes[position:]:
+            return False
+        position = nodes.index(_node(stop), position)
+    return _ends(route) == (_node(start), _node(end))
+
+
 # --- 生成の種類 ---
 
 
@@ -159,15 +178,20 @@ async def test_a_loop_is_generated_when_neither_destination_nor_waypoints_are_gi
 
 
 async def test_a_destination_route_ends_at_the_destination_with_up_to_the_requested_count(client):
-    result = (await _generate(client, **_point(SOUTH_WEST), destination=_point(NORTH_EAST), max_routes=2))["result"]
+    result = (await _generate(
+        client, **_point(SOUTH_WEST), destination=_point(NORTH_EAST), distance_km=None, max_routes=2,
+    ))["result"]
 
     assert 1 <= len(result["routes"]) <= 2
     assert result["conditions"]["max_routes"] == 2
+    assert result["conditions"]["distance_km"] is None
     assert all(_ends(route) == (_node(SOUTH_WEST), _node(NORTH_EAST)) for route in result["routes"])
 
 
 async def test_a_waypoint_route_returns_to_the_origin_with_up_to_the_requested_count(client):
-    result = (await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], max_routes=2))["result"]
+    result = (await _generate(
+        client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], distance_km=None, max_routes=2,
+    ))["result"]
 
     assert 1 <= len(result["routes"]) <= 2
     assert result["conditions"]["max_routes"] == 2
@@ -176,7 +200,7 @@ async def test_a_waypoint_route_returns_to_the_origin_with_up_to_the_requested_c
 
 async def test_a_spliced_route_is_evaluated_as_sent(client):
     """区間を差し替えた経路は探索し直さず、そのまま1件として評価して返す。"""
-    body = {**_point(SOUTH_WEST), "destination": _point(NORTH_EAST)}
+    body = {**_point(SOUTH_WEST), "destination": _point(NORTH_EAST), "distance_km": None}
     (route, *_) = (await _generate(client, **body, max_routes=1))["result"]["routes"]
 
     spliced = (await _generate(client, **body, spliced_edge_ids=route["edge_ids"]))["result"]
@@ -184,8 +208,41 @@ async def test_a_spliced_route_is_evaluated_as_sent(client):
     assert [r["edge_ids"] for r in spliced["routes"]] == [route["edge_ids"]]
 
 
+@pytest.mark.parametrize(
+    ("origin", "waypoints", "destination", "target"),
+    [
+        pytest.param((1, 1), [(1, 2)], None, 12.0, id="周回に経由地を置いて"),
+        pytest.param((1, 1), [], (4, 4), 10.0, id="目的地へ寄り道して"),
+    ],
+)
+async def test_a_distance_with_placed_points_is_the_length_of_the_whole_route(
+    client, world, origin, waypoints, destination, target,
+):
+    """経由地・目的地を置いても、距離は全長の目標として効く（夕食と銭湯に寄って30kmの周回、目的地へ寄り道して20km）。
+    探索は置いた点の近くに限らず、全長の目標に足りる広さで探す。"""
+    world.network = LATTICE
+    tolerance = 2.0
+    end = origin if destination is None else destination
+
+    result = (await _generate(
+        client, **_lattice_point(*origin), waypoints=[_lattice_point(*point) for point in waypoints] or None,
+        destination=_lattice_point(*destination) if destination else None,
+        distance_km=target, distance_tolerance_km=tolerance,
+    ))["result"]
+
+    assert len(result["routes"]) >= 2
+    for route in result["routes"]:
+        assert _passes_in_order(
+            route, lattice_node(*origin), [lattice_node(*point) for point in waypoints], lattice_node(*end),
+        )
+        assert abs(route["distance_km"] - target) <= tolerance
+    assert result["conditions"]["distance_km"] == target
+
+
 async def test_an_empty_result_says_why(client):
-    status = await _generate(client, distance_km=30.0, destination=FAR_AWAY)
+    """置いた点を通るだけで距離を超えると、候補は無く、理由が返る。"""
+    status = await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], distance_km=2.0,
+                             distance_tolerance_km=0.5)
 
     assert status["status"] == "done"
     assert status["result"]["routes"] == []
@@ -241,21 +298,12 @@ async def test_the_departure_time_is_read_in_japan_time(client, sent, applied):
     assert conditions["start_time"].endswith("+09:00")
 
 
-async def test_a_destination_route_searches_as_far_as_the_farthest_point_whatever_distance_is_sent(client):
-    """点を置いたときの距離は探索の範囲で、backendが点から決める（最も遠い点の距離を切り上げて1km足す）。"""
-    origin = at(SOUTH_WEST)
-    farthest = max(haversine_distance_km(origin, at(node)) for node in (CENTER, NORTH_EAST))
-    conditions = (await _generate(
-        client, **_point(SOUTH_WEST), waypoints=[_point(CENTER)], destination=_point(NORTH_EAST), distance_km=0.5,
-    ))["result"]["conditions"]
-
-    assert conditions["distance_km"] == math.ceil(farthest) + 1
-
-
 async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(client, world):
     world.network = grid_network(island=True)
 
-    conditions = (await _generate(client, **_point(SOUTH_WEST), destination=_point(91)))["result"]["conditions"]
+    conditions = (await _generate(
+        client, **_point(SOUTH_WEST), destination=_point(91), distance_km=None,
+    ))["result"]["conditions"]
 
     assert conditions["corrected_destination"] == _point(NORTH_EAST)
     assert conditions["destination"] == _point(91)
@@ -269,7 +317,6 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
     {"route_preference": {AVOID_AXIS: -1.0}},                        # 値の検査（`check_axis_weights`）へ寄せている
     {"hard_filters": {}},
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
-    {"distance_km": None},                                           # 周回なのに目標距離が無い
     {"assumed_speed_kmh": 0},                                        # 想定速度の型（`AssumedSpeedKmh`）
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
@@ -279,11 +326,12 @@ async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job
 
 
 @pytest.mark.parametrize("body", [
+    {"distance_km": None},                                           # 出発地だけで、距離も経由地・目的地も無い
     {"waypoints": [_point(CENTER)] * (MAX_WAYPOINTS + 1)},
     {"destination": BEYOND_REACH},
     {"destination": _point(NORTH_EAST), "spliced_edge_ids": ["way-100-seg0-fwd"] * (MAX_SPLICED_EDGES + 1)},
 ])
-async def test_a_limit_reached_by_placing_points_is_refused_in_words_the_rider_reads(client, body):
+async def test_a_request_the_screen_can_send_is_refused_in_words_the_rider_reads(client, body):
     """画面は誤りの文をそのまま結果欄へ出す。前置き（「Value error, 」）の付かない日本語の文だけが返る。"""
     response = await _post(client, **body)
 
