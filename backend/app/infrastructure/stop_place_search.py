@@ -1,5 +1,6 @@
-"""立ち寄り先の表（`stop_places`）を施設の名前で引く（地点の検索の施設の候補）。
+"""立ち寄り先の表（`stop_places`）を施設の名前と群で引く（地点の検索の施設の候補）。
 
+入力が群の語（`domain/stop_place.py: queried_group`）なら、その群の店も引き、名前に当たる店より先に並べる。
 名前は、派生の段が入れた表記の揺れを除いた形の列（`search_name`）を、入力を同じ式（`domain/stop_place.py: normalized_sql`）で
 整えて部分一致で引く。引くたびに名前を整えると表の全部の行に式がかかって遅い（時間は docs/modules/backend/place-search.md
 「引き方」）。候補には、派生の段が入れた辺り（`area`）を添える。
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.geo import LatLon
 from app.domain.place_search import PLACE_PREDICTION_LIMIT, PlaceCandidate
 from app.domain.region import BoundingBox
-from app.domain.stop_place import normalized_sql
+from app.domain.stop_place import normalized_sql, queried_group
 
 #: 子午線の曲率半径の下限（m）。WGS84 の赤道での値 a(1−e²)（約 6,335,439m）より小さく丸め、緯度の帯を計算の誤差の分だけ広げる。
 _MERIDIAN_RADIUS_LOWER_M = 6_335_000
@@ -33,10 +34,12 @@ _SEARCH_SQL = text(f"""
     ),
     hit AS MATERIALIZED (
         SELECT s.name, s.area, s.geom, s.source, s.source_key,
-               CASE WHEN s.search_name = (SELECT name FROM q) THEN 0
-                    WHEN starts_with(s.search_name, (SELECT name FROM q)) THEN 1 ELSE 2 END AS rank
+               CASE WHEN s.place_group = CAST(:place_group AS varchar) THEN 0
+                    WHEN s.search_name = (SELECT name FROM q) THEN 1
+                    WHEN starts_with(s.search_name, (SELECT name FROM q)) THEN 2 ELSE 3 END AS rank
         FROM stop_places s
-        WHERE (SELECT name FROM q) <> '' AND strpos(s.search_name, (SELECT name FROM q)) > 0
+        WHERE (s.place_group = CAST(:place_group AS varchar)
+               OR ((SELECT name FROM q) <> '' AND strpos(s.search_name, (SELECT name FROM q)) > 0))
           AND ST_Force2D(s.geom) && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
     ),
     nearest AS (
@@ -60,10 +63,12 @@ class StopPlaceSearchQuery:
         self._session = session
 
     async def search(self, query: str, area: BoundingBox, near: LatLon) -> list[PlaceCandidate]:
-        """対象範囲の中で、名前に入力を含む施設を`PLACE_PREDICTION_LIMIT`件まで。並びは、名前が入力と同じ → 入力で
-        始まる → 入力を含む、同じ中では`near`に近い順——同じ名前の店が上限を超えても、`near`の近くの店が入る。"""
+        """対象範囲の中で、入力が群の語ならその群の店と、名前に入力を含む施設を`PLACE_PREDICTION_LIMIT`件まで。並びは、
+        群の店 → 名前が入力と同じ → 入力で始まる → 入力を含む、同じ中では`near`に近い順——同じ名前の店が上限を超えても、
+        `near`の近くの店が入る。"""
+        group = queried_group(query)
         rows = (await self._session.execute(_SEARCH_SQL, {
-            "query": query,
+            "query": query, "place_group": group.value if group else None,
             "min_lat": area.min_latitude, "min_lon": area.min_longitude,
             "max_lat": area.max_latitude, "max_lon": area.max_longitude,
             "near_lat": near.latitude, "near_lon": near.longitude,

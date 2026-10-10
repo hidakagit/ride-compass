@@ -104,8 +104,8 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 
 **時刻ビンごとに行うのは、その時刻の風と昼夜に依る計算だけ**。時刻に依らない計算——走行モデルの出力と速度に
 依らない抵抗（`domain/cycling_speed.py: SegmentSpeedModel`）・停止の待ち——はリクエストに1回だけ求めて
-使い回す。時刻で変わる公開軸（風に依存する軸と時間帯を持つ軸）の重みがすべて0なら、合成の難易度と割増の倍率も時刻に依らないので
-1回だけ求め、ビンのコストは所要時間にその倍率を掛けるだけになる（重みが0の軸は合成に何も足さない）。重みが
+使い回す。時刻で変わる公開軸（風に依存する軸と時間帯を持つ軸）の重みがすべて0なら、合成の難易度と割増の倍率・密度の軸の足す秒も
+時刻に依らないので1回だけ求め、ビンのコストは所要時間にその倍率を掛けて秒を足すだけになる（重みが0の軸は合成に何も足さない）。重みが
 あれば、時刻で変わらない軸の重み付き和を1回だけ求め、時刻で変わる軸だけをビンごとに足す。1ビンの中でも、
 予報の引き当てと風の分解（方位との差の三角関数）は、風の材料と走行モデルが同じ値を読む
 （`DynamicAxisRequestContext.wind_components_ms`）。合成結果`LegCostArrays`は`cost_lazy`（区間の番号順）と表示用の
@@ -239,7 +239,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
   仕上げの並べ方: overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾
-        │  _labelがid（loop-00..）と種類を付ける（本数は上の逐次処理がmax_routes件で止めている）
+        │  _labelがid（loop-00..）と種類を付けてRouteDraftからRouteCandidateにする（本数は上の逐次処理がmax_routes件で止めている）
         ▼
   RouteCandidate一覧
 ```
@@ -424,8 +424,9 @@ import済みの参照が古い辞書を指したままになる）。差し替�
 方位からは作らない）。種類は終点で決まる——出発地へ戻れば`loop`、目的地で終われば`destination`（経由地の有無・距離の有無を問わない）。
 距離ありの周回の名前は方位、距離なしで出発地へ戻る候補は「経由地ルート」、目的地で終わる候補は「目的地ルート」。
 エンジン（`_build_candidate`）は並びも種類も知らないので、方位を持つ候補の`direction_label`
-（`domain/geo.py: compass_label`）だけを付け、idと種類は`RouteCandidate`の既定のまま返す。画面は一覧の群・名前・
-最速と乗り換えの入口を種類と印だけで決め、idの文字列や要求の形から決め直さない。
+（`domain/geo.py: compass_label`）だけを付けた`RouteDraft`を返す。id・種類・最速の印・乗り換えの可否は`RouteCandidate`だけが
+必須の欄として持ち、`_label`を通らずに応答の候補は作れない。画面は一覧の群・名前・最速と乗り換えの入口を種類と印だけで決め、
+idの文字列や要求の形から決め直さない。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
@@ -546,8 +547,8 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
   （前段＋往路＋帰りの最短×1.0〜1.3）が目標±許容に入るNodeを帯にする（`domain/route_search.py: relay_band`）。前段の長さが
   あると、帰りの長さは往路の長さと結びつかない（置いた点の向こうの中継点から戻ると、往路よりずっと長くなりうる）。
 
-層の中の並びは往路の距離加重平均difficulty（`overall_difficulty`と同じ物差し。ただし密度の軸を回数の平均から得点にし直すのは
-候補の集約だけで、ここは区間の得点のまま）の昇順、同点は
+層の中の並びは往路の所要時間あたりの平均difficulty（`domain/evaluation.py: difficulty_from_cost`。`overall_difficulty`に近い物差しで、
+密度の軸の分は得点ではなく回数を所要時間で割った値として入る）の昇順、同点は
 リング中心に近い順。リングの範囲と中心は`domain/route_search.py: turnaround_ring_m`が決める。**リング中心は上下限の算術平均ではなく目標距離から決める**——許容が
 目標以上で下限が0へクランプされる場合、算術平均だと中心が0付近まで下がる。
 
@@ -858,7 +859,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 - `Coordinates`・`RouteSegmentDetail`（**material_valuesに入る
   符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
-  ルート線の色分けがこの符号を読む）・`RouteCandidate`。
+  ルート線の色分けがこの符号を読む）・`RouteDraft`（エンジンが組み立てる途中の経路）・`RouteCandidate`（`RouteDraft`に
+  応答のid・種類・最速の印・乗り換えの可否を足したもの）。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_difficulty`・`merge_overall_difficulty`・`merge_material_values`・
   `merge_material_category_shares`・`route_axis_raw_values`・`_merge_segment_bin`。密度の軸は、得点ではなく
@@ -888,7 +890,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   受け取って評価し直す**——ステートレスのため、経路の指定はこの形でしか受けられない。
 - **categorical材料の延長割合はビニングより前に畳む**。ビンの代表値を1つ選ぶ形だと割合が
   500m単位へ量子化されるため、`road_graph_engine`が`aggregate_segments_into_bins`の前に
-  `merge_material_category_shares`を呼び、結果を`RouteCandidate`へ載せる。
+  `merge_material_category_shares`を呼び、結果を`RouteDraft`へ載せる。
   `route_generator`の後段はこの値に触らない（触ると、区間側が空になっている以上
   必ず`{}`で上書きされる）。
 - **生値・材料値に無限大は来ない**。材料の値式は区間の長さが0なら割らずに欠損にし

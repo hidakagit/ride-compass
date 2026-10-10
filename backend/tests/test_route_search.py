@@ -21,7 +21,7 @@
   （`domain/cycling_speed.py`）・風（`domain/wind.py`）・0次フィルタ（`domain/hard_filters.py`）
   → それぞれの持ち主のテストが持つ。
 
-このファイルが組み立てて渡し、読むデータ型（探索構造・`RouteCandidate`等）は本物で作る——代役にしても
+このファイルが組み立てて渡し、読むデータ型（探索構造・`RouteDraft`等）は本物で作る——代役にしても
 何も切り離せず、本物が変わったときに黙ってずれるだけになる。
 """
 
@@ -32,7 +32,7 @@ import pytest
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import LeanEdge
 from app.domain.route import (
-    RouteCandidate,
+    RouteDraft,
     RouteSegmentDetail,
     concat_edge_geometries,
     reverse_elevation_by_edge,
@@ -92,8 +92,8 @@ def segment_detail(difficulty, distance_km):
 
 
 def route_candidate(name, segments=()):
-    """`name`は候補を見分けるためだけのid。"""
-    return RouteCandidate(id=name, direction_label=name, distance_km=1.0, geometry={}, segments=list(segments))
+    """`name`は候補を見分けるためだけの名前。"""
+    return RouteDraft(direction_label=name, distance_km=1.0, geometry={}, segments=list(segments))
 
 
 # --------------------------------------------------------------------------------------
@@ -198,7 +198,7 @@ def test_pick_better_candidate_takes_the_lower_difficulty(forward_difficulty, re
     forward = candidate("forward", forward_difficulty)
     reverse = candidate("reverse", reverse_difficulty)
 
-    assert pick_better_candidate(forward, reverse).id == picked
+    assert pick_better_candidate(forward, reverse).direction_label == picked
 
 
 # --------------------------------------------------------------------------------------

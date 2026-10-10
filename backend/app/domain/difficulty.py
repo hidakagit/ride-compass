@@ -114,12 +114,37 @@ def _axis_terms(
 def axis_weighted_sums(
     axis_arrays: Mapping[str, np.ndarray], weights: Mapping[str, float | np.ndarray], length: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    """`composite_difficulty_array`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
+    """`composite_weighted_sums`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
 
     データ欠損（NaN）の軸はその区間だけ和から外す（項の作り方は`_axis_terms`が単一の情報源）。
     """
     score_terms, weight_terms = _axis_terms(axis_arrays, weights)
     return _neumaier_accumulate(score_terms, length), _neumaier_accumulate(weight_terms, length)
+
+
+def composite_weighted_sums(
+    axis_arrays: Mapping[str, np.ndarray],
+    weights: Mapping[str, float | np.ndarray],
+    length: int,
+    static_sums: tuple[np.ndarray, np.ndarray] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """合成の`(重み付きスコアの和, データのある軸の重みの和)`。`static_sums`は`axis_arrays`に**含めなかった**軸ぶんの
+    和（`axis_weighted_sums`）。"""
+    dynamic_scores, dynamic_weights = _axis_terms(axis_arrays, weights)
+    score_terms = ([] if static_sums is None else [static_sums[0]]) + dynamic_scores
+    weight_terms = ([] if static_sums is None else [static_sums[1]]) + dynamic_weights
+    return _neumaier_accumulate(score_terms, length), _neumaier_accumulate(weight_terms, length)
+
+
+def composite_from_sums(weighted_scores: np.ndarray, weight_sums: np.ndarray) -> np.ndarray:
+    """`composite_weighted_sums`の和から、区間ごとの合成difficulty（重み付き平均、小数1桁）。**合成の式はここ1本**。
+
+    データ欠損（NaN）の軸は和の時点で分母からも外れている（残りの重みで割り直す）。重みの合計が0の区間はNaN。
+    """
+    with np.errstate(invalid="ignore", divide="ignore"):
+        composite = weighted_scores / weight_sums
+    composite = np.where(weight_sums == 0, np.nan, composite)
+    return round_difficulty_array(composite)
 
 
 def composite_difficulty_array(
@@ -128,22 +153,11 @@ def composite_difficulty_array(
     length: int,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """軸別の得点の配列から、区間ごとの合成difficulty（重み付き平均、小数1桁）と、その分母の
-    「データのある軸の重みの合計」を返す。**合成の式はここ1本**。
-
-    データ欠損（NaN）の軸はその区間だけ分母からも外して残りの重みで割り直し、重みの合計が0の
-    区間はNaN。`static_sums`は`axis_arrays`に**含めなかった**軸ぶんの
-    `(重み付きスコアの和, 重みの和)`（`axis_weighted_sums`）。
+    """軸別の得点の配列から、区間ごとの合成difficulty（`composite_from_sums`）と、その分母の
+    「データのある軸の重みの合計」を返す。`static_sums`は`composite_weighted_sums`と同じ。
     """
-    dynamic_scores, dynamic_weights = _axis_terms(axis_arrays, weights)
-    score_terms = ([] if static_sums is None else [static_sums[0]]) + dynamic_scores
-    weight_terms = ([] if static_sums is None else [static_sums[1]]) + dynamic_weights
-    weighted_scores = _neumaier_accumulate(score_terms, length)
-    weight_sums = _neumaier_accumulate(weight_terms, length)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        composite = weighted_scores / weight_sums
-    composite = np.where(weight_sums == 0, np.nan, composite)
-    return round_difficulty_array(composite), weight_sums
+    weighted_scores, weight_sums = composite_weighted_sums(axis_arrays, weights, length, static_sums)
+    return composite_from_sums(weighted_scores, weight_sums), weight_sums
 
 
 def axis_weight_shares_at_row(

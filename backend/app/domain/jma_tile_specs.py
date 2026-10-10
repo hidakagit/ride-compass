@@ -222,7 +222,7 @@ def _fill(template: str, **values: str) -> str:
     return TEMPLATE_PLACEHOLDER.sub(lambda match: values.get(match.group(1), match.group(0)), template)
 
 
-def _tile_extension(spec: JmaTileSpec) -> str:
+def tile_extension(spec: JmaTileSpec) -> str:
     """配信元はベクタをMapbox Vector Tile（.pbf）、ラスタを画像（.png）で配る。"""
     return "pbf" if spec.vector_layer else "png"
 
@@ -243,7 +243,7 @@ def jma_url_template(element_id: str) -> str:
         f"{_FRAME_PATH}/{_TILE_FILE}",
         group=element.path_group,
         element=element_id,
-        extension=_tile_extension(element.tile),
+        extension=tile_extension(element.tile),
     )
 
 
