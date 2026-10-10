@@ -96,7 +96,7 @@ const TASK = `fragment Task on Issue { id number title body url state author { .
   blockedBy(first: 50) { nodes { id number state } }
   lastClose: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { stateReason } } }
   comments(last: $c) { nodes { author { login } createdAt url body bodyHTML } }
-  projectItems(first: 10) { nodes { id project { id number } fieldValues(first: 30) { nodes {
+  projectItems(first: 10) { nodes { id project { id title } fieldValues(first: 30) { nodes {
     ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
     ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2Field { name } } } } } } }
   repository { id nameWithOwner } }`;
@@ -126,7 +126,7 @@ export async function readTask(gh, config, ref, { comments = 1 } = {}) {
   const item = issue.projectItems.nodes.find((i) => i.project.id === p.id);
   const set = (item?.fieldValues.nodes ?? []).filter((x) => x.field);
   const fields = Object.fromEntries(set.map((x) => [x.field.name, x.name ?? x.text]));
-  const dialog = issue.projectItems.nodes.some((i) => i.project.number === config.dialog.project);
+  const dialog = issue.projectItems.nodes.some((i) => i.project.title === config.dialog.title);
   return { project, labels, issue: { ...issue, item: item?.id ?? null, dialog, status: fields[config.project.statusField] ?? null, fields } };
 }
 
@@ -151,9 +151,10 @@ export function setField(project, item, name, value) {
   return ["updateProjectV2ItemFieldValue", { ...at, value: { singleSelectOptionId: field.options[value] } }];
 }
 
-// 組織のボード（番号）の id と、issue の種類の名前 → id。
-export const boardId = async (gh, config, number) =>
-  (await gh.gql("query Board($o: String!, $n: Int!) { organization(login: $o) { projectV2(number: $n) { id } } }", { o: config.project.owner, n: number })).organization.projectV2.id;
+// 対話作業のボード（{ id, number, viewerCanUpdate（読んだ名義が書けるか） }。無ければ undefined）と、issue の種類の名前 → id。対話作業のボードは題名（dialog.title）で引く: 番号は
+// 作ったときに GitHub が決めるので、設定に書くと作る順で変わる。
+export const dialogBoard = async (gh, config) => (await gh.gql("query Board($o: String!, $t: String!) { organization(login: $o) { projectsV2(first: 20, query: $t) { nodes { id number title viewerCanUpdate } } } }",
+  { o: config.project.owner, t: config.dialog.title })).organization.projectsV2.nodes.find((p) => p.title === config.dialog.title);
 export const typeIds = async (gh, config) => Object.fromEntries((await gh.gql("query Types($o: String!) { organization(login: $o) { issueTypes(first: 50) { nodes { id name } } } }",
   { o: config.project.owner })).organization.issueTypes.nodes.map((t) => [t.name, t.id]));
 

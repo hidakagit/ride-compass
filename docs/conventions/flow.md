@@ -232,8 +232,12 @@ master のコミットは Pull Request の題名と本文から作られる。�
 ゲートを変えたかによらず master の先頭の版を `wrangler deploy`（Webhook）と `wrangler deploy --env form`（回答フォーム）で行う（コードのリポジトリの秘密の値 `CLOUDFLARE_API_TOKEN`・
 `CLOUDFLARE_ACCOUNT_ID` を使う）。ゲートは出来事が届いた issue だけを今の規則の姿（ステータス・担当者・本文の先頭のボタン）へ
 書き直すので、規則を変えた直後、出来事の無い issue は次の出来事（か見回りの突き合わせ）まで前の姿のまま残る。全部をすぐ決め直させる
-ときは `node tools/flow-gate/bin/migrate.js`（ステータスをゲートが決める形へ移したときの1回だけの道具。札「開発機が要る」を対話作業の段階へ移し、
-開いたタスクを全部ゲートに決め直させる。`--dry-run` で何をするかを見られる）。
+ときは `node tools/flow-gate/bin/migrate.js`（何度打っても同じ結果。`--dry-run` で何をするかを見られる）。最初の段の準備
+（`tools/flow-gate/src/prepare.js: prepare`）が、コードが前提にする GitHub の設定（ボード「RideCompass改善」の Status の選択肢を `flow.config.json: status` の
+並びに・題名 `dialog.title` の対話作業のボード・issue の種類 `dialog.type`）を無ければ作り、読み直して確かめる（bot がそのボードに書けるか・ゲートの App の
+組織のインストールの権限と出来事も）。足りないものがあれば直し方を出して止まり、済んでいれば札「開発機が要る」を対話作業の段階へ移し、
+開いたタスクを全部ゲートに決め直させる。設定は道具が作るもので、手で作らない（API で変えられないゲートの App の権限と出来事・ボードの組み込みの
+自動追加を止めることだけが手の作業）。
 ゲートの App は、置き場（issues・issue_comment・projects_v2_item・repository_dispatch）とコードのリポジトリ（pull_request・workflow_run）の出来事を受け、
 コードのリポジトリでは実行の一覧と取り消し・PR とチェックとルールセットの読み・PR をレビュー可能にする書き込みをする（権限の名前は GitHub の App の設定の画面のもの）。
 手で公開するときは `tools/flow-gate` で同じコマンドを打つ。秘密の値の名前は `tools/flow-gate/wrangler.toml` の先頭にある。

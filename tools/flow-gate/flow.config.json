@@ -1,7 +1,7 @@
 {
   "repository": "ridecompass/ride-compass-tasks",
   "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "startField": "着手可能日時", "unsetPriority": "中" },
-  "dialog": { "project": 3, "type": "対話作業" },
+  "dialog": { "title": "対話作業", "type": "対話作業" },
   "gate": "ridecompass-gate[bot]",
   "urls": { "gate": "https://ridecompass-gate.h7g4bin.workers.dev", "form": "https://ride-compass-answer.h7g4bin.workers.dev" },
   "people": {
@@ -10,7 +10,7 @@
   },
   "user": "hidakagit",
   "claude": "hidakagit-bot",
-  "status": { "todo": "未着手", "working": "進行中", "ci": "CI待ち", "ready": "検証待ち", "review": "検証中", "waiting": "回答待ち", "hold": "保留", "done": "完了" },
+  "status": { "waiting": "回答待ち", "hold": "保留", "todo": "未着手", "working": "進行中", "ci": "CI待ち", "ready": "検証待ち", "review": "検証中", "done": "完了" },
   "todoTypes": ["保守", "調査", "不具合"],
   "userCheck": "ユーザーが確かめる",
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master", "mutation": { "check": "changed-functions", "title": "テストが気づかない書き換え" } },

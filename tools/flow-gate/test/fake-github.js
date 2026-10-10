@@ -4,13 +4,13 @@
 export const config = {
   repository: "o/tasks",
   project: { owner: "o", number: 1, statusField: "状態", priorityField: "重さ", urgentLabel: "急", startField: "開始日", unsetPriority: "並" },
-  dialog: { project: 7, type: "対話" },
+  dialog: { title: "対話の板", type: "対話" },
   gate: "gate[bot]",
   urls: { gate: "https://gate.example", form: "https://form.example" },
   people: { u: { id: 1, node: "N_U" }, c: { id: 2, node: "N_C" } },
   user: "u",
   claude: "c",
-  status: { todo: "前", working: "中", ci: "試", ready: "待検", review: "検", waiting: "答え待ち", hold: "置き", done: "済" },
+  status: { waiting: "答え待ち", hold: "置き", todo: "前", working: "中", ci: "試", ready: "待検", review: "検", done: "済" },
   todoTypes: ["保"],
   userCheck: "人が見る",
   questionTemplate: "## 問い（判断）\n<問い>\n\n### 案\n- <案>\n\n<details><summary>判断材料</summary>\n\n**約束**: <約束>\n**案ごと**: <案ごと>\n**推奨**: <推奨>\n</details>",
@@ -21,8 +21,8 @@ export const config = {
 const STATUSES = Object.values(config.status);
 const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
-const TYPES = ["保", "要", config.dialog.type].map((name) => ({ id: `T:${name}`, name }));
-const BOARDS = { A: { id: "PVT", number: config.project.number }, D: { id: "PVT_D", number: config.dialog.project } };
+const TYPES = ["保", "要", config.dialog.type];
+const BOARDS = { A: { id: "PVT", title: "板" }, D: { id: "PVT_D", title: config.dialog.title } };
 
 // issues: issue の並び。issue は { number, author（login）, type, status, body, labels, assignees, fields, comments（{ author, body }）,
 // lastClose, blockedBy（前提の状態の並び）, parent（番号）, boards（"A"＝Actions のボード・"D"＝対話作業のボード）, typeEvents（新しいものが後。
@@ -30,10 +30,13 @@ const BOARDS = { A: { id: "PVT", number: config.project.number }, D: { id: "PVT_
 // runs: 担当の実行（{ id, number, kind, status（既定 in_progress）, conclusion }）。branchRuns: 作業ブランチの CI の実行（{ branch, status }）。
 // prs: 作業ブランチの PR（{ number, branch, draft, state（OPEN・MERGED・CLOSED）, head, convertedAt, commits（古い順の sha） }）。
 // checks: sha → チェック（{ name, status（既定 completed）, conclusion（既定 success）, completedAt, notes（注記の題名と文の並び） }）。
-// required: 必須のチェックの名前。
-export function fakeGitHub({ issues = [], runs = [], branchRuns = [], prs = [], checks = {}, required = ["必須"], labels = [config.project.urgentLabel, "札"], tasks = null } = {}) {
+// required: 必須のチェックの名前。options: Actions のボードの Status の選択肢の名前（{ id, name, color, description }）。types: 組織の issue の種類の名前。
+// dialog: 対話作業のボードがあるか。
+export function fakeGitHub({ issues = [], runs = [], branchRuns = [], prs = [], checks = {}, required = ["必須"], labels = [config.project.urgentLabel, "札"], tasks = null,
+  options = STATUSES, types = TYPES, dialog = true, app = { permissions: { issues: "write", organization_projects: "write", contents: "read" }, events: ["issues", "issue_comment", "projects_v2_item", "repository_dispatch"] } } = {}) {
   const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [], blockedBy: [], boards: ["A"], typeEvents: [] };
-  const s = { issues: issues.map((i) => ({ ...blank, ...i })), runs, branchRuns, prs, checks, writes: [], cancels: [], readies: [], dispatches: [], created: [] };
+  const s = { issues: issues.map((i) => ({ ...blank, ...i })), runs, branchRuns, prs, checks, writes: [], cancels: [], readies: [], dispatches: [], created: [],
+    options: options.map((name) => ({ id: `S:${name}`, name, color: "BLUE", description: `${name}の説明` })), types: [...types], dialog };
   s.issue = s.issues[0];
   const byNumber = (n) => s.issues.find((i) => i.number === Number(n));
   const byId = (id) => s.issues.find((i) => `I${i.number}` === id);
@@ -67,19 +70,27 @@ export function fakeGitHub({ issues = [], runs = [], branchRuns = [], prs = [], 
     if (name === "addProjectV2ItemById") i.boards = [...new Set([...i.boards, input.projectId === "PVT" ? "A" : "D"])];
     if (name === "markPullRequestReadyForReview") s.readies.push(input.pullRequestId);
     if (name === "removeLabelsFromLabelable") i.labels = i.labels.filter((l) => !input.labelIds.includes(`L:${l}`));
+    // 選択肢は渡した一覧で丸ごと置き換わり、id の無い選択肢は新しい id になる（消えた id の値を持つ項目は空になる）。
+    if (name === "updateProjectV2Field") {
+      s.options = input.singleSelectOptions.map((o) => ({ ...o, id: o.id ?? `N:${o.name}` }));
+      for (const x of s.issues) if (x.status && !s.options.some((o) => o.id === `S:${x.status}`)) x.status = null;
+    }
+    if (name === "createIssueType") s.types.push(input.name);
     return {};
   };
   const graphql = ({ query, variables: v }, as) => {
     if (query.startsWith("query Task")) {
       const i = v.id ? byId(v.id) : byNumber(v.k);
       return { data: { organization: { projectV2: { id: "PVT", fields: { nodes: [
-        { id: "F", name: config.project.statusField, options: STATUSES.map((name) => ({ id: `S:${name}`, name })) },
+        { id: "F", name: config.project.statusField, options: s.options.map(({ id, name }) => ({ id, name })) },
         { id: config.project.priorityField, name: config.project.priorityField, options: ["上", "並", "下"].map((o) => ({ id: `${config.project.priorityField}:${o}`, name: o })) },
         { id: config.project.startField, name: config.project.startField, dataType: "TEXT" }] } } },
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: i && node(i) }, node: i && node(i) } };
     }
-    if (query.startsWith("query Board")) return { data: { organization: { projectV2: { id: BOARDS[v.n === config.dialog.project ? "D" : "A"].id } } } };
-    if (query.startsWith("query Types")) return { data: { organization: { issueTypes: { nodes: TYPES } } } };
+    if (query.startsWith("query Board")) return { data: { organization: { projectsV2: { nodes: s.dialog ? [{ ...BOARDS.D, number: 7, viewerCanUpdate: s.dialog !== "読むだけ" }] : [] } } } };
+    if (query.startsWith("query Types")) return { data: { organization: { issueTypes: { nodes: s.types.map((name) => ({ id: `T:${name}`, name })) } } } };
+    if (query.startsWith("query Field")) return { data: { organization: { id: "O", projectV2: { id: "PVT", field: { id: "F", options: s.options } } } } };
+    if (query.startsWith("mutation P")) return (s.dialog = true), { data: { createProjectV2: { projectV2: { number: 7 } } } };
     if (query.startsWith("query TypeEvents")) {
       const i = byId(v.id);
       return { data: { node: { timelineItems: { nodes: i.typeEvents.map((e) => (e.prev && e.type ? { __typename: "IssueTypeChangedEvent", prevIssueType: { name: e.prev }, issueType: { name: e.type } }
@@ -130,6 +141,7 @@ export function fakeGitHub({ issues = [], runs = [], branchRuns = [], prs = [], 
       conclusion: (c.status ?? "completed") === "completed" ? (c.conclusion ?? "success") : null, completed_at: c.completedAt ?? "2026-10-04T01:00:00Z" })) });
     const notes = /\/check-runs\/(\w+)-(\d+)\/annotations$/.exec(path);
     if (notes) return json((s.checks[notes[1]][Number(notes[2])].notes ?? []).map(([title, message]) => ({ title, message, path: "a.py" })));
+    if (path === `/orgs/${config.project.owner}/installations`) return json({ installations: [{ app_slug: config.gate.replace(/\[bot\]$/, ""), ...app }] });
     if (path === `/repos/${config.repository}/dispatches` && init.method === "POST") return s.dispatches.push(body.client_payload.number), new Response(null, { status: 204 });
     const comment = /\/issues\/(\d+)\/comments$/.exec(path);
     if (comment && init.method === "POST") return json(apply("addComment", { id: `I${comment[1]}`, body: body.body }, as));

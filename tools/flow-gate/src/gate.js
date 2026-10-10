@@ -1,5 +1,5 @@
 // ゲート: GitHub の出来事と見回りの頼みを受け、事実を読んで表（rules.js: decide）でステータスを決めて書く。担当はステータスを書かない。
-import { addComment, blockedOpen, boardId, GitHub, readActive, readPull, readTask, setField, typeIds } from "./github.js";
+import { addComment, blockedOpen, dialogBoard, GitHub, readActive, readPull, readTask, setField, typeIds } from "./github.js";
 import { bodyRest, decide, gateQuestion, normalize, parseAnswer, remaining, runOf, SCAN, takeAnswer, unanswered, withButton } from "./rules.js";
 
 const PR_ACTIONS = ["opened", "reopened", "closed", "ready_for_review", "converted_to_draft", "synchronize"];
@@ -88,7 +88,7 @@ export class Gate {
     const issue = await this.read({ nodeId });
     if (issue?.state !== "OPEN") return;
     if (issue.issueType?.name === this.config.dialog.type) {
-      if (!issue.dialog) await this.gh.write([["addProjectV2ItemById", { projectId: await boardId(this.gh, this.config, this.config.dialog.project), contentId: issue.id }]]);
+      if (!issue.dialog) await this.gh.write([["addProjectV2ItemById", { projectId: (await dialogBoard(this.gh, this.config)).id, contentId: issue.id }]]);
       return;
     }
     if (!issue.item) await this.gh.write([["addProjectV2ItemById", { projectId: this.project.id, contentId: issue.id }]]);

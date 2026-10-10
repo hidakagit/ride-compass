@@ -1,5 +1,5 @@
 // 道具の部品を確かめる: 後始末（src/after.js: pauseOf・keepLog）・GitHub の一時的な失敗（src/github.js: GitHub）・担当の問い（src/ask.js: askTask）・
-// 段階を作る（src/github.js: createStage）・画像の貼り方（src/attach.js: attach）・試しを持たない道具は --dry-run を断る（bin/cli.js: args）・
+// 段階を作る（src/github.js: createStage）・移行の準備（src/prepare.js: prepare）・画像の貼り方（src/attach.js: attach）・試しを持たない道具は --dry-run を断る（bin/cli.js: args）・
 // 着手可能日時の欄へ書く値の形（src/github.js: setField）。設定は架空のもの（fake-github.js: config）を渡し、GitHub（網）か gh を打つ口だけを
 // 差し替える。試しの確かめは本物の道具を別のプロセスで打つ。
 // ここで見ないもの: 終わりのコメントの中身（文言で、`bin/after.js --dry-run` が出す姿で見る）・打ち直しの回数と間（公式の SDK の既定を写した値で、
@@ -16,6 +16,7 @@ import { keepLog, pauseOf } from "../src/after.js";
 import { askTask } from "../src/ask.js";
 import { attach } from "../src/attach.js";
 import { createStage, GitHub, readTask, setField } from "../src/github.js";
+import { prepare } from "../src/prepare.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
 test("後始末: Cancel されずに利用の上限・認証で止まったときだけ振り出しを止める", () => {
@@ -145,4 +146,32 @@ test("着手可能日時の欄へは、日本時間の YYYY-MM-DD HH:MM か YYYY
   assert.deepEqual(await at("2026-10-11 06:30"), [true, "2026-10-11 06:30"]);
   assert.deepEqual(await at("2026-10-11"), [true, "2026-10-11 00:00"]);
   for (const value of ["2026-10-11 6:30", "2026-10-11 24:00", "2026-02-30"]) assert.deepEqual(await at(value), ["断った", null], value);
+});
+
+test("移行の準備: Status に無い選択肢を設定の並びで足し（今ある選択肢は id・色・説明を保ち、タスクのステータスを消さない）、対話作業のボードと種類が無ければ作る。2度目は何も書かない", async () => {
+  const S = config.status;
+  const gh = fakeGitHub({ issues: [{ number: 1, status: S.todo }, { number: 2, status: S.review }, { number: 3, status: S.hold }],
+    options: [S.todo, S.working, S.review, S.waiting, S.hold, S.done], types: ["保"], dialog: false });
+  const bot = new GitHub("bot-token");
+  assert.equal((await prepare(bot, config, { dry: true })).length, 3); // 試しは書かずに、今足りないもの（選択肢・ボード・種類）を出す
+  assert.equal(gh.writes.length, 0);
+  assert.deepEqual(await prepare(bot, config), []);
+  const field = gh.writes.find((w) => w.op === "updateProjectV2Field").singleSelectOptions;
+  assert.deepEqual(field.map((o) => [o.name, o.id ?? null, o.color, o.description]),
+    Object.values(S).map((name) => [name, [S.ci, S.ready].includes(name) ? null : `S:${name}`, [S.ci, S.ready].includes(name) ? "GRAY" : "BLUE", [S.ci, S.ready].includes(name) ? "" : `${name}の説明`]));
+  assert.deepEqual([gh.issues.map((i) => i.status), gh.dialog, gh.types.includes(config.dialog.type)], [[S.todo, S.review, S.hold], true, true]);
+  const written = gh.writes.length;
+  assert.deepEqual(await prepare(bot, config), []);
+  assert.equal(gh.writes.length, written);
+});
+
+test("移行の準備の確かめ: bot が対話作業のボードに書けない・ゲートの App の組織のインストールに権限か出来事が足りないときは、直し方を出す", async () => {
+  const at = async (extra) => {
+    fakeGitHub(extra);
+    return (await prepare(new GitHub("bot-token"), config)).length;
+  };
+  assert.equal(await at({}), 0);
+  assert.equal(await at({ dialog: "読むだけ" }), 1);
+  assert.equal(await at({ app: { permissions: { issues: "write", organization_projects: "read", contents: "read" }, events: ["issues", "issue_comment", "projects_v2_item", "repository_dispatch"] } }), 1);
+  assert.equal(await at({ app: { permissions: { issues: "write", organization_projects: "write", contents: "read" }, events: ["issues"] } }), 1);
 });
