@@ -1064,7 +1064,7 @@ class RoadGraphEngine:
         resolved = [_lazy_index_of(context, edge_id) for edge_id in edge_ids]
         unknown = [edge_id for edge_id, index in zip(edge_ids, resolved, strict=True) if index is None]
         if unknown:
-            # 区間の鍵はOSMの道のidを含むため、常時のログへ載る例外の文には件数だけを書く（logging.md 基本原則4）。
+            # 区間の鍵はOSMの道のidを含むため、常時のログへ載る例外の文には件数だけを書く（logging.md「決まり」の4）。
             logger.debug("経路に未知のEdgeが含まれています first=%s", unknown[0])
             raise RoutingError(f"経路に未知のEdgeが含まれています count={len(unknown)}")
         path = [index for index in resolved if index is not None]
@@ -1424,7 +1424,7 @@ def _node_key_of(road: RoadSlice, node: int) -> str:
 
 
 def _node_label(context: _RoadGraphContext, node: int) -> str:
-    """常時のログに書くノードの地点。小数2桁の緯度経度で、OSMのidは書かない（logging.md 基本原則4）。"""
+    """常時のログに書くノードの地点。小数2桁の緯度経度で、OSMのidは書かない（logging.md「決まり」の4）。"""
     return f"({float(context.node_lat[node]):.2f},{float(context.node_lon[node]):.2f})"
 
 
