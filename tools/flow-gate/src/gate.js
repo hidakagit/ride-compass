@@ -44,7 +44,7 @@ export async function settle(gh, config, number, runs, moved = false) {
   if (d.priority && d.priority !== f.priority) await setField(gh, config, d.board, item, config.fields.priority, d.priority); // 段階は親の優先度を継ぐ
   if (d.assigned !== f.assigned) await gh.rest(d.assigned ? "POST" : "DELETE", `${issue}/assignees`, { assignees: [config.user] });
   if (!d.open && f.open) await gh.rest("PATCH", issue, { state: "closed", state_reason: d.closeAs.toLowerCase() });
-  return { before: f.status, ...d };
+  return { number, before: f.status, ...d };
 }
 
 // 事実を変える出来事だけを受ける。ゲート自身と Claude の本文の書き換えは受けない（問いの道具はボタンを書いてから問いを書く）。
@@ -76,12 +76,32 @@ export async function route(gh, config, name, p) {
   return { numbers: [] };
 }
 
+// 盤面に表れないゲートの事実を、Actions のボードの状況の更新に出す（盤面を持つのはゲート）。定時の突き合わせが落ちた（Off track）・
+// 振り出しを止めている（At risk。理由といつまで）・保っている（On track）の1行と、突き合わせで決め直したタスク（出来事の取りこぼし）。
+// 15分ごとに起きるので、状態か1行が変わったときと、決め直したタスクがあったときだけ足す。
+export async function reportHealth(gh, config, { error = null, stopped = null, fixed = [] } = {}) {
+  const p = await board(gh, config, "actions");
+  const r = await gh.gql(`query($id:ID!){node(id:$id){...on ProjectV2{statusUpdates(first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{status body creator{login}}}}}}`, { id: p.id });
+  const last = r.node.statusUpdates.nodes[0];
+  const [status, head] = error ? ["OFF_TRACK", "ゲートの定時の突き合わせが失敗している（盤面が事実とずれていても直らない）"]
+    : stopped ? ["AT_RISK", `振り出しを止めている: ${stopped}`] : ["ON_TRACK", "ゲートは盤面を保っている（定時の突き合わせが通っている）"];
+  const same = last ? last.status === status && last.body.split("\n")[0] === head : status === "ON_TRACK";
+  if (same && !fixed.length) return;
+  const body = [head, error && `誤り: ${String(error.message ?? error).split("\n")[0]}`,
+    fixed.length && `定時の突き合わせで決め直したタスク（出来事の取りこぼし）: ${fixed.map((n) => `#${n}`).join("・")}`].filter(Boolean).join("\n\n");
+  await gh.gql(`mutation($p:ID!,$s:ProjectV2StatusUpdateStatus!,$b:String!){createProjectV2StatusUpdate(input:{projectId:$p,status:$s,body:$b}){clientMutationId}}`,
+    { p: p.id, s: status, b: body });
+}
+
 // 担当の枠が空いたか、決め直したタスクが振り出せるステータスへ来たら、振り出す。
+
 export async function handleEvent(env, config, name, payload) {
   const gh = await GitHub.app(env, config.installation);
   const { numbers, free, moved } = await route(gh, config, name, payload);
-  if (!numbers.length && !free) return;
+  if (!numbers.length && !free) return { fixed: [], stopped: null };
   const runs = readRuns(gh, config);
   const settled = await Promise.all(numbers.map((n) => settle(gh, config, n, runs, moved)));
-  if (free || settled.some((d) => d.status !== d.before && DISPATCH[d.status])) await dispatch(gh, config, await runs);
+  const sent = free || settled.some((d) => d.status !== d.before && DISPATCH[d.status]) ? await dispatch(gh, config, await runs) : { stopped: null };
+  // 突き合わせで決め直したタスク（出来事を取りこぼしていたもの）と、振り出しを止めている理由。定時の起動が状況の更新に出す。
+  return { fixed: settled.filter((d) => d.status !== d.before).map((d) => d.number), stopped: sent.stopped };
 }

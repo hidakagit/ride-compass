@@ -3,7 +3,8 @@
 import base from "../flow.config.json" with { type: "json" };
 import questionTemplate from "../question_template.md"; // wrangler.toml の rules で文字列として読む
 import { answerForm } from "./form.js";
-import { handleEvent } from "./gate.js";
+import { handleEvent, reportHealth } from "./gate.js";
+import { GitHub } from "./github.js";
 
 const config = { ...base, questionTemplate };
 // 回答フォームへのボタン（GitHub の本文にボタンは置けないので、本文の頭にリンク付きの画像として置く）。
@@ -35,6 +36,9 @@ export default {
   },
   // 定時の突き合わせ（wrangler.toml の triggers）。ゲートが出来事を取りこぼしたときの守り。
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(handleEvent(env, config, "schedule", {}).catch((e) => console.error("突き合わせに失敗", e)));
+    // 失敗も回復も、ボードの状況の更新に出す（src/gate.js: reportHealth）。
+    const report = (facts) => GitHub.app(env, config.installation).then((gh) => reportHealth(gh, config, facts));
+    ctx.waitUntil(handleEvent(env, config, "schedule", {}).then(report, (error) => (console.error("突き合わせに失敗", error), report({ error })))
+      .catch((e) => console.error("状況の更新に失敗", e)));
   },
 };

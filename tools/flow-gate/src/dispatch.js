@@ -17,20 +17,26 @@ async function items(gh, config) {
   }
 }
 
-// 止める操作（要件 K6）: 担当のワークフローを無効にしたら振り出さない。最後に終わった担当の実行が Claude の利用の上限・認証で
-// 止まっていたら（担当のワークフローの段 config.quotaStep が落ちた）、その終わりから pauseMinutes の間は振り出さない。
-async function stopped(gh, config) {
+// 止める操作（要件 K6）: 振り出さない理由（無ければ null）。担当のワークフローを無効にしたら止める。最後に終わった担当の実行が
+// Claude の利用の上限・認証で止まっていたら（担当のワークフローの段 config.quotaStep が落ちた）、その終わりから pauseMinutes の間止める。
+// 理由はボードに表れないので、ボードの状況の更新に出す（src/gate.js: reportHealth）。
+async function stopReason(gh, config) {
   const path = `/repos/${config.code}/actions/workflows/${config.workflow}`;
   const [wf, { workflow_runs: [last] }] = await Promise.all([gh.rest("GET", path), gh.rest("GET", `${path}/runs?status=completed&per_page=1`)]);
-  if (wf.state !== "active") return true;
-  if (last?.conclusion !== "failure" || Date.parse(last.updated_at) + config.pauseMinutes * 60e3 < Date.now()) return false;
+  if (wf.state !== "active") return "担当のワークフロー（Claude Task）が無効（Actions の画面の Enable workflow で戻す）";
+  const until = Date.parse(last?.updated_at) + config.pauseMinutes * 60e3;
+  if (last?.conclusion !== "failure" || !(until > Date.now())) return null;
   const { jobs } = await gh.rest("GET", `/repos/${config.code}/actions/runs/${last.id}/jobs`);
-  return jobs.some((j) => j.steps?.some((s) => s.name === config.quotaStep && s.conclusion === "failure"));
+  const at = new Date(until + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " "); // 日本時間
+  return jobs.some((j) => j.steps?.some((s) => s.name === config.quotaStep && s.conclusion === "failure"))
+    ? `担当が Claude の利用の上限か認証で止まったため、${at} まで（担当を1件手で起こせば早く戻る）` : null;
 }
 
 // 枠の数まで、急ぎ・優先度・番号の順に振り出す。作る担当の枠 = 進行中、確かめる担当の枠 = 検証中（CI待ちは枠を使わない）。
+// 返すのは起こした担当（picked）と、止めているならその理由（stopped）。
 export async function dispatch(gh, config, runs) {
-  if (await stopped(gh, config)) return [];
+  const stopped = await stopReason(gh, config);
+  if (stopped) return { picked: [], stopped };
   const tasks = await items(gh, config);
   const rank = (t) => config.priorities.indexOf(t.priority ?? config.unsetPriority);
   const picked = Object.keys(config.slots).flatMap((kind) =>
@@ -38,7 +44,7 @@ export async function dispatch(gh, config, runs) {
       .sort((a, b) => b.urgent - a.urgent || rank(a) - rank(b) || a.number - b.number)
       .slice(0, Math.max(0, config.slots[kind] - runs.filter((r) => r.kind === kind).length)).map((t) => ({ issue: String(t.number), kind })));
   await Promise.all(picked.map((inputs) => gh.rest("POST", `/repos/${config.code}/actions/workflows/${config.workflow}/dispatches`, { ref: config.base, inputs })));
-  return picked;
+  return { picked, stopped: null };
 }
 
 // 突き合わせ: ボードのステータスと担当の実行が食い違うタスク（持たれているのに作業のステータスでない・作業のステータスなのに持たれていない）と、

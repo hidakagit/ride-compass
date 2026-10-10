@@ -5,7 +5,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import base from "../flow.config.json" with { type: "json" };
 import { dispatch, mismatched } from "../src/dispatch.js";
-import { route, settle } from "../src/gate.js";
+import { reportHealth, route, settle } from "../src/gate.js";
 
 const config = { ...base, questionTemplate: readFileSync(new URL("../question_template.md", import.meta.url), "utf8") }; // src/index.js と同じ組み方
 
@@ -85,15 +85,38 @@ test("振り出し: 最後の担当が利用の上限で止まったら、その
   const items = [item(1, "未着手")];
   const ago = (minutes) => ({ id: 5, conclusion: "failure", updated_at: new Date(Date.now() - minutes * 60e3).toISOString() });
   const quota = [{ name: config.quotaStep, conclusion: "failure" }];
-  assert.deepEqual(await dispatch(fake({ items, last: [ago(1)], steps: quota }).gh, config, []), []);
-  assert.equal((await dispatch(fake({ items, last: [ago(config.pauseMinutes + 1)], steps: quota }).gh, config, [])).length, 1);
-  assert.equal((await dispatch(fake({ items, last: [ago(1)], steps: [{ name: config.quotaStep, conclusion: "success" }] }).gh, config, [])).length, 1);
+  const held = await dispatch(fake({ items, last: [ago(1)], steps: quota }).gh, config, []);
+  assert.deepEqual(held.picked, []);
+  assert.match(held.stopped, /利用の上限か認証で止まったため/);
+  assert.equal((await dispatch(fake({ items, last: [ago(config.pauseMinutes + 1)], steps: quota }).gh, config, [])).picked.length, 1);
+  assert.equal((await dispatch(fake({ items, last: [ago(1)], steps: [{ name: config.quotaStep, conclusion: "success" }] }).gh, config, [])).picked.length, 1);
 });
 
 test("振り出し: 止めたら振り出さず、枠の空きの数まで急ぎ・優先度・番号の順に起こす", async () => {
   const items = [item(8, "未着手"), item(7, "未着手", { priority: { name: "低" } }), item(9, "未着手", { priority: { name: "高" } }), item(6, "未着手"), item(5, "検証待ち"),
     item(4, "未着手", { content: { ...item(4).content, labels: { nodes: [{ name: config.urgentLabel }] } } }), item(3, "未着手", { content: { ...item(3).content, blockedBy: { nodes: [{ state: "OPEN" }] } } })];
   const busy = Array.from({ length: config.slots.作る - 2 }, (_, i) => ({ id: i, number: 100 + i, kind: "作る" }));
-  assert.deepEqual(await dispatch(fake({ items, workflow: "disabled_manually" }).gh, config, busy), []);
-  assert.deepEqual((await dispatch(fake({ items }).gh, config, busy)).map((p) => `${p.issue} ${p.kind}`), ["4 作る", "9 作る", "5 確かめる"]);
+  const off = await dispatch(fake({ items, workflow: "disabled_manually" }).gh, config, busy);
+  assert.deepEqual(off.picked, []);
+  assert.match(off.stopped, /無効/);
+  assert.deepEqual((await dispatch(fake({ items }).gh, config, busy)).picked.map((p) => `${p.issue} ${p.kind}`), ["4 作る", "9 作る", "5 確かめる"]);
+});
+
+test("状況の更新: 盤面に表れない事実（突き合わせの失敗・振り出しの止まり・決め直したタスク）を、変わったときだけ足す", async () => {
+  // latest は最新の状況の更新。書いたもの（状態と本文）を返す。
+  const write = async (latest, facts) => {
+    const { gh, calls } = fake();
+    const gql = gh.gql;
+    gh.gql = async (q, v) => (q.includes("statusUpdates") ? { node: { statusUpdates: { nodes: latest ? [latest] : [] } } } : gql(q, v));
+    await reportHealth(gh, config, facts);
+    return calls.filter(([, name]) => name === "createProjectV2StatusUpdate").map(([, , v]) => `${v.s} ${v.b.split("\n")[0]}`);
+  };
+  const ok = { status: "ON_TRACK", body: "ゲートは盤面を保っている（定時の突き合わせが通っている）" };
+  assert.deepEqual(await write(ok, {}), [], "変わらなければ書かない");
+  assert.deepEqual(await write(null, {}), [], "まだ何も無く、保っているだけなら書かない");
+  assert.deepEqual(await write(ok, { error: new Error("落ちた") }), ["OFF_TRACK ゲートの定時の突き合わせが失敗している（盤面が事実とずれていても直らない）"]);
+  assert.deepEqual(await write({ status: "OFF_TRACK", body: "ゲートの定時の突き合わせが失敗している（盤面が事実とずれていても直らない）\n\n誤り: 別" }, { error: new Error("また") }), [], "失敗が続く間は重ねない");
+  assert.deepEqual(await write({ status: "OFF_TRACK", body: "ゲートの定時の突き合わせが失敗している（盤面が事実とずれていても直らない）" }, {}), [`ON_TRACK ${ok.body}`], "戻ったら書く");
+  assert.deepEqual(await write(ok, { stopped: "担当のワークフロー（Claude Task）が無効" }), ["AT_RISK 振り出しを止めている: 担当のワークフロー（Claude Task）が無効"]);
+  assert.deepEqual(await write(ok, { fixed: [12] }), [`ON_TRACK ${ok.body}`], "決め直したタスクがあれば書く");
 });
