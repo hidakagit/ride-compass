@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { errorMessage } from "@/lib/apiError";
 
 /** コピー完了の表示を戻すまでの時間。 */
 const COPIED_RESET_MS = 2000;
 
 function describeFailure(err: unknown): string {
-  const detail = err instanceof Error ? err.message : String(err);
-  return `クリップボードへコピーできませんでした（httpsまたはlocalhostでのみ利用できます）: ${detail}`;
+  return `クリップボードへコピーできませんでした（httpsまたはlocalhostでのみ利用できます）: ${errorMessage(err)}`;
 }
 
 /** クリップボードへの書き込みと、その結果表示（コピー済み・失敗）をまとめて持つ。

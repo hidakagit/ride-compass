@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import { refreshTileCache } from "@/features/admin/adminApi";
 import { textVariants } from "@/components/ui/Text/Text";
+import { errorMessage } from "@/lib/apiError";
 import refreshIntervals from "@/types/generated/refresh-intervals.json";
 
 /** 基礎地図のタイルをブラウザが持つ時間（分）。消去が各利用者の画面へ届くまでの遅れ。 */
@@ -24,7 +25,7 @@ export default function TileCachePanel() {
     setDone(false);
     refreshTileCache()
       .then(() => setDone(true))
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err) => setError(errorMessage(err)))
       .finally(() => setRunning(false));
   };
 
