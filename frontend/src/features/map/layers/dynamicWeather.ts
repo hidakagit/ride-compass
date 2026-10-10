@@ -112,8 +112,7 @@ export function tileDeliveryFailureLayerIds(
     const hit = Object.values(group ?? {}).some((source) => {
       if (!source?.visible) return false;
       const payload = source.payload;
-      if (payload?.kind !== "rasterTile" && payload?.kind !== "vectorTile") return false;
-      return failedUrls.has(payload.tileUrlTemplate);
+      return payload !== undefined && "tileUrlTemplate" in payload && failedUrls.has(payload.tileUrlTemplate);
     });
     if (hit) failed.push(layerId);
   }

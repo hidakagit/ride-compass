@@ -112,8 +112,7 @@ function dependencyDefinitions(projectRoot: string): Set<string> {
   return definitions;
 }
 
-function undefinedReferences(srcRoot: string, projectRoot: string): Reference[] {
-  const { global, local, references } = scanTokens(srcRoot);
+function undefinedReferences({ global, local, references }: Scan, projectRoot: string): Reference[] {
   const fromDependencies = dependencyDefinitions(projectRoot);
   return references.filter(
     ({ file, token }) => !global.has(token) && !local.get(file)?.has(token) && !fromDependencies.has(token),
@@ -126,8 +125,9 @@ const themeRef = (name: string) => `theme(${"-"}-${name})`;
 describe("CSSカスタムプロパティの参照", () => {
   it("frontend/srcのものはどれも定義を持つ", () => {
     const projectRoot = join(SRC_ROOT, "..");
-    expect(scanTokens(SRC_ROOT).references.length).toBeGreaterThan(0);
-    expect(undefinedReferences(SRC_ROOT, projectRoot)).toEqual([]);
+    const scan = scanTokens(SRC_ROOT);
+    expect(scan.references.length).toBeGreaterThan(0);
+    expect(undefinedReferences(scan, projectRoot)).toEqual([]);
   });
 
   describe("わざと作った木で", () => {
@@ -141,7 +141,7 @@ describe("CSSカスタムプロパティの参照", () => {
       root = project({
         "src/a.css": `:root { --color-a: red; }\n.x { color: ${ref("color-a")}; fill: ${ref("color-b", "red")}; }\n@media (max-width: ${themeRef("bp")}) {}`,
       });
-      expect(undefinedReferences(join(root, "src"), root)).toEqual([
+      expect(undefinedReferences(scanTokens(join(root, "src")), root)).toEqual([
         { file: "a.css", token: "--color-b" },
         { file: "a.css", token: "--bp" },
       ]);
@@ -153,7 +153,7 @@ describe("CSSカスタムプロパティの参照", () => {
         "src/b.css": `.b { --b-only: 1px; width: ${ref("b-only")}; }`,
         "src/c.css": `.c { color: ${ref("color-g")}; width: ${ref("b-only")}; }`,
       });
-      expect(undefinedReferences(join(root, "src"), root)).toEqual([{ file: "c.css", token: "--b-only" }]);
+      expect(undefinedReferences(scanTokens(join(root, "src")), root)).toEqual([{ file: "c.css", token: "--b-only" }]);
     });
 
     it("tsxの属性・テンプレート・styleのキーを読み、コメントは読まない", () => {
@@ -166,7 +166,7 @@ describe("CSSカスタムプロパティの参照", () => {
         ].join("\n"),
         "src/app/globals.css": `/* ${ref("css-comment")} */ @property --tmpl { syntax: "*"; inherits: false; }`,
       });
-      expect(undefinedReferences(join(root, "src"), root)).toEqual([{ file: "a.tsx", token: "--typo" }]);
+      expect(undefinedReferences(scanTokens(join(root, "src")), root)).toEqual([{ file: "a.tsx", token: "--typo" }]);
     });
 
     it("dependenciesのパッケージが入口で置く名前を定義に数え、devDependenciesのものは数えない", () => {
@@ -183,7 +183,9 @@ describe("CSSカスタムプロパティの参照", () => {
         "node_modules/dev-lib/index.js": `el.style.setProperty("--dev-size", "1px");`,
         "src/a.css": `.x { width: ${ref("cjs-size")}; height: ${ref("esm-size")}; top: ${ref("dev-size")}; }`,
       });
-      expect(undefinedReferences(join(root, "src"), root)).toEqual([{ file: "a.css", token: "--dev-size" }]);
+      expect(undefinedReferences(scanTokens(join(root, "src")), root)).toEqual([
+        { file: "a.css", token: "--dev-size" },
+      ]);
     });
   });
 });
