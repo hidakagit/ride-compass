@@ -9,7 +9,7 @@ description: "backend のテストを、変異テストの全部の測りで見�
 
 backend のテストを、.claude/rules/testing-review.md「テストを変異テストで見直す」の4つの観点（効き・重なり・隔離・書き方）で見直す1回の
 手順。開発機の対話のセッションが、この手順だけで始めから終わりまで進める。測りは GitHub Actions のワークフロー
-`.github/workflows/mutation.yml`（先頭に3段の中身と持ち時間）が回し、台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）。
+`.github/workflows/mutation.yml`（先頭に2段の中身と持ち時間）が回し、台本は `backend/scripts/mutation/`（各ファイルの先頭に使い方）。
 測りの結果から何を消す・直すかの決まりは testing-review.md が持ち、ここには書かない。
 
 ### 1. 始める
@@ -19,7 +19,8 @@ backend のテストを、.claude/rules/testing-review.md「テストを変異�
    起こしたタスクの番号があること）。
 2. **持つ**: .claude/skills/dev-session/SKILL.md「開発機の対話のセッション」の「持つ」で持ち、進行中へ動かす。
 3. **計画を伝える**（CLAUDE.md「作業の進め方」）: 何をどの順で、どれくらいかかるか。見込みは 2026-10-09 の同じ形の測りで、
-   実時間で約1時間40分（shard 1本あたり約1時間・recheck 約30分・review 数分）。
+   実時間で約1時間40分（shard 1本あたり、変異の生成と記録 約9分・変異 約1時間・当て直し 約26分、review 数分）に、
+   ランナーの空き待ち（2026-10-10 の試しで、段ごとに最長16分）が足される。
 
 ### 2. 測りを起こす
 
@@ -29,10 +30,13 @@ backend のテストを、.claude/rules/testing-review.md「テストを変異�
 - 起こした実行の id は、`gh run list -R hidakagit/ride-compass --workflow mutation.yml -L 1 --json databaseId,createdAt,status` で
   取り、`createdAt` が起こした時刻のあとであることを見る。
 - 同じワークフローが動いていれば、終わるまで待ってから始まる（`concurrency: mutation`）。
+- 測りは8本のランナーを約1時間半使い、アカウントで同時に動かせるジョブの枠を担当（Claude Task）・CI と分け合う。担当や CI が
+  多く動いているとき（`gh run list -R hidakagit/ride-compass --status in_progress`）は、測りの空き待ちが延び、そのあいだ担当と
+  CI の待ちも延びる。起こす前に動いている数を見て、6 の記録に書く。
 
 ### 3. 待つ
 
-段（shard・recheck・review）が終わるたびに知らせる。黙って待たない（CLAUDE.md「長い待ちで黙って待たない」）。待ち方は、
+段（shard の各本・review）が終わるたびに知らせる。黙って待たない（CLAUDE.md「長い待ちで黙って待たない」）。待ち方は、
 Monitor で次を回す（ジョブが終わるたびに1行出し、実行が終われば抜ける）。
 
     id=<id>; prev=""; while true; do
@@ -47,7 +51,7 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 
 落ちたとき:
 
-- **shard・recheck の1本が「The runner has received a shutdown signal」で止まった**（変異がランナーのメモリを使い切った）:
+- **shard の1本が「The runner has received a shutdown signal」で止まった**（変異がランナーのメモリを使い切った）:
   `gh run rerun <id> -R hidakagit/ride-compass --failed` で落ちた本と、それに続く段だけをやり直す。同じ本が続けて止まるなら、
   その本の記録（`gh run view <id> --job <ジョブの id> --log`）の最後の「始め <変異>」の変異が原因なので、6 の記録に書いて止める
   （台本の直しは、その回の外のタスクにする。.claude/skills/file-issue/SKILL.md「改善を起票する」）。
@@ -87,7 +91,7 @@ issue へ前後関係を張らず、本文に「<記録する issue> の見直�
   1. 表のテスト関数を消す。
   2. 表の `mutant` を1行ずつ `backend/scripts/mutation/only.txt` に書いて作業ブランチへ push し、
      `gh workflow run mutation.yml -R hidakagit/ride-compass --ref <作業ブランチ> -f ref=<作業ブランチ>` で回す（一覧だけを回し、
-     recheck・review は走らない）。成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の
+     当て直しと review は走らない）。成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の
      `kept_test` があることを見る。
   3. `only.txt` を消してから Pull Request を出す（master へ入れない）。テスト全体が通ることは Pull Request の CI が見る。CI で
      落ちたテストがあれば、消したテストを戻して隠さず、testing-review.md の隔離のとおり汚した側を直す（直すまで、そのテストは消さない）。

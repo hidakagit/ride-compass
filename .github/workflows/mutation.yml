@@ -4,19 +4,20 @@
 #
 # - 手で起こす（gh workflow run mutation.yml、または Actions → Mutation → Run workflow）。測る版と台本は、起こすときに
 #   選んだ ref から読む（台本は backend/scripts/mutation/。台本を直すたびにこのファイルを変えずに済む）。
-# - 3段で回る:
+# - 2段で回る:
 #   1. shard（8本）: 変異と、テストの当たる関数ごとの基準（変異を入れずに同じテストを2回）を1つの無作為の並び（種を固定）に
 #      して、行を順に配り、1本ずつ別のランナーで回す。1本の中ではテストDBを分けた4つの担い手で回す（CI の backend と同じ
-#      arm64・4コアのランナー）。
-#   2. recheck（8本）: 1 の結果を集計し、生き残りのうち読み込みのときに呼ばれうる関数の変異（importtime.py）に、テスト全体を
-#      当て直す。
-#   3. review（1本）: 1・2 を集計し（analyze.py）、見直しの候補を出す（review.py）。前の実行の見直し（成果物 mutation-review）を
+#      arm64・4コアのランナー）。回し終えたら、その本の生き残りのうち読み込みのときに呼ばれうる関数の変異（importtime.py）に、
+#      同じランナーでテスト全体を当て直す（読み込みのときに呼ばれうるかは関数ごとに決まるので、ほかの本の結果は要らない。
+#      別の段にすると、変異の生成とランナーの空き待ちがもう1回ずつ要る）。
+#   2. review（1本）: 1 を集計し（analyze.py）、見直しの候補を出す（review.py）。前の実行の見直し（成果物 mutation-review）を
 #      取ってきて比べ、2回続けて重なりの候補になったテストを消す一覧にする。表は実行の要約に出す。
-# - 測る版の backend/scripts/mutation/ に一覧（only.txt・recheck.txt・baseline.txt）があれば、1 はその一覧だけを回し、2・3 は
-#   走らない（消したあとの確かめ等。run-checks/SKILL.md「変異テストでテストの効きを測る」）。
-# - 持ち時間: 2026-10-09 の同じ形の測りで、1 は1本あたり55〜59分（基準は別に回して9分）、2 は26分だった。担い手は始めて
-#   stop_after 分で新しい変異を取らずに抜け、持ち時間の前に結果を残す。
-# - 成果物: 1・2 は mutation-<番号>・recheck-<番号>（14日）、3 は mutation-review（次の見直しが比べるので90日）。
+# - 測る版の backend/scripts/mutation/ に一覧（only.txt・recheck.txt・baseline.txt）があれば、1 はその一覧だけを回し（当て直しも
+#   しない）、2 は走らない（消したあとの確かめ等。run-checks/SKILL.md「変異テストでテストの効きを測る」）。
+# - 持ち時間: 2026-10-09 の同じ形の測りで、変異は1本あたり55〜59分（基準は別に回して9分）、当て直しは1本あたり約26分だった。
+#   変異の生成と記録は1本あたり約9分（2026-10-10）。担い手は始めて stop_after 分で新しい変異を取らずに抜け、当て直しは
+#   30分で抜けて、持ち時間（180分）の前に結果を残す。
+# - 成果物: 1 は mutation-<番号>・recheck-<番号>（14日）、2 は mutation-review（次の見直しが比べるので90日）。
 name: Mutation
 
 on:
@@ -31,9 +32,9 @@ on:
         required: true
         default: "0"
       stop_after:
-        description: 1本の担い手が新しい変異を取るのをやめるまでの分
+        description: 1本の担い手が新しい変異を取るのをやめるまでの分（このあと当て直しに最長30分）
         required: true
-        default: "150"
+        default: "120"
 
 permissions:
   contents: read
@@ -114,6 +115,25 @@ jobs:
         run: |
           MUT_STOP_AFTER=$((STOP_AFTER_MINUTES * 60)) python ../scripts/mutation/runner.py "$MUT_OUT/shard.txt" "$MUT_OUT/results.jsonl" "$WORKERS"
           cp mutmut-stats.json "$MUT_OUT/"
+      - name: 読み込みのときに呼ばれうる関数の生き残りに、テスト全体を当て直す
+        if: steps.mode.outputs.full == 'true'
+        env:
+          RECHECK_OUT: /tmp/recheck
+        run: |
+          mkdir -p "$RECHECK_OUT"
+          python -c "import json, sys; print(json.dumps([r['mutant'] for r in map(json.loads, open(sys.argv[1], encoding='utf-8')) if r['status'] == 'survived' and ':' not in r['mutant']]))"             "$MUT_OUT/results.jsonl" > "$RECHECK_OUT/survived.json"
+          python scripts/mutation/importtime.py "$RECHECK_OUT/survived.json" scripts/mutation/recheck.txt
+          cd mutants
+          MUT_OUT="$RECHECK_OUT" MUT_STOP_AFTER=1800 python ../scripts/mutation/runner.py ../scripts/mutation/recheck.txt "$RECHECK_OUT/results.jsonl" "$WORKERS"
+      - if: always() && steps.mode.outputs.full == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: recheck-${{ matrix.shard }}
+          path: |
+            /tmp/recheck/results.jsonl
+            /tmp/recheck/kills/
+          retention-days: 14
+          if-no-files-found: warn
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -127,70 +147,8 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-  recheck:
-    needs: shard
-    if: needs.shard.outputs.full == 'true'
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/postgis
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-batch.txt
-            backend/requirements-dev.txt
-      - run: pip install -r requirements-batch.txt -r requirements-dev.txt mutmut==3.8.0
-      - name: 担い手ごとのテストDB
-        run: |
-          for i in $(seq 0 $((WORKERS - 1))); do
-            sudo -u postgres createdb -O ridecompass -T ridecompass_test "${MUT_DB_PREFIX}$i"
-          done
-      - name: 変異を作り、関数ごとに通るテストを記録する
-        run: |
-          mkdir -p "$MUT_OUT"
-          cp scripts/mutation/setup.cfg setup.cfg
-          python scripts/mutation/gen.py
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: mutation-?
-          path: /tmp/art
-      - name: 当て直す変異を拾って分ける
-        env:
-          SHARD: ${{ matrix.shard }}
-        run: |
-          python scripts/mutation/analyze.py /tmp/art > "$MUT_OUT/analyze.txt"
-          python scripts/mutation/importtime.py /tmp/art/survivors.json scripts/mutation/recheck.txt
-          awk -v s="$SHARD" -v n="$SHARDS" 'NF && (NR - 1) % n == s' scripts/mutation/recheck.txt > "$MUT_OUT/shard.txt"
-          echo "この本で当て直す変異: $(wc -l < "$MUT_OUT/shard.txt") 件"
-      - name: テスト全体を当て直す
-        working-directory: backend/mutants
-        run: python ../scripts/mutation/runner.py "$MUT_OUT/shard.txt" "$MUT_OUT/results.jsonl" "$WORKERS"
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: recheck-${{ matrix.shard }}
-          path: |
-            /tmp/mutation/results.jsonl
-            /tmp/mutation/shard.txt
-            /tmp/mutation/kills/
-          retention-days: 14
-          if-no-files-found: warn
-
   review:
-    needs: [shard, recheck]
+    needs: shard
     if: needs.shard.outputs.full == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
