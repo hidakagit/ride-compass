@@ -50,6 +50,7 @@ export function useStoredState<T>(
     (next) => {
       setValue((prev) => {
         const resolved = typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
+        // writeStoredValueが受け止めるのは書き込みの失敗だけで、serializeの失敗はここで握りつぶす。
         try {
           writeStoredValue(key, serializeRef.current(resolved));
         } catch {}
