@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openMobileSheet } from "../e2e/fixtures";
+import { openMobileSheet, runGeneration } from "../e2e/fixtures";
 import {
   branch,
   chooseLens,
@@ -33,9 +33,8 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
   const distanceKm = 15;
   await settings.getByLabel("距離").fill(String(distanceKm));
   const started = Date.now();
-  await settings.getByRole("button", { name: "ルート生成" }).click();
   // 生成は探索範囲の区間の数に比例して数秒〜数十秒かかる。
-  await expect(settings.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 240_000 });
+  await runGeneration(settings, { timeout: 240_000 });
   console.log(`[e2e-live] 生成（${distanceKm}km） ${((Date.now() - started) / 1000).toFixed(1)}秒`);
   await page.getByRole("button", { name: "ルート設定", exact: true }).click();
   await expect(settings).toBeHidden();

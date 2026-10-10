@@ -1,4 +1,5 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
+import { CHROMIUM_PROJECTS, standaloneServer } from "./playwright.config";
 
 // 画面を撮る段（frontend/capture/）。テストではなく、CI にも載せない。入口と引数は scripts/capture.mjs が持ち、宛先を環境変数で
 // 渡す: CAPTURE_BASE_URL（撮る画面のオリジン）と、手元のビルドを撮るときの CAPTURE_LOCAL_PORT・CAPTURE_SERVER_DIR（ビルドのある frontend）。
@@ -19,16 +20,6 @@ export default defineConfig({
     // 手元のビルドは本番の backend を別オリジンとして呼ぶが、本番の backend の CORS は本番の frontend のオリジンしか許さない。
     launchOptions: localPort ? { args: ["--disable-web-security"] } : {},
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: localPort
-    ? {
-        command: "npm run start:standalone",
-        cwd: process.env.CAPTURE_SERVER_DIR,
-        url: `http://localhost:${localPort}`,
-        // Git Bash は HOSTNAME へ機械名を入れて export する。standalone のサーバーは HOSTNAME で待ち受けるので、localhost へ固定する。
-        env: { PORT: localPort, HOSTNAME: "localhost" },
-        timeout: 60_000,
-        reuseExistingServer: false,
-      }
-    : undefined,
+  projects: CHROMIUM_PROJECTS,
+  webServer: localPort ? standaloneServer(localPort, process.env.CAPTURE_SERVER_DIR) : undefined,
 });

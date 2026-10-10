@@ -20,7 +20,5 @@ const distDir = dirname(require.resolve("maplibre-gl/dist/maplibre-gl.mjs"));
 const publicDir = join(dirname(dirname(fileURLToPath(import.meta.url))), "public", "maplibre");
 
 await mkdir(publicDir, { recursive: true });
-for (const file of WORKER_FILES) {
-  await copyFile(join(distDir, file), join(publicDir, file));
-}
+await Promise.all(WORKER_FILES.map((file) => copyFile(join(distDir, file), join(publicDir, file))));
 console.log(`maplibre worker: ${WORKER_FILES.join(", ")} -> ${publicDir}`);

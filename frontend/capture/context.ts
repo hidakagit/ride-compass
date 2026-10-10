@@ -82,7 +82,8 @@ export interface CaptureContext {
   /**
    * スマホのキーボードが出た画面に見立てて撮り、書いたファイルを返す。`field`（打つ欄）がキーボードの上に隠れず見えるだけ画面を
    * 上へずらし、下からキーボードの高さを板で覆う。ページには何も足さず、撮った画像を組み直す（ページへ板を重ねると、
-   * ヘッドレスの地図の描き直しが崩れて白く抜ける）。`height` はキーボードの高さ（CSS の px。既定は KEYBOARD_HEIGHT）。
+   * ヘッドレスの地図の描き直しが崩れて白く抜ける）。`height` はキーボードの高さ（CSS の px。既定は e2e/fixtures.ts: KEYBOARD_HEIGHT。
+   * 候補の帯や Safari の入力の補助の帯が出る欄で見せたいときは、脚本が足す）。
    */
   shotWithKeyboard(name: string, field: Locator, options?: { height?: number }): Promise<string>;
 }
@@ -103,14 +104,6 @@ export interface WorktreeBackend {
  * jma_tile_upstream_max_requests_per_second）ので、地図が一度に取るタイルの数だけ待ちが積もる。
  */
 const WORKTREE_BACKEND_TIMEOUT_MS = 5 * 60_000;
-
-/**
- * shotWithKeyboard のキーボードの既定の高さ（CSS の px）。Apple は高さを公開せず、アプリには実行時に測るよう求めるので、出どころは
- * 実測: iOS 27 のシミュレータで、6.1 型の iPhone（17e・18 Pro）の英字のキーボードが 301pt（変換の候補の帯なし。
- * https://github.com/Saffsanity/sill/pull/30 のコミット 9ee69c7）。候補の帯や Safari の入力の補助の帯が出る欄で見せたいときは、
- * 脚本が height で足す。
- */
-const KEYBOARD_HEIGHT = 301;
 
 /**
  * 撮った画像（PNG）の上を `shift` だけ切り落とし、下から `keyboard` の高さを板で覆った画像を、同じ寸法で組み直す。iOS の
@@ -209,7 +202,7 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       await page.addInitScript(states.installPageHelpers);
       await page.addInitScript(fixtures.installMapFinder);
       await fixtures.seedStoredState(page, {
-        "ridecompass:first-visit-intro-closed": "true",
+        ...fixtures.INTRO_CLOSED,
         ...(layers.length > 0
           ? { "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(layers.map((id) => [id, true]))) }
           : {}),
@@ -311,7 +304,7 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       console.log(`[capture] ${file}`);
       return file;
     },
-    async shotWithKeyboard(name, field, { height: keyboard = KEYBOARD_HEIGHT } = {}) {
+    async shotWithKeyboard(name, field, { height: keyboard = fixtures.KEYBOARD_HEIGHT } = {}) {
       const viewport = page.viewportSize();
       const box = await field.boundingBox();
       if (!viewport || !box) throw new Error(`「${name}」: 打つ欄が画面に無い`);
