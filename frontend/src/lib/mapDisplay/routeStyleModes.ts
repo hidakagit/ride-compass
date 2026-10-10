@@ -13,12 +13,10 @@ import {
   type MapValueKind,
 } from "./valueScale";
 
-type RouteStyleModeId = "difficulty" | "none" | (string & {});
-
 /** レンズ（地図を何で塗るか）の識別子。`"none"`（塗らない）・`"difficulty"`（総合難易度）
  * 以外は公開軸のaxis_id。ルート前は全道路（rampタイル・専用配信）、ルート後はルート線
  * （`axis_difficulties`）を同じ識別子で塗る。 */
-export type LensId = RouteStyleModeId;
+export type LensId = "difficulty" | "none" | (string & {});
 /** レンズの中立色。「なし」「総合難易度」のようにどの軸にも紐づかないレンズと、
  * 軸色が未設定の軸のフォールバックで使う（候補線の非選択色と同じ）。 */
 export const LENS_NEUTRAL_COLOR = palette.semantic.neutral;
@@ -27,7 +25,7 @@ export const LENS_NONE_ID: LensId = "none";
 export const LENS_DIFFICULTY_ID: LensId = "difficulty";
 
 export interface RouteStyleMode {
-  id: RouteStyleModeId;
+  id: LensId;
   /** モード選択メニューに出す名前 */
   label: string;
   legend: LegendEntry[];

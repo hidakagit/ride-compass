@@ -1,3 +1,4 @@
+import { queryOptions } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/apiClient";
 import { STATUS_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
@@ -15,3 +16,6 @@ export function getFrontendVersion() {
     errorLabel: "フロントエンドのバージョン",
   });
 }
+
+/** 読む画面どうしで取得を1つに共有する問い合わせ。 */
+export const frontendVersionQuery = queryOptions({ queryKey: ["frontend-version"], queryFn: getFrontendVersion });
