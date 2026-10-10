@@ -21,7 +21,7 @@ const grid = (times: string[]): WindGridPoint[] => [
 ];
 
 // 格子のどの時刻よりも前（何も落とさない）。
-const BEFORE_GRID = new Date("2026-09-24T00:00:00+09:00");
+const BEFORE_GRID = jst("2026-09-24T00:00");
 
 describe("gridStageFrames（格子の段のコマ）", () => {
   const HOURS = ["2026-09-24T09:00", "2026-09-24T10:00", "2026-09-24T11:00"];

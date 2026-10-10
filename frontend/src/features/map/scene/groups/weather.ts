@@ -302,48 +302,32 @@ export const weatherGroup = declareGroup<WeatherState>((state) => {
     const id = weatherSourceId(element);
     const { drawing } = element;
 
+    const sourceLayer = element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer };
+    const tiles = matches && "tiles" in payload ? payload.tiles : element.placeholderTiles;
+    const data = matches && "data" in payload ? payload.data : element.placeholderData;
     sources.push({
       id,
       spec: element.sourceSpec,
-      ...(element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer }),
-      ...(matches && "tiles" in payload
-        ? { tiles: payload.tiles }
-        : element.placeholderTiles === undefined
-          ? {}
-          : { tiles: element.placeholderTiles }),
-      ...(matches && "data" in payload
-        ? { data: payload.data }
-        : element.placeholderData === undefined
-          ? {}
-          : { data: element.placeholderData }),
+      ...sourceLayer,
+      ...(tiles === undefined ? {} : { tiles }),
+      ...(data === undefined ? {} : { data }),
     });
 
     const visible = (shown?.visible ?? false) && matches;
-    // 縁取りは同じ段の中で主の線より先に積み、下に置く。
-    if (drawing.casing !== undefined) {
-      layers.push({
-        role: `${element.kind}-casing`,
-        tier: TIER_OF[element.kind],
-        source: id,
-        ...(element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer }),
-        type: layerTypeOf(element.kind),
-        paint: drawing.casing.paint,
-        ...(drawing.layout === undefined ? {} : { layout: drawing.layout }),
-        visible,
-        ...(drawing.filter === undefined ? {} : { filter: drawing.filter }),
-      });
-    }
-    layers.push({
-      role: element.kind,
+    const layerOf = (role: string, paint: SceneLayerEntry["paint"]): SceneLayerEntry => ({
+      role,
       tier: TIER_OF[element.kind],
       source: id,
-      ...(element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer }),
+      ...sourceLayer,
       type: layerTypeOf(element.kind),
-      paint: drawing.paint,
+      paint,
       ...(drawing.layout === undefined ? {} : { layout: drawing.layout }),
       visible,
       ...(drawing.filter === undefined ? {} : { filter: drawing.filter }),
     });
+    // 縁取りは同じ段の中で主の線より先に積み、下に置く。
+    if (drawing.casing !== undefined) layers.push(layerOf(`${element.kind}-casing`, drawing.casing.paint));
+    layers.push(layerOf(element.kind, drawing.paint));
   }
 
   return { sources, layers };
