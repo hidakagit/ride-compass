@@ -26,7 +26,7 @@ from app.batch import dem_tile_store
 from app.batch.ingest import AdapterInputs, SourceRecord, register_adapter
 from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceProfileError, SourceSpec
-from app.domain.region import BoundingBox, tiles_covering_bbox
+from app.domain.region import tiles_covering_bbox
 from app.infrastructure.source_models import SourceFeatureRow
 
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
@@ -80,9 +80,6 @@ def _products(spec: SourceSpec) -> dict[str, int]:
     return {str(product): int(zoom) for product, zoom in spec.grid.products.items()}
 
 
-def _bbox(profile: SourceProfile) -> BoundingBox:
-    min_lat, min_lon, max_lat, max_lon = profile.target.bbox
-    return BoundingBox(min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon)
 
 
 def gsi_dem_tile_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
@@ -91,7 +88,7 @@ def gsi_dem_tile_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInpu
     return AdapterInputs(files=tuple(
         dem_tile_store.tile_path(root, product, zoom, x, y)
         for product, zoom in _products(spec).items()
-        for x, y in tiles_covering_bbox(_bbox(profile), zoom)
+        for x, y in tiles_covering_bbox(profile.target.bounding_box(), zoom)
         if dem_tile_store.is_stored(root, product, zoom, x, y)))
 
 
@@ -102,7 +99,7 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
     products = _products(spec)
     # タイルは`fetch_dem_tiles.py`が先に写している。取込が読むのはその置き場。
     origin.update({"tile_root": str(root), "products": products})
-    bbox = _bbox(profile)
+    bbox = profile.target.bounding_box()
 
     for product, zoom in products.items():
         tiles = tiles_covering_bbox(bbox, zoom)

@@ -17,6 +17,11 @@ _WaySink = Callable[[dict, dict[int, tuple[float, float]]], None]
 _NodeSink = Callable[[dict], None]
 
 
+def replication_timestamp(path: Path) -> str | None:
+    """配信元がPBFを焼いた断面の時刻（ヘッダの`osmosis_replication_timestamp`）。無ければNone。"""
+    return osmium.io.Reader(str(path)).header().get("osmosis_replication_timestamp") or None
+
+
 class _WayHandler(osmium.SimpleHandler):
     def __init__(
         self,
