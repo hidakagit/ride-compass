@@ -66,19 +66,41 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
-/** モバイルの下部タブの使い方。 */
-const MOBILE_TAB_USAGES = {
-  routeSettings:
-    "ルートを作る条件[距離・地点・重み・除外・保存した地点と設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
-  routeOutcome:
-    "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
-} as const;
-
 /** モバイルの下部タブ（シートと同じ並び）。 */
 const MOBILE_TABS = [
-  { sheet: "routeSettings", label: "ルート設定", Icon: RouteSettingsIcon },
-  { sheet: "routeOutcome", label: "ルート結果", Icon: RouteIcon },
+  {
+    sheet: "routeSettings",
+    label: "ルート設定",
+    Icon: RouteSettingsIcon,
+    usage:
+      "ルートを作る条件[距離・地点・重み・除外・保存した地点と設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
+  },
+  {
+    sheet: "routeOutcome",
+    label: "ルート結果",
+    Icon: RouteIcon,
+    usage:
+      "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
+  },
 ] as const;
+
+type OutcomeTabSignal = { tone: "error" | "empty" | "warning"; label: string };
+
+// モバイルの「ルート結果」タブの印。失敗と候補0件は形を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
+const UNSEEN_OUTCOME_SIGNALS: Record<RouteOutcomeKind, OutcomeTabSignal> = {
+  failed: { tone: "error", label: "生成に失敗しました" },
+  empty: { tone: "empty", label: "候補が見つかりませんでした" },
+  fresh: { tone: "warning", label: "新しい結果があります" },
+};
+const CONDITIONS_DIRTY_SIGNAL: OutcomeTabSignal = { tone: "warning", label: "生成条件が変更されています" };
+
+/** 「ルート設定」のタブ（中身は `RouteForm` が描く）。 */
+const SETTINGS_TABS: readonly { value: SettingsTab; label: string; usage: string }[] = [
+  { value: "generate", label: "条件", usage: "周回か目的地か、距離・地点・候補の数を決めます。" },
+  { value: "weights", label: "重み", usage: "道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。" },
+  { value: "exclusions", label: "除外", usage: "ルートに使わない道路の種類を選びます。" },
+  { value: "saved", label: "保存", usage: "名前を付けて保存した地点と設定を並べます。" },
+];
 
 export default function Home() {
   const {
@@ -139,7 +161,6 @@ export default function Home() {
   );
   const [workingSheetHeightVh, setWorkingSheetHeightVh] = useState<number | null>(null);
   const mobileSheetHeightVh = workingSheetHeightVh ?? chosenSheetHeightVh ?? DEFAULT_SHEET_HEIGHT_VH;
-  const sheetHeightChosen = chosenSheetHeightVh !== null;
 
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
@@ -210,9 +231,16 @@ export default function Home() {
     if (sheet === "routeOutcome") setUnseenOutcome(null);
   };
 
-  const handleMobileSheetHeightCommit = (vh: number) => {
-    setChosenSheetHeightVh(vh);
-    setWorkingSheetHeightVh(null);
+  // 2枚のシートが共有する開閉と高さ。
+  const sharedSheetProps = {
+    onClose: () => setMobileSheet(null),
+    heightVh: mobileSheetHeightVh,
+    onHeightChange: setWorkingSheetHeightVh,
+    onHeightCommit: (vh: number) => {
+      setChosenSheetHeightVh(vh);
+      setWorkingSheetHeightVh(null);
+    },
+    autoFitHeight: chosenSheetHeightVh === null,
   };
 
   const handleSettingsTabChange = (value: string) => setSettingsTab(value as SettingsTab);
@@ -238,17 +266,11 @@ export default function Home() {
     [locationFailure, warningFetchFailures, axisCatalogFailure],
   );
 
-  // モバイルの「ルート結果」タブの印。失敗と候補0件は形を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
-  const outcomeTabSignal: { tone: "error" | "empty" | "warning"; label: string } | null =
-    unseenOutcome === "failed"
-      ? { tone: "error", label: "生成に失敗しました" }
-      : unseenOutcome === "empty"
-        ? { tone: "empty", label: "候補が見つかりませんでした" }
-        : unseenOutcome === "fresh"
-          ? { tone: "warning", label: "新しい結果があります" }
-          : generation.conditionsDirty
-            ? { tone: "warning", label: "生成条件が変更されています" }
-            : null;
+  const outcomeTabSignal: OutcomeTabSignal | null = unseenOutcome
+    ? UNSEEN_OUTCOME_SIGNALS[unseenOutcome]
+    : generation.conditionsDirty
+      ? CONDITIONS_DIRTY_SIGNAL
+      : null;
 
   // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「いまの設定を保存」「ルート生成」は同じ行の右端に離して置く
   // （どのタブを見ていても押せる）。タブの間と左右の余白・操作の間を詰めているのは、スマホの幅で見出しの題・タブ・操作（条件の
@@ -256,22 +278,11 @@ export default function Home() {
   function renderSettingsTabs() {
     return (
       <TabsList className="gap-0 overflow-visible border-b-0" aria-label="ルート設定">
-        <TabsTrigger className="px-1.5" value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
-          条件
-        </TabsTrigger>
-        <TabsTrigger
-          className="px-1.5"
-          value="weights"
-          usage="道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。"
-        >
-          重み
-        </TabsTrigger>
-        <TabsTrigger className="px-1.5" value="exclusions" usage="ルートに使わない道路の種類を選びます。">
-          除外
-        </TabsTrigger>
-        <TabsTrigger className="px-1.5" value="saved" usage="名前を付けて保存した地点と設定を並べます。">
-          保存
-        </TabsTrigger>
+        {SETTINGS_TABS.map(({ value, label, usage }) => (
+          <TabsTrigger key={value} className="px-1.5" value={value} usage={usage}>
+            {label}
+          </TabsTrigger>
+        ))}
       </TabsList>
     );
   }
@@ -365,6 +376,11 @@ export default function Home() {
         }
       />
     );
+  }
+
+  // 「ルート結果」の中身（デスクトップの区分・モバイルのシートの両方）。
+  function renderRouteOutcome() {
+    return <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />;
   }
 
   // 「ルート結果」の見出しの操作。候補すべてに効く操作だけを置き、候補1本への操作はその候補のタブの中に置く
@@ -467,12 +483,7 @@ export default function Home() {
                   onOpenChange={setOutcomeOpen}
                   usage="押すと開き・畳みます。作った候補と、その難易度の内訳がここに並びます。"
                 >
-                  <RouteOutcome
-                    results={results}
-                    generation={generation}
-                    splice={splice}
-                    routeWeights={route.routeWeights}
-                  />
+                  {renderRouteOutcome()}
                 </SectionDisclosure>
               </>
             )}
@@ -579,7 +590,7 @@ export default function Home() {
             className="fixed right-0 bottom-0 left-0 z-[var(--z-bottom-sheet)] flex h-[var(--mobile-tabbar-height)] touch-none border-t border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_-1px_8px_rgba(0,0,0,0.15)]"
             aria-label="パネル切り替え"
           >
-            {MOBILE_TABS.map(({ sheet, label, Icon }) => (
+            {MOBILE_TABS.map(({ sheet, label, Icon, usage }) => (
               <Button
                 key={sheet}
                 variant="ghost"
@@ -587,7 +598,7 @@ export default function Home() {
                 className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
                 aria-expanded={mobileSheet === sheet}
                 aria-description={sheet === "routeOutcome" ? outcomeTabSignal?.label : undefined}
-                usage={MOBILE_TAB_USAGES[sheet]}
+                usage={usage}
                 onClick={() => handleMobileTabClick(sheet)}
               >
                 <Icon />
@@ -604,16 +615,12 @@ export default function Home() {
 
           <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
             <BottomSheet
+              {...sharedSheetProps}
               open={mobileSheet === "routeSettings"}
-              onClose={() => setMobileSheet(null)}
               title="ルート設定"
               titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
               headerLead={renderSettingsTabs()}
               headerAction={renderRouteSectionHeaderActions()}
-              heightVh={mobileSheetHeightVh}
-              onHeightChange={setWorkingSheetHeightVh}
-              onHeightCommit={handleMobileSheetHeightCommit}
-              autoFitHeight={!sheetHeightChosen}
               fitKey={`${settingsTab}:${conditions.routeMode}`}
               headerNote={renderGenerationOutcomeNote()}
             >
@@ -622,17 +629,13 @@ export default function Home() {
           </Tabs>
 
           <BottomSheet
+            {...sharedSheetProps}
             open={mobileSheet === "routeOutcome"}
-            onClose={() => setMobileSheet(null)}
             title="ルート結果"
             titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
             headerAction={results.routes.length > 0 ? renderRouteResultHeaderActions() : undefined}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={setWorkingSheetHeightVh}
-            onHeightCommit={handleMobileSheetHeightCommit}
-            autoFitHeight={!sheetHeightChosen}
           >
-            <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />
+            {renderRouteOutcome()}
           </BottomSheet>
         </>
       )}
