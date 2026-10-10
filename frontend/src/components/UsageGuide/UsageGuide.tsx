@@ -7,13 +7,7 @@ import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { textVariants } from "@/components/ui/Text/Text";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { cn } from "@/lib/cn";
-import {
-  USAGE_GUIDE_ATTRIBUTE,
-  isInUsageGuide,
-  isUnselectedTab,
-  usageTargetOf,
-  type UsageTarget,
-} from "./usageTarget";
+import { USAGE_GUIDE_ATTRIBUTE, isInUsageGuide, isUnselectedTab, usageTargetOf, type UsageTarget } from "./usageTarget";
 
 /** 押してから離すまでにこれ以上動いたら、押したのではなく動かした（なぞった・スクロールした）とみなす。 */
 const TAP_SLOP_PX = 10;
