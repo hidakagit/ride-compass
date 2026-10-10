@@ -23,7 +23,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 # standaloneのserver.jsは環境変数HOSTNAMEの宛先で待ち受ける。コンテナではHOSTNAMEがコンテナの名前になり、
 # 外（Renderの転送）から届かなくなるので、全部の宛先で待ち受けさせる。
-ENV HOSTNAME=0.0.0.0
 # 像に入れたコミット。/api/versionが返し、デプロイの反映の確かめに使う。渡さないビルドでは空。
 ARG GIT_COMMIT
 ENV GIT_COMMIT=${GIT_COMMIT}
