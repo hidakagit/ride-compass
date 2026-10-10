@@ -28,6 +28,9 @@ export const isExchange = (body) => /^## (問い|回答)\n/.test(normalize(body)
 export const remaining = (body) => [...bodyRest(body).matchAll(/^\s*- \[ \] (.+)$/gm)].map((m) => m[1]);
 export const checkAll = (body) => normalize(body).replace(/^(\s*- )\[ \] /gm, "$1[x] ");
 
+// 作業の状態（進行中・検証中）か。
+export const isWorking = (config, status) => [config.working, config.review].includes(status);
+
 // from から to への遷移を照らす。誰が・どの経路で動かしても、ここだけで決める。表（transitions）に無ければ断る。
 // 表のほかのルールは2つ: 完了へ完成（close が COMPLETED）で入るとき、body に完了の条件の残りがあれば断る。回答待ちへ入るとき、
 // comments（古い順の本文。同じ要求で書くコメントも含める）の最新の問いか答えが、形に合う問いでなければ断る。
@@ -107,7 +110,7 @@ export function worksAfter(config, body) {
   if (parseQuestion(text) || /^Pull Request \[#\d+ /.test(text)) return false;
   if (/^### \S+?担当の着手\n/.test(text)) return true;
   const to = /^(\S+?)にする理由: /.exec(text)?.[1] ?? /「([^」]+)」へ戻しました。$/.exec(text)?.[1];
-  return config.statuses.includes(to) ? [config.working, config.review].includes(to) : null;
+  return config.statuses.includes(to) ? isWorking(config, to) : null;
 }
 
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。

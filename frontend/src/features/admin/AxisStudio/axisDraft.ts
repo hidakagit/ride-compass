@@ -14,10 +14,6 @@ import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 
-// axis_idはユーザー入力欄から撤去してある——内部識別子であって人間が読む必要はなく、
-// 実際に画面上で意味を持つのは表示名(label)の方だけのため。新規作成・複製時にここで
-// 自動生成し、編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が
-// 無い[str]ため、半角英数字で読みやすいprefix+乱数のみで十分）。
 /** 点数の形。backendが持つ形は契約から引く——写すと、形が増えたとき片側だけ知っている
  * 状態になる。`recipe_then_breakpoint_linear`だけは**編集画面の区別**で、backendの
  * `breakpoint_linear`1種を「材料を直接使う」「他の軸を組み合わせる」の2つの編集モードへ
@@ -25,6 +21,10 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 type BackendShapeKind = NonNullable<AxisShape["kind"]>;
 type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
 
+// axis_idはユーザー入力欄から撤去してある——内部識別子であって人間が読む必要はなく、
+// 実際に画面上で意味を持つのは表示名(label)の方だけのため。新規作成・複製時にここで
+// 自動生成し、編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が
+// 無い[str]ため、半角英数字で読みやすいprefix+乱数のみで十分）。
 function generateAxisId(): string {
   // crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）でのみ定義される。/admin
   // が平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に無いオンプレ運用時の
@@ -93,8 +93,8 @@ type _PayloadKeyCoverage = [
   AssertNever<Exclude<EditedPayloadKey, keyof AxisDefinitionPayload>>,
 ];
 
-/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。 */
-/** 値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を
+/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。
+ * 値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を
  * 素通しする——この画面が編集欄を持たない以上、既定値で上書きしてよい理由が無い（「観測」の公開済み
  * 軸は、表示専用の編集でもcategoryが書き換わるぶん見た目だけの更新と見なされずbackendに拒否される）。 */
 const DEFAULT_PASSTHROUGH_FIELDS = Object.fromEntries(
@@ -142,6 +142,10 @@ export interface Draft {
   displayBandLabelsOverride: string[] | null;
   /** 編集欄を持たないpayloadフィールド（`PASSTHROUGH_PAYLOAD_KEYS`）の値。 */
   passthrough: PassthroughFields;
+}
+
+function copyTerms(terms: readonly TermDraft[]): TermDraft[] {
+  return terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required }));
 }
 
 export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -216,19 +220,11 @@ export function draftFromExisting(
   }
   // 保存済みのkindは材料を直接使う軸とほかの軸を組み合わせる軸で同じなので、項が軸の一覧の軸を指すかで決める。
   // 材料カタログに無いかでは決めない——backendが先に新しい材料を足した窓では、その材料が軸に見える。
-  if (shape.terms.length > 0 && shape.terms.every((t) => axisIds.has(t.material))) {
-    return {
-      ...common,
-      shapeKind: "recipe_then_breakpoint_linear",
-      terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
-      preprocess: shape.preprocess,
-      breakpoints: shape.breakpoints,
-    };
-  }
+  const combinesAxes = shape.terms.length > 0 && shape.terms.every((t) => axisIds.has(t.material));
   return {
     ...common,
-    shapeKind: "breakpoint_linear",
-    terms: shape.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
+    shapeKind: combinesAxes ? "recipe_then_breakpoint_linear" : "breakpoint_linear",
+    terms: copyTerms(shape.terms),
     preprocess: shape.preprocess,
     breakpoints: shape.breakpoints,
   };
@@ -263,7 +259,7 @@ export function buildShape(draft: Draft, materialOptions: readonly AxisMaterialO
   if (draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") {
     return {
       kind: "breakpoint_linear",
-      terms: draft.terms.map((t) => ({ material: t.material, weight: t.weight, required: t.required })),
+      terms: copyTerms(draft.terms),
       preprocess: draft.preprocess,
       breakpoints: draft.breakpoints,
     };
