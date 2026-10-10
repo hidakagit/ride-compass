@@ -8,6 +8,9 @@ import { cn } from "@/lib/cn";
 // 押して切り替えるボタン（ON/OFF）。押下状態の表示（aria-pressed・data-state）とキーボード操作は
 // Radix Toggleが持つ。
 //
+// `Button`と違い、マウスを重ねた吹き出し（`title`）を`aria-label`から付けない。アイコンだけの形で使う呼び出し側は、
+// `title`に`aria-label`と同じ名前を渡す。
+//
 // 押下状態は呼び出し側が`pressed`で完全に持ち、`onClick`で変える（`onPressedChange`を使わない）。
 // `<summary>`の中に置く呼び出し側が`event.preventDefault()`で親のdetails開閉を止めることがあり、
 // Radixは既定動作を止められたイベントでは内部の切り替えを飛ばすため。

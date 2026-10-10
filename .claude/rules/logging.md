@@ -10,7 +10,7 @@ paths:
 
 本番のbackendコンテナのログだけで障害調査を完結できるようにする。
 
-## 基本原則
+## 決まり
 
 1. **エラーは常時出す。** `debug_mode`はDEBUGレベルの詳細イベントを増やすためのスイッチであり、
    エラー・警告の出力有無を切り替えるものではない。
@@ -35,16 +35,9 @@ paths:
 
 ### 外部API・キャッシュアクセス → `log_external_call`
 
-`app/infrastructure/debug_log.py: log_external_call(category, **fields)`で囲む。
-成功はDEBUG、失敗（例外 or `fields["result"]="error"`）は抑制付きWARNINGが自動で出て、
-`/api/debug/stats`の統計（呼び出し数・エラー数・キャッシュヒット率・平均/最大所要時間）にも自動集計される。
+`app/infrastructure/debug_log.py: log_external_call`で囲む。欄の名前と、囲むと自動で起きること（ログ・集計）は
+`backend/app/infrastructure/debug_log.py`の先頭の説明が持つ。
 
-- カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `weather:jma-tile`,
-  `basemap:openfreemap`）。`log_throttled_warning`のカテゴリも同じ形にする。
-- キャッシュを挟む場合は`fields["cache"] = "hit" / "miss"`を必ず設定する。
-- 失敗は`fields["result"] = "error"`で示す（例外を捕まえて倒すときは下の`mark_failed`）。集計が失敗として
-  数えるのはこれと捕まえずに送り出した例外だけで、ほかは成功に数える。`"ok"`等の状態は、ログに
-  残したいときだけ書く。HTTPステータスは`fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。
 - 「取得できないのが正常」なケース（GSIの整備区域外等）は`fields["result"]`を`"error"`にせず
   理由を別フィールドへ残し（`fields["status"]=404`等）、WARNINGでログを埋めない
   （`gsi_tile_client.py: GsiTileClient.get`の404分岐が実例）。
@@ -63,22 +56,13 @@ paths:
 
 ### 429拒否 → `record_rate_limit_rejection`
 
-レート制限・同時実行制限で429を返す箇所では`record_rate_limit_rejection(category, client_id, limit)`を呼ぶ。
+レート制限・同時実行制限で429を返す所では、拒否を記録する口（`record_rate_limit_rejection`）を呼ぶ。
 
 ### リクエストID
 
-- ミドルウェア（`asgi_correlation_id`の`CorrelationIdMiddleware`、`main.py`で登録）が全リクエストへ
-  付与し、レスポンスの`X-Request-ID`で返す。
 - フロントの`lib/apiClient.ts`はレスポンスヘッダから読み、DebugConsoleのdetailに含める
   （画面へ出す失敗の文言には混ぜない）。DebugConsoleのreq値でbackendのログを検索すれば、そのリクエストの全ログが引ける。
 - backendを呼ぶ新しい呼び出しも骨格`lib/apiClient.ts: requestApi`を通す（requestIdのログは骨格が持つ）。
-
-### ログの時刻
-
-- backendのログ行は**JST＋オフセット付き**（`2026-09-18 09:00:30,840+0900`）。整形は
-  `request_log.py: JstLogFormatter`が行い、書式は`request_log.py: LOG_FORMAT`の1つだけ。
-- フロントのデバッグログはブラウザのローカル時刻。backendのログと並べて読めるよう、時間帯を揃える。
-- コンテナの`TZ`は変えない（[modules/backend/cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)）。
 
 ### 処理ステージのサマリ
 
@@ -98,16 +82,12 @@ WARNINGへ昇格し、原因の内訳（どの段で減ったか）を同じ行�
 
 障害調査で読む運用エンドポイント（例: デプロイ確認の`/health`・集計の`/api/debug/stats`）の応答の項目は
 [cross-cutting-infrastructure.md](../../docs/modules/backend/cross-cutting-infrastructure.md)「運用エンドポイント（`api/routers/health.py`）」が持つ。
-`/api/debug/stats`の集計はプロセス内のカウンタで、デプロイ・再起動で0へ戻る（起点は`started_at`）。
 
 ## その他の運用上の注意
 
-- uvicorn標準のアクセスログは本番（`backend/Dockerfile`）では`--no-access-log`で無効化する。
-  アクセスサマリは`ridecompass.access`ロガーの1行ログが正。
 - ロガー名は`ridecompass.<用途>`（例: `ridecompass.access`・`ridecompass.generate`。
   モジュール固有のものは`ridecompass.<モジュール名>`）。新しい用途を増やす場合も同じ
   接頭辞を使う——接頭辞単位でレベルを制御したとき、別接頭辞のロガーだけが漏れるため。
-  `tests/structure/test_canonical_definitions.py`が`getLogger`の引数を走査して機械的に検査する
-  （外部ライブラリのロガーをレベル制御のために名指しする場合だけ
-  `test_canonical_definitions.py: EXTERNAL_LIBRARY_LOGGERS`で除外する）。
-- CPUバウンドの重い処理（グラフ構築・MVTエンコード等）を追加する場合も、外部APIと同様に所要時間を計測対象にする。
+- CPUバウンドの重い処理（グラフ構築・MVTエンコード等）を追加する場合も、所要時間を計測対象にする。要求ごとに通る口
+  （タイル1枚の生成等）なら`log_external_call`で囲み、複数ステージからなる処理の1段なら、上の「処理ステージのサマリ」の
+  1行へその段の所要時間を足す。
