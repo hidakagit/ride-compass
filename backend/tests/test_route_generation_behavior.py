@@ -99,7 +99,7 @@ def fastest_of(candidates):
 async def test_destination_route_runs_from_origin_to_destination(engine_over):
     generator = engine_over(grid_network())
 
-    candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
+    candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     assert candidates
     for candidate in candidates:
@@ -116,7 +116,7 @@ async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly
     bad = {100, 101, 202, 205}  # 南の横の道2本と東の縦の道2本
     generator = engine_over(grid_network(bad_ways=bad), avoid_weight=1.0)
 
-    candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
+    candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     easiest = min(candidates, key=lambda c: c.overall_difficulty.average)
     assert_connected(easiest, SOUTH_WEST, NORTH_EAST)
@@ -129,7 +129,7 @@ async def test_oneway_road_is_never_driven_against_its_direction(engine_over):
     generator = engine_over(grid_network(oneway_ways=oneway))
 
     candidates = await generator.generate_via_waypoints(
-        at(NODE_OF[2, 1]), [], 3.0, destination=at(NODE_OF[0, 1]), max_routes=3, start_time=DEPARTURE)
+        at(NODE_OF[2, 1]), [], destination=at(NODE_OF[0, 1]), max_routes=3, start_time=DEPARTURE)
 
     assert candidates
     for candidate in candidates:
@@ -142,7 +142,7 @@ async def test_motorway_is_never_used_even_when_it_is_the_short_way(engine_over)
     generator = engine_over(grid_network(motorway_ways=motorway))
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 3.0, destination=at(NODE_OF[0, 2]), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NODE_OF[0, 2]), max_routes=3, start_time=DEPARTURE)
 
     assert candidates
     for candidate in candidates:
@@ -164,7 +164,7 @@ async def test_segments_cover_the_whole_route(engine_over):
     generator = engine_over(grid_network())
 
     (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     assert math.isclose(sum(s.distance_km for s in candidate.segments), candidate.distance_km, abs_tol=0.02)
 
@@ -172,9 +172,9 @@ async def test_segments_cover_the_whole_route(engine_over):
 async def test_spliced_route_is_evaluated_as_sent(engine_over):
     generator = engine_over(grid_network())
     (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
-    spliced = await generator.generate_spliced_route(at(SOUTH_WEST), at(NORTH_EAST), 4.0, candidate.edge_ids, start_time=DEPARTURE)
+    spliced = await generator.generate_spliced_route(at(SOUTH_WEST), at(NORTH_EAST), candidate.edge_ids, start_time=DEPARTURE)
 
     assert [c.edge_ids for c in spliced] == [candidate.edge_ids]
 
@@ -193,11 +193,11 @@ async def test_a_spliced_route_the_road_network_cannot_trace_is_refused(
     """断った理由は常時のログに残すが、ノード・区間のOSMのidは詳しい記録（DEBUG）にだけ載せる（公開の地図で場所をそのまま引けるため）。"""
     generator = engine_over(grid_network())
     (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     with caplog.at_level(logging.DEBUG):
         assert await generator.generate_spliced_route(
-            at(origin), at(destination), 4.0, edges(candidate.edge_ids), start_time=DEPARTURE) == []
+            at(origin), at(destination), edges(candidate.edge_ids), start_time=DEPARTURE) == []
 
     levels = [r.levelno for r in caplog.records if re.search(r"osm-node-|way-\d", r.getMessage())]
     assert levels and set(levels) == {logging.DEBUG}
@@ -211,7 +211,7 @@ async def test_fastest_route_ignores_the_axis_weights(engine_over):
     generator = engine_over(grid_network(bad_ways={100}), avoid_weight=5.0)
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert ways_of(fastest) == [100, 101]
@@ -222,7 +222,7 @@ async def test_destination_candidates_never_ride_a_road_there_and_back(engine_ov
     generator = engine_over(grid_network(bad_ways={100, 101, 202, 205}), avoid_weight=1.0)
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=5, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=5, start_time=DEPARTURE)
 
     assert candidates
     for candidate in candidates:
@@ -232,9 +232,9 @@ async def test_destination_candidates_never_ride_a_road_there_and_back(engine_ov
 async def test_the_same_request_returns_the_same_routes(engine_over):
     """同点の候補も毎回同じ順で返す。変わると、区間の乗り換えで送り返すidが指す先が変わる。"""
     first = await engine_over(grid_network()).generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=5, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=5, start_time=DEPARTURE)
     second = await engine_over(grid_network()).generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=5, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=5, start_time=DEPARTURE)
 
     assert [c.edge_ids for c in first] == [c.edge_ids for c in second]
 
@@ -308,8 +308,7 @@ async def test_routes_through_placed_points_keep_their_order_come_in_several_and
 
     if distance is None:
         candidates = await generator.generate_via_waypoints(
-            lattice_at(*origin), [lattice_at(*point) for point in waypoints], 8.0,
-            destination=end_point, max_routes=5, start_time=DEPARTURE)
+            lattice_at(*origin), [lattice_at(*point) for point in waypoints], destination=end_point, max_routes=5, start_time=DEPARTURE)
     else:
         target, tolerance = distance
         candidates = await generator.generate_loops(
@@ -358,7 +357,7 @@ async def test_the_freely_chosen_part_avoids_every_road_already_ridden_but_the_p
 
     if distance is None:
         candidates = await generator.generate_via_waypoints(
-            lattice_at(2, 1), points.waypoints, 8.0, destination=None, max_routes=3, start_time=DEPARTURE)
+            lattice_at(2, 1), points.waypoints, destination=None, max_routes=3, start_time=DEPARTURE)
     else:
         candidates = await generator.generate_loops(
             lattice_at(2, 1), *distance, max_routes=3, start_time=DEPARTURE, points=points)
@@ -406,8 +405,7 @@ async def test_a_loop_is_ridden_the_easier_way_round_only_when_that_keeps_the_pl
     generator = engine_over(RING, avoid_weight=1.0)
 
     candidates = await generator.generate_via_waypoints(
-        node_point(RING, 1), [node_point(RING, point) for point in waypoints], 8.0,
-        destination=None, max_routes=1, start_time=DEPARTURE)
+        node_point(RING, 1), [node_point(RING, point) for point in waypoints], destination=None, max_routes=1, start_time=DEPARTURE)
 
     assert [candidate.node_ids for candidate in candidates] == [[node_key(n) for n in expected]]
 
@@ -419,9 +417,9 @@ async def test_a_point_far_from_every_road_is_refused(engine_over, where):
     far = Coordinates(latitude=BASE_LAT + 0.3, longitude=BASE_LON + 0.3)
 
     if where == "waypoint":
-        candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [far], 4.0, destination=None, max_routes=1, start_time=DEPARTURE)
+        candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [far], destination=None, max_routes=1, start_time=DEPARTURE)
     else:
-        candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=far, max_routes=3, start_time=DEPARTURE)
+        candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], destination=far, max_routes=3, start_time=DEPARTURE)
 
     assert candidates == []
 
@@ -431,7 +429,7 @@ async def test_a_destination_on_an_isolated_road_is_moved_to_the_nearest_reachab
     generator = engine_over(grid_network(island=True))
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(91), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(91), max_routes=3, start_time=DEPARTURE)
 
     assert candidates
     for candidate in candidates:
@@ -450,7 +448,7 @@ async def test_segment_arrival_times_run_from_the_departure_within_the_duration(
     generator = engine_over(grid_network())
 
     (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     arrivals = [datetime.fromisoformat(s.estimated_arrival_time) for s in candidate.segments]
     assert arrivals[0] == DEPARTURE
@@ -463,7 +461,7 @@ async def test_a_segment_without_data_does_not_show_the_axis_as_zero(engine_over
     generator = engine_over(grid_network(unknown_ways={100}), avoid_weight=1.0)
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     first, second = fastest.segments
@@ -492,7 +490,7 @@ async def test_a_published_slope_axis_carries_its_grade_on_every_segment_even_wi
     surveyed = replace(network, elevation_present=flat == 0, elevation_gain_m=flat, elevation_loss_m=flat)
     with replaced_axis_definitions({**AXIS_DEFINITIONS, "slope": _slope_axis(is_published=is_published)}):
         candidates = await engine_over(surveyed).generate_via_waypoints(
-            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=1, start_time=DEPARTURE)
+            at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     assert [GRADIENT_PERCENT in segment.material_values for segment in candidates[0].segments] == [carried, carried]
 
@@ -504,13 +502,13 @@ async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over
     generator = engine_over(grid_network(**{missing: {100}}))
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert ways_of(fastest)[0] == 100
     assert fastest.missing_travel_data_share == pytest.approx(0.5, abs=0.01)
     complete = await engine_over(grid_network()).generate_via_waypoints(
-        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
     assert fastest_of(complete).missing_travel_data_share == 0.0
 
 
@@ -540,7 +538,7 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
 
     with replaced_axis_definitions({**AXIS_DEFINITIONS, **RAIN_AXES}):
         candidates = await engine_over(grid_network(bad_ways={101})).generate_via_waypoints(
-            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+            at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert ways_of(fastest) == [100, 101]
@@ -566,7 +564,7 @@ async def test_a_route_scores_a_density_axis_from_its_mean_count_rather_than_the
     道101（0回/km）で、区間の点数（46.7点と0点）の平均は23.3点だが、回数の平均（1回/km）の点数は27.5点。"""
     with replaced_axis_definitions({**AXIS_DEFINITIONS, "stops": STOP_AXIS}):
         candidates = await engine_over(grid_network(stop_density_of={100: 2.0})).generate_via_waypoints(
-            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+            at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert ways_of(fastest) == [100, 101]
@@ -579,7 +577,7 @@ async def test_without_an_observation_history_only_the_rain_axis_has_no_data(eng
 
     with replaced_axis_definitions({**AXIS_DEFINITIONS, **RAIN_AXES}):
         candidates = await engine_over(grid_network()).generate_via_waypoints(
-            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+            at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert all("rain" not in segment.axis_difficulties for segment in fastest.segments)
@@ -601,7 +599,7 @@ async def test_segment_wind_is_the_forecast_for_the_local_time_of_passing(engine
     generator = engine_over(grid_network(), wind=_wind(HOURS_OF_THE_DAY, [3.0, 3.0, 3.0, 3.0]))
 
     (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1,
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1,
         start_time=DEPARTURE.astimezone(timezone.utc))
 
     assert {s.wind.forecast_at for s in candidate.segments} == {"2026-09-22T08:00"}
@@ -612,7 +610,7 @@ async def test_segment_wind_beyond_the_forecast_is_marked_as_extended(engine_ove
     generator = engine_over(grid_network(), wind=_wind(HOURS_OF_THE_DAY[5:7], [3.0, 3.0, 3.0, 3.0]))
 
     (candidate, *_) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     assert all(s.wind.extended for s in candidate.segments)
 
@@ -622,7 +620,7 @@ async def test_each_segment_takes_the_wind_of_the_grid_point_nearest_to_it(engin
     generator = engine_over(grid_network(), wind=_wind(HOURS_OF_THE_DAY, [2.0, 8.0, 2.0, 8.0]))
 
     candidates = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
 
     fastest = fastest_of(candidates)
     assert [s.wind.speed_ms for s in fastest.segments] == [2.0, 8.0]
@@ -631,9 +629,9 @@ async def test_each_segment_takes_the_wind_of_the_grid_point_nearest_to_it(engin
 async def test_a_route_timed_without_the_wind_forecast_says_so(engine_over):
     """風の予報が読めないときは無風として所要時間を出す。出したことを候補が持ち、画面が利用者へ知らせる。"""
     without = await engine_over(grid_network()).generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
     with_wind = await engine_over(grid_network(), wind=_wind(HOURS_OF_THE_DAY, [3.0] * 4)).generate_via_waypoints(
-        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+        at(SOUTH_WEST), [], destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
 
     assert all(c.wind_unavailable for c in without)
     assert not any(c.wind_unavailable for c in with_wind)

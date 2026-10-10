@@ -29,9 +29,10 @@ from app.domain.route_request import (
     NoDistanceTarget,
     RouteTarget,
     SplicedTarget,
+    check_points_within_reach,
     check_spliced_edge_count,
     check_waypoint_count,
-    search_distance_km,
+    nothing_to_generate_error,
 )
 from app.domain.geo import Latitude, Longitude, haversine_distance_km
 from app.domain.route import Coordinates, RouteCandidate
@@ -111,8 +112,8 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
 class RouteGenerateRequest(StrictModel):
     latitude: Latitude
     longitude: Longitude
-    # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
-    # （`_resolve_target`。送られた値は使わない）ため省略できる。
+    # 全長の目標距離（±`distance_tolerance_km`）。経由地・目的地を置いても同じ意味で、省略すると全長の目標を置かない
+    # （置いた点へ良い道で向かう）。
     distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
     distance_tolerance_km: float = Field(gt=0, le=MAX_DISTANCE_TOLERANCE_KM)
     # 評価重みのリクエスト単位の上書き。省略時はAXIS_DEFINITIONS由来の既定値
@@ -128,8 +129,8 @@ class RouteGenerateRequest(StrictModel):
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF。
     hard_filters: HardFilterOverride
-    # 返す候補の上限件数。周回は距離フィルタ合格・overall_difficulty昇順の上位この件数、経由地・目的地を
-    # 置いたときは最後の区間の代わりの道をこの件数まで返す。下限・上限と画面の既定値はOpenAPI生成物
+    # 返す候補の上限件数。距離があれば距離フィルタ合格・overall_difficulty昇順の上位この件数、距離が無ければ
+    # 最後の区間の代わりの道をこの件数まで返す。下限・上限と画面の既定値はOpenAPI生成物
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
     max_routes: int = Field(ge=MIN_ROUTES, le=MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
@@ -140,8 +141,7 @@ class RouteGenerateRequest(StrictModel):
     # 起点から`MAX_ROUTE_DISTANCE_KM`以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
     # 成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=MAX_WAYPOINTS)
-    # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
-    # 終わる周回）。
+    # 指定時は起点に戻らず目的地で終わる（無ければ起点で終わる周回）。
     destination: Coordinates | None = None
     # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱い、JSTの時刻にして持つ。
     start_time: datetime
@@ -176,34 +176,26 @@ class RouteGenerateRequest(StrictModel):
 
     @model_validator(mode="after")
     def _resolve_target(self) -> "RouteGenerateRequest":
-        # 仕上げの戦略（距離あり・距離なし）を選ぶのはここだけ。経由地・目的地を置いたときは距離なしで、距離は
-        # 探索の範囲として置いた点から決める（`search_distance_km`）。周回では距離が目標そのものなので送られた値が要る。
+        # 仕上げの戦略（距離あり・距離なし）を選ぶのはここだけで、距離の有無だけで選ぶ。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
-        if not points:
-            if self.spliced_edge_ids:
-                raise ValueError("spliced_edge_ids requires destination")
-            if self.distance_km is None:
-                raise ValueError("distance_km is required without waypoints/destination")
-            self._target = DistanceTarget(
-                distance_km=self.distance_km, points=FixedPoints(waypoints=[], destination=None)
-            )
-            return self
-        origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
-        distance_km = search_distance_km(max(haversine_distance_km(origin, point) for point in points))
+        if points:
+            origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
+            check_points_within_reach(max(haversine_distance_km(origin, point) for point in points))
         if self.spliced_edge_ids:
             # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
             # 乗り換えると戻れる保証が無くなる）。
             if self.destination is None:
                 raise ValueError("spliced_edge_ids requires destination")
             first, *rest = self.spliced_edge_ids
-            self._target = SplicedTarget(
-                distance_km=distance_km, destination=self.destination, edge_ids=(first, *rest)
-            )
+            self._target = SplicedTarget(destination=self.destination, edge_ids=(first, *rest))
+            return self
+        fixed = FixedPoints(waypoints=self.waypoints or [], destination=self.destination)
+        if self.distance_km is not None:
+            self._target = DistanceTarget(distance_km=self.distance_km, points=fixed)
+        elif points:
+            self._target = NoDistanceTarget(points=fixed)
         else:
-            self._target = NoDistanceTarget(
-                distance_km=distance_km,
-                points=FixedPoints(waypoints=self.waypoints or [], destination=self.destination),
-            )
+            raise nothing_to_generate_error()
         return self
 
     @property
@@ -222,7 +214,8 @@ class GenerationConditions(StrictModel):
 
     latitude: float
     longitude: float
-    distance_km: float
+    # 全長の目標距離（無ければNone）。
+    distance_km: float | None
     distance_tolerance_km: float
     route_preference: RoutePreferenceWeights
     # 主観的割増と時間の換算レート（P）。
@@ -383,7 +376,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
             conditions=GenerationConditions(
                 latitude=request.latitude,
                 longitude=request.longitude,
-                distance_km=target.distance_km,
+                distance_km=target.distance_km if isinstance(target, DistanceTarget) else None,
                 distance_tolerance_km=request.distance_tolerance_km,
                 route_preference=RoutePreferenceWeights(applied.route_preference.weights),
                 penalty_strength=applied.penalty_strength,

@@ -80,7 +80,7 @@ export function useRouteGeneration({
       const pointsPlaced = waypoints.length > 0 || effectiveDestination !== null;
       return {
         origin,
-        // 点を置いたときの探索の範囲はbackendが点から決めるため、距離は送らない。
+        // 目的地モードで点を置いたときは距離を送らない（全長の目標を置かず、置いた点へ良い道で向かう）。
         distanceKm: routeMode === "destination" && pointsPlaced ? null : Number(distance),
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
         maxRoutes: Number(maxRoutes),

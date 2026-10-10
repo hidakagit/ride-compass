@@ -10,7 +10,7 @@ import type { Coordinates, HardFilterOverride, RouteGenerateRequest, RoutePrefer
 /** 生成リクエストを決める入力一式（画面の状態から実効値へ解決済み）。 */
 export interface GenerationInput {
   origin: Coordinates;
-  /** 周回の目標距離。経由地・目的地を置いたときはnull（探索の範囲はbackendが置いた点から決める）。 */
+  /** 全長の目標距離。nullなら全長の目標を置かない（送らない）。 */
   distanceKm: number | null;
   distanceToleranceKm: number;
   maxRoutes: number;

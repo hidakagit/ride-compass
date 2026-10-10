@@ -116,7 +116,6 @@ async def generate_route_candidates(
                 candidates = await generator.generate_spliced_route(
                     origin=origin,
                     destination=target.destination,
-                    distance_km=target.distance_km,
                     edge_ids=target.edge_ids,
                     start_time=start_time,
                 )
@@ -124,7 +123,6 @@ async def generate_route_candidates(
                 candidates = await generator.generate_via_waypoints(
                     origin=origin,
                     waypoints=target.points.waypoints,
-                    distance_km=target.distance_km,
                     destination=target.points.destination,
                     max_routes=max_routes,
                     start_time=start_time,
