@@ -20,13 +20,6 @@ router = APIRouter(prefix="/api/admin/debug", tags=["debug-admin"], dependencies
 # contains（部分一致）とは別の軸として、Python標準loggingのレベル名で「このレベル以上」に
 # 絞り込めるようにする。名前→数値の対応はlogging標準のものをそのまま使う。
 LogLevelName = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-_LOG_LEVEL_NUMBERS: dict[str, int] = {
-    "DEBUG": logging.DEBUG,
-    "INFO": logging.INFO,
-    "WARNING": logging.WARNING,
-    "ERROR": logging.ERROR,
-    "CRITICAL": logging.CRITICAL,
-}
 
 
 class DebugModeRequest(StrictModel):
@@ -73,5 +66,5 @@ def read_recent_logs(
     リングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても
     保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。
     """
-    min_level_number = _LOG_LEVEL_NUMBERS[min_level] if min_level is not None else None
+    min_level_number = logging.getLevelNamesMapping()[min_level] if min_level is not None else None
     return get_recent_logs(limit=limit, contains=contains, min_level=min_level_number)

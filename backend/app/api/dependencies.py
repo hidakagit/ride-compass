@@ -72,6 +72,10 @@ _jma_tile_shared = JmaTileSharedState()
 #: 雨の材料を実体の中に持つため、プロセスに1つ。
 _weather_service = WeatherService()
 
+#: 共有のHTTPクライアントのタイムアウト（秒）。クライアントは値ごとに1つで、起動時に`main.py`が同じ値で先に作る。
+LIGHT_FETCH_TIMEOUT_SECONDS = 10.0
+TILE_PROXY_TIMEOUT_SECONDS = 15.0
+
 
 def get_weather_service():
     return _weather_service
@@ -80,12 +84,14 @@ def get_weather_service():
 # 以下のJMA/GSI系サービスはいずれも軽量なJSON・CSVしか取りに行かないため、共有の
 # httpx.AsyncClient（同じタイムアウト）を使い回す。
 def get_warning_service():
-    return WarningService(get_http_client(10.0), area_data_cache=_area_data_cache, warning_cache=_warning_cache)
+    return WarningService(
+        get_http_client(LIGHT_FETCH_TIMEOUT_SECONDS), area_data_cache=_area_data_cache, warning_cache=_warning_cache
+    )
 
 
 def get_amedas_service():
     return JmaAmedasService(
-        get_http_client(10.0),
+        get_http_client(LIGHT_FETCH_TIMEOUT_SECONDS),
         get_jma_tile_client(),
         station_table_cache=_station_table_cache,
         latest_time_cache=_latest_time_cache,
@@ -93,17 +99,17 @@ def get_amedas_service():
 
 
 def get_wbgt_service():
-    return WbgtService(get_http_client(10.0), point_master_cache=_point_master_cache, forecast_cache=_forecast_cache)
+    return WbgtService(
+        get_http_client(LIGHT_FETCH_TIMEOUT_SECONDS),
+        point_master_cache=_point_master_cache,
+        forecast_cache=_forecast_cache,
+    )
 
 
 def get_flood_service():
-    return FloodService(get_http_client(10.0), area_data_cache=_area_data_cache, flood_cache=_flood_cache)
-
-
-@asynccontextmanager
-async def _open_graph_service() -> AsyncIterator[GraphService]:
-    async with get_route_generation_session_factory()() as session:
-        yield GraphService(repository=RoadGraphRepository(session))
+    return FloodService(
+        get_http_client(LIGHT_FETCH_TIMEOUT_SECONDS), area_data_cache=_area_data_cache, flood_cache=_flood_cache
+    )
 
 
 @asynccontextmanager
@@ -116,9 +122,9 @@ async def _open_route_generation_setup(
     assumed_speed_kmh: float,
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。"""
-    async with _open_graph_service() as graph_service:
+    async with get_route_generation_session_factory()() as session:
         yield assemble_route_generation_setup(
-            graph_service,
+            GraphService(repository=RoadGraphRepository(session)),
             get_weather_service(),
             preference_override=preference_override,
             penalty_strength=penalty_strength,
@@ -210,11 +216,11 @@ async def get_axis_inspector_service(weather_service: WeatherService = Depends(g
 
 
 def get_basemap_client():
-    return BasemapClient(get_http_client(15.0), settings.basemap_public_base_url)
+    return BasemapClient(get_http_client(TILE_PROXY_TIMEOUT_SECONDS), settings.basemap_public_base_url)
 
 
 def get_jma_tile_client():
-    return JmaTileClient(get_http_client(15.0), _jma_tile_shared)
+    return JmaTileClient(get_http_client(TILE_PROXY_TIMEOUT_SECONDS), _jma_tile_shared)
 
 
 #: 整備区域外の記憶。クライアントはリクエストごとに作られるため、プロセスの側で持つ。
@@ -222,7 +228,7 @@ _gsi_not_found_paths: LRUCache = LRUCache(maxsize=NOT_FOUND_MAX_ENTRIES)
 
 
 def get_gsi_tile_client():
-    return GsiTileClient(get_http_client(15.0), _gsi_not_found_paths)
+    return GsiTileClient(get_http_client(TILE_PROXY_TIMEOUT_SECONDS), _gsi_not_found_paths)
 
 
 # 以下の管理API向けのうち、書き込み・1テーブル読みで足りるものはタイル配信と同じ
