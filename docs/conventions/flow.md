@@ -177,7 +177,8 @@ issue の番号ごと）が持つ。同じタスクの実行（作る・確か�
 教える。決して打たせない操作（master への push・強制の push・GitHub の API での書き込み・ワークフローの起動等）は、
 同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。拒否の規則はコマンドの文に当てるので、流れの道具が中で打つもの
 （`hold.js` が担当のワークフローを起こす要求等）には当たらず、読むだけでも
-`-X`・`-f` 等の付いた `gh api`（`-X GET` に `-f` で欄を渡す一覧・`gh api graphql`）は断られる。読むときは欄を URL に書き
+`-X`・`-f` 等の付いた `gh api`（`-X GET` に `-f` で欄を渡す一覧・`gh api graphql`）は断られる。つないだコマンドは全文にも当たるので
+（`git push … ; gh pr create --base master …` は `Bash(git push *master*)` に当たる）、規則の頭の道具（`git push`・`gh api`）はつながずに1つで打つ。読むときは欄を URL に書き
 （`gh api 'repos/<所有者>/<リポジトリ>/actions/workflows/<ファイル>/runs?created=<範囲>'`）、`gh run list`・`gh issue view --json`（`blockedBy` 等）で済むものはそれを使う。自動モードそのものも同じファイルの `permissions.defaultMode` で
 決める。各一覧は既定の規則（`$defaults`）を必ず残す。担当は連携の `settings` で
 このファイルを読む。開発機の対話のセッションも同じ決まりで動く: セッションの始まりのフック（`.claude/settings.json` の
