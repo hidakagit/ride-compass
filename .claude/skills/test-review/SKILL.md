@@ -23,23 +23,23 @@ backend のテストを、.claude/rules/testing-review.md「テストを変異�
 
 ### 2. 測りを起こす
 
-    gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=master
+    gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=master
 
 - `--ref` と `-f ref=` の違い・一覧の口・成果物の保持の日数は .claude/skills/run-checks/SKILL.md「変異テストでテストの効きを測る」。
-- 起こした実行の id は、`gh run list -R hidakagit/ride-compass --workflow mutation.yml -L 1 --json databaseId,createdAt,status` で
+- 起こした実行の id は、`gh run list -R ridecompass/ride-compass --workflow mutation.yml -L 1 --json databaseId,createdAt,status` で
   取り、`createdAt` が起こした時刻のあとであることを見る。
 - 同じワークフローが動いていれば、終わるまで待ってから始まる（`concurrency: mutation`）。
 - 測りは、アカウントで同時に動かせるジョブの枠を担当（Claude Task）・CI と分け合う。起こすときに動いている実行の数
-  （`gh run list -R hidakagit/ride-compass --status in_progress`）を、空き待ちの原因として 6 の記録に書く。
+  （`gh run list -R ridecompass/ride-compass --status in_progress`）を、空き待ちの原因として 6 の記録に書く。
 
 ### 3. 待つ
 
 Monitor で次を回す（ジョブが終わるたびに1行出し、実行が終われば抜ける）。
 
     id=<id>; prev=""; while true; do
-      cur=$(gh run view $id -R hidakagit/ride-compass --json jobs -q '.jobs[] | select(.status=="completed") | "\(.name): \(.conclusion)"' 2>/dev/null | sort) || { sleep 60; continue; }
+      cur=$(gh run view $id -R ridecompass/ride-compass --json jobs -q '.jobs[] | select(.status=="completed") | "\(.name): \(.conclusion)"' 2>/dev/null | sort) || { sleep 60; continue; }
       comm -13 <(echo "$prev") <(echo "$cur"); prev=$cur
-      st=$(gh run view $id -R hidakagit/ride-compass --json status,conclusion -q '"\(.status) \(.conclusion)"')
+      st=$(gh run view $id -R ridecompass/ride-compass --json status,conclusion -q '"\(.status) \(.conclusion)"')
       case $st in completed*) echo "実行: ${st#completed }"; break;; esac
       sleep 300
     done
@@ -47,23 +47,23 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 （開発機に jq は無いので、`gh` の `-q` で読む。Monitor の持ち時間は最長30分なので、切れたら同じコマンドで張り直す。）
 
 終わった本の記録は、実行全体が終わる前でも
-`gh api --allow-escape-sequences repos/hidakagit/ride-compass/actions/jobs/<ジョブの id>/logs` で読める（`gh run view --log` は
+`gh api --allow-escape-sequences repos/ridecompass/ride-compass/actions/jobs/<ジョブの id>/logs` で読める（`gh run view --log` は
 実行全体が終わるまで読めない。ジョブの id は `gh run view <id> --json jobs`）。本の中の手順ごとの始まりと終わりは
-`gh api repos/hidakagit/ride-compass/actions/jobs/<ジョブの id>` の `steps` で見られ、1つの手順が見込み（3 の見込み・`mutation.yml`
+`gh api repos/ridecompass/ride-compass/actions/jobs/<ジョブの id>` の `steps` で見られ、1つの手順が見込み（3 の見込み・`mutation.yml`
 の先頭の持ち時間）より長く止まっていれば、下の「落ちたとき」に当たるかを見る。
 
 落ちたとき:
 
 - **shard の1本が「The runner has received a shutdown signal」で止まった**（変異がランナーのメモリを使い切った）:
-  `gh run rerun <id> -R hidakagit/ride-compass --failed` で落ちた本と、それに続く段だけをやり直す。同じ本が続けて止まるなら、
+  `gh run rerun <id> -R ridecompass/ride-compass --failed` で落ちた本と、それに続く段だけをやり直す。同じ本が続けて止まるなら、
   その本の記録（`gh run view <id> --job <ジョブの id> --log`）の最後の「始め <変異>」の変異が原因なので、台本の直しを要る直しとして
   下の「止める」。
 - **shard の1本が、DB を用意する手順（`./.github/actions/postgis`）の10分の上限で落ちた**（apt の取得が詰まった）:
-  同じく `gh run rerun <id> -R hidakagit/ride-compass --failed` で1回やり直す。続けて落ちるなら、次の「それ以外」と同じに扱う。
-- **1つの手順が上限の無いまま、見込みより長く止まっている**: 起こしたのは自分なので、`gh run cancel <id> -R hidakagit/ride-compass`
-  で止め、止まったのを見てから `gh run rerun <id> -R hidakagit/ride-compass --failed` で、止めた本と続く段をやり直す（止まった本は
+  同じく `gh run rerun <id> -R ridecompass/ride-compass --failed` で1回やり直す。続けて落ちるなら、次の「それ以外」と同じに扱う。
+- **1つの手順が上限の無いまま、見込みより長く止まっている**: 起こしたのは自分なので、`gh run cancel <id> -R ridecompass/ride-compass`
+  で止め、止まったのを見てから `gh run rerun <id> -R ridecompass/ride-compass --failed` で、止めた本と続く段をやり直す（止まった本は
   ランナーの枠を使い続け、担当や CI の待ちを延ばす）。担当や CI の実行は止めない。
-- **それ以外で落ちた**: `gh run view <id> -R hidakagit/ride-compass --log-failed` で読む。台本・ワークフローの誤りなら、その回の
+- **それ以外で落ちた**: `gh run view <id> -R ridecompass/ride-compass --log-failed` で読む。台本・ワークフローの誤りなら、その回の
   中で直さず、その直しを要る直しとして下の「止める」。
 - **review の段の要約に「変異を回し終えていない」と出た**（stop_after で抜けた本がある）: その回の見直しは比べに使えない。
   持ち時間か本数を変える直しを要る直しとして下の「止める」。
@@ -74,7 +74,7 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 
 ### 4. 結果を読む
 
-    gh run download <id> -R hidakagit/ride-compass -n mutation-review -D <作業ツリーの外の使い捨ての場所>
+    gh run download <id> -R ridecompass/ride-compass -n mutation-review -D <作業ツリーの外の使い捨ての場所>
 
 - `summary.md`: 実行の要約と同じ表（観点ごとのテスト関数の数と行数・効きの変異スコア・判断できずに残したテストの理由）。
 - `review.json` には次の欄がある。`measured`（測った版）・`previous`（比べた前回の版。無ければ null）・`complete`・`candidates`（今回の重なりの候補。
@@ -101,7 +101,7 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 - 段階の本文のやることに、消すテスト関数の表（テスト関数・行数・高さ・`mutant`・`kept_test`）と、次の確かめを書く。
   1. 表のテスト関数を消す。
   2. 表の `mutant` を1行ずつ `only.txt`（run-checks/SKILL.md「変異テストでテストの効きを測る」の一覧の口）に書いて作業ブランチへ push し、
-     `gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<作業ブランチ>` で回す。
+     `gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=<作業ブランチ>` で回す。
      成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の `kept_test` があることを見る。
   3. `only.txt` を消してから Pull Request を出す。テスト全体が通ることは Pull Request の CI が見る。CI で
      落ちたときは testing-review.md「重なり」の4のとおりにする。

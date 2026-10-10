@@ -178,7 +178,7 @@ PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests/<テスト
 ここに書くのは、試しと一覧の口で回すときの起こし方。
 
 ```bash
-gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測る版> -f count=5
+gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=<測る版> -f count=5
 ```
 
 - **測る版と台本は `ref` から読む**。台本を直した作業ブランチを `ref` に渡せば、ワークフローを変えずに直した台本で回る。
@@ -196,7 +196,7 @@ gh workflow run mutation.yml -R hidakagit/ride-compass --ref master -f ref=<測�
   その基準だけを回して、生き残りを変えた行への注記と実行の要約に出す（`diff_scope.py`・`pr_plan.py`・`report_pr.py`）。必須の
   チェックではない。読み方は .claude/skills/task-work/SKILL.md「作る担当」の5。
 - **結果は成果物**: 見直しの `mutation-review`（90日。`summary.md`・`review.json`・`analyze.txt`。読み方は test-review スキルの4）と、
-  元の記録の `mutation-<番号>`・`recheck-<番号>`（14日）。元の記録から集計し直すときは、`gh run download <実行の id> -R hidakagit/ride-compass -D <場所>` で取り、
+  元の記録の `mutation-<番号>`・`recheck-<番号>`（14日）。元の記録から集計し直すときは、`gh run download <実行の id> -R ridecompass/ride-compass -D <場所>` で取り、
   測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ。
 - **ランナーが止まった・段が落ちたとき**は、test-review スキルの3の「落ちたとき」のとおりにやり直す。
 - **開発機では回さない**。

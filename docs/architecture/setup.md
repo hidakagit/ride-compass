@@ -130,7 +130,7 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
   次の1行を書く:
 
   ```bash
-  d=$(mktemp -d) && git clone -q --depth 1 https://github.com/hidakagit/ride-compass "$d" && bash "$d/scripts/remote_dev/setup.sh"; rm -rf "$d"; true
+  d=$(mktemp -d) && git clone -q --depth 1 https://github.com/ridecompass/ride-compass "$d" && bash "$d/scripts/remote_dev/setup.sh"; rm -rf "$d"; true
   ```
 
   masterの浅いcloneから`setup.sh`を流す（セットアップの時点でリポジトリがどこにあるかに

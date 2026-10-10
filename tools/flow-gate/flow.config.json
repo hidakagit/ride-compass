@@ -22,7 +22,7 @@
     "検証中": ["完了", "未着手", "回答待ち"],
     "完了": []
   },
-  "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
+  "code": { "repository": "ridecompass/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
     "workflow": "claude-task.yml", "watcher": "claude-dispatch.yml", "slots": { "作る": 6, "確かめる": 4 }, "devLabel": "開発機が要る", "holdRef": "refs/heads/hold/",
     "recent": 30, "recordsSince": "2026-10-04T00:09:49Z", "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350, "watchFailMinutes": 30
