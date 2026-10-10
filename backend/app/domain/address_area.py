@@ -90,12 +90,12 @@ def chome_name(number: str, written: str) -> str:
     return digits + ("丁" if written.endswith("丁") else "丁目")
 
 
-def area_label(chain: Iterable[tuple[str, str]]) -> str:
+def area_label(names: Iterable[str]) -> str:
     """区画の表示の名前（地点の検索の住所の表示名「東京都新宿区西新宿二丁目」）。
 
-    `chain`は区画の祖先を都道府県から区画まで並べた (段, 名前)。政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない。
+    `names`は区画の祖先を都道府県から区画まで並べた名前。政令市は市と区をつなぐ。郡は区画の段でないので並びに出ない。
     """
-    return "".join(name for _, name in chain)
+    return "".join(names)
 
 
 def block_label(area: str, number: str, kind: str) -> str:

@@ -4,8 +4,13 @@ const USAGE_ATTRIBUTE = "data-usage";
 /** 説明を見る状態の自分の部品（案内・説明の面）に付ける印。ここを押した操作は止めない。 */
 export const USAGE_GUIDE_ATTRIBUTE = "data-usage-guide";
 
+/** 説明を見る状態の自分の部品（案内・説明の面）の中か。 */
+export function isInUsageGuide(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(`[${USAGE_GUIDE_ATTRIBUTE}]`) !== null;
+}
+
 /** 押すと浮きパネルを開く部品の印（`components/ui/Popover/Popover.tsx: PopoverTrigger`が付ける）。 */
-const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
+export const USAGE_OPENS_ATTRIBUTE = "data-usage-opens";
 
 /** 押すと浮きパネルを開く部品か。 */
 function isPopoverOpener(element: Element): boolean {

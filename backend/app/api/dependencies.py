@@ -24,7 +24,7 @@ from app.infrastructure.db_status import DbStatusQuery
 from app.infrastructure.derived_data_freshness import DerivedDataFreshnessQuery
 from app.infrastructure.flood_client import new_flood_cache
 from app.infrastructure.gsi_tile_client import NOT_FOUND_MAX_ENTRIES, GsiTileClient
-from app.infrastructure.http_client import get_http_client
+from app.infrastructure.http_client import JSON_API_TIMEOUT, TILE_PROXY_TIMEOUT, get_http_client
 from app.infrastructure.jma_amedas_client import new_latest_time_cache, new_station_table_cache
 from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileSharedState
 from app.infrastructure.jma_warning_client import new_area_data_cache, new_warning_cache
@@ -77,15 +77,13 @@ def get_weather_service():
     return _weather_service
 
 
-# 以下のJMA/GSI系サービスはいずれも軽量なJSON・CSVしか取りに行かないため、共有の
-# httpx.AsyncClient（同じタイムアウト）を使い回す。
 def get_warning_service():
-    return WarningService(get_http_client(10.0), area_data_cache=_area_data_cache, warning_cache=_warning_cache)
+    return WarningService(get_http_client(JSON_API_TIMEOUT), area_data_cache=_area_data_cache, warning_cache=_warning_cache)
 
 
 def get_amedas_service():
     return JmaAmedasService(
-        get_http_client(10.0),
+        get_http_client(JSON_API_TIMEOUT),
         get_jma_tile_client(),
         station_table_cache=_station_table_cache,
         latest_time_cache=_latest_time_cache,
@@ -93,11 +91,11 @@ def get_amedas_service():
 
 
 def get_wbgt_service():
-    return WbgtService(get_http_client(10.0), point_master_cache=_point_master_cache, forecast_cache=_forecast_cache)
+    return WbgtService(get_http_client(JSON_API_TIMEOUT), point_master_cache=_point_master_cache, forecast_cache=_forecast_cache)
 
 
 def get_flood_service():
-    return FloodService(get_http_client(10.0), area_data_cache=_area_data_cache, flood_cache=_flood_cache)
+    return FloodService(get_http_client(JSON_API_TIMEOUT), area_data_cache=_area_data_cache, flood_cache=_flood_cache)
 
 
 @asynccontextmanager
@@ -210,11 +208,11 @@ async def get_axis_inspector_service(weather_service: WeatherService = Depends(g
 
 
 def get_basemap_client():
-    return BasemapClient(get_http_client(15.0), settings.basemap_public_base_url)
+    return BasemapClient(get_http_client(TILE_PROXY_TIMEOUT), settings.basemap_public_base_url)
 
 
 def get_jma_tile_client():
-    return JmaTileClient(get_http_client(15.0), _jma_tile_shared)
+    return JmaTileClient(get_http_client(TILE_PROXY_TIMEOUT), _jma_tile_shared)
 
 
 #: 整備区域外の記憶。クライアントはリクエストごとに作られるため、プロセスの側で持つ。
@@ -222,7 +220,7 @@ _gsi_not_found_paths: LRUCache = LRUCache(maxsize=NOT_FOUND_MAX_ENTRIES)
 
 
 def get_gsi_tile_client():
-    return GsiTileClient(get_http_client(15.0), _gsi_not_found_paths)
+    return GsiTileClient(get_http_client(TILE_PROXY_TIMEOUT), _gsi_not_found_paths)
 
 
 # 以下の管理API向けのうち、書き込み・1テーブル読みで足りるものはタイル配信と同じ

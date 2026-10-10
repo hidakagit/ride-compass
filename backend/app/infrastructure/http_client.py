@@ -5,6 +5,11 @@ import httpx
 # timeoutの値ごとに1つだけ生成して使い回す。
 _clients: dict[float, httpx.AsyncClient] = {}
 
+#: 軽いJSON・CSVを取りに行く外部API（警報・アメダス・WBGT・洪水予報）のタイムアウト（秒）。
+JSON_API_TIMEOUT = 10.0
+#: 地図のタイルを中継する外部（ベースマップ・JMA・GSI）のタイムアウト（秒）。
+TILE_PROXY_TIMEOUT = 15.0
+
 
 def get_http_client(timeout: float) -> httpx.AsyncClient:
     if timeout not in _clients:

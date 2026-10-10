@@ -12,8 +12,7 @@ const AXIS_CATALOG_QUERY_KEY = ["axis-catalog"] as const;
 
 const FAILED_CATALOG: AxisCatalog = { ...EMPTY_CATALOG, failed: true };
 
-/** 軸カタログの取得をやり直す（`failed`状態からの明示的な再試行導線用）。
- * 既に成功していれば何もしない。再取得中は`failed`を下ろし、UIが「取得中」へ戻る。 */
+/** 軸カタログの取得をやり直す（`failed`状態からの明示的な再試行導線用）。再取得中は`failed`を下ろし、UIが「取得中」へ戻る。 */
 export function retryAxisCatalogFetch(): void {
   const client = getQueryClient();
   if (client.getQueryData(AXIS_CATALOG_QUERY_KEY) !== undefined) return;

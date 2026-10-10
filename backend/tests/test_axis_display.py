@@ -289,8 +289,9 @@ def test_the_map_keeps_the_boundaries_whose_score_rises_and_labels_every_band_it
     lowest = min(line.score_at(x) for x, _ in line.breakpoints)
     scores = [line.score_at(boundary) for boundary in kept]
     assert all(lower < upper for lower, upper in zip([lowest, *scores], scores))
-    for dropped in thresholds_the_map_drops("axis_a", line, [], boundaries):
+    dropped_on_map = thresholds_the_map_drops(boundaries, bands_the_map_keeps("axis_a", line, [], boundaries))
+    for dropped in dropped_on_map:
         below = [line.score_at(boundary) for boundary in kept if boundary < dropped]
         assert line.score_at(dropped) <= max([lowest, *below])
-    assert kept == [b for b in boundaries if b not in thresholds_the_map_drops("axis_a", line, [], boundaries)]
+    assert kept == [b for b in boundaries if b not in dropped_on_map]
     assert len(map_band_labels(definition) or []) == len(kept) + 1

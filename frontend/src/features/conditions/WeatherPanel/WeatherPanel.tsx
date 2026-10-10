@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
@@ -30,10 +31,34 @@ interface WeatherPanelProps {
 //
 // 観測であること・観測所名・観測の時刻と、数値ごとの意味は、バーを押すと開くパネルに出す。390pxの幅ではヘッダーに
 // 足す余地が無く、バーへ並べると右の警報のバッジが画面の外へ押し出される。
-function isCurrentlyDay(twilight: { sunrise: string; sunset: string } | null): boolean {
+function isCurrentlyDay(twilight: AmedasObservation["twilight"]): boolean {
   if (twilight === null) return true;
   const now = Date.now();
   return now >= new Date(twilight.sunrise).getTime() && now < new Date(twilight.sunset).getTime();
+}
+
+/** ヘッダーの統計チップ1つ（アイコン+数値）。 */
+function Stat({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
+      {children}
+    </span>
+  );
+}
+
+/** 数値と単位。1つのspanにまとめてチップのgapが間に入らないようにする（flexboxのgapは直接の子要素すべての間に
+ * 均等に効くため、別々の子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入る）。 */
+function Value({ unit, children }: { unit: string; children: ReactNode }) {
+  return (
+    <span>
+      {children}
+      <span className="text-[0.8em] font-normal text-[var(--color-muted)]">{unit}</span>
+    </span>
+  );
+}
+
+function Divider() {
+  return <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />;
 }
 
 export default function WeatherPanel({ amedas, loading, error }: WeatherPanelProps) {
@@ -53,7 +78,10 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
   }
 
   const temperature = amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-";
-  const direction = amedas.wind_direction;
+  const wind =
+    amedas.wind_speed_ms != null && amedas.wind_direction !== null
+      ? { speedMs: amedas.wind_speed_ms, direction: amedas.wind_direction }
+      : null;
 
   const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.twilight));
 
@@ -64,9 +92,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
         `${temperature}℃` +
         (amedas.apparent_temperature_c != null ? `（体感 ${amedas.apparent_temperature_c.toFixed(1)}℃）` : ""),
     },
-    ...(amedas.wind_speed_ms != null && direction !== null
-      ? [{ term: "風", value: `${direction.label}の風 ${amedas.wind_speed_ms.toFixed(1)}m/s` }]
-      : []),
+    ...(wind ? [{ term: "風", value: `${wind.direction.label}の風 ${wind.speedMs.toFixed(1)}m/s` }] : []),
     ...(amedas.precipitation_10min_mm != null
       ? [{ term: "降水量", value: `${amedas.precipitation_10min_mm.toFixed(1)}mm（直近10分間）` }]
       : []),
@@ -85,58 +111,45 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
           {/* 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
               （はみ出した分は横へ流し、ヘッダーを2行にしない）。ボタンの中に置くのでdivでなくspan。 */}
           <span className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_svg]:shrink-0">
-            <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
+            <Stat>
               <ThermometerIcon size={16} />
               <span className="sr-only">気温: </span>
-              {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
-              （flexboxのgapは直接の子要素すべての間に均等に効くため、数値と単位を別々の
-              子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
-              意図しない余白になる）。 */}
-              <span>
-                {temperature}
-                <span className="text-[0.8em] font-normal text-[var(--color-muted)]">℃</span>
-              </span>
-            </span>
+              <Value unit="℃">{temperature}</Value>
+            </Stat>
 
-            <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
+            <Divider />
 
-            {amedas.wind_speed_ms != null && direction !== null && (
-              <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
+            {wind && (
+              <Stat>
                 <span
                   className="inline-flex transition-transform duration-200"
-                  style={{ transform: `rotate(${direction.deg + 180}deg)` }}
+                  style={{ transform: `rotate(${wind.direction.deg + 180}deg)` }}
                 >
                   <WindDirectionArrowIcon size={16} />
                 </span>
-                <span className="sr-only">{direction.label}の風: </span>
-                <span>
-                  {amedas.wind_speed_ms.toFixed(1)}
-                  <span className="text-[0.8em] font-normal text-[var(--color-muted)]">m/s</span>
-                </span>
-              </span>
+                <span className="sr-only">{wind.direction.label}の風: </span>
+                <Value unit="m/s">{wind.speedMs.toFixed(1)}</Value>
+              </Stat>
             )}
 
             {amedas.precipitation_10min_mm != null && (
               <>
-                <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-                <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
+                <Divider />
+                <Stat>
                   <RaindropIcon size={16} />
                   <span className="sr-only">降水量: </span>
-                  <span>
-                    {amedas.precipitation_10min_mm.toFixed(1)}
-                    <span className="text-[0.8em] font-normal text-[var(--color-muted)]">mm</span>
-                  </span>
-                </span>
+                  <Value unit="mm">{amedas.precipitation_10min_mm.toFixed(1)}</Value>
+                </Stat>
               </>
             )}
 
             {weatherDisplay != null && (
               <>
-                <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
-                <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold">
+                <Divider />
+                <Stat>
                   <weatherDisplay.Icon size={16} />
                   <span className="sr-only">天気: {weatherDisplay.label}</span>
-                </span>
+                </Stat>
               </>
             )}
           </span>

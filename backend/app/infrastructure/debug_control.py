@@ -56,12 +56,11 @@ def get_recent_logs(limit: int | None, contains: str | None, min_level: int | No
     `min_level`はPython標準の`logging`と同じ「このレベル以上」、`contains`は部分一致。
     併用するとAND条件になり、`limit`は絞り込んだ後の末尾N件を指す。
     """
-    entries = _ring_buffer_handler.snapshot()
-    if min_level is not None:
-        entries = [(levelno, line) for levelno, line in entries if levelno >= min_level]
-    lines = [line for _levelno, line in entries]
-    if contains:
-        lines = [line for line in lines if contains in line]
+    lines = [
+        line
+        for levelno, line in _ring_buffer_handler.snapshot()
+        if (min_level is None or levelno >= min_level) and (not contains or contains in line)
+    ]
     if limit is not None:
         lines = lines[-limit:]
     return lines

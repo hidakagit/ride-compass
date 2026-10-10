@@ -52,6 +52,7 @@ from app.domain.difficulty import round_difficulty_array, weight_share
 from app.domain import material_catalog
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
+from app.domain.weather_elements import WEATHER_ELEMENTS
 
 
 #: 軸の宣言に使うモデル共通の設定。`allow_inf_nan=False`は、NaN・無限大の重み・係数が
@@ -109,7 +110,11 @@ class BreakpointLinearShape(StrictModel):
 
     def score_at(self, x: float) -> float:
         """横軸の値`x`の点数（評価と同じ折れ線と丸め）。"""
-        return float(_breakpoint_score_array(self, np.array([x], dtype=float), np.zeros(1, dtype=bool))[0])
+        return self.scores_at([x])[0]
+
+    def scores_at(self, xs: Sequence[float]) -> list[float]:
+        """横軸の値それぞれの点数（`score_at`を1回の配列計算で）。"""
+        return _breakpoint_score_array(self, np.asarray(xs, dtype=float), np.zeros(len(xs), dtype=bool)).tolist()
 
 
 _FLAG_KEYS = {"true": True, "false": False}
@@ -197,8 +202,8 @@ class PriorityCondition(StrictModel):
 def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[PriorityCondition]") -> list[str]:
     """`shape`と`priority_overrides`が参照する材料id・軸idの一覧（重複を除き順序は安定）。
 
-    `AxisDefinition.materials`（値の検査`check_axis_definition`も読む）と、専用配信の検証
-    （`api/routers/axis_admin.py`）の**両方がこれを使う**。片方が`shape.terms`だけを見て他方が
+    `AxisDefinition.materials`がこれを返し、値の検査`check_axis_definition`と専用配信の検証
+    （`api/routers/axis_admin.py`）の**両方がそれを読む**。片方が`shape.terms`だけを見て他方が
     `priority_overrides`も見る、という状態になると、検証を素通りした軸が
     実行時に落ちる（`priority_overrides`経由の静的材料が動的軸へ紛れ込み、
     `evaluate_axis_array`が`materials[override.material]`でKeyErrorになる）。
@@ -210,10 +215,7 @@ def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[Prior
     override_materials = [cond.material for cond in priority_overrides]
     # 順序を安定させつつ重複を除く（同じ材料をpriority_overridesとshapeの両方が
     # 参照するケース、例: motor_vehicle_noを他のtermでも使う場合を許容するため）。
-    seen: dict[str, None] = {}
-    for m in [*shape_materials, *override_materials]:
-        seen.setdefault(m, None)
-    return list(seen)
+    return list(dict.fromkeys([*shape_materials, *override_materials]))
 
 
 def axis_error(message: str) -> PydanticCustomError:
@@ -525,13 +527,11 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     （`is_known_material`でフィルタ）。軸参照は複数の公開軸が同じ内部軸を意図的に
     共有できる設計のため、この排他チェックの対象外——材料の二重計上とは別の話。
     """
-    from app.domain.material_catalog import is_known_material
-
-    candidate_materials = {m for m in candidate.materials if is_known_material(m)}
+    candidate_materials = {m for m in candidate.materials if material_catalog.is_known_material(m)}
     for other_id, other in existing.items():
         if other_id == candidate.axis_id:
             continue
-        overlap = candidate_materials & {m for m in other.materials if is_known_material(m)}
+        overlap = candidate_materials & {m for m in other.materials if material_catalog.is_known_material(m)}
         if overlap:
             raise AxisMaterialConflictError(candidate, other, overlap)
 
@@ -550,9 +550,7 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
     """`definition`が参照する軸id（materialsのうち、材料ではなく軸を指すもの）を返す。
     `known_axis_ids`は循環検出・評価順序決定の対象となる軸id全体
     （通常は`AXIS_DEFINITIONS`のキー集合）。"""
-    from app.domain.material_catalog import is_known_material
-
-    return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
+    return {m for m in definition.materials if not material_catalog.is_known_material(m) and m in known_axis_ids}
 
 
 def _leaf_materials(definition: AxisDefinition) -> list[str]:
@@ -582,25 +580,22 @@ def _leaf_materials(definition: AxisDefinition) -> list[str]:
 
 def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     """軸が最終的に見ている一次属性id。一次属性を持たない材料は現れない。"""
-    from app.domain.material_catalog import MATERIAL_CATALOG
-
-    seen: dict[str, None] = {}
-    for material_id in _leaf_materials(definition):
-        spec = MATERIAL_CATALOG.get(material_id)
-        if spec is not None and spec.primary_attribute is not None:
-            seen.setdefault(spec.primary_attribute.attr_id, None)
-    return list(seen)
+    return list(
+        dict.fromkeys(
+            spec.primary_attribute.attr_id
+            for material_id in _leaf_materials(definition)
+            if (spec := material_catalog.MATERIAL_CATALOG.get(material_id)) is not None
+            and spec.primary_attribute is not None
+        )
+    )
 
 
 def weather_layer_groups_for(definition: AxisDefinition) -> list[str]:
     """軸の材料の元データを描く気象のチップ（`WEATHER_LAYER_GROUPS`の名前）。一次属性を持つ材料は現れない。"""
-    from app.domain.material_catalog import MATERIAL_CATALOG
-    from app.domain.weather_elements import WEATHER_ELEMENTS
-
     grid_values = {
         spec.weather_grid_value
         for material_id in _leaf_materials(definition)
-        if (spec := MATERIAL_CATALOG.get(material_id)) is not None and spec.weather_grid_value is not None
+        if (spec := material_catalog.MATERIAL_CATALOG.get(material_id)) is not None and spec.weather_grid_value is not None
     }
     return list(dict.fromkeys(element.group for element in WEATHER_ELEMENTS if element.grid_value in grid_values))
 
@@ -702,13 +697,10 @@ def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinit
     `topological_axis_order`が見る。
     """
     shape = definition.shape
-    expected_dtypes: tuple[material_catalog.MaterialDType, ...]
-    if isinstance(shape, BreakpointLinearShape):
-        materials = [term.material for term in shape.terms]
-        expected_dtypes = ("numeric", "boolean")
-    else:
-        materials = [shape.material]
-        expected_dtypes = ("boolean", "categorical")
+    materials = referenced_materials(shape, ())
+    expected_dtypes: tuple[material_catalog.MaterialDType, ...] = (
+        ("numeric", "boolean") if isinstance(shape, BreakpointLinearShape) else ("boolean", "categorical")
+    )
     unknown = sorted({m for m in materials if not material_catalog.is_known_material(m) and m not in axes})
     if unknown:
         raise axis_error(f"存在しない材料・軸を指しています（{', '.join(unknown)}）。点数の決め方で選び直してください。")
@@ -738,7 +730,7 @@ def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinit
     if unknown_override_materials:
         raise axis_error(f"優先条件が存在しない材料・軸を指しています（{', '.join(unknown_override_materials)}）。")
     for cond in definition.priority_overrides:
-        override_dtype = material_catalog.material_dtype(cond.material) if material_catalog.is_known_material(cond.material) else None
+        override_dtype = material_catalog.material_dtype(cond.material)
         if override_dtype not in ("boolean", "categorical"):
             kind = "軸" if override_dtype is None else "数値の材料"
             raise axis_error(
@@ -1067,11 +1059,6 @@ def _term_values(materials: Mapping[str, MaterialColumn], material_id: str) -> n
     return values
 
 
-def _missing_material_mask(values: np.ndarray) -> np.ndarray:
-    """材料配列の欠損マスク。項の材料は数値・真偽とも数値の配列で届き、NaNが欠損を表す。"""
-    return np.isnan(values)
-
-
 def _breakpoint_raw_total_array(
     shape: BreakpointLinearShape, materials: Mapping[str, MaterialColumn]
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -1082,7 +1069,8 @@ def _breakpoint_raw_total_array(
     all_missing: np.ndarray | None = None
     for term in shape.terms:
         values = _term_values(materials, term.material)
-        missing = _missing_material_mask(values)
+        # 項の材料は数値・真偽とも数値の配列で届き、NaNが欠損を表す。
+        missing = np.isnan(values)
         all_missing = missing if all_missing is None else all_missing & missing
         if not term.required:
             values = np.where(missing, 0.0, values)

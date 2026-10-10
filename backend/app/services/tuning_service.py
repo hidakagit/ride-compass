@@ -18,6 +18,7 @@ from app.domain.tuning import TUNING_PARAMETERS_BY_ID, TUNING_VALUES
 from app.infrastructure.tuning_overrides import (
     clear_override,
     load_tuning_values,
+    merge_overrides,
     read_overrides,
     set_override,
 )
@@ -26,7 +27,7 @@ logger = logging.getLogger("ridecompass.tuning")
 
 
 def _apply_tuning_values(values: dict[str, float]) -> None:
-    """`load_tuning_values`が作った値を、プロセス内の`TUNING_VALUES`へ反映する。
+    """上書きを宣言の既定へ重ねた値（`merge_overrides`の結果）を、プロセス内の`TUNING_VALUES`へ反映する。
 
     **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
     指したままになる）。読み出しも検算も済んだ値を受け取るだけなので失敗しない。
@@ -71,8 +72,9 @@ class TuningService:
                 await clear_override(session, param_id)
             else:
                 await set_override(session, param_id, value)
-            values = await load_tuning_values(session)
-            overridden = set(await read_overrides(session))
+            overrides = await read_overrides(session)
+            values = merge_overrides(overrides)
+            overridden = set(overrides)
             await session.commit()
         except Exception:
             await session.rollback()
