@@ -78,6 +78,9 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 - ジョブのログは署名付きの別のURLへの302で返る。認証の見出しを転送先へ渡さない（Pythonの`urllib`では
   `Request.add_unredirected_header`で付ける）。
 
+CIで落ちたhypothesisの例は、出力の`@reproduce_failure`をテストへ一時的に付けて手元で再現し、残すなら`@example`にする
+（CIは見つけた失敗の例を残さない。`backend/tests/conftest.py`の設定の登録の上のコメント）。
+
 ### 型検査（mypy）
 
 設定は`backend/mypy.ini`、実行は`backend/`で`python -m mypy`（引数なし。対象は設定の`files`が決める）。
@@ -241,6 +244,7 @@ gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=<�
 - アプリを開かないspec（`playwright.no-server.config.ts: testMatch`）は、ビルドもサーバーの起動も無しで
   `./node_modules/.bin/playwright test -c playwright.no-server.config.ts`で回せる。CIは`playwright.config.ts`でこれらも回す。
 - 開発機ではworkers=1で走る（`playwright.config.ts`）。
+- 落ちたテストのその時点の画面構造は`test-results/<テスト名>/error-context.md`に出る（ロケータの実際の名前はここで確かめる）。
 - **実データ・実backendで見る系統は、`frontend/e2e-live/`に置き、`playwright.live.config.ts`で
   走らせる。CIには載せない。** モックで決定的に回す`frontend/e2e/`と同じ場所に混ぜない。
   - **見るもの**: モック（`e2e/fixtures.ts: installApiMocks`）が本物の代わりに返しているもの——

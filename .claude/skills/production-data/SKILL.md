@@ -1,6 +1,6 @@
 ---
 name: production-data
-description: "本番の派生データを作り直す・本番へ軸定義の変更を入れる・管理データのバックアップを登録する・本番DBを失ったときに戻す手順。本番のデータに触る作業の前に使う。"
+description: "本番の派生データを作り直す・本番へ軸定義の変更を入れる・本番に空の表を足す・管理データのバックアップを登録する・本番DBを失ったときに戻す手順。本番のデータに触る作業の前に使う。"
 ---
 
 この手順のうち本番へ書く操作（本番VM・本番DB・本番の管理APIへ打つもの）は、開発機の対話のセッションが
@@ -56,6 +56,12 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
   本番の写しとして直し続けない（次に変えるときは本番の今の定義から新しいJSONを作る）。
 - 書けたかの確かめ: 道具が「反映を確かめました」を出したこと。
   画面で変えたときは、本番の`GET /api/axis-catalog`で変えた軸を確かめる。
+
+## 本番に空の表を足す
+
+- 対象: 新しいコードが読む表を、マージの前に本番DBへ作るとき（[deployment-sync.md](../../rules/deployment-sync.md)「コミットと同時に揃えるもの」）。
+- 空の表のDDLは手で書かず、ORMの宣言（`app/infrastructure/orm_base.py: declared_metadata`）から`sqlalchemy.schema`の`CreateTable`・`CreateIndex`を
+  PostgreSQLの方言でcompileして出す。
 
 ## 付録
 

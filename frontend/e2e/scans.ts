@@ -286,8 +286,8 @@ export async function scanSpacingUtilities(page: Page): Promise<{ checked: numbe
   );
 }
 
-/** 2本の指を(x, y)の左右に置き、外へ開く。Input.synthesizePinchGestureはページの拡大を再現しない
- * （.claude/rules/testing-e2e.md パターン4）。 */
+/** 2本の指を(x, y)の左右に置き、外へ開く。Input.synthesizePinchGestureはページの拡大を再現しないので、
+ * タッチは指ごとに送る。 */
 export async function pinchOpen(client: CDPSession, x: number, y: number): Promise<void> {
   const fingers = (spread: number) => [
     { x: x - 2 - spread, y, id: 1 },

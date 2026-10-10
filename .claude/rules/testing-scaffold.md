@@ -53,13 +53,8 @@ testing-review.md「要確認の出し方」）。
 
 ## フェイクの数は、実装の外向き参照の写し
 
-**「フェイク」と呼んでいるものは3種類ある。混ぜて数えない。**
-
-| 種別 | 判断 |
-|---|---|
-| **プロセス境界**（網・ディスク・時計・Redis・ログ） | **必ず差し替える** |
-| **層の境目**（Service・Repository・Engine・Client） | 外部（Client・他のシステム）は差し替えてよい。**自分のDB（Repository）は差し替えない**（下の段落）。Service・Engineは**契約が狭いときだけ**。差し替え先が5メソッド10引数なら、それは層ではなく癒着 |
-| **自分が持つデータ型・その他** | **差し替えない。実物を作る** |
+何を差し替えてよいかは[確かめる高さ](testing.md#確かめる高さ)の差し替えの箇条が持つ。層の境目（Service・Engine）の
+差し替え先が5メソッド10引数なら、それは契約の狭い層ではなく癒着である。
 
 **自分のDB（Repository）は差し替えない。** SQLは実DBで確かめる（testing-backend.md パターン2）。Repositoryを差し替えてよいのは、その上の層に固有の判断があり、それを
 確かめるときだけで、そのときもRepositoryへの呼び出しは確かめない（読むだけの相手。testing.md「確かめる高さ」の差し替えの箇条）。
@@ -67,12 +62,10 @@ testing-review.md「要確認の出し方」）。
 **実物は組み立ての関数で作り、組み立ての関数は、そのテストが関心を持つ値だけを引数に取って他を妥当な既定値で
 埋める。** ただし**判定に効く値は必ず引数で渡す**。
 
-**差し替えが増えたらテストを疑う前に実装を数える。** seams＝`monkeypatch.setattr`の第2引数の文字列のユニーク数、
-外向き参照＝実装がimportする`app.*`モジュール数。
+**差し替えが増えたらテストを疑う前に実装を数える。** 外向き参照＝実装がimportする`app.*`モジュール数。
 
 - **2つ目以降のフェイクを書きたくなったら、対象の外向き参照を数える。** 4本以上なら、
   テストの書き方ではなく**そのモジュールが何を読んでいるか**を先に問う
-- **起こし直しの報告に seams 数を入れる**（本数・行数と並べて）
 - **共有フェイクへ出すのは3箇所目から**。寄せる前に、その外部が本当に3つから読まれるべきかを1度問う。共有の足場があるのに
   写した定義・差し替え・組み立ては、構造テスト（`backend/tests/structure/test_scaffold_copies.py`・`frontend/src/structure/scaffoldCopies.test.ts`）が落とす
 
@@ -92,21 +85,9 @@ testing-review.md「要確認の出し方」）。
 例: `frontend/src/testing/mapTrace/recordingMap.contract.ts`）。これはtesting-review.md「消すべきテストの型」の「本番に生えたテスト専用の口の検査」
 とは別物である。
 
-網・時計・Redisの代役の道具（どれも`requirements-dev.txt`）:
-
-| 境界 | 道具 | 使い方 |
-|---|---|---|
-| HTTP（クライアントを受け取る実装） | respx | 経路（`respx.Router`）で応答を決め、`tests/fake_http.py: client_for`で本物の`httpx.AsyncClient`にして渡す。どのURLへも同じ応答で足りるなら`answering`。要求は`router.calls`で見る（見てよいのは状態を変える要求だけ。testing.md「確かめる高さ」の差し替えの箇条） |
-| HTTP（実装が自分で`httpx.stream`等を呼ぶ） | respx | pytestのフィクスチャ`respx_mock`。実装の中で作られる`httpx.Client`を、1テストで何度も作らせない |
-| 時計 | freezegun | フィクスチャ`clock`（`tests/conftest.py`）。`tick`・`move_to`で進める |
-| Redis | fakeredis | フィクスチャ`fake_redis`（`tests/conftest.py`）。接続の失敗は`redis_server.connected = False` |
-
-回数制限・外部I/Oの警告の抑制・データの世代の読み直しが読む単調時計は、freezegunでなく`tests/conftest.py: MonotonicClock`へ
-差し替え、これらのモジュールが読む時計だけを替える。これらの窓・TTLの記録はプロセスに残ってテストをまたぐので、テストの終わりに
-実時計へ戻るfreezegunで進めると、戻ったあとに窓・TTLが明けなくなる。
+網・時計・Redisの代役の使い方は、`tests/fake_http.py`の先頭と、`tests/conftest.py`の`clock`・`fake_redis`・`MonotonicClock`の説明が持つ。
 
 フィクスチャ同士に順序が要るなら、**先に動くべきものを引数に取って依存で書く**。宣言順に頼らない。
-確かめるには`pytest <対象> --setup-plan`でセットアップ順を出す。
 
 frontendは`frontend/src/testing/`配下が同じ役割を持ち、用途は各ファイルの先頭のコメントが書く
 （例: `routeFixtures.ts: makeRouteCandidate()`は、`e2e/fixtures.ts`も含めてルート候補を組み立てる

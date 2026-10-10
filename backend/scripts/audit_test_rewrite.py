@@ -195,7 +195,7 @@ def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
 
 
 def monkeypatch_seams(tree: ast.AST) -> set[str]:
-    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。testing-scaffold.md「フェイクの数は、実装の外向き参照の写し」の seams 数はこのユニーク数。"""
+    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。起こし直しの報告に並べる seams 数（testing-rewrite.md「既存テストを直さず、実装から起こし直す」）はこのユニーク数。"""
     return {
         node.args[1].value
         for node in ast.walk(tree)
