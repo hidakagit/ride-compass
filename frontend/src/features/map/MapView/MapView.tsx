@@ -35,7 +35,7 @@ import {
 } from "@/features/map/layers/mapLayers";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { reloadStyle, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import { isStyleReady, reloadStyle, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
   applyScene,
   ROAD_TILE_SOURCE_LAYER,
@@ -49,15 +49,9 @@ import {
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
-import { POINT_LAYERS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
+import { POINT_TILE_SOURCES, pointLayerOfSceneLayer } from "@/features/map/scene/groups/points";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
-import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-
-/** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
-const POINT_LAYER_BY_SCENE_ID = new Map(
-  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_TILE_SOURCES[layer.tile_kind].sourceId, layer.attr_id), layer]),
-);
 
 /** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
 function routeHitLayerId(scene: MapScene, target: string): string | undefined {
@@ -460,6 +454,12 @@ export default function MapView({
       mapRef.current?.resize();
     });
     resizeObserver.observe(mapContainerRef.current);
+    /** その位置にある、押せるレイヤー（いま地図に載っているもの）の地物。 */
+    function interactiveFeaturesAt(point: MapMouseEvent["point"]) {
+      const layers = latest.current.interactiveLayerIds.filter((id) => map.getLayer(id));
+      return layers.length === 0 ? [] : map.queryRenderedFeatures(point, { layers });
+    }
+
     // 地物を押すと詳細を出す。**どれかの役割で武装している間だけ**、その1タップは地物を見ずにピンを置く（道の
     // 上を目的地にしたいこともある）。武装していなければピンは増えない（見ているだけの操作で経由地が増えない）。
     function handleClick(e: MapMouseEvent) {
@@ -475,26 +475,19 @@ export default function MapView({
           return;
         }
       }
-      const layers = latest.current.interactiveLayerIds.filter((id) => map.getLayer(id));
-      if (layers.length === 0) return;
-      const features = map.queryRenderedFeatures(e.point, { layers });
+      const features = interactiveFeaturesAt(e.point);
       if (features.length === 0) return;
 
       const feature = features[0];
       // 道はルート結果と同じ「軸ごとの効き方」を見せるためReactの部品で描く。点（事故・POI）は数行の事実だけなので
       // MapLibreのPopupへ直接載せる。
-      const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
-      // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。点の層のタイルは点1つずつを焼く。
-      let pointContent: HTMLDivElement | null = null;
+      const point = pointLayerOfSceneLayer(feature.layer.id);
       if (point !== undefined) {
+        // 外の地図で探す位置は点そのものの位置（押した所は絵の端のことがある）。点の層のタイルは点1つずつを焼く。
         if (feature.geometry.type !== "Point") throw new Error(`点の層 ${point.attr_id} の地物が点でない`);
         const [lng, lat] = feature.geometry.coordinates;
-        pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
-      }
-
-      popupRef.current?.remove();
-      popupRef.current = null;
-      if (pointContent !== null) {
+        const pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
+        popupRef.current?.remove();
         setRoadPopup(null);
         popupRef.current = new maplibregl.Popup({ closeButton: true })
           .setLngLat(e.lngLat)
@@ -502,6 +495,8 @@ export default function MapView({
           .addTo(map);
         return;
       }
+      popupRef.current?.remove();
+      popupRef.current = null;
       setRoadPopup({
         lngLat: [e.lngLat.lng, e.lngLat.lat],
         properties: feature.properties,
@@ -534,13 +529,7 @@ export default function MapView({
     }
 
     function handleMouseMove(e: MapMouseEvent) {
-      const layers = latest.current.interactiveLayerIds.filter((id) => map.getLayer(id));
-      if (layers.length === 0) {
-        map.getCanvas().style.cursor = "";
-        return;
-      }
-      const features = map.queryRenderedFeatures(e.point, { layers });
-      map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
+      map.getCanvas().style.cursor = interactiveFeaturesAt(e.point).length > 0 ? "pointer" : "";
     }
 
     // "load"は載っているすべてのタイルが揃った最初の描画で来る。アプリのソースは"load"の後に足す
@@ -555,8 +544,7 @@ export default function MapView({
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
       // 有効なスタイルがまだ無いときの失敗は致命的（地図が白紙のまま）。それ以外の大半はタイル1枚の一過性の
       // 失敗で、次の取得で直るため警告にとどめる。
-      const tagged = map as unknown as { __rcStyleReady?: boolean };
-      const isFatal = !tagged.__rcStyleReady || styleReloadPendingRef.current;
+      const isFatal = !isStyleReady(map) || styleReloadPendingRef.current;
       debugLog("map:error", e.error?.message ?? "unknown error", { sourceId }, isFatal ? "error" : "warn");
       if (isFatal) {
         setStyleLoadFailed(true);

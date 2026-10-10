@@ -16,7 +16,7 @@ import {
 } from "@/features/map/layers/mapLayers";
 import { LEGEND_SWATCH_RING_CLASS, legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
-import LegendRow from "@/features/map/LegendCheckboxList/LegendRow";
+import LegendRow, { DescriptionToggle, RowDescription } from "@/features/map/LegendCheckboxList/LegendRow";
 import { PointIconSwatch } from "@/features/map/layers/pointIcon";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import {
@@ -25,7 +25,6 @@ import {
   ClearAllLayersIcon,
   EnvironmentDataIcon,
   DisplayItemsIcon,
-  InfoIcon,
   RoadIcon,
   SpotDataIcon,
   type MapIconComponent,
@@ -136,6 +135,9 @@ function renderSwatch(entry: LegendEntry) {
   );
 }
 
+// 「不明・他」等の受け皿は他の項目と同列の判定値ではないため区切る。
+const FALLBACK_ROW_CLASS = "mt-1 border-t border-dashed border-[var(--color-border)] pt-1";
+
 /** ▶の中の内訳。軸の全カテゴリを並べ、`axisId`を持つ軸はその場で絞り込める。持たない軸は非表示分を薄く見せる。 */
 function LegendDetails({
   axes,
@@ -185,7 +187,7 @@ function LegendDetails({
               onToggle={(key) => onEntryToggle(axis.axisId!, key)}
               listClassName="m-0 flex list-none flex-col gap-0.5 p-0"
               rowClassName="flex items-center gap-1.5 text-[length:var(--font-size-sm)]"
-              rowFallbackClassName="mt-1 border-t border-dashed border-[var(--color-border)] pt-1"
+              rowFallbackClassName={FALLBACK_ROW_CLASS}
               renderSwatch={renderSwatch}
             />
           ) : (
@@ -193,13 +195,7 @@ function LegendDetails({
               {axis.legend.map((entry) => {
                 const hidden = axis.hiddenKeys.includes(entry.key);
                 return (
-                  <li
-                    key={entry.key}
-                    className={cn(
-                      // 「不明・他」等の受け皿は他の項目と同列の判定値ではないため区切る。
-                      entry.isFallback && "mt-1 border-t border-dashed border-[var(--color-border)] pt-1",
-                    )}
-                  >
+                  <li key={entry.key} className={cn(entry.isFallback && FALLBACK_ROW_CLASS)}>
                     <LegendRow entry={entry}>
                       <div
                         className={cn(
@@ -243,12 +239,8 @@ function hiddenKeyOf(group: MapOverlayGroup, id: MapLayerId): string {
 }
 
 function readStringArray(raw: string): string[] | null {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : null;
-  } catch {
-    return null;
-  }
+  const parsed: unknown = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : null;
 }
 
 const storedStringArray = {
@@ -344,17 +336,13 @@ function LayerRow({
           {filtered && <FilteredMark />}
         </label>
         {layer.panelHint && (
-          <Button
-            variant="info"
-            size="bare"
-            aria-expanded={hintOpen}
-            aria-controls={hintOpen ? hintId : undefined}
-            aria-label={`${layer.label}の説明を${hintOpen ? "隠す" : "表示"}`}
-            onClick={() => setHintOpen((current) => !current)}
+          <DescriptionToggle
+            label={layer.label}
+            open={hintOpen}
+            descriptionId={hintId}
             usage="この情報の説明を、行のすぐ下に開きます。"
-          >
-            <InfoIcon />
-          </Button>
+            onToggle={() => setHintOpen((current) => !current)}
+          />
         )}
         {panel && (
           <Button
@@ -377,14 +365,7 @@ function LayerRow({
           </Button>
         )}
       </div>
-      {hintOpen && (
-        <p
-          id={hintId}
-          className="mb-1 pl-6 text-[length:var(--font-size-xs)] whitespace-normal text-[var(--color-neutral)]"
-        >
-          {layer.panelHint}
-        </p>
-      )}
+      {hintOpen && <RowDescription id={hintId}>{layer.panelHint}</RowDescription>}
       {panel && panelOpen && (
         <div
           id={panelId}

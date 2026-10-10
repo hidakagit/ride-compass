@@ -1,6 +1,7 @@
 // 絵記号で描く点の絵（行の色の角丸四角に、白い絵記号を載せたもの）。地図へ登録する画素（`drawPointIcon`）と
 // 凡例の見本（`PointIconSwatch`）は同じ形の宣言を読む——別々に描くと、凡例と地図の絵が食い違う。
 
+import { drawCanvasIcon } from "@/features/map/layers/sdfIcon";
 import type { PointGlyph } from "@/lib/mapDisplay/legendFilter";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
@@ -37,26 +38,23 @@ const GLYPH_PATHS: Record<PointGlyph, string> = {
 /** 地図へ登録する絵。canvasの2D描画が使えなければ投げる——空の絵を返すと点が地図から消えるだけで誰も気づけない。 */
 export function drawPointIcon(color: string, glyph: PointGlyph): { data: ImageData; pixelRatio: number } {
   const sizePx = mapDisplay.point.iconSizePx * PIXEL_RATIO;
-  const canvas = document.createElement("canvas");
-  canvas.width = sizePx;
-  canvas.height = sizePx;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvasの2D描画が使えない");
-  ctx.scale(sizePx / FRAME, sizePx / FRAME);
-  const box = new Path2D(BOX_PATH);
-  ctx.fillStyle = color;
-  ctx.fill(box);
-  ctx.strokeStyle = palette.semantic.mark_stroke;
-  ctx.lineWidth = BOX_STROKE;
-  ctx.stroke(box);
-  ctx.translate(GLYPH_OFFSET, GLYPH_OFFSET);
-  ctx.scale(GLYPH_SCALE, GLYPH_SCALE);
-  ctx.strokeStyle = palette.semantic.mark_glyph;
-  ctx.lineWidth = GLYPH_STROKE;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.stroke(new Path2D(GLYPH_PATHS[glyph]));
-  return { data: ctx.getImageData(0, 0, sizePx, sizePx), pixelRatio: PIXEL_RATIO };
+  const data = drawCanvasIcon(sizePx, (ctx) => {
+    ctx.scale(sizePx / FRAME, sizePx / FRAME);
+    const box = new Path2D(BOX_PATH);
+    ctx.fillStyle = color;
+    ctx.fill(box);
+    ctx.strokeStyle = palette.semantic.mark_stroke;
+    ctx.lineWidth = BOX_STROKE;
+    ctx.stroke(box);
+    ctx.translate(GLYPH_OFFSET, GLYPH_OFFSET);
+    ctx.scale(GLYPH_SCALE, GLYPH_SCALE);
+    ctx.strokeStyle = palette.semantic.mark_glyph;
+    ctx.lineWidth = GLYPH_STROKE;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke(new Path2D(GLYPH_PATHS[glyph]));
+  });
+  return { data, pixelRatio: PIXEL_RATIO };
 }
 
 /** 凡例の見本。地図と同じ形・同じ大きさ。 */
