@@ -19,7 +19,7 @@ function fake({ issue = {}, items = [], runs = [], workflow = "active", last = [
     if (q.includes("items(first:100")) return { organization: { projectV2: { items: { pageInfo: { hasNextPage: false }, nodes: items } } } };
     if (q.includes("addProjectV2ItemById")) return { addProjectV2ItemById: { item: { id: "ITEM" } } };
     if (q.includes("t:repository")) return { t: { issue: { id: "I", state: "OPEN", body: "", author: { login: config.user }, issueType: null, assignees: { nodes: [] }, blockedBy: { nodes: [] },
-      comments: { nodes: [] }, projectItems: { nodes: [] }, parent: null, timelineItems: { nodes: [] }, ...issue } }, c: { pullRequests: { nodes: [] } } };
+      comments: { nodes: [] }, projectItems: { nodes: [] }, parent: null, timelineItems: { nodes: [] }, closed: { nodes: [] }, ...issue } }, c: { pullRequests: { nodes: [] } } };
     return {};
   };
   const rest = async (method, path, body) => {

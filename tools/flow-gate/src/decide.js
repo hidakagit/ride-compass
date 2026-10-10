@@ -18,13 +18,18 @@ export function decide(f, config) {
   const missing = (s.fix ?? []).filter((l) => !body.includes(`] ${l}`));
   if (missing.length) body = `${body.trimEnd()}\n${missing.map((l) => `- [ ] ${l}`).join("\n")}\n`;
   return { board, type, status: s.status, open: s.status !== "完了", closeAs: s.closeAs ?? f.closedAs ?? "COMPLETED", ask: s.ask ?? null, cancel: s.cancel ?? [],
+    // 形に合わない問いは問いとして読まないので、書いた者が気づけるよう合わない所を返す（最新のコメントがその問いのときだけ。返せば最新でなくなる）。
+    notice: f.badQuestion?.length ? `この問いは形に合わないので、問いとして読みません: ${f.badQuestion.join("・")}` : null,
     ready: s.status === "検証待ち" && Boolean(f.pr?.draft), assigned: WAIT.includes(s.status), priority: f.priority ?? (f.parent ? f.parentPriority : null),
     body: s.status === "回答待ち" ? withButton(body, config, f.number) : body };
 }
 
 function status(f, config) {
-  // 完了の条件が残ったまま完成で閉じたら、開き直して決め直す（完成は条件が全部済んだ事実で決まる）。見送りで閉じたものはそのまま。
-  if (!f.open && !(f.closedAs === "COMPLETED" && f.remaining.length)) return { status: "完了" };
+  // 保留と完了だけは、ユーザーが直接決められる（docs/conventions/flow.md「ステータスと割り当て」）。閉じたものは完了のまま。ただし Claude が
+  // 完了の条件を残したまま完成で閉じたら、開き直して決め直す（完成は、条件が満たされた事実かユーザーが認めたことで決まる）。
+  if (!f.open && !(f.closedAs === "COMPLETED" && f.remaining.length && f.closedBy === config.claude)) return { status: "完了" };
+  // 開いたまま完了の列にあるのは、ユーザーが動かしたもの（ゲートは開いたまま完了を書かず、担当はステータスを書かない）。完成として閉じる。
+  if (f.status === "完了") return { status: "完了", closeAs: "COMPLETED", cancel: f.runs.map((r) => r.id) };
   // 持たれている間は決め直さない。ユーザーが保留へ置いたら、持っている実行を取り消す（要件 R7）。
   if (f.runs.length) return f.status === "保留" ? { status: "保留", cancel: f.runs.map((r) => r.id) } : { status: HELD[f.runs.some((r) => r.kind === "作る") ? "作る" : "確かめる"] };
   if (f.status === "保留") return { status: "保留" }; // ユーザーが置いた保留は、ユーザーが出すまで保つ（要件 R6）
@@ -33,7 +38,6 @@ function status(f, config) {
   const q = f.question;
   if (q && !q.answer) return { status: "回答待ち" };
   if (q && f.status === "回答待ち") {
-    if (q.answer.decision === "見送り") return { status: "完了", closeAs: "NOT_PLANNED" };
     if (q.answer.decision === "保留") return { status: "保留" };
     if (q.kind === "確かめ") {
       const bad = q.answer.items.filter((i) => !i.ok);
@@ -46,19 +50,23 @@ function status(f, config) {
 }
 
 // 手放したあとの表（要件 R3・R4・決め1・決め3・決め7）。作業のステータスなのに持たれていないのが、担当が手放した事実。
+const IRREGULAR = { status: "回答待ち", ask: "イレギュラー" };
 function table(f) {
   const pr = f.pr;
-  if (pr?.draft) {
+  if (pr) {
     if (pr.backToDraft) return { status: "未着手" }; // 確かめる担当の差し戻し
-    if (!pr.checks || pr.checks === "PENDING") return { status: "CI待ち" };
-    return pr.checks === "FAILURE" || pr.newSurvivors ? { status: "未着手" } : { status: "検証待ち" };
+    if (!pr.checks || pr.checks === "PENDING") return { status: "CI待ち" }; // 下書きかどうかによらず、CI の結果を待つ間は手放す
+    if (pr.checks === "FAILURE" || pr.newSurvivors) return { status: "未着手" };
+    // 確かめる担当が、マージも差し戻しも問いもせずに手放した（同じ PR を確かめ直し続けない）。
+    return f.status === HELD.確かめる ? IRREGULAR : { status: "検証待ち" };
   }
-  if (pr) return { status: "検証待ち" };
+  // マージのあとの残りは、マージのコミットの master の CI（デプロイを含む）が終わってから扱う（本番に出る前に確かめを問わない。原則2）。
+  if (f.remaining.length && f.merged && f.mergeChecks === "PENDING") return { status: "CI待ち" };
   if (!f.remaining.length) return { status: "完了", closeAs: "COMPLETED" };
   if (f.remaining.every((l) => CONFIRM.test(l))) return { status: "回答待ち", ask: "確かめ" };
   if (f.blocked || f.future) return { status: "未着手" };
   const released = Object.values(HELD).includes(f.status);
-  return released && !f.merged ? { status: "回答待ち", ask: "イレギュラー" } : { status: "未着手" };
+  return released && !f.merged ? IRREGULAR : { status: "未着手" };
 }
 
 // 振り出す担当の種類（無ければ null）。前提・未来の着手可能日時・対話作業・持たれているものは振り出さない。

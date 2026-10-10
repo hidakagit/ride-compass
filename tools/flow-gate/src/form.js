@@ -5,7 +5,8 @@ import { bodyRest, confirmItems, latestQuestion } from "./questions.js";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const radios = (name, values) => values.map((v, i) => `<label><input type="radio" name="${name}" value="${esc(v)}"${i ? "" : " checked"}> ${esc(v)}</label>`).join("");
-const CHOICES = { 採否: ["やる", "見送り", "保留"], イレギュラー: ["もう一度やる", "保留", "見送り"] };
+// 答えで選べるのは続けるか保留だけ。やめる（見送り）・終えるは、ユーザーが GitHub の画面で閉じるかボードで完了へ動かす（docs/conventions/flow.md「ステータスと割り当て」）。
+const CHOICES = { 採否: ["やる", "保留"], イレギュラー: ["もう一度やる", "保留"] };
 const page = (title, inner) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:0 auto;padding:16px}label{display:block;margin:6px 0}textarea,input[type=text]{width:100%;box-sizing:border-box}
 fieldset{border:1px solid #ccc;border-radius:8px;margin:12px 0}button{font-size:17px;padding:10px 24px;border-radius:8px;border:0;background:#1f6feb;color:#fff}details{margin:12px 0}</style>${inner}`,

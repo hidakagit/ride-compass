@@ -1,6 +1,6 @@
 // タスクの事実を読む（src/decide.js: decide が受ける形）。置き場の issue とコードのリポジトリの作業ブランチの PR を GraphQL の1回で、
 // 担当の実行を REST で読む。App はどちらのリポジトリにも入っている（tasks#797）。ボードの一覧（src/dispatch.js）も同じ読み方を使う。
-import { latestQuestion, remaining } from "./questions.js";
+import { checkQuestion, latestQuestion, norm, remaining } from "./questions.js";
 
 // ボードの欄（ステータス・優先度・着手可能日時）の読み方。欄の名前は設定が持つ。
 export const fieldsOf = ({ fields: f }) => `status:fieldValueByName(name:"${f.status}"){...on ProjectV2ItemFieldSingleSelectValue{name}}
@@ -29,9 +29,10 @@ const query = (config) => `query($to:String!,$tn:String!,$n:Int!,$co:String!,$cn
  t:repository(owner:$to,name:$tn){issue(number:$n){id state stateReason body author{login} issueType{name} assignees(first:10){nodes{login}}
   blockedBy(first:20){nodes{state}} comments(last:40){nodes{body}} projectItems(first:5){nodes{id project{number} ${fieldsOf(config)}}}
   parent{projectItems(first:5){nodes{project{number} ${fieldsOf(config)}}}}
-  timelineItems(first:50,itemTypes:[ISSUE_TYPE_CHANGED_EVENT]){nodes{...on IssueTypeChangedEvent{prevIssueType{name} issueType{name}}}}}}
+  timelineItems(first:50,itemTypes:[ISSUE_TYPE_CHANGED_EVENT]){nodes{...on IssueTypeChangedEvent{prevIssueType{name} issueType{name}}}}
+  closed:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{...on ClosedEvent{actor{login}}}}}}
  c:repository(owner:$co,name:$cn){pullRequests(headRefName:$head,first:5,orderBy:{field:CREATED_AT,direction:DESC}){nodes{
-  id state isDraft merged commits(last:2){nodes{commit{oid committedDate statusCheckRollup{state}}}}
+  id state isDraft merged mergeCommit{statusCheckRollup{state}} commits(last:2){nodes{commit{oid committedDate statusCheckRollup{state}}}}
   timelineItems(last:1,itemTypes:[CONVERT_TO_DRAFT_EVENT]){nodes{...on ConvertToDraftEvent{createdAt}}}}}}}`;
 const ROLLUP = { SUCCESS: "SUCCESS", FAILURE: "FAILURE", ERROR: "FAILURE", PENDING: "PENDING", EXPECTED: "PENDING" };
 
@@ -60,11 +61,14 @@ export async function readFacts(gh, config, number, runs) {
     ? await Promise.all([prev ? survivors(gh, config, prev.commit.oid) : [], survivors(gh, config, head.commit.oid)]) : [[], []];
   const drafted = open?.timelineItems.nodes[0]?.createdAt;
   const changes = i.timelineItems.nodes;
-  return { ...taskOf(config, i, i.projectItems.nodes), number, id: i.id, closedAs: i.stateReason, author: i.author?.login, body: i.body ?? "",
+  const merged = c.pullRequests.nodes.find((p) => p.merged); // 新しいものから並ぶ
+  const last = i.comments.nodes.at(-1)?.body;
+  return { ...taskOf(config, i, i.projectItems.nodes), number, id: i.id, closedAs: i.stateReason, closedBy: i.closed.nodes[0]?.actor?.login ?? null, author: i.author?.login, body: i.body ?? "",
     remaining: remaining(i.body), assigned: i.assignees.nodes.some((a) => a.login === config.user), question: latestQuestion(i.comments.nodes.map((n) => n.body), config.questionTemplate),
     runs: held, parent: Boolean(i.parent), parentPriority: i.parent ? taskOf(config, {}, i.parent.projectItems.nodes).priority : null,
     // 種類の移り変わり（最初の種類から順に）。変わっていなければ今の種類だけ。
     types: changes.length ? [changes[0].prevIssueType?.name ?? null, ...changes.map((e) => e.issueType?.name ?? null)] : [i.issueType?.name ?? null],
-    merged: c.pullRequests.nodes.some((p) => p.merged),
+    merged: Boolean(merged), mergeChecks: ROLLUP[merged?.mergeCommit?.statusCheckRollup?.state] ?? null,
+    badQuestion: last && /^## 問い/.test(norm(last)) ? checkQuestion(config.questionTemplate, last) : [],
     pr: open && { id: open.id, draft: open.isDraft, checks, newSurvivors: now.some((s) => !before.includes(s)), backToDraft: Boolean(drafted && head && drafted > head.commit.committedDate) } };
 }

@@ -33,6 +33,7 @@ export async function settle(gh, config, number, runs) {
   const patch = { ...(d.open && !f.open ? { state: "open" } : {}), ...(d.type !== f.type ? { type: d.type } : {}), ...(d.body !== norm(f.body) ? { body: d.body } : {}) };
   if (Object.keys(patch).length) await gh.rest("PATCH", issue, patch);
   if (d.ask) await gh.rest("POST", `${issue}/comments`, { body: askText(d.ask, config.questionTemplate) });
+  if (d.notice) await gh.rest("POST", `${issue}/comments`, { body: d.notice });
   if (d.ready && f.pr?.draft) await gh.gql(`mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){clientMutationId}}`, { id: f.pr.id });
   await Promise.all(d.cancel.map((id) => gh.rest("POST", `/repos/${config.code}/actions/runs/${id}/cancel`)));
   // ボードへ入っていなければ、決めた世界のボードへ入れる（入口）。
