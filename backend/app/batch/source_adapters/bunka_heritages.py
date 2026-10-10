@@ -65,7 +65,6 @@ async def read_bunka_heritages(spec: SourceSpec, profile: SourceProfile,
     rows: BunkaHeritageRows = spec.rows
     path = _existing_heritages_path(rows)
     origin.update({"snapshot": rows.snapshot, **file_origin(path)})
-    min_lat, min_lon, max_lat, max_lon = profile.target.bbox
     designations = set(rows.designations)
     with path.open(encoding="utf-8") as lines:
         for line in lines:
@@ -74,6 +73,6 @@ async def read_bunka_heritages(spec: SourceSpec, profile: SourceProfile,
             if coordinates is None or item.get(DESIGNATION_FIELD) not in designations:
                 continue
             lat, lon = coordinates["lat"], coordinates["lon"]
-            if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
+            if not profile.target.contains(lat, lon):
                 continue
             yield SourceRecord(natural_key=item["id"], geom_wkb=shapely.to_wkb(Point(lon, lat)), attrs=item)

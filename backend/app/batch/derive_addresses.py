@@ -270,8 +270,8 @@ def _link_parcels(areas: Sequence[_Area], names: Sequence[asyncpg.Record]) -> li
     return links
 
 
-async def derive(conn: asyncpg.Connection) -> int:
-    """住所の区画・鍵・街区を入れ直し、入れた区画の数を返す。"""
+async def derive(conn: asyncpg.Connection) -> None:
+    """住所の区画・鍵・街区を入れ直す。"""
     started = time.perf_counter()
     if await conn.fetchval(f"SELECT run_id FROM {latest_succeeded_run_sql(Source.ABR)} latest") is None:
         raise RuntimeError("住所の生データ（abr）の取込が無い。scripts/fetch_abr.py と"
@@ -296,4 +296,3 @@ async def derive(conn: asyncpg.Connection) -> int:
     await conn.execute("ANALYZE address_areas, address_search_keys, address_blocks")
     logger.info("住所: 区画 %d件・鍵 %d件、街区 %d件・地番 %d件（地番の名前 %d通りを区画に結んだ） / %.1f秒",
                 len(areas), len(keys), residential, parcels, len(parcel_links), time.perf_counter() - started)
-    return len(areas)

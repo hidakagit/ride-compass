@@ -7,10 +7,10 @@ import argparse
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -45,7 +45,7 @@ async def batch_session_factory(
 
 def run_batch_cli(
     parser: argparse.ArgumentParser,
-    start: Callable[[argparse.Namespace, str], Awaitable[int]],
+    start: Callable[[argparse.Namespace, str], Coroutine[Any, Any, int]],
 ) -> int:
     """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流す。
 
@@ -56,12 +56,7 @@ def run_batch_cli(
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
-    started = start(args, args.database_url or settings.database_url)
-
-    async def body() -> int:
-        return await started
-
-    return asyncio.run(body())
+    return asyncio.run(start(args, args.database_url or settings.database_url))
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:
@@ -98,13 +93,12 @@ def format_progress(done: int, total: int | None, elapsed: float, unit: str = "�
     とき）は残りを出さない——分からないものを推測で埋めると、読み手が当てにする。
     """
     rate = done / elapsed if elapsed > 0 else 0.0
-    line = f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
     if total:
         remaining = (total - done) / rate if rate > 0 else 0.0
-        line = (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
+        return (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
                 f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
                 f" / 残り およそ {format_duration(remaining)}")
-    return line
+    return f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
 
 
 #: 取得途中の一時ファイルの印。所定の名前と紛れないもの。

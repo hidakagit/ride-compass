@@ -31,14 +31,11 @@ from app.infrastructure.source_models import DEM_TILES_SQL, WAYS_SOURCE_SQL
 
 logger = logging.getLogger("ridecompass.derive_elevation")
 
-_EDGE_SHAPES = f"""
+_SHAPES = f"""CREATE TEMP TABLE _shape ON COMMIT DROP AS
 SELECT e.osm_way_id, e.segment_index, e.geom,
        ({IS_TUNNEL_SQL} OR {IS_BRIDGE_SQL}) AS on_structure
 FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
 """
-
-
-_SHAPES = f"CREATE TEMP TABLE _shape ON COMMIT DROP AS {_EDGE_SHAPES}"
 
 #: 頂点を一度実体にしてからタイルへ結合する。関数から直に結合すると行数を見積もれず、
 #: プランナがタイル側を入れ子で読み直す計画を選ぶ。前回の値を写した区間（`_reused`）は作らない。
@@ -152,13 +149,13 @@ async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int
     return [(p, zooms[p][0]) for p in PRODUCT_PRIORITY if p in zooms]
 
 
-async def _derive_elevation(conn: asyncpg.Connection, previous: str | None) -> int:
+async def _derive_elevation(conn: asyncpg.Connection, previous: str | None) -> None:
     started = time.perf_counter()
     products = await _products_in_priority(conn)
     await conn.execute("TRUNCATE edge_elevation")
     if not products:
         logger.warning("標高タイルが1枚も取り込まれていません")
-        return 0
+        return
 
     edges = await conn.fetchval("SELECT count(*) FROM road_edges")
     await conn.execute(_SHAPES)
@@ -186,7 +183,6 @@ async def _derive_elevation(conn: asyncpg.Connection, previous: str | None) -> i
 
     logger.info("標高: 計算した区間 %d/%d本に値が付いた / %.1f秒",
                 updated, edges - reused, time.perf_counter() - started)
-    return updated
 
 
 async def derive(conn: asyncpg.Connection, *, previous: str | None) -> None:

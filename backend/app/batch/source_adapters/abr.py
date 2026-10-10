@@ -39,7 +39,7 @@ import shapely
 from shapely.geometry import Point
 
 from app.batch.ingest import AdapterInputs, SourceRecord, file_origin, register_adapter
-from app.batch.source_profile import SourceProfile, SourceSpec
+from app.batch.source_profile import SourceProfile, SourceSpec, Target
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "abr"
 
@@ -109,20 +109,20 @@ def prefectures_in_range(city_positions: Iterable[dict[str, str]],
 
     範囲が都道府県の端だけに掛かり、その中に市区町村の代表点が1つも無い都道府県は入らない。
     """
-    min_lat, min_lon, max_lat, max_lon = bbox
+    target = Target(bbox=bbox)
     return sorted({
         row["lg_code"][:2] for row in city_positions
-        if _has_point(row) and min_lat <= float(row["rep_lat"]) <= max_lat
-        and min_lon <= float(row["rep_lon"]) <= max_lon})
+        if _has_point(row) and target.contains(float(row["rep_lat"]), float(row["rep_lon"]))})
 
 
 @cache
-def _to_wgs84(srid: str) -> pyproj.Transformer:
+def wgs84_transformer(srid: str) -> pyproj.Transformer:
+    """`srid`から経度・緯度の順のWGS84へ移す変換器。"""
     return pyproj.Transformer.from_crs(srid, "EPSG:4326", always_xy=True)
 
 
 def _point_wkb(row: dict[str, str]) -> bytes:
-    lon, lat = _to_wgs84(row["rep_srid"]).transform(float(row["rep_lon"]), float(row["rep_lat"]))
+    lon, lat = wgs84_transformer(row["rep_srid"]).transform(float(row["rep_lon"]), float(row["rep_lat"]))
     return shapely.to_wkb(Point(lon, lat))
 
 
