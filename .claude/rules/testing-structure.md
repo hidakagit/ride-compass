@@ -35,7 +35,7 @@ importしない → `backend/ruff.toml`の`TID253`）。テストにするのは
 
 検知器・ガードが効いていることは、わざと壊した入力で落ちることを見て確かめる（[fixing.md](fixing.md)「直し方」）。
 **壊すのはテストの中の入力で、ソースやビルドを書き換えない。** テストの効きを実装を一時に変えて測るのは
-[testing-review.md](testing-review.md)の側で、変えた行の戻し方もそちらが持つ。
+[testing-review.md](testing-review.md)の側で、変えた行を戻すのは`scripts/break_tests.py`が持つ。
 
 - **画面の検知器**は、壊れた状態をテストの中で作る: playwrightなら`page.addStyleTag`で崩れたスタイルを足す・
   モックの応答を差し替える、vitestなら渡す入力（props・フェイクの応答）を差し替える。ソースを書き換えて
@@ -66,9 +66,6 @@ for (const color of expressionColors) { expect(legendColors.has(color)).toBe(tru
 空でないことの主張は**同じテストの中**に置く。
 
 **要素ごとの検査は、ループより`parametrize`で書く。** ループで書くのは、上の例のように1回の実I/Oの結果を要素ごとに見るときである（testing.md「ループで実I/Oを繰り返さない」）。
-宣言から導いた母集団を`parametrize`へ渡す（空になったら、`backend/pytest.ini`の`empty_parameter_set_mark`で集める時点で落ちる）。
-
-絞り込みの書き方は問わない。ループの中の条件で要素を選ぶ形（`if`の片側にだけアサーションを置く・`continue`で飛ばす）と、
-空なら真になる量化（`assert all(...)`・`assert not any(...)`・`expect(xs.every(...)).toBe(true)`）も同じに扱う。
+宣言から導いた母集団を`parametrize`へ渡す。
 
 落とす規則は`backend/tests/structure/test_vacuous_loops.py`と`frontend/src/structure/vacuousLoops.test.ts`が持つ。

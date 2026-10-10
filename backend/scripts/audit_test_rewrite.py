@@ -18,6 +18,9 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 **機械化できないものは残る。** 「そのテストは要るか」の3問と、「本番で作れない入力を
 使っていないか」の突き合わせは、対象ごとに値域の導出が要るため人が読む。
 
+対象のモジュール名で集めた母集団は、対象を間接に通すテストを落とす。届いていない行が1行だけ孤立して見えたら、
+`--cov-context=test`でどのテストが通しているかを引いてから「無検査」と判断する。
+
 実行方法（backendディレクトリから。テストは母集団——対象のモジュール名を書くテスト全部——を並べて渡す）:
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py app/domain/routing.py tests/test_routing.py
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py app/domain/geo.py tests/test_geo.py tests/test_region.py
