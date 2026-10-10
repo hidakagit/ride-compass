@@ -53,6 +53,7 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { dotVariants } from "@/components/ui/Dot/Dot";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
@@ -96,7 +97,7 @@ const CONDITIONS_DIRTY_SIGNAL: OutcomeTabSignal = { tone: "warning", label: "生
 
 /** 「ルート設定」のタブ（中身は `RouteForm` が描く）。 */
 const SETTINGS_TABS: readonly { value: SettingsTab; label: string; usage: string }[] = [
-  { value: "generate", label: "条件", usage: "周回か目的地か、距離・地点・候補の数を決めます。" },
+  { value: "generate", label: "条件", usage: "地点・全長の目標・候補の数を決めます。" },
   { value: "weights", label: "重み", usage: "道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。" },
   { value: "exclusions", label: "除外", usage: "ルートに使わない道路の種類を選びます。" },
   { value: "saved", label: "保存", usage: "名前を付けて保存した地点と設定を並べます。" },
@@ -514,6 +515,8 @@ export default function Home() {
               armedPinRole={pinPlacementArmedRole}
               pointEditingEnabled={pointEditingEnabled}
               onPinPlace={conditions.placePin}
+              onSpotPlace={(role, spot) => placeFound(role, spot, null)}
+              waypointsFull={conditions.waypoints.length >= routeGenerateConfig.max_waypoints}
               focusPoint={foundPoint}
               measureRouteFitObscuredPx={measureRouteFitObscuredPx}
             />
@@ -621,7 +624,7 @@ export default function Home() {
               titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
               headerLead={renderSettingsTabs()}
               headerAction={renderRouteSectionHeaderActions()}
-              fitKey={`${settingsTab}:${conditions.routeMode}`}
+              fitKey={settingsTab}
               headerNote={renderGenerationOutcomeNote()}
             >
               {renderRouteSectionBody()}

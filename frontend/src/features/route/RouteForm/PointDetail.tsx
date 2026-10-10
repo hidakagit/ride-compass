@@ -21,7 +21,7 @@ import { cn } from "@/lib/cn";
 import { getQueryClient } from "@/lib/queryClient";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 
-import PointMark from "./PointMark";
+import PointMark from "@/components/PinMark/PointMark";
 
 interface PointDetailProps {
   role: PinRole;

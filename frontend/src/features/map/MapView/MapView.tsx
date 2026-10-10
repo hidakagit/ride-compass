@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { buildPointPopupContent } from "@/features/map/MapView/pointPopup";
+import { buildPointPopupContent, pointPlaceName } from "@/features/map/MapView/pointPopup";
+import SpotPlaceActions, { type SpotPlaceRole } from "@/features/map/MapView/SpotPlaceActions";
 import RoadInspectorPopup from "@/features/map/MapView/RoadInspectorPopup";
 import { roadWayId, type RoadSurfacePopupProperties } from "@/features/map/MapView/roadFacts";
 import * as maplibregl from "maplibre-gl";
@@ -19,6 +20,7 @@ import type {
   Coordinates,
   LocationSource,
   PinRole,
+  PlaceCandidate,
   RouteCandidate,
   RoutePreferenceWeights,
   RouteSegmentDetail,
@@ -272,6 +274,10 @@ interface MapViewProps {
   pointEditingEnabled: boolean;
   /** 武装中の役割の地点として、タップした座標を渡す。 */
   onPinPlace: (role: PinRole, coordinates: Coordinates) => void;
+  /** 名前のある点の小窓から、その点を経由地・目的地として置く（地点を置ける間だけ小窓に置く操作を出す）。 */
+  onSpotPlace: (role: SpotPlaceRole, spot: PlaceCandidate) => void;
+  /** 経由地が生成の受け付ける数まで置いてあるか（小窓の経由地に足す操作を押せなくする）。 */
+  waypointsFull: boolean;
   /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
   onWaypointRemove: (index: number) => void;
   /** 経由地マーカーをドラッグして動かしたときに呼ばれる（該当indexの座標を差し替え）。 */
@@ -304,6 +310,8 @@ export default function MapView({
   armedPinRole,
   pointEditingEnabled,
   onPinPlace,
+  onSpotPlace,
+  waypointsFull,
   onWaypointRemove,
   onWaypointMove,
   destination,
@@ -322,6 +330,9 @@ export default function MapView({
     tile: TileXY;
   } | null>(null);
   const [roadPopupContainer, setRoadPopupContainer] = useState<HTMLDivElement | null>(null);
+  // 名前のある点の小窓の、置く操作の器と、置くときに渡す点。器は小窓の本文の末尾に置き、操作はReactで描いてportalで差し込む
+  // （置けるか・経由地が上限かは小窓を開いたあとにも変わる）。
+  const [spotActions, setSpotActions] = useState<{ container: HTMLDivElement; spot: PlaceCandidate } | null>(null);
   const catalog = useAxisCatalog();
   const mapCatalog = useMapAxisCatalog();
   const layerDataSources = useMemo(() => buildLayerDataSources(mapCatalog.layers), [mapCatalog.layers]);
@@ -479,32 +490,26 @@ export default function MapView({
         if (feature.geometry.type !== "Point") throw new Error(`点の層 ${point.attr_id} の地物が点でない`);
         const [lng, lat] = feature.geometry.coordinates;
         const pointContent = buildPointPopupContent(point, feature.properties, { lng, lat });
-        if (point.point_name_property !== null && feature.properties[point.point_name_property]) {
-          const actions = document.createElement("div");
-          actions.style.cssText = "display:flex; gap:6px; margin-top:6px;";
-          for (const [role, label] of [
-            ["waypoint", "経由地に足す"],
-            ["destination", "目的地にする"],
-          ] as const) {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = label;
-            button.style.cssText =
-              "border:1px solid var(--color-accent); color:var(--color-accent-strong); border-radius:9999px; padding:2px 10px;";
-            button.onclick = () => {
-              latest.current.onPinPlace(role, { latitude: lat, longitude: lng });
-              popupRef.current?.remove();
-            };
-            actions.appendChild(button);
-          }
-          pointContent.appendChild(actions);
-        }
+        const name = pointPlaceName(point, feature.properties);
         popupRef.current?.remove();
         setRoadPopup(null);
-        popupRef.current = new maplibregl.Popup({ closeButton: true })
+        const popup = new maplibregl.Popup({ closeButton: true })
           .setLngLat(e.lngLat)
           .setDOMContent(pointContent)
           .addTo(map);
+        popupRef.current = popup;
+        if (name === null) {
+          setSpotActions(null);
+        } else {
+          const container = document.createElement("div");
+          pointContent.appendChild(container);
+          // 探して選んだ施設と同じ形で渡し、並びと詳しくに名前を出す（辺りは置いた位置から引く）。
+          setSpotActions({
+            container,
+            spot: { kind: "facility", level: "point", name, area: null, latitude: lat, longitude: lng },
+          });
+          popup.on("close", () => setSpotActions((current) => (current?.container === container ? null : current)));
+        }
         return;
       }
       popupRef.current?.remove();
@@ -788,6 +793,18 @@ export default function MapView({
             routePreference={routePreference}
           />,
           roadPopupContainer,
+        )}
+      {spotActions !== null &&
+        pointEditingEnabled &&
+        createPortal(
+          <SpotPlaceActions
+            waypointsFull={waypointsFull}
+            onPlace={(role) => {
+              onSpotPlace(role, spotActions.spot);
+              popupRef.current?.remove();
+            }}
+          />,
+          spotActions.container,
         )}
       {markerContents}
     </div>

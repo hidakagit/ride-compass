@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { buttonVariants } from "../Button/Button";
 import {
+  DistanceTargetIcon,
   GenerateRoutesIcon,
   PlaceOnMapIcon,
   RouteDiffIcon,
@@ -19,6 +20,7 @@ const BUTTON_MARKS = new Map<string, { Icon: MapIconComponent; variant: "primary
   ["地点を保存", { Icon: SavePlaceIcon, variant: "secondary" }],
   ["いまの設定を保存", { Icon: SaveConditionsIcon, variant: "secondary" }],
   ["出発地を地図で選ぶ", { Icon: PlaceOnMapIcon, variant: "secondary" }],
+  ["全長の目標を決める", { Icon: DistanceTargetIcon, variant: "secondary" }],
 ]);
 
 const QUOTED_NAME = /「([^「」]+)」/g;

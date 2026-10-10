@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 const groupVariants = cva("inline-flex", {
   variants: {
     variant: {
-      /** 横に並ぶ切り替え（周回／目的地）。 */
+      /** 横に並ぶ切り替え。 */
       segmented: "overflow-hidden rounded-full border border-[var(--color-border)]",
       /** 札を横へ流して選ぶ（レンズの軸）。 */
       chips: "w-full flex-wrap gap-1",

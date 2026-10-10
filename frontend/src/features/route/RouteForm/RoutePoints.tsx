@@ -11,14 +11,13 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 
 import PointDetail from "./PointDetail";
-import PointMark from "./PointMark";
+import PointMark from "@/components/PinMark/PointMark";
 
 /** 押して詳しくを出す地点。経由地の`index`が無いのは、新しく足す経由地。 */
 type PointTarget = { role: "origin" } | { role: "destination" } | { role: "waypoint"; index: number | null };
 
 type RoutePointsConditions = Pick<
   GenerationConditionsState,
-  | "routeMode"
   | "waypoints"
   | "removeWaypoint"
   | "destination"
@@ -64,8 +63,8 @@ function sourceOf(found: PlaceCandidate | null): string {
 }
 
 /**
- * 出発地・経由地・目的地。目的地モードでは「出発地 › ①②③… ＋ › 目的地」を1行に並べ（経由地は地図のピンと同じ番号の丸。
- * 経由地が増えても出発地と目的地が欠けず、スクロールも要らない）、押した地点の詳しくを下に出す。周回は出発地の詳しくだけを出す。
+ * 出発地・経由地・目的地。「出発地 › ①②③… ＋ › 目的地」を1行に並べ（経由地は地図のピンと同じ番号の丸。
+ * 経由地が増えても出発地と目的地が欠けず、スクロールも要らない）、押した地点の詳しくを下に出す。
  */
 export default function RoutePoints({
   conditions,
@@ -92,8 +91,8 @@ export default function RoutePoints({
   const [chosen, setChosen] = useState<PointTarget | null>(null);
   const waypointCount = waypoints.length;
 
-  // 地図で置く状態の地点を見せる（目的地モードへ入ったときに目的地を置ける状態にする等、押さずに武装することがある）。
-  // 何も押していない・押した経由地が消えた間は目的地。
+  // 地図で置く状態の地点を見せる。何も押していない・押した経由地が消えた間は出発地（経由地も目的地も置かない人が、
+  // 開いてすぐ出発地を直せる）。
   function shown(): PointTarget {
     if (armedPinRole === "waypoint") return { role: "waypoint", index: waypointToReplace };
     if (armedPinRole !== null) return { role: armedPinRole };
