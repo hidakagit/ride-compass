@@ -95,10 +95,6 @@ def _edge_coverage_sql():
     return text(sql)
 
 
-_WAY_COVERAGE_SQL = _way_coverage_sql()
-_EDGE_COVERAGE_SQL = _edge_coverage_sql()
-
-
 class MaterialCoverageQuery:
     """読み取り専用でcommit対象の書き込みは無い。全表走査を伴うため管理API専用
     （`api/dependencies.py: get_material_coverage_service`が長いcommand_timeoutのセッションを渡す）。"""
@@ -109,12 +105,12 @@ class MaterialCoverageQuery:
     async def get_material_coverage_counts(self) -> MaterialCoverageCounts:
         missing_by_material: dict[str, int] = {}
 
-        way_row = (await self._session.execute(_WAY_COVERAGE_SQL)).mappings().one()
+        way_row = (await self._session.execute(_way_coverage_sql())).mappings().one()
         way_total = int(way_row["total"])
         for material_id in _WAY_SPECS:
             missing_by_material[material_id] = int(way_row[material_id])
 
-        edge_row = (await self._session.execute(_EDGE_COVERAGE_SQL)).mappings().one()
+        edge_row = (await self._session.execute(_edge_coverage_sql())).mappings().one()
         edge_total = int(edge_row["total"])
         for material_id in _EDGE_SPECS:
             missing_by_material[material_id] = edge_total - int(edge_row[material_id])
