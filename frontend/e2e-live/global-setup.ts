@@ -16,7 +16,7 @@ export default async function globalSetup(): Promise<void> {
   if (!health?.ok) {
     throw new Unmet(
       `${LIVE_API}/health に応答が無い`,
-      "開発DBへ向けたbackendを手元で起動する（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）",
+      "開発DBへ向けたbackendを手元で起動するか、E2E_LIVE_API を本番のbackendへ向ける（.claude/skills/run-checks/SKILL.md「E2E・画面の撮影の走らせ方」）",
     );
   }
 
@@ -30,7 +30,7 @@ export default async function globalSetup(): Promise<void> {
   if (roads.length === 0) {
     throw new Unmet(
       `起点（${LIVE_POINT.latitude},${LIVE_POINT.longitude}）の路面タイル ${z}/${x}/${y} に道が無い（HTTP ${tile.status}）`,
-      "開発DBの取込範囲の中の地点を E2E_LIVE_POINT=緯度,経度 で与える",
+      "backendのDBの取込範囲の中の地点を E2E_LIVE_POINT=緯度,経度 で与える",
     );
   }
 
@@ -38,11 +38,13 @@ export default async function globalSetup(): Promise<void> {
     sources: Record<string, { url?: string; tiles?: string[] }>;
   };
   const urls = Object.values(style.sources).flatMap((source) => [source.url, ...(source.tiles ?? [])].filter(Boolean));
-  const foreign = urls.filter((url) => !url!.startsWith(`${LIVE_ORIGIN}/`));
+  // 基礎地図はE2Eのオリジン（rewritesでbackendへ届く）かbackendそのものから取れる。ほかのオリジン（既定の向け先のdevサーバー等）は
+  // 誰も応答せず、地図が描かれないのを壊れとして出してしまう。
+  const foreign = urls.filter((url) => ![LIVE_ORIGIN, LIVE_API].some((origin) => url!.startsWith(`${origin}/`)));
   if (foreign.length > 0) {
     throw new Unmet(
-      `基礎地図のスタイルのURLがE2Eのオリジン（${LIVE_ORIGIN}）を指していない: ${foreign[0]}`,
-      `backendを BASEMAP_PUBLIC_BASE_URL=${LIVE_ORIGIN}/api/basemap と CORS_ALLOWED_ORIGINS に ${LIVE_ORIGIN} を足して起動し直す`,
+      `基礎地図のスタイルのURLがE2Eのオリジン（${LIVE_ORIGIN}）もbackend（${LIVE_API}）も指していない: ${foreign[0]}`,
+      `手元のbackendなら BASEMAP_PUBLIC_BASE_URL=${LIVE_ORIGIN}/api/basemap で起動し直す`,
     );
   }
 
