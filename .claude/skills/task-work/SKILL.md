@@ -77,7 +77,8 @@ Pull Request・問い・issue に書き、最後の発言へ写さない。
    - 確かめの問い（確かめの行だけが残ったとき・コードを変えないタスクの結果）に未着手の答えが返ったら、確かめが済んだと読み、
      問い直さない。確かめの行（コードを変えないタスクなら残りの行）にチェックを付け、経緯に答えを1行足して、残りが無ければ
      `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。補足に直してほしい点が書かれていたときだけ、それを残りとして済ませてから閉じる。
-4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。静的検査とテストを手元で回す場面と範囲と、
+4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` で push する。push はほかのコマンドとつながずに1つで打つ
+   （拒否の一覧の `Bash(git push *master*)` はつないだ全文に当たり、後ろの `gh pr create --base master` 等の `master` でも断る）。静的検査とテストを手元で回す場面と範囲と、
    コミットの前に frontend で変えたファイルへかける整形は、.claude/skills/run-checks/SKILL.md「手元の検査の回し方」だけが決め、全体は CI に任せる。作業ブランチの強制 push は
    コードのリポジトリの規則で断られるので、直しは足すコミットにする。
    master に入るコミットは、5 の Pull Request の題名と本文から作られる（確かめる担当が squash でマージする）。CI は 5 の
