@@ -75,7 +75,7 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
 漏れは`vitest.setup.ts`が実行時に見る（テストファイルの終わりに`process.env`が開始時と違えば落ちる。`vi.stubEnv`のように
 復元されるものは通る）。自分のテスト対象だけが読む環境変数
-（`app/api/version/route.ts: RENDER_GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は対象外で、`vi.stubEnv`で立てて公開の入口を呼ぶ
+（`app/api/version/route.ts: GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は対象外で、`vi.stubEnv`で立てて公開の入口を呼ぶ
 （使う側のテストは読み取り口のモジュールをモックして、その値を読まない）。
 
 ## パターン9: 期待値の出どころを選ぶ（書き写さない・素のテキストを引く・軸を取り違えない）
