@@ -273,7 +273,7 @@ _EDGE_DTYPES = {"edge_way_id": np.int64, "edge_segment": np.int32, "edge_forward
 _BBOX_COLUMNS = ("min_lon", "min_lat", "max_lon", "max_lat")
 
 
-async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
+async def _read_nodes(repository: RoadGraphRepository) -> dict[str, Any]:
     chunks: dict[str, list[np.ndarray]] = {name: [] for name in _NODE_COLUMNS}
     async for rows in repository.stream_network_nodes(_STREAM_CHUNK):
         for name, (column, dtype) in _NODE_COLUMNS.items():
