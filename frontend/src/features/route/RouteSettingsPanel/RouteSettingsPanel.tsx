@@ -25,7 +25,7 @@ import { calloutVariants } from "@/components/ui/Callout/Callout";
 const SEGMENT_ICON_MIN_PCT = 10;
 const SEGMENT_VALUE_MIN_PCT = 6;
 
-// 部品（`<AxisIcon/>`）にせず関数で描く。部品の本体で`axisIconFor`の戻りを描くとreact-hooks/static-componentsが誤検知し、
+// 部品にせず関数で描く。部品の本体で`axisIconFor`の戻りを描くとreact-hooks/static-componentsが誤検知し、
 // パネルの本体の中で部品を定義すると、描き直しのたびにアイコンが作り直される。
 function renderAxisIcon(axis: CatalogAxis, size = 14) {
   const Icon = axisIconFor(axis.iconId);
@@ -103,12 +103,13 @@ export default function RouteSettingsPanel({
     if (!bar) return;
     const startClientX = e.clientX;
     const pixelsPerUnit = bar.getBoundingClientRect().width / total;
-    let applied = { weightA: startWeightA, weightB: startWeightB };
+    let applied: { weightA: number; weightB: number } | null = null;
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
       const rawDelta = (moveEvent.clientX - startClientX) / pixelsPerUnit;
       const next = clampBoundaryDrag(startWeightA, startWeightB, rawDelta, total);
-      // 刻みに届かない動き・端で止まっている間は、保存と描き直しを繰り返さない。
-      if (next.weightA === applied.weightA && next.weightB === applied.weightB) return;
+      // 刻みに届かない動き・端で止まっている間は、保存と描き直しを繰り返さない。最初の動きは値が変わらなくても通す
+      // （動かした2軸の今の値を、有効に戻すときの値として覚える）。
+      if (applied !== null && next.weightA === applied.weightA && next.weightB === applied.weightB) return;
       applied = next;
       handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
     };

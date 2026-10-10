@@ -1,12 +1,17 @@
-import { vocabulary } from "@/types/generated/vocabulary";
 import type { Coordinates, PlaceCandidate } from "@/types/route";
 
 /** 名前を付けて保存した地点。探して置いた候補と同じ形で持ち、選ぶと候補を選んだのと同じく置く（名前は保存のときに付けたもの）。 */
 export type SavedPlace = PlaceCandidate;
 
-// 受け付ける種類と段はbackendの語彙（生成物）から読む——手で並べると、backendが足した段の地点を読み直しで捨てる。
-const KINDS: ReadonlySet<unknown> = new Set(vocabulary.placeKinds.map(({ key }) => key));
-const LEVELS: ReadonlySet<unknown> = new Set(vocabulary.placeMatchLevels.map(({ key }) => key));
+const KINDS: ReadonlySet<unknown> = new Set<PlaceCandidate["kind"]>(["address", "facility"]);
+const LEVELS: ReadonlySet<unknown> = new Set<PlaceCandidate["level"]>([
+  "prefecture",
+  "city",
+  "ward",
+  "oaza",
+  "aza",
+  "point",
+]);
 
 // 1件を読む。今の画面が受け付けない件はnull（ほかの件は残す）。
 function readSavedPlace(value: unknown): SavedPlace | null {
