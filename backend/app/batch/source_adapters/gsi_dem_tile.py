@@ -90,6 +90,7 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
     # タイルは`fetch_dem_tiles.py`が先に写している。取込が読むのはその置き場。
     origin.update({"tile_root": str(root), "products": products})
     bbox = profile.target.bounding_box()
+    newest = None
 
     for product, zoom in products.items():
         tiles = tiles_covering_bbox(bbox, zoom)
@@ -102,6 +103,8 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
                     unfetched += 1
                 continue
             stored += 1
+            modified = dem_tile_store.tile_modified(root, product, zoom, x, y)
+            newest = modified if newest is None else max(newest, modified)
             pixels, missing = pack_elevations(dem_tile_store.read_tile(root, product, zoom, x, y))
             yield SourceRecord(
                 natural_key=f"{product}/{zoom}/{x}/{y}",
@@ -123,3 +126,4 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
         if unfetched:
             logger.warning("まだ写していない標高タイル: product=%s zoom=%d %d枚"
                            "（scripts/fetch_dem_tiles.py が写す）", product, zoom, unfetched)
+    origin["tiles_last_modified"] = None if newest is None else newest.isoformat()
