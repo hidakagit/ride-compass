@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,19 +56,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.batch.common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
 
+def _defined_names(node: ast.stmt) -> list[str]:
+    """最上位の文が定義する名前（関数・クラス・名前への代入）。"""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, ast.Assign):
+        return [t.id for t in node.targets if isinstance(t, ast.Name)]
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return [node.target.id]
+    return []
+
+
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
     """実装ファイルの最上位で「定義されたもの」と「importされたもの」を分ける。"""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     defined: set[str] = set()
     imported: dict[str, str] = {}
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            defined.add(node.name)
-        elif isinstance(node, ast.Assign):
-            defined.update(t.id for t in node.targets if isinstance(t, ast.Name))
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            defined.add(node.target.id)
-        elif isinstance(node, ast.ImportFrom):
+        defined.update(_defined_names(node))
+        if isinstance(node, ast.ImportFrom):
             imported.update({a.asname or a.name: node.module or "" for a in node.names})
         elif isinstance(node, ast.Import):
             imported.update({a.asname or a.name.split(".")[0]: a.name for a in node.names})
@@ -98,13 +105,8 @@ def public_names(tree: ast.Module) -> list[tuple[str, str]]:
     """
     out: list[tuple[str, str]] = []
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names = [node.name]
-        elif isinstance(node, ast.Assign):
-            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            names = [node.target.id]
-        else:
+        names = _defined_names(node)
+        if not names:
             continue
         out.extend((name, name) for name in names if not name.startswith("_"))
         if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
@@ -162,6 +164,17 @@ def bare_import_alias(tree: ast.AST, name: str) -> str | None:
     return None
 
 
+def _attribute_calls(tree: ast.AST, alias: str) -> Iterator[tuple[ast.Call, ast.expr]]:
+    """`setattr`・`delattr`・`getattr`を`alias`に当てた呼び出しと、属性を指す第2引数。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+            if name in {"setattr", "delattr", "getattr"} and len(node.args) >= 2:
+                target = node.args[0]
+                if isinstance(target, ast.Name) and target.id == alias:
+                    yield node, node.args[1]
+
+
 def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
     """テストが`alias.X`として触った属性。
 
@@ -172,17 +185,9 @@ def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == alias:
             touched[node.attr] += 1
-        if isinstance(node, ast.Call):
-            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
-            if name in {"setattr", "delattr", "getattr"} and len(node.args) >= 2:
-                target, attr = node.args[0], node.args[1]
-                if (
-                    isinstance(target, ast.Name)
-                    and target.id == alias
-                    and isinstance(attr, ast.Constant)
-                    and isinstance(attr.value, str)
-                ):
-                    touched[attr.value] += 1
+    for _call, attr in _attribute_calls(tree, alias):
+        if isinstance(attr, ast.Constant) and isinstance(attr.value, str):
+            touched[attr.value] += 1
     return dict(touched)
 
 
@@ -208,15 +213,7 @@ def unresolved_attribute_calls(tree: ast.AST, alias: str) -> list[int]:
     ③の内訳はこれを数えられない（ループで差し替える形が典型）。黙って0件にせず、
     行番号を出して人が読む。
     """
-    lines: list[int] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
-            if name in {"setattr", "delattr", "getattr"} and len(node.args) >= 2:
-                target, attr = node.args[0], node.args[1]
-                if isinstance(target, ast.Name) and target.id == alias and not isinstance(attr, ast.Constant):
-                    lines.append(node.lineno)
-    return sorted(set(lines))
+    return sorted({call.lineno for call, attr in _attribute_calls(tree, alias) if not isinstance(attr, ast.Constant)})
 
 
 def names_in_string_constants(tree: ast.AST, names: set[str]) -> set[str]:

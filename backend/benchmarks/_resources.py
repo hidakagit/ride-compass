@@ -40,11 +40,9 @@ _WHITESPACE = re.compile(r"\s+")
 
 @dataclass(frozen=True)
 class Sample:
-    elapsed: float
     app_cpu_seconds: float
     app_rss_mb: float
     load1: float
-    db_active: int
     db_on_cpu: int
 
 
@@ -143,7 +141,7 @@ def _rusage() -> tuple[float, float]:
 
 
 _ACTIVITY_SQL = """
-SELECT state, wait_event, query
+SELECT wait_event, query
 FROM pg_stat_activity
 WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'active'
 """
@@ -159,14 +157,9 @@ async def _explain(connection: asyncpg.Connection, query: str) -> str:
     計測の失敗で計測対象の結果まで失わないよう、ここでの例外はすべて空文字にする。
     """
     try:
-        rows = await connection.fetch(
-            "SELECT plan FROM (SELECT $1::text AS q) s, "
-            "LATERAL (SELECT (regexp_split_to_table(pg_temp._rc_explain(s.q), chr(10))) AS plan) p",
-            query,
-        )
+        return await connection.fetchval("SELECT pg_temp._rc_explain($1::text)", query)
     except Exception:  # noqa: BLE001  計測の失敗で計測対象を巻き込まない
         return ""
-    return chr(10).join(r["plan"] for r in rows)
 
 
 #: 文字列として受け取った文の計画を返すヘルパ。`EXPLAIN`は動的に組み立てられないため、
@@ -217,11 +210,9 @@ async def sample_resources(
                     trace.queries[text] += 1
             cpu_seconds, rss_mb = _rusage()
             trace.samples.append(Sample(
-                elapsed=time.perf_counter() - started,
                 app_cpu_seconds=cpu_seconds,
                 app_rss_mb=rss_mb,
                 load1=_load1(),
-                db_active=len(rows),
                 db_on_cpu=on_cpu,
             ))
             with contextlib.suppress(TimeoutError):
