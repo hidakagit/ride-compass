@@ -6,7 +6,7 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
 # 問いの形（question_template.md）を src/index.js が文字列として読む。
-rules = [{ type = "Text", globs = ["**/*.md"], fallthrough = true }]
+rules = [{ type = "Text", globs = ["**/question_template.md"], fallthrough = true }]
 
 [env.form]
 name = "ride-compass-answer"
