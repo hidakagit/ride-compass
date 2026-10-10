@@ -6,11 +6,9 @@
  *   要求はタイルと軸の組から作るので、どちらかが無ければ1件も作られない。画面が無くなれば空へ戻すことは下のテストが見る
  */
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
-vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
-
+import { MAP_FETCH_DEBOUNCE_MS } from "@/hooks/useDebouncedValue";
 import { heldReplies, onBackend } from "@/testing/backendServer";
 import { mapCatalogOf } from "@/testing/mapAxisCatalog";
 import { dedicatedEntry } from "@/testing/catalogAxes";
@@ -45,7 +43,8 @@ function serveWayValues(failsAt: (x: number) => boolean = () => false) {
 
 type Results = { current: ReturnType<typeof useDedicatedWayValues> };
 
-// 取得の結果は網を通って届くので、偽にしていない時計で、どの軸も取り終えるまで待つ（届くまでの時間は CI の負荷で変わる）。
+// 入力の変化を取得へ渡すまでの間引きは偽の時計で待ち（`vi.waitFor`が確かめのたびに偽の時計を進める）、取得の結果は
+// 網を通って、どの軸も取り終えるまで待つ（届くまでの時間は CI の負荷で変わる）。
 async function fetched(result: Results) {
   await vi.waitFor(() => {
     expect(result.current.size).toBeGreaterThan(0);
@@ -53,11 +52,15 @@ async function fetched(result: Results) {
   });
 }
 
-/** 取り直しが起きていれば応答が届くだけの間をおく（起きないことを確かめるため）。 */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+/** 入力の変化が間引きを抜けるまで偽の時計を進める（取り直すなら、ここで取り直しが始まる）。 */
+const debounced = () => act(() => vi.advanceTimersByTimeAsync(MAP_FETCH_DEBOUNCE_MS));
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   serveWayValues();
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 type Props = { axes: typeof dedicatedAxes; viewport: MapViewport | null; bearing: number; at: Date; speed?: number };
@@ -111,7 +114,7 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
     await fetched(result);
     const before = result.current;
     rerender({ axes: dedicatedAxes, viewport: { ...VIEWPORT }, bearing: 90, at: AT });
-    await settle();
+    await debounced();
     expect(result.current).toBe(before);
   });
 
@@ -132,7 +135,7 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
     await fetched(result);
     expect([...result.current.keys()]).toEqual(["static"]);
     rerender({ axes: [STATIC], viewport: null, bearing: 0, at: AT });
-    await settle();
+    await debounced();
     expect(result.current.size).toBe(0);
   });
 });

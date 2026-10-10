@@ -8,6 +8,7 @@
  */
 import { cumulativeDistancesKm } from "@/features/route/geoDistance";
 import { pairedStretches } from "@/features/route/routeSplice";
+import { DIFFICULTY_DECIMALS, LOAD_DECIMALS } from "@/lib/mapDisplay/valueScale";
 import type { RouteCandidate } from "@/types/route";
 
 /** 変えた区間1つ。位置は元のルートの始点からの距離。 */
@@ -36,8 +37,13 @@ const EDIT_METRICS: readonly EditMetric[] = [
     unit: "分",
     value: (route) => (route.estimated_duration_seconds === null ? null : route.estimated_duration_seconds / 60),
   },
-  { label: "総合難易度", digits: 0, unit: "", value: (route) => route.overall_difficulty?.average ?? null },
-  { label: "負荷", digits: 0, unit: "", value: (route) => route.overall_difficulty?.load ?? null },
+  {
+    label: "総合難易度",
+    digits: DIFFICULTY_DECIMALS,
+    unit: "",
+    value: (route) => route.overall_difficulty?.average ?? null,
+  },
+  { label: "負荷", digits: LOAD_DECIMALS, unit: "", value: (route) => route.overall_difficulty?.load ?? null },
 ];
 
 /** 指標1つの元・編集後と差（編集後 − 元）。値を持たない側があれば差はnull。 */
@@ -92,11 +98,20 @@ export function editDifference(origin: RouteCandidate, edited: RouteCandidate): 
   return { metrics: metricDifferences(origin, edited), stretches };
 }
 
-/** 表示する桁で丸めた差。色を変えるかどうかも**この値**で決める——生の差で判断すると、
- * 画面には「±0」と出ているのに色だけ増減を主張する。 */
-export function roundToDigits(value: number, digits: number): number {
+function roundToDigits(value: number, digits: number): number {
   return Number(value.toFixed(digits));
 }
+
+/** 差の色の向き（増えたら`data-worse`・減ったら`data-better`）。表示する桁で丸めた差で決める——生の差で判断すると、
+ * 画面には「±0」と出ているのに色だけ増減を主張する。 */
+export function deltaTone({ delta, digits }: Pick<MetricDifference, "delta" | "digits">) {
+  const shown = delta === null ? 0 : roundToDigits(delta, digits);
+  return { "data-worse": shown > 0, "data-better": shown < 0 };
+}
+
+/** 差の色（`deltaTone`の属性を読む）。 */
+export const DELTA_TONE_CLASS =
+  "data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]";
 
 /** 差の表記（例: `+0.4`・`−2`・`±0`）。 */
 export function formatDelta(value: number, digits: number): string {

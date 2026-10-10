@@ -2,7 +2,7 @@
  * `components/FirstVisitIntro/FirstVisitIntro.tsx`——初めて開いたときだけ地図の上に出す案内。
  *
  * 見るもの: 閉じたことが無ければ見出しを名前に持つ案内を出すこと、最初の一手の場所をスマホとPCで言い分けること、
- * 位置が分からないと分かったら出発地の行を「地図で選ぶ」の手順にすること、
+ * 位置が分からないと分かったら出発地の行を「出発地を地図で選ぶ」の手順にすること、
  * ✕と「はじめる」のどちらで閉じても消え、この端末では次に開いても出ないこと。
  *
  * ここで見ないもの:
@@ -47,12 +47,13 @@ describe("FirstVisitIntro", () => {
     [false, "この印が出発地です（はじめは現在地）。地図の上でつかんで動かせます。"],
     [
       true,
-      "現在地が分からないため、この灰色の印は仮の地点です。「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップすると、そこが出発地になります。",
+      // 地図で置く操作はアイコンだけなので、名前はかぎ括弧ごとアイコン（読み上げの名前）に替わる。
+      "現在地が分からないため、この灰色の印は仮の地点です。「ルート設定」の出発地を地図で選ぶを押して地図をタップすると、そこが出発地になります。",
     ],
   ])("位置が分からないと分かったか（%s）で、出発地の行を言い分ける", (locationUnknown, originLine) => {
     render(<FirstVisitIntro isMobile={false} locationUnknown={locationUnknown} />);
 
-    expect(screen.getByText(/出発地/)).toHaveTextContent(originLine);
+    expect(screen.getByText(/が出発地/)).toHaveTextContent(originLine);
   });
 
   it.each(["案内を閉じる", "はじめる"])("「%s」を押すと消え、次に開いても出ない", async (name) => {

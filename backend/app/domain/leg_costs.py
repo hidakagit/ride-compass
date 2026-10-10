@@ -29,9 +29,14 @@ from app.domain.cycling_speed import (
     SegmentSpeedModel,
     crr_for_surface,
 )
-from app.domain.difficulty import axis_contributions_at_row, axis_weighted_sums
+from app.domain.difficulty import axis_contributions_at_row, axis_weight_shares_at_row, axis_weighted_sums
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
-from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix, compose_costs_from_axis_matrix
+from app.domain.evaluation import (
+    AxisComposition,
+    DensityAxisColumn,
+    StaticEdgeScoreMatrix,
+    compose_costs_from_axis_matrix,
+)
 from app.domain.route import Coordinates, SegmentWind
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
 from app.domain.twilight import night_mask
@@ -47,8 +52,24 @@ MAX_TIME_BINS = 4
 logger = logging.getLogger("ridecompass.graph")
 
 
+class _AxisRowReader:
+    """軸の列・重み・重みの合計から、1行ぶんの軸別の値を引く（`LegCostArrays`と`RowValues`が共有する）。"""
+
+    axis_arrays: dict[str, np.ndarray]
+    weight_sums: np.ndarray
+    weights: Mapping[str, float | np.ndarray]
+
+    def axis_contributions_at(self, row: int) -> dict[str, float]:
+        """その区間の軸別寄与度（配列の行番号で引く）。"""
+        return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
+
+    def axis_weight_shares_at(self, row: int) -> dict[str, float]:
+        """その区間の、データのある軸の重みの割合（配列の行番号で引く）。"""
+        return axis_weight_shares_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
+
+
 @dataclass
-class LegCostArrays:
+class LegCostArrays(_AxisRowReader):
     """1レグぶんの合成済みコスト配列一式。`cost_lazy`は区間の番号順（探索が使う
     行順）、それ以外は切り出した区間の順の表示用配列。レグごとに違うのは通過予定時刻で決まるもの（各Edgeの
     通過予定時刻の風と、時間帯を持つ軸の重み）だけで、静的軸の列は共有する。"""
@@ -66,6 +87,8 @@ class LegCostArrays:
     # 折れ点を通す前の生値（切り出した区間の順）。静的スコア行列の列をそのまま指すため
     # レグ間で同じ配列を共有する（風のようにレグごとに変わる値は持たない）。
     axis_raw_arrays: dict[str, np.ndarray]
+    # 密度の軸の横軸の値の列（切り出した区間の順。`StaticEdgeScoreMatrix.density_axes`をそのまま指し、レグ間で共有する）。
+    density_axes: dict[str, DensityAxisColumn]
     # 切り出した区間の順の材料id→配列。動的材料（`evaluate_dynamic_material_arrays`が返す
     # 全材料が対象、全行NaNの材料はキーを持たない）と、内訳表示用の静的材料
     # （`route_facing_material_ids`、静的スコア行列の列）の両方を持つ。区間表示・
@@ -93,13 +116,9 @@ class LegCostArrays:
     # 区間ごとの通過時刻（出発からの経過[h]、切り出した区間の順）で1本に合成したレグ（目的地から遡る木）だけが持つ。
     passage_hours: np.ndarray | None = None
 
-    def axis_contributions_at(self, row: int) -> dict[str, float]:
-        """その区間の軸別寄与度（切り出した区間の順の行番号で引く）。"""
-        return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
-
 
 @dataclass
-class RowValues:
+class RowValues(_AxisRowReader):
     """経路上の行だけを、ある時刻で合成し直した表示用の値。配列は`rows`と同じ並びで、`LegCostArrays`と
     同じ名前の属性を持つ（区間の組み立ては、どちらから読んでも同じ書き方になる）。"""
 
@@ -109,9 +128,6 @@ class RowValues:
     weight_sums: np.ndarray
     weights: Mapping[str, float | np.ndarray]
     material_arrays: dict[str, np.ndarray]
-
-    def axis_contributions_at(self, row: int) -> dict[str, float]:
-        return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
 
 
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
@@ -245,11 +261,6 @@ class LegCostComposer:
         if rows is None and self._travel_inputs_cache is not None:
             return self._travel_inputs_cache
         take = _row_taker(rows)
-
-        def static_material(material_id: str) -> np.ndarray | None:
-            values = self._static_material_arrays.get(material_id)
-            return None if values is None else take(values)
-
         distance_m = take(self._score_matrix.distance_m)
         # 勾配は静的スコア行列が生配列として常に持つ（0次フィルタの勾配しきい値と同じ列）。
         # 内訳として見せる材料だけを運ぶ`material_arrays`では、勾配軸が分解されていない構成で欠ける。
@@ -261,9 +272,9 @@ class LegCostComposer:
         # 材料idの綴りは`stop_count_material_ids()`が単一の情報源。ここで組み立て直すと、
         # 向こうで綴りを変えたときにここだけがNoneを引き、全区間の停止の待ちが無言で0秒になる。
         for kind, material_id in zip(POI_COUNT_KINDS, stop_count_material_ids(), strict=True):
-            per_km = static_material(material_id)
+            per_km = self._static_material_arrays.get(material_id)
             if per_km is not None:
-                stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
+                stops += np.nan_to_num(take(per_km)) * (distance_m / 1000.0) * stop_seconds(kind)
         if rows is None:
             self._travel_inputs_cache = (model, stops)
         return model, stops
@@ -316,7 +327,6 @@ class LegCostComposer:
         leg_start = offset_hours if direction > 0 else offset_hours - (duration_hours or 0.0)
         if not self.time_varying:
             key: tuple = ("snapshot",)
-            bin_count = 1
         elif passage_hours is not None:
             key = ("passage", round(offset_hours, 3), direction, float(np.nansum(passage_hours)))
             bin_count = 1
@@ -359,6 +369,7 @@ class LegCostComposer:
             weight_sums=representative.weight_sums,
             weights=representative.weights,
             axis_raw_arrays=self._axis_raw_arrays,
+            density_axes=self._score_matrix.density_axes,
             material_arrays=representative.material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
             travel_seconds_full=representative.travel_seconds_full,
@@ -584,21 +595,19 @@ class LegCostComposer:
     def _compose_at(self, passage: np.ndarray | None) -> LegCostArrays:
         """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
         evaluated = self._evaluate(passage)
-        published, material_arrays, travel, composed = (
-            evaluated.published, evaluated.material_arrays, evaluated.travel, evaluated.composed,
-        )
-        cost_array, difficulty_array = composed.cost, composed.difficulty
-        cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
+        composed, travel = evaluated.composed, evaluated.travel
+        cost_array = np.where(self._hard_filter_excluded, np.inf, composed.cost)
         lazy_cost = cost_array[self._lazy_row_index]
         lazy_travel = travel[self._lazy_row_index]
         return LegCostArrays(
             cost_lazy=lazy_cost,
-            difficulty_array=difficulty_array,
-            axis_arrays=published,
+            difficulty_array=composed.difficulty,
+            axis_arrays=evaluated.published,
             weight_sums=composed.weight_sums,
             weights=evaluated.weights,
             axis_raw_arrays=self._axis_raw_arrays,
-            material_arrays=material_arrays,
+            density_axes=self._score_matrix.density_axes,
+            material_arrays=evaluated.material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
             travel_seconds_full=travel,
             travel_seconds_lazy=lazy_travel,

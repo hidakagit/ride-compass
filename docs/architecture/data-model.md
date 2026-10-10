@@ -4,7 +4,7 @@
 frontendの型（`frontend/src/types/generated/api.d.ts`）はそこから生成される。ここには
 **両側が守る約束**だけを置く。
 
-DBの表の持ち方（生データを1つの形で持つ・派生は粒度ごとに1表）は
+DBの表の持ち方（生データを1つの形で持つ・派生は書く段と行の母集団ごとに1表）は
 [静的道路属性・タイル配信](../modules/backend/static-road-attributes.md)が持つ。
 
 ## 命名と欠損

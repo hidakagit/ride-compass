@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
  * `features/route/generationRequest.ts`——生成の入力から、backendへ送る値と「生成条件が変わったか」の比較キーを作る。
- * - `buildGenerateRequest`: 決まった項目は常に送り、目標距離・レンズの軸・重み・経由地・目的地は値があるときだけ送る
- * - `generationConditionsKey`: 送る値のうち、レンズの軸と、利用者が選んでいない出発時刻を除いたものが同じなら同じキー。
+ * - `buildGenerateRequest`: 決まった項目は常に送り、目標距離・重み・経由地・目的地は値があるときだけ送る
+ * - `generationConditionsKey`: 送る値のうち、利用者が選んでいない出発時刻を除いたものが同じなら同じキー。
  *   重み・除外の項目の並びは比べない
  *
  * ここで見ないもの:
@@ -23,7 +23,6 @@ const LOOP: GenerationInput = {
   assumedSpeedKmh: 22,
   startTime: START,
   hardFilters: { exclude_a: true, exclude_b: false },
-  lensAxisId: null,
   routePreference: null,
   waypoints: [],
   destination: null,
@@ -60,9 +59,8 @@ describe("buildGenerateRequest", () => {
     expect(request.destination).toEqual({ latitude: 35.75, longitude: 139.85 });
   });
 
-  it("レンズが軸を指していればその軸を、重みを上書きしていれば重みを送る", () => {
-    const request = buildGenerateRequest({ ...LOOP, lensAxisId: "wind", routePreference: { wind: 0.4, slope: 0.6 } });
-    expect(request.lens_axis_id).toBe("wind");
+  it("重みを上書きしていれば重みを送る", () => {
+    const request = buildGenerateRequest({ ...LOOP, routePreference: { wind: 0.4, slope: 0.6 } });
     expect(request.route_preference).toEqual({ wind: 0.4, slope: 0.6 });
   });
 });
@@ -72,10 +70,6 @@ describe("generationConditionsKey", () => {
 
   it("送る値（除外）が変われば、キーが変わる", () => {
     expect(key({ hardFilters: { exclude_a: false, exclude_b: false } })).not.toBe(key({}));
-  });
-
-  it("レンズの軸だけが変わっても、キーは変わらない", () => {
-    expect(key({ lensAxisId: "wind" })).toBe(key({}));
   });
 
   it("出発時刻は、利用者が選んだときだけ比べる", () => {

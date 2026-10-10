@@ -2,8 +2,9 @@
 
 import type { components } from "@/types/generated/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
-import { WarningTriangleIcon } from "@/components/ui/icons/icons";
+import { RetryIcon, WarningTriangleIcon } from "@/components/ui/icons/icons";
 import { Button } from "@/components/ui/Button/Button";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { vocabulary } from "@/types/generated/vocabulary";
 import { cn } from "@/lib/cn";
 import { textVariants } from "@/components/ui/Text/Text";
@@ -41,6 +42,13 @@ const LEVEL_ORDER: readonly WarningBadgeLevel[] = vocabulary.warningBadge.jma.ma
 function levelDisplay(item: WarningBadgeItem): { label: string; color: string } {
   return vocabulary.warningBadge[item.source].find((entry) => entry.level === item.level)!;
 }
+
+const DETAIL_PANEL_PROPS = {
+  layer: "header",
+  className: "max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto",
+  side: "bottom",
+  align: "end",
+} as const;
 
 // 複数件のitemsのうち最も警戒度が高いitemを1つ返す（LEVEL_ORDERの並び=警戒度の昇順）。
 // サマリーボタンの語彙は出所（source）によって変わるため、レベルだけでなくitem自体を返す。
@@ -85,12 +93,7 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
           <span>未取得</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        layer="header"
-        className="max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto"
-        side="bottom"
-        align="end"
-      >
+      <PopoverContent {...DETAIL_PANEL_PROPS}>
         <p className={cn(textVariants({ variant: "heading" }), "mb-1 text-[length:var(--font-size-sm)]")}>
           {labels}を取得できていません
         </p>
@@ -98,10 +101,19 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
           {failures.map((failure) => (
             <li key={failure.id} className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>
               <span className="block">{failure.detail ? `${failure.label}: ${failure.detail}` : failure.label}</span>
-              <span className="block">{failure.effect}</span>
+              <span className="block">
+                <GuideText text={failure.effect} />
+              </span>
               {failure.onRetry && (
-                <Button variant="warning" size="xs" className="mt-0.5" onClick={failure.onRetry}>
-                  再試行
+                <Button
+                  variant="warning"
+                  size="panelIcon"
+                  className="mt-0.5"
+                  aria-label="再試行"
+                  onClick={failure.onRetry}
+                  usage="この情報をもう一度取りに行きます。"
+                >
+                  <RetryIcon />
                 </Button>
               )}
             </li>
@@ -113,9 +125,8 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
 }
 
 function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
-  const topItem = highestLevelItem(items);
-  const topLabel = levelDisplay(topItem).label;
-  const summaryLabel = items.length > 1 ? `${topLabel}${items.length}件` : topLabel;
+  const top = levelDisplay(highestLevelItem(items));
+  const summaryLabel = items.length > 1 ? `${top.label}${items.length}件` : top.label;
 
   return (
     <Popover>
@@ -124,19 +135,14 @@ function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
           size="xs"
           shape="pill"
           className="border-0 font-bold text-white data-[state=open]:text-white"
-          style={{ backgroundColor: levelDisplay(topItem).color }}
+          style={{ backgroundColor: top.color }}
           aria-label={`気象警報・注意報あり: ${summaryLabel}。押すと詳細を表示`}
           usage="いまいる場所に出ている気象警報・注意報の詳細を開きます。"
         >
           {summaryLabel}
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        layer="header"
-        className="max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto"
-        side="bottom"
-        align="end"
-      >
+      <PopoverContent {...DETAIL_PANEL_PROPS}>
         <div role="list" aria-label="気象警報・注意報の詳細" className="flex flex-col gap-2">
           {items.map((item) => (
             <div key={item.id} role="listitem" className="flex flex-col gap-1">

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import * as catalogAxes from "@/testing/catalogAxes";
@@ -35,7 +36,7 @@ export interface CaptureContext {
   expect: typeof expect;
   /** e2e/fixtures.ts の段取りと応答（openMobileSheet・generateRoutes・doneJobFixture 等）。 */
   fixtures: typeof fixtures;
-  /** e2e/states.ts の全状態の走査の段取り（installSpliceMocks・splice 等）。 */
+  /** e2e/states.ts の全状態の走査の段取り（installScanMocks・splice 等）。 */
   states: typeof states;
   /** src/testing/catalogAxes.ts の軸の雛形（catalogEntry・rampEntry 等）。モックの軸カタログを組むときに fixtures.axisCatalogFixture へ渡す。 */
   catalogAxes: typeof catalogAxes;
@@ -49,17 +50,26 @@ export interface CaptureContext {
   /** 地図の色分け（レンズ）を名前で選び、読み終わりまで待つ。選べなければ、選べる名前を並べて止まる。 */
   chooseLens(label: string): Promise<void>;
   /**
-   * チップの名前で凡例の内訳を開き、その内訳を返す。チップが畳んだまとまりの中にあれば開く。`row` を渡せば、その行の説明も開く。
+   * 「表示」の一覧の行の名前で凡例の内訳を開き、その内訳を返す。一覧が閉じていれば開く。`row` を渡せば、その行の説明も開く。
    * 開けなければ、選べる名前を並べて止まる。
    */
-  openLegend(chip: string, row?: string): Promise<Locator>;
+  openLegend(layer: string, row?: string): Promise<Locator>;
   /** 地図の上の経度・緯度の点を押す。その点が画面の外か、地図の上に別の部品が重なっていれば止める。 */
   clickMap(lngLat: [number, number]): Promise<void>;
   /** 地図の見えている所（部品に覆われていない所）へ経度・緯度の点を寄せてから押す。点が画面の外や部品の下に来うるときに使う。 */
   clickVisible(lngLat: [number, number]): Promise<void>;
   /**
+   * 地図に描かれた、押すと開くもの（道の詳細・点の詳細・ルートの区間・乗り換えの帯等）を、経度・緯度を渡さずに1つ押す。
+   * `target` は地図の当たり判定の対象の名前（例: "road"）で、いまの地図に無い名前を渡すと押せる名前を並べて止まる。持つレイヤーが
+   * 非表示・画面に描かれていないときも止まるので、open の layers・位置・倍率で描かれる状態にしてから呼ぶ（例は examples/road-detail.ts）。
+   */
+  clickFeature(target: string): Promise<void>;
+  /**
    * URL が glob に当たる応答の本文を `transform` の返した JSON に替える。本物の応答を取ってから本文だけを替えるので、CORS 等の
    * ヘッダーは本物のまま残る（ヘッダーの無い応答で返すと、別オリジンの backend への取得としてブラウザが捨てる）。
+   * 本物の応答が失敗（本番の backend にまだ無い経路の 404 等）なら、`transform` に undefined を渡し、返した JSON を成功（200）の
+   * 応答として CORS のヘッダーを付けて返す。新しい経路の応答も、作業ツリーの版を本番の backend へ向けたまま替えられる（例は examples/place-area.ts）。
+   * open より前に呼ぶ（open が開くときに取る応答も替える）。
    * 本物の backend へ向けたときに使う（モックの応答を替えるなら open の routes で page.route を足す。例は examples/axis-catalog.ts）。
    * 本文を JSON として読み替えるだけなので、画像等の JSON でない応答は替えられない。作業ツリーの backend が変える、DB を読まない
    * 経路の応答は、scripts/capture.mjs の --backend で作業ツリーの backend に返させる（例は examples/jma-precipitation.ts）。
@@ -69,6 +79,12 @@ export interface CaptureContext {
   settle(): Promise<void>;
   /** 今の画面（`target` を渡せばその要素だけ）を撮り、書いたファイルを返す。 */
   shot(name: string, target?: Locator): Promise<string>;
+  /**
+   * スマホのキーボードが出た画面に見立てて撮り、書いたファイルを返す。`field`（打つ欄）がキーボードの上に隠れず見えるだけ画面を
+   * 上へずらし、下からキーボードの高さを板で覆う。ページには何も足さず、撮った画像を組み直す（ページへ板を重ねると、
+   * ヘッドレスの地図の描き直しが崩れて白く抜ける）。`height` はキーボードの高さ（CSS の px。既定は KEYBOARD_HEIGHT）。
+   */
+  shotWithKeyboard(name: string, field: Locator, options?: { height?: number }): Promise<string>;
 }
 
 export type CaptureScript = (context: CaptureContext) => Promise<void>;
@@ -87,6 +103,44 @@ export interface WorktreeBackend {
  * jma_tile_upstream_max_requests_per_second）ので、地図が一度に取るタイルの数だけ待ちが積もる。
  */
 const WORKTREE_BACKEND_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * shotWithKeyboard のキーボードの既定の高さ（CSS の px）。Apple は高さを公開せず、アプリには実行時に測るよう求めるので、出どころは
+ * 実測: iOS 27 のシミュレータで、6.1 型の iPhone（17e・18 Pro）の英字のキーボードが 301pt（変換の候補の帯なし。
+ * https://github.com/Saffsanity/sill/pull/30 のコミット 9ee69c7）。候補の帯や Safari の入力の補助の帯が出る欄で見せたいときは、
+ * 脚本が height で足す。
+ */
+const KEYBOARD_HEIGHT = 301;
+
+/**
+ * 撮った画像（PNG）の上を `shift` だけ切り落とし、下から `keyboard` の高さを板で覆った画像を、同じ寸法で組み直す。iOS の
+ * Safari はキーボードが出てもレイアウトの寸法を変えず、見える範囲を欄が見えるだけずらすので、画面の中身は動かない。
+ */
+async function composeKeyboard(
+  page: Page,
+  image: Buffer,
+  { width, height }: { width: number; height: number },
+  { shift, keyboard }: { shift: number; keyboard: number },
+): Promise<Buffer> {
+  const sheet = await page.context().newPage();
+  try {
+    await sheet.setViewportSize({ width, height });
+    await sheet.setContent(`<!doctype html>
+<body style="margin:0;width:${width}px;height:${height}px;overflow:hidden;position:relative">
+  <img src="data:image/png;base64,${image.toString("base64")}"
+    style="position:absolute;left:0;top:${-shift}px;width:${width}px;height:${height}px">
+  <div style="position:absolute;left:0;right:0;bottom:0;height:${keyboard}px;background:#9ca3af;color:#fff;
+    display:flex;align-items:center;justify-content:center;font:20px sans-serif">キーボード（見立て）</div>
+</body>`);
+    await sheet.locator("img").evaluate((img: HTMLImageElement) => img.decode());
+    return await sheet.screenshot();
+  } finally {
+    await sheet.close();
+  }
+}
+
+/** 「表示」のボタンと、押すと開く一覧の名前（`MapOverlayControls`）。 */
+const OVERLAY_LIST_NAME = "地図に出す情報";
 
 /**
  * ブラウザが --api の backend へ選んだパスの頭で取りに行くものを、作業ツリーの backend から取って返す。page.route の
@@ -128,6 +182,10 @@ async function ariaLabels(scope: Page | Locator, suffix: string): Promise<string
 
 export function captureContext(page: Page, { out, mocked }: { out: string; mocked: boolean }): CaptureContext {
   let count = 0;
+  const nextFile = (name: string) => {
+    count += 1;
+    return path.join(out, `${count}-${fileName(name)}.png`);
+  };
   const settle = () => settleMap(page);
   return {
     page,
@@ -202,29 +260,24 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
       }
       await settle();
     },
-    async openLegend(chip, row) {
-      const trigger = page.getByRole("button", { name: `${chip}の凡例`, exact: true });
-      const seen = new Set<string>();
-      // まとまりの外のチップはそのまま出ているので、まず開かずに探し、無ければまとまりを1つずつ開く（開けるのは同時に1つ）。
-      for (const group of [null, ...mapDisplay.overlayGroups]) {
-        if (group) {
-          const header = page.getByRole("button", { name: group.label, exact: true });
-          if ((await header.getAttribute("aria-expanded")) === "false") await header.click();
-        }
-        if (await trigger.isVisible()) break;
-        for (const name of await ariaLabels(page, "の凡例")) seen.add(name);
-      }
+    async openLegend(layer, row) {
+      const trigger = page.getByRole("button", { name: `${layer}の凡例`, exact: true });
+      // ▶は「表示」の一覧の行にある。
+      const list = page.getByRole("dialog", { name: OVERLAY_LIST_NAME, exact: true });
+      if (!(await list.isVisible())) await page.getByRole("button", { name: OVERLAY_LIST_NAME, exact: true }).click();
+      await expect(list).toBeVisible();
       if (!(await trigger.isVisible())) {
-        throw new Error(`凡例「${chip}」を開けない。選べる凡例: ${[...seen].join(" / ")}`);
+        throw new Error(`凡例「${layer}」を開けない。選べる凡例: ${(await ariaLabels(list, "の凡例")).join(" / ")}`);
       }
-      const panel = page.getByRole("dialog", { name: `${chip}の内訳` });
+      // 内訳は一覧の行のすぐ下に開く。
+      const panel = page.getByRole("region", { name: `${layer}の内訳` });
       if (!(await panel.isVisible())) await trigger.click();
       await expect(panel).toBeVisible();
       if (row !== undefined) {
         const info = panel.getByRole("button", { name: `${row}の説明を表示`, exact: true });
         if (!(await info.isVisible())) {
           const rows = await ariaLabels(panel, "の説明を表示");
-          throw new Error(`凡例「${chip}」の行「${row}」の説明を開けない。説明のある行: ${rows.join(" / ")}`);
+          throw new Error(`凡例「${layer}」の行「${row}」の説明を開けない。説明のある行: ${rows.join(" / ")}`);
         }
         await info.click();
       }
@@ -236,16 +289,40 @@ export function captureContext(page: Page, { out, mocked }: { out: string; mocke
     async clickVisible(lngLat) {
       await states.clickVisible(page, lngLat);
     },
+    async clickFeature(target) {
+      // 生成・レイヤーの切り替えの直後は、まだ描かれていない。
+      await settle();
+      await fixtures.clickFeature(page, target);
+    },
     async patch(glob, transform) {
       await page.route(glob, async (route) => {
         const response = await route.fetch();
-        await route.fulfill({ response, json: await transform(await response.json()) });
+        if (response.ok()) {
+          await route.fulfill({ response, json: await transform(await response.json()) });
+          return;
+        }
+        // 本物の backend にまだ無い経路（404 等）。失敗の状態を引き継ぐと替えた本文も失敗として読まれるので、成功で返す。
+        await route.fulfill({ json: await transform(undefined), headers: { "access-control-allow-origin": "*" } });
       });
     },
     async shot(name, target) {
-      count += 1;
-      const file = path.join(out, `${count}-${fileName(name)}.png`);
+      const file = nextFile(name);
       await (target ?? page).screenshot({ path: file });
+      console.log(`[capture] ${file}`);
+      return file;
+    },
+    async shotWithKeyboard(name, field, { height: keyboard = KEYBOARD_HEIGHT } = {}) {
+      const viewport = page.viewportSize();
+      const box = await field.boundingBox();
+      if (!viewport || !box) throw new Error(`「${name}」: 打つ欄が画面に無い`);
+      if (keyboard <= 0 || keyboard >= viewport.height) {
+        throw new Error(`「${name}」: キーボードの高さ ${keyboard} は画面の高さ ${viewport.height} の中に収まらない`);
+      }
+      // 見える範囲は、レイアウトの下端より下へはずれない。
+      const shift = Math.min(keyboard, Math.max(0, box.y + box.height - (viewport.height - keyboard)));
+      const image = await composeKeyboard(page, await page.screenshot(), viewport, { shift, keyboard });
+      const file = nextFile(name);
+      await writeFile(file, image);
       console.log(`[capture] ${file}`);
       return file;
     },

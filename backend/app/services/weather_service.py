@@ -7,12 +7,13 @@ from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
 from app.domain.weather import (
-    PERIOD_INTERVAL_HOURS, WeatherConditions, daily_max, daily_range, period_outlooks, rounded_or_none, rounded_rows,
-    today_indices,
+    PERIOD_INTERVAL_HOURS, PRECIPITATION_MM_DECIMALS, WIND_DIRECTION_DEG_DECIMALS, WIND_SPEED_MS_DECIMALS,
+    WeatherConditions, daily_max, daily_range, period_outlooks, rounded_or_none, rounded_rows, today_indices,
 )
 from app.domain.region import BoundingBox
 from app.domain.wind import (
-    WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, DepartureWind, WindForecastSeries, WindLattice,
+    DEPARTURE_WIND_DECIMALS, WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG, DepartureWind, WindForecastSeries,
+    WindLattice,
 )
 from app.domain.wind_grid import WindGridPoint, WindGridResponse
 from app.infrastructure import msm_client
@@ -35,27 +36,33 @@ class WeatherService:
         """観測所ごとの雨の材料（`jma_amedas_service.py: load_station_rain_materials`）。地図の雨とルートの雨が同じ値を読む。"""
         return await load_station_rain_materials(now, self._rain_materials_cache)
 
-    async def _read_point(self, point: Coordinates) -> MsmSeries | None:
+    async def _read(self, latitudes: np.ndarray, longitudes: np.ndarray) -> MsmSeries | None:
+        """地点ごとのMSMの時系列。読めないか、時刻が1つも無ければNone。"""
         try:
-            return await msm_client.read_series(
-                np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float)
-            )
+            series = await msm_client.read_series(latitudes, longitudes)
         except MsmUnavailableError:
             return None
+        return series if series.times else None
+
+    async def _read_point(self, point: Coordinates) -> MsmSeries | None:
+        return await self._read(np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float))
 
     async def get_conditions(self, point: Coordinates) -> WeatherConditions | None:
         series = await self._read_point(point)
-        if series is None or not series.times:
+        if series is None:
             return None
         return self._conditions_from_series(point, series)
 
     async def get_departure_wind(self, point: Coordinates) -> DepartureWind | None:
         """地点の時系列の先頭（現在時刻の正時）の風。`RoadGraphEngine`が時別の系列の代わりに使う。読めなければNone。"""
         series = await self._read_point(point)
-        if series is None or not series.times:
+        if series is None:
             return None
         speed, direction = wind_speed_and_direction(series.wind_u_ms[0], series.wind_v_ms[0])
-        return DepartureWind(speed_ms=round(float(speed[0]), 1), direction_deg=round(float(direction[0]), 1))
+        return DepartureWind(
+            speed_ms=round(float(speed[0]), DEPARTURE_WIND_DECIMALS),
+            direction_deg=round(float(direction[0]), DEPARTURE_WIND_DECIMALS),
+        )
 
     async def get_wind_forecast_lattice(self, bbox: BoundingBox) -> WindForecastSeries | None:
         """`bbox`を覆う格子点ごとの時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）。
@@ -67,12 +74,8 @@ class WeatherService:
             bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
             WIND_FORECAST_LAT_STEP_DEG, WIND_FORECAST_LON_STEP_DEG,
         )
-        latitudes, longitudes = lattice.coordinates()
-        try:
-            series = await msm_client.read_series(latitudes, longitudes)
-        except MsmUnavailableError:
-            return None
-        if not series.times:
+        series = await self._read(*lattice.coordinates())
+        if series is None:
             return None
         speed, direction = wind_speed_and_direction(series.wind_u_ms, series.wind_v_ms)
         return WindForecastSeries(
@@ -90,21 +93,19 @@ class WeatherService:
         """
         if not points:
             return WindGridResponse(times=[], points=[])
-        latitudes = np.array([point.latitude for point in points], dtype=float)
-        longitudes = np.array([point.longitude for point in points], dtype=float)
-        try:
-            series = await msm_client.read_series(latitudes, longitudes)
-        except MsmUnavailableError:
-            return None
-        if not series.times:
+        series = await self._read(
+            np.array([point.latitude for point in points], dtype=float),
+            np.array([point.longitude for point in points], dtype=float),
+        )
+        if series is None:
             return None
 
         speed, direction = wind_speed_and_direction(series.wind_u_ms, series.wind_v_ms)
         # 数万要素をPythonのループで丸めると地点数に比例して重くなるため、配列のまま
         # まとめて丸めてからリストへ変換する。
-        speeds = rounded_rows(speed, 2)
-        directions = rounded_rows(direction, 1)
-        precipitations = rounded_rows(series.precipitation_mm, 2)
+        speeds = rounded_rows(speed, WIND_SPEED_MS_DECIMALS)
+        directions = rounded_rows(direction, WIND_DIRECTION_DEG_DECIMALS)
+        precipitations = rounded_rows(series.precipitation_mm, PRECIPITATION_MM_DECIMALS)
         results = [
             WindGridPoint(
                 latitude=point.latitude,
@@ -127,7 +128,7 @@ class WeatherService:
         today = today_indices(times)
 
         return WeatherConditions(
-            precipitation_mm=rounded_or_none(precipitation[0], 2),
+            precipitation_mm=rounded_or_none(precipitation[0], PRECIPITATION_MM_DECIMALS),
             twilight=sunrise_sunset_jst(point, times[0].date()),
             precipitation_max_mm=daily_max(precipitation, today),
             wind_speed_max_ms=daily_max(speed, today),

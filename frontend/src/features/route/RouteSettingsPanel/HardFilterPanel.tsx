@@ -4,8 +4,8 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import type { HardFilterOverride } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { Button } from "@/components/ui/Button/Button";
+import { ResetDefaultsIcon } from "@/components/ui/icons/icons";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
-import { textVariants } from "@/components/ui/Text/Text";
 
 // 「ルート設定」区分の「除外」タブ。ここでONにした種類は重みづけの対象ですらなく、
 // 探索グラフから外れる（通らない）。将来の除外条件（未舗装路等）もこのタブへ足す。
@@ -30,36 +30,36 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
   const customized = HARD_FILTER_CHIPS.some(({ key }) => hardFilters[key] !== DEFAULT_HARD_FILTERS[key]);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-1">
-        <p className={textVariants({ variant: "hint" })}>除外する道路</p>
-        <InfoPopover triggerAriaLabel="除外する道路の説明">
-          ONにした種類は経路から完全に外れます[重みづけと違い、多少コストが高くても通る、ということが無くなります]。
-        </InfoPopover>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {HARD_FILTER_CHIPS.map(({ key, label }) => (
-          <Toggle
-            key={key}
-            pressed={hardFilters[key]}
-            aria-label={`${label}を除外`}
-            usage="ONにした種類の道路を通らないルートを作ります。"
-            onClick={() =>
-              onHardFiltersChange({
-                ...hardFilters,
-                [key]: !hardFilters[key],
-              })
-            }
-          >
-            {label}
-          </Toggle>
-        ))}
-      </div>
-      {customized && (
-        <Button size="sm" className="self-start" onClick={() => onHardFiltersChange(DEFAULT_HARD_FILTERS)}>
-          除外を既定値に戻す
-        </Button>
-      )}
+    <div className="flex flex-wrap items-center gap-2">
+      {HARD_FILTER_CHIPS.map(({ key, label }) => (
+        <Toggle
+          key={key}
+          pressed={hardFilters[key]}
+          aria-label={`${label}を除外`}
+          usage="ONにした種類の道路を通らないルートを作ります。"
+          onClick={() =>
+            onHardFiltersChange({
+              ...hardFilters,
+              [key]: !hardFilters[key],
+            })
+          }
+        >
+          {label}
+        </Toggle>
+      ))}
+      <InfoPopover triggerAriaLabel="除外する道路の説明">
+        ONにした種類は経路から完全に外れます[重みづけと違い、多少難易度が高くても通る、ということが無くなります]。
+      </InfoPopover>
+      <Button
+        size="panelIcon"
+        className="ml-auto"
+        aria-label="除外を既定値に戻す"
+        disabled={!customized}
+        onClick={() => onHardFiltersChange(DEFAULT_HARD_FILTERS)}
+        usage="除外のON/OFFを既定に戻します。"
+      >
+        <ResetDefaultsIcon />
+      </Button>
     </div>
   );
 }

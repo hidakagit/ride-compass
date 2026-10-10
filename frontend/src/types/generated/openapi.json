@@ -503,6 +503,119 @@
         }
       }
     },
+    "/api/place-search": {
+      "get": {
+        "operationId": "search_places_api_place_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceSearchResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/place-area": {
+      "get": {
+        "operationId": "place_area_api_place_area_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceArea"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "operationId": "region_road_surface_tile_api_region_road_surface_tiles__z___x___y__pbf_get",
@@ -513,6 +626,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 15,
+              "minimum": 12,
               "title": "Z"
             }
           },
@@ -522,6 +637,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -531,6 +647,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -576,6 +693,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 15,
+              "minimum": 12,
               "title": "Z"
             }
           },
@@ -585,6 +704,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -594,6 +714,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -630,6 +751,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 14,
+              "minimum": 6,
               "title": "Z"
             }
           },
@@ -639,6 +762,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -648,6 +772,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -693,6 +818,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 15,
+              "minimum": 12,
               "title": "Z"
             }
           },
@@ -702,6 +829,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -711,6 +839,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           },
@@ -721,7 +850,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360
                 },
                 {
                   "type": "null"
@@ -754,7 +885,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "number"
+                  "type": "number",
+                  "maximum": 60.0,
+                  "minimum": 5.0
                 },
                 {
                   "type": "null"
@@ -1013,6 +1146,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 14,
+              "minimum": 2,
               "title": "Z"
             }
           },
@@ -1022,6 +1157,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "X"
             }
           },
@@ -1031,6 +1167,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "minimum": 0,
               "title": "Y"
             }
           }
@@ -2071,9 +2208,6 @@
             "type": "number",
             "title": "Default Weight"
           },
-          "display": {
-            "$ref": "#/components/schemas/AxisDisplaySpec"
-          },
           "icon_id": {
             "anyOf": [
               {
@@ -2099,20 +2233,6 @@
             "type": "array",
             "title": "Weather Layer Groups"
           },
-          "display_band_labels_override": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Band Labels Override"
-          },
           "dedicated_way_value_layer": {
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
@@ -2120,27 +2240,8 @@
           "map_paint": {
             "$ref": "#/components/schemas/MapPaint"
           },
-          "raw_value_unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Raw Value Unit"
-          },
-          "raw_value_total_unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Raw Value Total Unit"
+          "raw_value_units": {
+            "$ref": "#/components/schemas/RawValueUnits"
           },
           "material_breakdown": {
             "items": {
@@ -2174,15 +2275,12 @@
           "description",
           "category",
           "default_weight",
-          "display",
           "icon_id",
           "primary_attribute_ids",
           "weather_layer_groups",
-          "display_band_labels_override",
           "dedicated_way_value_layer",
           "map_paint",
-          "raw_value_unit",
-          "raw_value_total_unit",
+          "raw_value_units",
           "material_breakdown",
           "dynamic_way_value_conditions",
           "dynamic_way_value_undetermined_by_bearing"
@@ -2598,18 +2696,24 @@
           },
           "z": {
             "type": "integer",
+            "maximum": 15.0,
+            "minimum": 12.0,
             "title": "Z"
           },
           "x": {
             "type": "integer",
+            "minimum": 0.0,
             "title": "X"
           },
           "y": {
             "type": "integer",
+            "minimum": 0.0,
             "title": "Y"
           },
           "bearing_deg": {
             "type": "number",
+            "exclusiveMaximum": 360.0,
+            "minimum": 0.0,
             "title": "Bearing Deg"
           },
           "at": {
@@ -2627,7 +2731,9 @@
           "speed_kmh": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 60.0,
+                "minimum": 5.0
               },
               {
                 "type": "null"
@@ -2721,6 +2827,11 @@
           },
           "dtype": {
             "type": "string",
+            "enum": [
+              "numeric",
+              "boolean",
+              "categorical"
+            ],
             "title": "Dtype"
           },
           "unit": {
@@ -3868,6 +3979,23 @@
           },
           "legend": {
             "$ref": "#/components/schemas/MapLegendScale"
+          },
+          "tiles": {
+            "$ref": "#/components/schemas/AxisDisplaySpec"
+          },
+          "band_labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band Labels"
           }
         },
         "additionalProperties": false,
@@ -3876,7 +4004,9 @@
           "value",
           "unit",
           "thresholds",
-          "legend"
+          "legend",
+          "tiles",
+          "band_labels"
         ],
         "title": "MapPaint"
       },
@@ -4208,6 +4338,107 @@
         ],
         "title": "OverallDifficulty"
       },
+      "PlaceArea": {
+        "properties": {
+          "area": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "area"
+        ],
+        "title": "PlaceArea"
+      },
+      "PlaceCandidate": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "address",
+              "facility"
+            ],
+            "title": "Kind"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "prefecture",
+              "city",
+              "ward",
+              "oaza",
+              "aza",
+              "block",
+              "point"
+            ],
+            "title": "Level"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "area": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area"
+          },
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "level",
+          "name",
+          "area",
+          "latitude",
+          "longitude"
+        ],
+        "title": "PlaceCandidate"
+      },
+      "PlaceSearchResult": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/PlaceCandidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "candidates"
+        ],
+        "title": "PlaceSearchResult"
+      },
       "PriorityCondition": {
         "properties": {
           "material": {
@@ -4233,6 +4464,39 @@
         ],
         "title": "PriorityCondition"
       },
+      "RawValueUnits": {
+        "properties": {
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "total_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unit",
+          "total_unit"
+        ],
+        "title": "RawValueUnits"
+      },
       "RouteCandidate": {
         "properties": {
           "id": {
@@ -4244,12 +4508,16 @@
             "type": "string",
             "enum": [
               "loop",
-              "waypoints",
               "destination",
               "spliced"
             ],
             "title": "Kind",
             "default": "loop"
+          },
+          "spliceable": {
+            "type": "boolean",
+            "title": "Spliceable",
+            "default": false
           },
           "direction_label": {
             "type": "string",
@@ -4407,6 +4675,7 @@
         "required": [
           "id",
           "kind",
+          "spliceable",
           "direction_label",
           "is_fastest",
           "distance_km",
@@ -4607,17 +4876,6 @@
                 "type": "null"
               }
             ]
-          },
-          "lens_axis_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lens Axis Id"
           },
           "start_time": {
             "type": "string",

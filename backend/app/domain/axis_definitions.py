@@ -32,7 +32,7 @@ from collections.abc import Collection, Iterable
 from typing import Annotated, Literal, Mapping, Sequence, SupportsFloat, cast
 
 import numpy as np
-from cachetools import LRUCache
+from cachetools import LRUCache, cached
 from pydantic import (
     BeforeValidator,
     ConfigDict,
@@ -48,10 +48,11 @@ from pydantic_core import PydanticCustomError
 
 from app.domain.attributes import CategoricalColumn, MaterialColumn
 from app.domain.axis_templates import evaluate_breakpoint_linear, evaluate_categorical
-from app.domain.difficulty import round_difficulty_array
+from app.domain.difficulty import round_difficulty_array, weight_share
 from app.domain import material_catalog
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
+from app.domain.weather_elements import WEATHER_ELEMENTS
 
 
 #: 軸の宣言に使うモデル共通の設定。`allow_inf_nan=False`は、NaN・無限大の重み・係数が
@@ -109,7 +110,11 @@ class BreakpointLinearShape(StrictModel):
 
     def score_at(self, x: float) -> float:
         """横軸の値`x`の点数（評価と同じ折れ線と丸め）。"""
-        return float(_breakpoint_score_array(self, np.array([x], dtype=float), np.zeros(1, dtype=bool))[0])
+        return self.scores_at([x])[0]
+
+    def scores_at(self, xs: Sequence[float]) -> list[float]:
+        """横軸の値それぞれの点数（`score_at`を1回の配列計算で）。"""
+        return _breakpoint_score_array(self, np.asarray(xs, dtype=float), np.zeros(len(xs), dtype=bool)).tolist()
 
 
 _FLAG_KEYS = {"true": True, "false": False}
@@ -197,8 +202,8 @@ class PriorityCondition(StrictModel):
 def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[PriorityCondition]") -> list[str]:
     """`shape`と`priority_overrides`が参照する材料id・軸idの一覧（重複を除き順序は安定）。
 
-    `AxisDefinition.materials`（値の検査`check_axis_definition`も読む）と、専用配信の検証
-    （`api/routers/axis_admin.py`）の**両方がこれを使う**。片方が`shape.terms`だけを見て他方が
+    `AxisDefinition.materials`がこれを返し、値の検査`check_axis_definition`と専用配信の検証
+    （`api/routers/axis_admin.py`）の**両方がそれを読む**。片方が`shape.terms`だけを見て他方が
     `priority_overrides`も見る、という状態になると、検証を素通りした軸が
     実行時に落ちる（`priority_overrides`経由の静的材料が動的軸へ紛れ込み、
     `evaluate_axis_array`が`materials[override.material]`でKeyErrorになる）。
@@ -210,10 +215,7 @@ def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[Prior
     override_materials = [cond.material for cond in priority_overrides]
     # 順序を安定させつつ重複を除く（同じ材料をpriority_overridesとshapeの両方が
     # 参照するケース、例: motor_vehicle_noを他のtermでも使う場合を許容するため）。
-    seen: dict[str, None] = {}
-    for m in [*shape_materials, *override_materials]:
-        seen.setdefault(m, None)
-    return list(seen)
+    return list(dict.fromkeys([*shape_materials, *override_materials]))
 
 
 def axis_error(message: str) -> PydanticCustomError:
@@ -525,13 +527,11 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     （`is_known_material`でフィルタ）。軸参照は複数の公開軸が同じ内部軸を意図的に
     共有できる設計のため、この排他チェックの対象外——材料の二重計上とは別の話。
     """
-    from app.domain.material_catalog import is_known_material
-
-    candidate_materials = {m for m in candidate.materials if is_known_material(m)}
+    candidate_materials = {m for m in candidate.materials if material_catalog.is_known_material(m)}
     for other_id, other in existing.items():
         if other_id == candidate.axis_id:
             continue
-        overlap = candidate_materials & {m for m in other.materials if is_known_material(m)}
+        overlap = candidate_materials & {m for m in other.materials if material_catalog.is_known_material(m)}
         if overlap:
             raise AxisMaterialConflictError(candidate, other, overlap)
 
@@ -550,9 +550,7 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
     """`definition`が参照する軸id（materialsのうち、材料ではなく軸を指すもの）を返す。
     `known_axis_ids`は循環検出・評価順序決定の対象となる軸id全体
     （通常は`AXIS_DEFINITIONS`のキー集合）。"""
-    from app.domain.material_catalog import is_known_material
-
-    return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
+    return {m for m in definition.materials if not material_catalog.is_known_material(m) and m in known_axis_ids}
 
 
 def _leaf_materials(definition: AxisDefinition) -> list[str]:
@@ -562,7 +560,7 @@ def _leaf_materials(definition: AxisDefinition) -> list[str]:
     軸は葉まで降りないと材料が分からないため、辿る側がそれぞれ再帰を書かずに済むよう
     ここに1本だけ置く。循環は軸スタジオが拒否するが、`visited`で止めて安全側に倒す。
     """
-    seen: dict[str, None] = {}
+    leaves: list[str] = []
     visited: set[str] = set()
 
     def descend(current: AxisDefinition) -> None:
@@ -574,33 +572,30 @@ def _leaf_materials(definition: AxisDefinition) -> list[str]:
             if referenced_axis is not None:
                 descend(referenced_axis)
             else:
-                seen.setdefault(ref, None)
+                leaves.append(ref)
 
     descend(definition)
-    return list(seen)
+    return list(dict.fromkeys(leaves))
 
 
 def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     """軸が最終的に見ている一次属性id。一次属性を持たない材料は現れない。"""
-    from app.domain.material_catalog import MATERIAL_CATALOG
-
-    seen: dict[str, None] = {}
-    for material_id in _leaf_materials(definition):
-        spec = MATERIAL_CATALOG.get(material_id)
-        if spec is not None and spec.primary_attribute is not None:
-            seen.setdefault(spec.primary_attribute.attr_id, None)
-    return list(seen)
+    return list(
+        dict.fromkeys(
+            spec.primary_attribute.attr_id
+            for material_id in _leaf_materials(definition)
+            if (spec := material_catalog.MATERIAL_CATALOG.get(material_id)) is not None
+            and spec.primary_attribute is not None
+        )
+    )
 
 
 def weather_layer_groups_for(definition: AxisDefinition) -> list[str]:
     """軸の材料の元データを描く気象のチップ（`WEATHER_LAYER_GROUPS`の名前）。一次属性を持つ材料は現れない。"""
-    from app.domain.material_catalog import MATERIAL_CATALOG
-    from app.domain.weather_elements import WEATHER_ELEMENTS
-
     grid_values = {
         spec.weather_grid_value
         for material_id in _leaf_materials(definition)
-        if (spec := MATERIAL_CATALOG.get(material_id)) is not None and spec.weather_grid_value is not None
+        if (spec := material_catalog.MATERIAL_CATALOG.get(material_id)) is not None and spec.weather_grid_value is not None
     }
     return list(dict.fromkeys(element.group for element in WEATHER_ELEMENTS if element.grid_value in grid_values))
 
@@ -702,13 +697,10 @@ def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinit
     `topological_axis_order`が見る。
     """
     shape = definition.shape
-    expected_dtypes: tuple[material_catalog.MaterialDType, ...]
-    if isinstance(shape, BreakpointLinearShape):
-        materials = [term.material for term in shape.terms]
-        expected_dtypes = ("numeric", "boolean")
-    else:
-        materials = [shape.material]
-        expected_dtypes = ("boolean", "categorical")
+    materials = referenced_materials(shape, ())
+    expected_dtypes: tuple[material_catalog.MaterialDType, ...] = (
+        ("numeric", "boolean") if isinstance(shape, BreakpointLinearShape) else ("boolean", "categorical")
+    )
     unknown = sorted({m for m in materials if not material_catalog.is_known_material(m) and m not in axes})
     if unknown:
         raise axis_error(f"存在しない材料・軸を指しています（{', '.join(unknown)}）。点数の決め方で選び直してください。")
@@ -738,7 +730,7 @@ def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinit
     if unknown_override_materials:
         raise axis_error(f"優先条件が存在しない材料・軸を指しています（{', '.join(unknown_override_materials)}）。")
     for cond in definition.priority_overrides:
-        override_dtype = material_catalog.material_dtype(cond.material) if material_catalog.is_known_material(cond.material) else None
+        override_dtype = material_catalog.material_dtype(cond.material)
         if override_dtype not in ("boolean", "categorical"):
             kind = "軸" if override_dtype is None else "数値の材料"
             raise axis_error(
@@ -752,15 +744,13 @@ def _check_references(definition: AxisDefinition, axes: Mapping[str, AxisDefinit
             )
 
 
-_topological_order_cache: LRUCache = LRUCache(maxsize=64)
-
-
 def _topological_axis_order_cache_key(
     definitions: dict[str, AxisDefinition],
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple((axis_id, tuple(definition.materials)) for axis_id, definition in definitions.items())
 
 
+@cached(cache=LRUCache(maxsize=64), key=_topological_axis_order_cache_key)
 def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """軸を「依存先（参照される軸）が先」の順序に並べ替える（深さ優先探索による
     トポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
@@ -779,11 +769,6 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     しない（軸スタジオでの試行錯誤中に一時的な循環を経て修正された場合の再評価を妨げない
     ため）。
     """
-    cache_key = _topological_axis_order_cache_key(definitions)
-    cached = _topological_order_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
     known_axis_ids = set(definitions.keys())
     order: list[str] = []
     visited: dict[str, int] = {}  # 0=visiting, 1=done
@@ -802,8 +787,6 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
     for axis_id in definitions:
         visit(axis_id, [])
-
-    _topological_order_cache[cache_key] = order
     return order
 
 
@@ -837,8 +820,6 @@ def check_axis_set(definitions: dict[str, AxisDefinition]) -> None:
 # `domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
 REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({WIND_DRAG_RATIO})
 
-_dynamic_axis_order_cache: LRUCache = LRUCache(maxsize=64)
-
 
 def _axes_depending_on_materials(
     material_ids: frozenset[str], definitions: dict[str, AxisDefinition]
@@ -858,6 +839,7 @@ def _axes_depending_on_materials(
     return dynamic
 
 
+@cached(cache=LRUCache(maxsize=64), key=_topological_axis_order_cache_key)
 def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """`definitions`内の軸のうち`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に依存する軸を、
     依存順（`topological_axis_order`のサブセット）で返す。
@@ -871,31 +853,32 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
     `topological_axis_order`と同じ理由（タイル読込時・リクエスト時の両方で呼ばれる）で
     プロセス内メモリへ内容ベースのキーでメモ化する。
     """
-    cache_key = _topological_axis_order_cache_key(definitions)
-    cached = _dynamic_axis_order_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
     dynamic_ids = _axes_depending_on_materials(REQUEST_DYNAMIC_MATERIAL_IDS, definitions)
-    order = [axis_id for axis_id in topological_axis_order(definitions) if axis_id in dynamic_ids]
+    return [axis_id for axis_id in topological_axis_order(definitions) if axis_id in dynamic_ids]
 
-    _dynamic_axis_order_cache[cache_key] = order
-    return order
+
+def published_axis_definitions(definitions: Mapping[str, AxisDefinition] | None = None) -> list[AxisDefinition]:
+    """公開軸（`is_published=True`）を宣言の順に。`definitions`を省くと今の`AXIS_DEFINITIONS`。
+
+    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外で、軸カタログにも出ない。"""
+    return [definition for definition in (AXIS_DEFINITIONS if definitions is None else definitions).values()
+            if definition.is_published]
 
 
 def default_axis_weights() -> dict[str, float]:
     """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
     既定値）。値は各軸の`default_weight`で、`GET /api/axis-catalog`が軸ごとに配る
-    `default_weight`と同じ。
+    `default_weight`と同じ。公開軸だけを持つ（`published_axis_definitions`）。
+    `RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と整合させる。"""
+    return {definition.axis_id: definition.default_weight for definition in published_axis_definitions()}
 
-    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
-    除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と
-    整合させる。"""
-    return {
-        axis_id: definition.default_weight
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if definition.is_published
-    }
+
+def weight_share_when_published(definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]) -> float | None:
+    """`definition`を（保存した既定の重みで）公開したとき、公開軸の既定の重みの合計に占める割合。公開済みの軸は今の
+    割合。分母は`definitions`の公開軸で、合計が0ならNone（`difficulty.weight_share`）。"""
+    others = [other.default_weight for other in published_axis_definitions(definitions)
+              if other.axis_id != definition.axis_id]
+    return weight_share(definition.default_weight, others)
 
 
 def time_scoped_weights(
@@ -923,9 +906,8 @@ def _priority_override_mask(values: MaterialColumn, equals: str) -> np.ndarray:
     """0次条件が材料の値のどの要素に当たるか。**一致の判定はここだけが持つ**。
 
     `equals`は`CategoricalShape.mapping`のキーと同じ読み方をする（"true"/"false"だけを真偽へ読み、
-    それ以外は書いたとおりの値の名前）。真偽の材料は、欠損を持たないものは真偽の配列、「不明」を
-    持つものは1.0/0.0/NaNの数値の配列で届く（`material_catalog.material_array_group`）が、
-    どちらも真偽との`==`で同じ答えになる。分類の材料はルート選びでは`CategoricalColumn`で届き、
+    それ以外は書いたとおりの値の名前）。真偽の材料は1.0/0.0/NaNの数値の配列で届き
+    （`material_catalog.material_array_columns`）、真偽との`==`が1.0/0.0と一致する。分類の材料はルート選びでは`CategoricalColumn`で届き、
     語彙の値と比べる。欠損（None・NaN）はどの`equals`にも当たらない。
     """
     if isinstance(values, CategoricalColumn):
@@ -1059,17 +1041,6 @@ def _term_values(materials: Mapping[str, MaterialColumn], material_id: str) -> n
     return values
 
 
-def _missing_material_mask(values: np.ndarray) -> np.ndarray:
-    """材料配列の欠損マスク。
-
-    bool配列は`bool_default="false"`の材料（値が無いことを偽として畳んである）のため
-    欠損を持たない。それ以外の数値配列はNaNが欠損を表す。
-    """
-    if values.dtype == bool:
-        return np.zeros(values.shape, dtype=bool)
-    return np.isnan(values)
-
-
 def _breakpoint_raw_total_array(
     shape: BreakpointLinearShape, materials: Mapping[str, MaterialColumn]
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -1080,7 +1051,8 @@ def _breakpoint_raw_total_array(
     all_missing: np.ndarray | None = None
     for term in shape.terms:
         values = _term_values(materials, term.material)
-        missing = _missing_material_mask(values)
+        # 項の材料は数値・真偽とも数値の配列で届き、NaNが欠損を表す。
+        missing = np.isnan(values)
         all_missing = missing if all_missing is None else all_missing & missing
         if not term.required:
             values = np.where(missing, 0.0, values)
@@ -1102,9 +1074,8 @@ def axis_raw_value_array(
     判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる。
     """
     shape = definition.shape
-    if not has_axis_raw_value_array(definition):
+    if not isinstance(shape, BreakpointLinearShape):
         return None
-    assert isinstance(shape, BreakpointLinearShape)
     return _breakpoint_raw_value_array(shape, materials)
 
 
@@ -1151,19 +1122,10 @@ def raw_values(shape: "AxisShape", materials: Mapping[str, Sequence[object]], le
     return _scores_or_none(_breakpoint_raw_value_array(shape, columns))
 
 
-def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
-    """`axis_raw_value_array`が配列を返すか。**データではなく軸の宣言だけで決まる**。
-
-    列の集合を数えるときにデータを持たずに判定できる必要がある（静的スコア行列の
-    空タイル分岐・読み出し時の列検証が、実際に配列を作らずに同じ答えを得るため）。
-    """
-    return isinstance(definition.shape, BreakpointLinearShape)
-
-
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, MaterialColumn]) -> np.ndarray:
     """材料の配列から要素ごとの軸の得点を求める（欠損=NaN）。軸の評価はこれ1本。
 
-    `materials`は材料id→同じ長さの列（フラグ材料はbool配列、それ以外はfloat配列で
+    `materials`は材料id→同じ長さの列（数値・真偽の材料はfloat配列で、真偽は1.0/0.0、
     欠損はNaN。categorical材料はルート選びでは`CategoricalColumn`、Pythonの値の入口では
     dtype=object の配列で欠損はNone）。requiredな材料のNaNは演算で
     自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う。ただし全termの
@@ -1179,8 +1141,8 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, Mate
     if isinstance(shape, BreakpointLinearShape):
         result = _breakpoint_score_array(shape, *_breakpoint_raw_total_array(shape, materials))
     else:
-        # CategoricalShape。真偽の材料は真偽の配列でも1.0/0.0の数値配列でも、真偽のキーとの
-        # 一致が同じ答えになるため、キーをfloatへ変えない。
+        # CategoricalShape。真偽の材料の1.0/0.0の数値配列は真偽のキーとの一致が同じ答えになるため、
+        # キーをfloatへ変えない。
         result = evaluate_categorical(materials[shape.material], shape.mapping)
     for override in reversed(definition.priority_overrides):
         mask = _priority_override_mask(materials[override.material], override.equals)

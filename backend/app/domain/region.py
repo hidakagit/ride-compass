@@ -1,7 +1,9 @@
 import math
 from collections.abc import Sequence
+from typing import Annotated
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, Latitude, LatLon, Longitude, km_per_degree_longitude
 from app.domain.strict_model import StrictModel
@@ -10,6 +12,24 @@ from app.domain.strict_model import StrictModel
 # 要求しないが、直接APIを叩かれた場合に備えてバックエンド側でもこの範囲外を拒否する。
 ROAD_TILE_MIN_ZOOM = 12
 ROAD_TILE_MAX_ZOOM = 15
+#: 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間、それより引いた
+#: 表示ではway丸ごと**にする。区間で焼くとgzip後の費用はz14で1.48倍・z12で1.81倍へ増える
+#: 一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず塗り分けても読めない。
+EDGE_UNIT_MIN_ZOOM = 14
+
+
+# タイル座標の型。ズームはレイヤーごとに範囲が違うので、レイヤーの宣言の隣に置く（路面・点は`RoadTileZoom`、
+# 土地被覆は`domain/landcover.py`、標高は`domain/gsi_tiles.py`）。列・行の上限はズームに依り、欄の型だけでは
+# 書けないので`check_tile_index`が見る。
+RoadTileZoom = Annotated[int, Field(ge=ROAD_TILE_MIN_ZOOM, le=ROAD_TILE_MAX_ZOOM)]
+TileIndex = Annotated[int, Field(ge=0)]
+
+
+def check_tile_index(z: int, x: int, y: int) -> None:
+    """列・行がズーム`z`に在る範囲（2**z未満）か。外れたまま`tile_bounds_lonlat`へ渡すと在りもしない範囲を引き、
+    極端な値では`math.sinh`が桁あふれする。"""
+    if x >= 2**z or y >= 2**z:
+        raise PydanticCustomError("tile_index", "タイル座標がズームの範囲の外です。")
 
 
 class BoundingBox(StrictModel):
@@ -37,6 +57,11 @@ class BoundingBox(StrictModel):
                 f"経度はmin < maxが必要です: min={self.min_longitude} max={self.max_longitude}"
             )
         return self
+
+    def contains(self, point: LatLon) -> bool:
+        """地点が範囲に入るか（縁の上も入る）。"""
+        return (self.min_latitude <= point.latitude <= self.max_latitude
+                and self.min_longitude <= point.longitude <= self.max_longitude)
 
 
 def bbox_covering_points(points: Sequence[LatLon], margin_km: float) -> BoundingBox:

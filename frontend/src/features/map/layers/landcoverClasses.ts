@@ -7,8 +7,6 @@
 import landcoverClassesJson from "@/types/generated/landcover-classes.json";
 
 interface LandcoverClass {
-  /** ラスタの画素値。 */
-  value: number;
   /** AxisInspectorResult.landcoverの対応する割合列の名前。 */
   percentField: string;
   label: string;
@@ -20,7 +18,6 @@ interface LandcoverClass {
 }
 
 export const LANDCOVER_CLASSES: readonly LandcoverClass[] = landcoverClassesJson.map((cls) => ({
-  value: cls.value,
   percentField: cls.percent_field,
   label: cls.label,
   color: cls.color,

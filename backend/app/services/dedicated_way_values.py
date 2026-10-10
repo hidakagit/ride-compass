@@ -8,9 +8,8 @@
 その軸のタイルが全て失敗する）。
 """
 
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from datetime import datetime
-from functools import partial
 from typing import Any, Callable, Iterable, Mapping, Protocol, TypeVar, cast
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
@@ -19,6 +18,7 @@ from app.domain.dynamic_way_values import (
     WayValueConditionName,
     WayValueQuery,
     assemble_conditions,
+    transform_dedicated_way_values,
 )
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
@@ -31,7 +31,7 @@ _Conditions = TypeVar("_Conditions")
 
 
 class DedicatedWayValueService(Protocol[_Conditions]):
-    """フィーチャー→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。
+    """フィーチャー→動的値配信の実装が満たす形（地図のレンズと区間インスペクタは`way_values`越しに使う）。
 
     `get_way_values`は`conditions_type`の値だけを受け取る。要求からの組み立ては
     `domain/dynamic_way_values.py: assemble_conditions`が行い、要る条件が欠けていれば組み立てない。
@@ -43,9 +43,6 @@ class DedicatedWayValueService(Protocol[_Conditions]):
     async def get_way_values(self, z: int, x: int, y: int, conditions: _Conditions) -> Mapping[str, float | None]:
         """フィーチャーの鍵→値。Noneは、その道の値が走行方位で決まらないこと（値が無い道は鍵ごと除く）。"""
         ...
-
-
-DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository, WeatherService], DedicatedWayValueService[Any]]
 
 
 class DedicatedWayValueServiceType(Protocol):
@@ -114,8 +111,10 @@ def _served_material_of(axis_id: str) -> str | None:
     return served_dedicated_way_value_material(definition.materials)
 
 
-def _factory_of(material: str) -> DedicatedWayValueServiceFactory:
-    return partial(_SERVICES_BY_MATERIAL[material].build, material_id=material)
+def _build_service(
+    material: str, repository: RoadGraphRepository, weather_service: WeatherService
+) -> DedicatedWayValueService[Any]:
+    return _SERVICES_BY_MATERIAL[material].build(repository, weather_service, material)
 
 
 #: 材料id→その材料の配信サービス。
@@ -124,33 +123,71 @@ MaterialServiceBuilder = Callable[[str], DedicatedWayValueService[Any]]
 
 def material_service_builder(repository: RoadGraphRepository, weather_service: WeatherService) -> MaterialServiceBuilder:
     """材料ごとの配信サービスを、同じリポジトリ・気象サービスで組み立てる。"""
-    return lambda material: _factory_of(material)(repository, weather_service)
+    return lambda material: _build_service(material, repository, weather_service)
 
 
-def dedicated_way_value_factory(axis_id: str) -> DedicatedWayValueServiceFactory | None:
-    """軸の配信を組み立てる工場。専用配信の軸でないか、配信できる材料が無ければNone。"""
-    material = _served_material_of(axis_id)
-    return None if material is None else _factory_of(material)
+async def way_values(
+    service: DedicatedWayValueService[Any], z: int, x: int, y: int, query: WayValueQuery
+) -> Mapping[str, float | None] | MissingConditions:
+    """配信サービスが要る条件を`query`から組み、タイル内のフィーチャーの値を引く。要る条件が欠けていれば引かずに
+    欠けた条件を返す（`assemble_conditions`）。地図のレンズと区間インスペクタが同じこの口で引く。"""
+    conditions = assemble_conditions(service.conditions_type, query)
+    if isinstance(conditions, MissingConditions):
+        return conditions
+    return await service.get_way_values(z, x, y, conditions)
 
 
-def dedicated_way_value_conditions(axis_id: str) -> list[WayValueConditionName]:
-    """地図がこの軸の配信の要求へ載せる条件の名前（クエリパラメータの名前と同じ）。
+class AxisWayValueLens:
+    """地図のレンズが塗る、1つの軸の値（フィーチャーの鍵→値）。
 
-    載せるのは、配信サービスが受け取る条件の型の欄すべて——既定値のある欄（風の時刻）も載せる。
-    省略できるのは配信が既定値で補えるというだけで、地図が利用者の選んだ値を持っているなら
-    それで求めた値を塗る。専用配信の軸でないか、配信できる材料が無ければ空。
+    配信サービスは材料の生値を返し、キャッシュも生値のまま持つ。地図が塗る値（難易度か符号付き材料か）への
+    変換は軸定義から都度行うため、軸スタジオで折れ点を変えてもキャッシュを捨てずに即座に効く。
     """
-    material = _served_material_of(axis_id)
-    if material is None:
-        return []
-    conditions_type = _SERVICES_BY_MATERIAL[material].conditions_type
-    return [cast(WayValueConditionName, field.name) for field in fields(conditions_type)]
+
+    def __init__(self, axis_id: str, service: DedicatedWayValueService[Any]):
+        self._axis_id = axis_id
+        self._service = service
+
+    async def values(self, z: int, x: int, y: int, query: WayValueQuery) -> dict[str, float | None] | MissingConditions:
+        raw = await way_values(self._service, z, x, y, query)
+        if isinstance(raw, MissingConditions):
+            return raw
+        return transform_dedicated_way_values(AXIS_DEFINITIONS[self._axis_id], self._service.material_id, raw)
 
 
-def dedicated_way_value_undetermined_by_bearing(axis_id: str) -> bool:
-    """この軸の配信が、走行方位しだいで値の決まらない道を返しうるか。専用配信の軸でなければFalse。"""
+def axis_way_value_lens(
+    axis_id: str, repository: RoadGraphRepository, weather_service: WeatherService
+) -> AxisWayValueLens | None:
+    """軸のレンズを組み立てる。専用配信の軸でないか、配信できる材料が無ければNone。"""
     material = _served_material_of(axis_id)
-    return material is not None and _SERVICES_BY_MATERIAL[material].undetermined_by_bearing
+    return None if material is None else AxisWayValueLens(axis_id, _build_service(material, repository, weather_service))
+
+
+@dataclass(frozen=True)
+class DedicatedWayValueLayer:
+    """地図が軸の専用配信を要求するときに要るもの。"""
+
+    #: 要求へ載せる条件の名前（クエリパラメータの名前と同じ）。載せるのは配信サービスが受け取る条件の型の欄すべて
+    #: ——既定値のある欄（風の時刻）も載せる。省略できるのは配信が既定値で補えるというだけで、地図が利用者の選んだ
+    #: 値を持っているならそれで求めた値を塗る。専用配信の軸でないか、配信できる材料が無ければ空。
+    conditions: list[WayValueConditionName]
+    #: 配信が、走行方位しだいで値の決まらない道を返しうるか。専用配信の軸でなければFalse。
+    undetermined_by_bearing: bool
+
+
+def dedicated_way_value_layers() -> dict[str, DedicatedWayValueLayer]:
+    """軸id → 地図が専用配信を要求するときに要るもの。今の`AXIS_DEFINITIONS`の全軸を持つ。"""
+    out: dict[str, DedicatedWayValueLayer] = {}
+    for axis_id in AXIS_DEFINITIONS:
+        material = _served_material_of(axis_id)
+        service = None if material is None else _SERVICES_BY_MATERIAL[material]
+        out[axis_id] = DedicatedWayValueLayer(
+            conditions=[] if service is None else [
+                cast(WayValueConditionName, field.name) for field in fields(service.conditions_type)
+            ],
+            undetermined_by_bearing=service is not None and service.undetermined_by_bearing,
+        )
+    return out
 
 
 class DirectionalMaterialService:
@@ -188,11 +225,10 @@ class DirectionalMaterialService:
         key = feature_key or str(osm_way_id)
         found: dict[str, float] = {}
         for material in materials:
-            service = self._build_service(material)
-            conditions = assemble_conditions(service.conditions_type, query)
-            if isinstance(conditions, MissingConditions):
+            values = await way_values(self._build_service(material), z, x, y, query)
+            if isinstance(values, MissingConditions):
                 continue
-            value = (await service.get_way_values(z, x, y, conditions)).get(key)
+            value = values.get(key)
             if value is not None:
                 found[material] = value
         return found

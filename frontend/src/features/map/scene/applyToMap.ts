@@ -14,7 +14,7 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import type { DedicatedWayValueAxis, RampAxis } from "@/lib/mapDisplay/axisLayers";
+import { axisMapLayerId, type DedicatedWayValueAxis, type RampAxis } from "@/lib/mapDisplay/axisLayers";
 import { debugLog } from "@/lib/debugLog";
 import type {
   DynamicWeatherGroupState,
@@ -22,7 +22,13 @@ import type {
   DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
 import { withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
-import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import {
+  areaLayerAnchor,
+  hideBasemapPois,
+  labelLayerAnchor,
+  prepareBasemap,
+  runWhenStyleReady,
+} from "@/features/map/layers/mapStyleOps";
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
 import type { LensId, RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
@@ -39,20 +45,24 @@ import {
   type TileVersions,
 } from "@/features/map/regionApi";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { drawPointIcon } from "@/features/map/layers/pointIcon";
+
+import { applyMapScene } from "./applyMapScene";
+import {
+  buildAxisRampUnknownExpression,
+  buildAxisRampValueExpression,
+  type AxisBand,
+  type AxisLineState,
+} from "./groups/axisLines";
+import { POINT_ICONS, POINT_TILE_LAYERS } from "./groups/points";
+import type { RouteState } from "./groups/routes";
+import { WEATHER_ICONS, weatherElementKey, type WeatherPayload, type WeatherState } from "./groups/weather";
+import { buildLegendFilterExpression } from "./sceneBuilders";
+import type { SceneInputs } from "./buildScene";
+import { EMPTY_MAP_SCENE, hiddenBasemapPois, type MapScene } from "./mapScene";
 
 /** ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。 */
 export const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
-
-import { applyMapScene } from "./applyMapScene";
-import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "./groups/axisLines";
-import { buildLegendFilterExpression } from "./sceneBuilders";
-import type { SceneInputs } from "./buildScene";
-import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
-import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
-import { drawPointIcon } from "@/features/map/layers/pointIcon";
-import { POINT_ICONS, POINT_TILE_SOURCES } from "@/features/map/scene/groups/points";
-import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
-import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
 /** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
 export interface SpliceStretchInput {
@@ -101,6 +111,22 @@ type SceneWiringProps = {
 
 const NO_KEYS: readonly string[] = [];
 
+/** 道の線を塗る評価軸は、レンズが塗っている1本だけ。 */
+function isAxisShown(look: Pick<SceneLook, "paintedAxisId">, axisId: string): boolean {
+  return axisId === look.paintedAxisId;
+}
+
+/** レイヤーごとの実際の表示。ramp軸のレイヤーは表示の状態に無く、塗っている軸かで決まる。 */
+export function effectiveLayerVisibility(
+  look: Pick<SceneLook, "layerVisibility" | "paintedAxisId">,
+  rampAxes: readonly RampAxis[],
+): MapLayerVisibility {
+  return {
+    ...look.layerVisibility,
+    ...Object.fromEntries(rampAxes.map((axis) => [axisMapLayerId(axis.axisId), isAxisShown(look, axis.axisId)])),
+  };
+}
+
 function routeStateFrom(props: SceneWiringProps): RouteState {
   const { look } = props;
   const visible = look.layerVisibility.route === true;
@@ -117,17 +143,17 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
     visible,
     candidates: props.routes.map((route) => ({
       routeId: route.id,
-      path: route.geometry.coordinates as unknown as RoutePath,
+      path: route.geometry.coordinates,
     })),
     selectedRouteId: props.selectedRouteId,
     segments: segments.map((segment) => {
       const { geometry, ...properties } = segment;
       return {
         // 道なりの形が無い区間（2点未満のEdge等）は、始点と終点を結ぶ直線で代替する。
-        path: (geometry?.coordinates ?? [
+        path: geometry?.coordinates ?? [
           [segment.start_longitude, segment.start_latitude],
           [segment.end_longitude, segment.end_latitude],
-        ]) as unknown as RoutePath,
+        ],
         properties,
       };
     }),
@@ -137,10 +163,10 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
       : { segmentNoData: mode.noDataExpression as maplibregl.ExpressionSpecification }),
     ...(hiddenBandFilter === null ? {} : { hiddenBandFilter }),
     spliceBands: bands.map((band) => ({
-      path: band.coordinates as unknown as RoutePath,
+      path: band.coordinates,
       properties: { index: band.index },
     })),
-    composite: composite !== null && composite.length > 1 ? { path: composite as unknown as RoutePath } : null,
+    composite: composite !== null && composite.length > 1 ? { path: composite } : null,
     arrowIconImage: ROUTE_ARROW_ICON_ID,
   };
 }
@@ -164,45 +190,55 @@ function underlaidAxisIds(props: SceneWiringProps): ReadonlySet<string> {
 function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): AxisLineState {
   const { look } = props;
   const underlaid = underlaidAxisIds(props);
-  const hiddenOf = (axisId: string) => look.hiddenLegendKeys[axisId] ?? NO_KEYS;
-  const ramp = props.catalog.rampAxes.map((axis) => ({
-    axisId: axis.axisId,
-    visible: axis.axisId === look.paintedAxisId,
-    bands: axisLineBands(rampAxisBands(axis)),
-    value: {
-      kind: "tile" as const,
-      expression: buildAxisRampValueExpression(axis),
-      unknown: buildAxisRampUnknownExpression(axis),
-    },
-    hiddenBandKeys: hiddenOf(axis.axisId),
-    underlay: underlaid.has(axis.axisId),
-  }));
+  const entry = (
+    axisId: string,
+    bands: readonly ValueBand[],
+    value: AxisLineState["axes"][number]["value"],
+    underlay: boolean,
+  ): AxisLineState["axes"][number] => ({
+    axisId,
+    visible: isAxisShown(look, axisId),
+    bands: axisLineBands(bands),
+    value,
+    hiddenBandKeys: look.hiddenLegendKeys[axisId] ?? NO_KEYS,
+    underlay,
+  });
+  const ramp = props.catalog.rampAxes.map((axis) =>
+    entry(
+      axis.axisId,
+      rampAxisBands(axis),
+      {
+        kind: "tile",
+        expression: buildAxisRampValueExpression(axis),
+        unknown: buildAxisRampUnknownExpression(axis),
+      },
+      underlaid.has(axis.axisId),
+    ),
+  );
   const dedicated = props.catalog.dedicatedAxes.map((axis) => {
     const delivered = look.dedicatedWayValues.get(axis.axisId);
-    return {
-      axisId: axis.axisId,
-      visible: axis.axisId === look.paintedAxisId,
-      bands: axisLineBands(dedicatedAxisBands(axis.display)),
-      value: {
-        kind: "delivered" as const,
+    return entry(
+      axis.axisId,
+      dedicatedAxisBands(axis.display),
+      {
+        kind: "delivered",
         values: delivered?.values ?? new Map<string, number | null>(),
         loading: delivered?.loading === true,
       },
-      hiddenBandKeys: hiddenOf(axis.axisId),
-      underlay: false,
-    };
+      false,
+    );
   });
   return { axes: [...ramp, ...dedicated], sourceLayer };
 }
 
-/** 届いている中身を、要素の鍵（`${チップid}/${ソース}`）で引ける形へ移す。 */
+/** 届いている中身を、要素の鍵（`groups/weather.ts: weatherElementKey`）で引ける形へ移す。 */
 function weatherStateFrom(props: SceneWiringProps): WeatherState {
   const shown = new Map<string, { visible: boolean; payload?: WeatherPayload }>();
   for (const [groupId, group] of Object.entries(props.look.dynamicWeather)) {
     if (group === undefined) continue;
     for (const [sourceId, source] of Object.entries(group)) {
       if (source === undefined) continue;
-      shown.set(`${groupId}/${sourceId}`, {
+      shown.set(weatherElementKey({ group: groupId, source: sourceId }), {
         visible: source.visible,
         ...(source.payload === undefined ? {} : { payload: weatherPayloadFrom(source.payload) }),
       });
@@ -227,13 +263,16 @@ function weatherPayloadFrom(payload: DynamicWeatherRenderPayload): WeatherPayloa
 /** 点のタイルごとのURL。 */
 function pointTileUrls(versions: TileVersions): Record<PointTileLayer, readonly string[]> {
   const urls = {} as Record<PointTileLayer, readonly string[]>;
-  for (const name of Object.keys(POINT_TILE_SOURCES) as PointTileLayer[]) urls[name] = [pointTileUrl(versions, name)];
+  for (const name of POINT_TILE_LAYERS) urls[name] = [pointTileUrl(versions, name)];
   return urls;
 }
 
 export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
   // 世代が届く前にタイルのソースを作ると、世代の違う中身がブラウザのキャッシュへ載る。
   const versions = props.tileVersions;
+  const zoom = { minZoom: ROAD_TILE_MIN_ZOOM, maxZoom: ROAD_TILE_MAX_ZOOM };
+  const roadTiles =
+    versions === null ? null : { urls: [roadSurfaceTileUrl(versions)], sourceLayer: ROAD_TILE_SOURCE_LAYER, ...zoom };
   // 家族はどれも自分の役割の鍵だけを読むため、状態をそのまま渡す。
   const visible = props.look.layerVisibility;
   const hiddenKeys = props.look.hiddenLegendKeys;
@@ -244,27 +283,14 @@ export function sceneInputsFrom(props: SceneWiringProps): SceneInputs {
       landcoverTileUrl: landcoverTileUrl(),
     },
     road: {
-      tiles: versions
-        ? {
-            urls: [roadSurfaceTileUrl(versions)],
-            sourceLayer: ROAD_TILE_SOURCE_LAYER,
-            minZoom: ROAD_TILE_MIN_ZOOM,
-            maxZoom: ROAD_TILE_MAX_ZOOM,
-          }
-        : null,
+      tiles: roadTiles,
       visible,
       hiddenKeys,
       inspectedWayId: props.inspectedWayId,
     },
-    axis: axisStateFrom(props, versions ? ROAD_TILE_SOURCE_LAYER : null),
+    axis: axisStateFrom(props, roadTiles?.sourceLayer ?? null),
     point: {
-      tiles: versions
-        ? {
-            urls: pointTileUrls(versions),
-            minZoom: ROAD_TILE_MIN_ZOOM,
-            maxZoom: ROAD_TILE_MAX_ZOOM,
-          }
-        : null,
+      tiles: versions === null ? null : { urls: pointTileUrls(versions), ...zoom },
       visible,
       hiddenKeys,
     },
@@ -292,11 +318,12 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
       const { data, pixelRatio } = drawPointIcon(icon.color, icon.glyph);
       map.addImage(icon.id, data, { pixelRatio });
     }
-    prepareBasemapForAreaLayers(map);
+    prepareBasemap(map);
+    hideBasemapPois(map, hiddenBasemapPois(scene));
     applyMapScene(map, {
       scene,
       previous: options.reset === true ? EMPTY_MAP_SCENE : (appliedScene.get(map) ?? EMPTY_MAP_SCENE),
-      areaLayerBeforeId: areaLayerAnchor(map),
+      basemapAnchors: { roads: areaLayerAnchor(map), labels: labelLayerAnchor(map) },
     });
     appliedScene.set(map, scene);
   });

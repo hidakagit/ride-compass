@@ -43,13 +43,12 @@ function serveDistributions() {
 }
 
 interface Args {
-  enabled: boolean;
   termsKey: string;
   shape: AxisShape;
 }
 
 function mount(initial: Args) {
-  return renderHook(({ enabled, termsKey, shape }: Args) => useAxisValueDistribution(enabled, termsKey, () => shape), {
+  return renderHook(({ termsKey, shape }: Args) => useAxisValueDistribution(termsKey, () => shape), {
     initialProps: initial,
   });
 }
@@ -70,23 +69,20 @@ afterEach(() => {
 });
 
 describe("取りに行かないとき", () => {
-  it.each([
-    ["無効", { enabled: false, termsKey: "k1", shape: SHAPE_A }],
-    ["鍵が空", { enabled: true, termsKey: "", shape: SHAPE_A }],
-  ])("%sなら、分布も取得中も失敗も無く、問い合わせない", async (_, args) => {
-    const { result } = mount(args);
+  it("鍵が空なら、分布も取得中も失敗も無く、問い合わせない", async () => {
+    const { result } = mount({ termsKey: "", shape: SHAPE_A });
     await advance(MAP_FETCH_DEBOUNCE_MS);
 
     expect(result.current).toEqual({ distribution: null, loading: false, error: null });
   });
 
-  it("取れた後に無効へ変わると、分布を出さない", async () => {
+  it("取れた後に鍵が空へ変わると、分布を出さない", async () => {
     serveDistributions();
-    const { result, rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    const { result, rerender } = mount({ termsKey: "k1", shape: SHAPE_A });
     await advance();
     expect(result.current.distribution).toEqual(DIST_A);
 
-    rerender({ enabled: false, termsKey: "k1", shape: SHAPE_A });
+    rerender({ termsKey: "", shape: SHAPE_A });
 
     expect(result.current).toEqual({ distribution: null, loading: false, error: null });
   });
@@ -96,7 +92,7 @@ describe("取得", () => {
   it("最初の鍵は待たずにその時の形で取りに行き、届くまでは取得中で、届くと分布を返す", async () => {
     const held = heldReplies();
     onSameOrigin("POST", PREVIEW, held.reply);
-    const { result } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    const { result } = mount({ termsKey: "k1", shape: SHAPE_A });
     await advance();
 
     expect(result.current).toEqual({ distribution: null, loading: true, error: null });
@@ -109,12 +105,12 @@ describe("取得", () => {
 
   it("鍵が変わっても間引きの間は取りに行かず、続けて変えたら最後の鍵の形で取る", async () => {
     serveDistributions();
-    const { result, rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    const { result, rerender } = mount({ termsKey: "k1", shape: SHAPE_A });
     await advance();
 
-    rerender({ enabled: true, termsKey: "k2", shape: SHAPE_C });
+    rerender({ termsKey: "k2", shape: SHAPE_C });
     await advance(MAP_FETCH_DEBOUNCE_MS - 1);
-    rerender({ enabled: true, termsKey: "k3", shape: SHAPE_B });
+    rerender({ termsKey: "k3", shape: SHAPE_B });
     await advance(MAP_FETCH_DEBOUNCE_MS - 1);
     expect(result.current).toEqual({ distribution: DIST_A, loading: false, error: null });
 
@@ -126,12 +122,12 @@ describe("取得", () => {
 
   it("取り直している間は前の分布を出したまま取得中を示し、届くと入れ替わる", async () => {
     serveDistributions();
-    const { result, rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    const { result, rerender } = mount({ termsKey: "k1", shape: SHAPE_A });
     await advance();
     const held = heldReplies();
     onSameOrigin("POST", PREVIEW, held.reply);
 
-    rerender({ enabled: true, termsKey: "k2", shape: SHAPE_B });
+    rerender({ termsKey: "k2", shape: SHAPE_B });
     await advance(MAP_FETCH_DEBOUNCE_MS);
 
     expect(result.current).toEqual({ distribution: DIST_A, loading: true, error: null });
@@ -144,14 +140,14 @@ describe("取得", () => {
 
   it("鍵が同じまま形だけ変わっても取り直さず、次に鍵が変わったときは最新の形で取る", async () => {
     serveDistributions();
-    const { result, rerender } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    const { result, rerender } = mount({ termsKey: "k1", shape: SHAPE_A });
     await advance();
 
-    rerender({ enabled: true, termsKey: "k1", shape: SHAPE_B });
+    rerender({ termsKey: "k1", shape: SHAPE_B });
     await advance(MAP_FETCH_DEBOUNCE_MS);
     expect(result.current).toEqual({ distribution: DIST_A, loading: false, error: null });
 
-    rerender({ enabled: true, termsKey: "k2", shape: SHAPE_B });
+    rerender({ termsKey: "k2", shape: SHAPE_B });
     await advance(MAP_FETCH_DEBOUNCE_MS);
     await advance();
 
@@ -162,7 +158,7 @@ describe("取得", () => {
 describe("失敗", () => {
   it("失敗は理由の文言を返し、分布は出さない", async () => {
     onSameOrigin("POST", PREVIEW, () => Response.json({ detail: "分布の取得: 500" }, { status: 500 }));
-    const { result } = mount({ enabled: true, termsKey: "k1", shape: SHAPE_A });
+    const { result } = mount({ termsKey: "k1", shape: SHAPE_A });
     await advance();
 
     expect(result.current).toEqual({ distribution: null, loading: false, error: "分布の取得: 500" });

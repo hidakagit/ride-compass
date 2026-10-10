@@ -14,11 +14,11 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`rain.py`（雨の材料の宣言——窓の長さの一覧——と、1時間雨量の履歴から材料の値を求める計算・配ってよい履歴の古さ）・`dynamic_way_values.py` |
-| services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py`・`dedicated_way_values.py`（材料→配信の実装の表、軸の材料から実装を選ぶこと、区間インスペクタが足す材料をまとめて引くこと） |
+| services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py`・`feature_midpoints.py`（地点の値を引く配信サービスが、タイル内のフィーチャーの中ほどを鍵と緯度・経度の配列で引く口）・`dedicated_way_values.py`（材料→配信の実装の表、軸の材料から実装を選ぶこと、条件を組んで値を引く共通の口、地図のレンズ、区間インスペクタが足す材料をまとめて引くこと） |
 | infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`・`get_axis_inspector_service`） |
 
-勾配材料の入力（`edge_materials.average_grade`とフィーチャーの方位）を
+勾配材料の入力（`edge_elevation.average_grade`とフィーチャーの方位）を
 DBから取り出す`infrastructure/road_graph_repository.py:
 get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`は
 [routing-engine.md](routing-engine.md)が主管するファイルに属する。
@@ -67,10 +67,13 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 **欠けを判定するのはここだけ**で、欠けていれば組み立てずに欠けた名前（`MissingConditions`）を
 返す——地図の配信は422に、区間インスペクタは「データなし」にする。サービスの
 `get_way_values`は組み立て済みの値だけを受け取るので、要る欄は`None`を許さない型のまま届く。
+値の範囲は欄の型（方位`domain/geo.py: BearingDeg`・速度`domain/route_request.py: AssumedSpeedKmh`・タイル座標
+`domain/region.py: RoadTileZoom`・`TileIndex`）が持ち、地図の配信のクエリ・パスも区間インスペクタの本文も同じ型で書く
+（外れ・NaN・無限大はどちらも422）。
 
 **地図が載せる条件**も同じ条件の型から導き、軸は宣言を持たない。`GET /api/axis-catalog`の
 `dynamic_way_value_conditions`は、軸が参照する材料のサービスの条件の型の欄の名前の並び
-（`services/dedicated_way_values.py: dedicated_way_value_conditions`）で、欄の名前
+（`services/dedicated_way_values.py: dedicated_way_value_layers`）で、欄の名前
 （`domain/dynamic_way_values.py: WayValueConditionName`）はそのままクエリパラメータの名前になる。
 frontendはどのクエリパラメータをどの軸のリクエストへ載せるかをこれだけから決める（軸idの分岐を
 持たない。[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。
@@ -80,7 +83,7 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 - 載せない条件は、地図でその入力を変えても再取得しない（勾配は時刻スライダーで取り直さない）。
 - 例: 風は時刻・走行方位・想定速度、勾配は走行方位だけ（標高・道路の向きは時刻で変わらない）、雨は
   何も載せない（今の観測を示し、出発時刻・方位では変わらない）。
-- 同じ並べ方で`dynamic_way_value_undetermined_by_bearing`（`dedicated_way_value_undetermined_by_bearing`）も配る。
+- 同じ表から`dynamic_way_value_undetermined_by_bearing`も配る。
   配信のサービスが`undetermined_by_bearing`で宣言する、走行方位で値の決まらない道（値が`null`）を返しうるか
   で、frontendはtrueの軸の凡例にだけ「向きで決まらない」の行（`domain/map_display.py: LEGEND_SHARED_ROWS`）を
   足す。返しうるのは勾配だけ。
@@ -111,12 +114,14 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 `GET /api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}?bearing_deg=&at=&speed_kmh=`
 
 ```
-axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料から担当のサービス（WindWayService等）を組み立て
+axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料から担当のサービス（WindWayService等）を組み立て、
+          軸のレンズ（AxisWayValueLens）に包む
           （専用配信を持たない・未知の軸、配信を実装した材料がちょうど1つでない軸はNone→404）
-        → assemble_conditions(service.conditions_type, WayValueQuery(at, bearing_deg, speed_kmh))
-          （要る条件が欠けていれば422。要らない条件は無視）
-        → service.get_way_values(z, x, y, 条件)   … 材料の生値（キャッシュ対象）
-        → transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, 生値)
+        → lens.values(z, x, y, WayValueQuery(at, bearing_deg, speed_kmh))
+            way_values: assemble_conditions(service.conditions_type, 要求)
+                          （要る条件が欠けていれば引かずに欠けた名前を返す→422。要らない条件は無視）
+                        → service.get_way_values(z, x, y, 条件)   … 材料の生値（キャッシュ対象）
+            → transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, 生値)
         → {フィーチャーの鍵: 地図表示値} の辞書（JSON。鍵はタイルが焼いた`feature_key`と
           同じもので、ズームによって区間・wayのどちらかになる）
 ```
@@ -171,7 +176,7 @@ axis_id → get_dedicated_way_value_service(axis_id) が軸の参照する材料
 短く持つ。下の「`RainWayService`」）。風は予報の格子点の風を配列でまとめて引くだけで計算が軽く、
 キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%。タイル中心1点の風を全wayへ配っていた版の
 本番実測）にとどまる一方、1エントリ190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
-809msを節約できるためキャッシュする（[docs/conventions/caching.md](../../conventions/caching.md)
+809msを節約できるためキャッシュする（[.claude/rules/caching-retention.md](../../../.claude/rules/caching-retention.md)
 「キャッシュしないという選択」参照）。
 
 保持層は**ディスク**（`tile_persistent_cache`＝diskcache）。失っても外部へは取りに行かず
@@ -195,7 +200,7 @@ TTLで失効し、書き込みのたびに`diskcache`が失効したものを消
 意味を持つ（フロントが`setFeatureState`のidとして使う）。タイルの焼き方を変えたデプロイの
 直後、世代が鍵に無いと、前の版の鍵を持つエントリが**どの地物にも一致しないままTTLが切れる
 まで返り続け、色だけが静かに消える**（エラーにならない）。
-`bearing_bucket(bearing_deg)`が向きを`BEARING_BUCKET_DEG`（5度）刻みで離散バケット化するため、
+`domain/dynamic_way_values.py: bearing_bucket`が向きを`BEARING_BUCKET_DEG`（5度）刻みで離散バケット化するため、
 パン・ズームで同じタイルが再び視界に入っても、同じバケットの範囲内ではDBへの再問い合わせも
 再計算も発生しない。時刻・想定速度は鍵に入れない——キャッシュする勾配はどちらにも依らず、
 依る材料（風）はキャッシュしない。時刻・速度に依る材料をキャッシュするときは、その要素を鍵へ足す。
@@ -203,7 +208,7 @@ TTLで失効し、書き込みのたびに`diskcache`が失効したものを消
 値は`{feature_key: 値}`のdict。TTLはこのモジュールが持つ（24時間。勾配の入力は道の向きと標高で決まりほぼ変わらない）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
 このモジュール自身は`log_external_call`で囲まない。hit/missは呼び出し元のサービスが自分の
 `log_external_call`の`fields["cache"]`へ書き、`/api/debug/stats`のそのカテゴリのヒット率に載る
-（[docs/conventions/logging.md](../../conventions/logging.md)「外部API・キャッシュアクセス」節）。
+（[.claude/rules/logging.md](../../../.claude/rules/logging.md)「外部API・キャッシュアクセス」節）。
 
 ## サービス実装
 
@@ -237,7 +242,7 @@ get_way_values(z, x, y, WindConditions(bearing_deg, speed_kmh, at))
 
 **この値はキャッシュしない**。タイル1枚ぶんを1回のMSM読み出しと配列演算で求めるだけで計算が軽く、
 保持コスト（1エントリ190KB）に見合う節約にならない（下の「キャッシュ」節と
-docs/conventions/caching.md「キャッシュしないという選択」）。
+.claude/rules/caching-retention.md「キャッシュしないという選択」）。
 
 ### `GradientWayService`（`gradient_way_service.py`）
 
@@ -246,14 +251,14 @@ docs/conventions/caching.md「キャッシュしないという選択」）。
 向きで値が決まる）。
 
 入力は`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返す`(gradient_percent,
-road_bearing_deg)`のフィーチャー単位dict（勾配は属する区間の`edge_materials.average_grade`から、
+road_bearing_deg)`のフィーチャー単位dict（勾配は属する区間の`edge_elevation.average_grade`から、
 方位はフィーチャーのジオメトリの両端を結ぶ方位）。区間単位のズームではその区間の実際の勾配が
 そのまま返り、way単位のズームでは**区間を長さで重み付けて平均した値**が代表になる
 （上の「フィーチャーの値」節と同じ規則。1区間の外れ値がway全体を染めない）。
 
 **暗黙の前提（モジュール間の隠れた依存）**: この入力のSQLは`em.average_grade IS NOT NULL`を
 要求するため、[elevation.md](elevation.md)の
-派生（`derive_raster_materials.py`）が該当区間の勾配を出していない（または勾配を出さないと
+派生（`derive_elevation.py`）が該当区間の勾配を出していない（または勾配を出さないと
 決めた区間）の場合、その鍵は勾配タイルの結果から静かに除外される——エラーには
 ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。
 
@@ -296,8 +301,8 @@ get_way_values(z, x, y, ...)
 - **材料の値は観測どおりの量**（mm・時間）で、どこからを濡れているとみなすかは軸の折れ点が決める。
   値の定義（窓の中に欠測があれば値なし、止んでからの時間の上限）は材料カタログの説明と`domain/rain.py`が持つ。
 
-各サービスとも`get_way_values(z, x, y, 条件) -> dict[str, float]`という同じ形で`region.py`から
-材料非依存に呼ばれる。条件は`assemble_conditions`が組み立てたそのサービスの`conditions_type`の値
+各サービスとも`get_way_values(z, x, y, 条件) -> dict[str, float]`という同じ形で、地図のレンズと区間インスペクタから
+材料非依存に呼ばれる（`services/dedicated_way_values.py: way_values`）。条件は`assemble_conditions`が組み立てたそのサービスの`conditions_type`の値
 （上の「軸登録と要求の条件」）。
 
 各サービスが例外を空dictへ倒すのは**DB障害だけ**（`database.py: DB_UNAVAILABLE_ERRORS`。
@@ -333,7 +338,7 @@ get_way_values(z, x, y, ...)
 （`RouteSegmentDetail.material_values`・`wind`）は、探索がその区間に使った時刻ビンの値を読む（詳細は
 [routing-engine.md](routing-engine.md)「レグ内の時刻ビン」「レグ別コスト配列」参照）。
 
-`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
+`ASSUMED_SPEED_KMH`（`domain/route_request.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
 ＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・走行モデルの巡航速度
 （区間の到達予想と所要時間はこの走行モデルの秒から出る）と、風の材料`wind_drag_ratio`の走行速度（`kmh_to_ms`でm/sへ変換して
 `DynamicAxisRequestContext.travel_speed_ms`へ渡す）に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の初期値で、探索範囲ごとに往路木から

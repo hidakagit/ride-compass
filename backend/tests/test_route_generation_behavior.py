@@ -16,6 +16,7 @@
 import logging
 import math
 import re
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -24,13 +25,16 @@ import pytest
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import node_key
+from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.rain import rain_window_material_id
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.domain.time_zone import JST
+from app.domain.traffic import stop_count_material_ids
 from tests import rain_history_fake
 from tests.axis_system_fixture import replaced_axis_definitions
+from app.domain.route_request import FixedPoints
 from tests.route_world import (
     AVOID_AXIS,
     BAD_MATERIAL,
@@ -41,13 +45,17 @@ from tests.route_world import (
     LON_STEP,
     NODE_OF,
     NORTH_EAST,
-    NORTH_WEST,
     SOUTH_EAST,
     SOUTH_WEST,
     at,
     avoid_axis_declared,
     generator_for,
     grid_network,
+    lattice_network,
+    lattice_node,
+    lattice_ways,
+    node_point,
+    road_network,
     ways_of,
 )
 
@@ -256,17 +264,152 @@ async def test_loop_never_drives_against_a_one_way_road(engine_over):
 # --- 経由地・目的地の扱い ---
 
 
-@pytest.mark.parametrize(("destination", "end"), [(None, SOUTH_WEST), (SOUTH_EAST, SOUTH_EAST)])
-async def test_waypoint_route_passes_each_waypoint_in_the_given_order_and_ends_where_asked(engine_over, destination, end):
-    """目的地が無ければ起点へ戻る。"""
-    generator = engine_over(grid_network())
+#: 経由地・目的地を置いた生成を見る格子（6×6、1辺約1km）。3×3では、置いた点を通っても候補が分かれる長さが無い。
+LATTICE = lattice_network(6)
 
-    (candidate,) = await generator.generate_via_waypoints(
-        at(SOUTH_WEST), [at(NORTH_WEST), at(NORTH_EAST)], 6.0,
-        destination=None if destination is None else at(destination), max_routes=1, start_time=DEPARTURE)
 
-    assert_connected(candidate, SOUTH_WEST, end)
-    assert candidate.node_ids.index(node_key(NORTH_WEST)) < candidate.node_ids.index(node_key(NORTH_EAST))
+def lattice_at(row: int, col: int) -> Coordinates:
+    return node_point(LATTICE, lattice_node(row, col))
+
+
+def passes_in_order(candidate, start: int, stops: list[int], end: int) -> bool:
+    """経路が`start`から始まり、`stops`を置いた順に通り、`end`で終わる。"""
+    nodes = candidate.node_ids
+    if nodes[0] != node_key(start) or nodes[-1] != node_key(end):
+        return False
+    position = 0
+    for stop in stops:
+        if node_key(stop) not in nodes[position:]:
+            return False
+        position = nodes.index(node_key(stop), position)
+    return True
+
+
+@pytest.mark.parametrize(
+    ("origin", "waypoints", "destination", "distance"),
+    [
+        pytest.param((1, 1), [(1, 4), (4, 4)], None, None, id="距離なし・経由地を通って出発地へ戻る"),
+        pytest.param((1, 1), [(2, 1)], (4, 3), None, id="距離なし・経由地を通って目的地へ"),
+        pytest.param((2, 2), [(2, 3), (3, 3)], None, (12.0, 2.0), id="距離あり・経由地を通って出発地へ戻る"),
+        pytest.param((1, 1), [], (4, 4), (10.0, 2.0), id="距離あり・目的地へ寄り道して"),
+        pytest.param((1, 1), [(1, 3)], (4, 4), (10.0, 2.0), id="距離あり・経由地を通って目的地へ"),
+    ],
+)
+async def test_routes_through_placed_points_keep_their_order_come_in_several_and_fit_the_distance(
+    engine_over, origin, waypoints, destination, distance,
+):
+    """経由地は置いた順に通り（夕食のあと銭湯、の順は利用者の意図）、終点は目的地か出発地。候補は1本に限らず
+    求めた数まで出て、距離を決めたときは全長が目標±許容に入る。所要時間が最短の1本（基準線）は、目的地へ距離を
+    決めずに向かうときだけ含む（距離を決めると、最短の1本は目標の距離と噛み合わない）。"""
+    generator = engine_over(LATTICE)
+    start, stops = lattice_node(*origin), [lattice_node(*point) for point in waypoints]
+    end = start if destination is None else lattice_node(*destination)
+    end_point = None if destination is None else lattice_at(*destination)
+
+    if distance is None:
+        candidates = await generator.generate_via_waypoints(
+            lattice_at(*origin), [lattice_at(*point) for point in waypoints], 8.0,
+            destination=end_point, max_routes=5, start_time=DEPARTURE)
+    else:
+        target, tolerance = distance
+        candidates = await generator.generate_loops(
+            lattice_at(*origin), target, tolerance, max_routes=5, start_time=DEPARTURE,
+            points=FixedPoints(waypoints=[lattice_at(*point) for point in waypoints], destination=end_point))
+
+    assert len(candidates) >= 2
+    for candidate in candidates:
+        assert passes_in_order(candidate, start, stops, end)
+        if distance is not None:
+            assert abs(candidate.distance_km - target) <= tolerance
+    assert sum(candidate.is_fastest for candidate in candidates) == (distance is None and destination is not None)
+
+
+def physical_segments(candidate) -> list[frozenset[str]]:
+    """経路の区間を、進行方向を問わない道の区間（両端のノードの組）で並べたもの。"""
+    return [frozenset(pair) for pair in zip(candidate.node_ids, candidate.node_ids[1:])]
+
+
+#: 横の道(2, *)だけが避けたい材料を持たない格子。避けたい軸に重みがあると、横の道が来た道でも、罰が無ければ帰りは
+#: 横の道へ寄る。
+ROW_2_ONLY = lattice_network(6, bad_ways={
+    way for way, (start, end) in lattice_ways(6).items()
+    if not (start // 100 % 10 == 2 and end // 100 % 10 == 2)
+})
+
+
+@pytest.mark.parametrize(
+    ("network", "avoid_weight", "waypoints", "distance", "fixed_count"),
+    [
+        # 出発地(2,1) → (2,4) → (2,2) は、置いた点どうしを素直な道で結ぶと同じ横の道を戻る。最後の(2,2)→出発地の
+        # 最短は走った横の道そのもの（避けなければ2度目を走る）。
+        pytest.param(LATTICE, 0.0, [(2, 4), (2, 2)], None, 5, id="距離なし"),
+        # 出発地(2,1) → (2,4)のあと、全長8kmの周回の残りを選ぶ。避けなければ帰りは易しい横の道（来た道）へ寄る。
+        pytest.param(ROW_2_ONLY, 1.0, [(2, 4)], (8.0, 1.5), 3, id="距離あり"),
+    ],
+)
+async def test_the_freely_chosen_part_avoids_every_road_already_ridden_but_the_placed_legs_do_not(
+    engine_over, network, avoid_weight, waypoints, distance, fixed_count,
+):
+    """自由に選ぶ部分（最後の経由地から先）は、置いた点どうしの区間を含め、それまでに走った道を避ける。置いた点どうしの
+    区間は避けずに素直な道で結ぶ（遠回りすると、置いた点の間が利用者の思う道でなくなる）。"""
+    generator = engine_over(network, avoid_weight=avoid_weight)
+    origin = lattice_node(2, 1)
+    points = FixedPoints(waypoints=[lattice_at(*point) for point in waypoints], destination=None)
+
+    if distance is None:
+        candidates = await generator.generate_via_waypoints(
+            lattice_at(2, 1), points.waypoints, 8.0, destination=None, max_routes=3, start_time=DEPARTURE)
+    else:
+        candidates = await generator.generate_loops(
+            lattice_at(2, 1), *distance, max_routes=3, start_time=DEPARTURE, points=points)
+
+    assert candidates
+    stops = [origin, *(lattice_node(*point) for point in waypoints)]
+    straight = [node_key(lattice_node(2, col)) for col in range(1, 5)]
+    for candidate in candidates:
+        fixed_nodes = candidate.node_ids[:fixed_count + 1]
+        assert [n for n in fixed_nodes if n in straight] == fixed_nodes  # 置いた点どうしは横の道のまま
+        assert passes_in_order(candidate, origin, stops[1:], origin)
+        segments = physical_segments(candidate)
+        free = segments[fixed_count:]
+        assert not set(free) & set(segments[:fixed_count])
+        assert len(set(free)) == len(free)
+
+
+#: 1周8kmの輪。出発地Oから北のAを通って北東のWまで2km、反対回り（南西の4点）でWまで6km。O→A→Wの向きだけ
+#: 避けたい材料を持ち、逆向き（W→A→O）は持たない。
+RING_COORDINATES = {
+    1: (BASE_LAT, BASE_LON),  # O
+    2: (BASE_LAT + LAT_STEP, BASE_LON),  # A
+    3: (BASE_LAT + LAT_STEP, BASE_LON + LON_STEP),  # W
+    4: (BASE_LAT + 2 * LAT_STEP, BASE_LON + LON_STEP),
+    5: (BASE_LAT + 2 * LAT_STEP, BASE_LON - LON_STEP),
+    6: (BASE_LAT, BASE_LON - LON_STEP),
+}
+RING = road_network(
+    {1: (1, 2), 2: (2, 3), 3: (3, 4), 4: (4, 5), 5: (5, 6), 6: (6, 1)}, RING_COORDINATES, bad_forward_ways={1, 2},
+)
+
+
+@pytest.mark.parametrize(
+    ("waypoints", "expected"),
+    [
+        pytest.param([3], [1, 6, 5, 4, 3, 2, 1], id="経由地1つは逆に回ってよい"),
+        pytest.param([2, 3], [1, 2, 3, 4, 5, 6, 1], id="経由地2つは置いた順のまま"),
+    ],
+)
+async def test_a_loop_is_ridden_the_easier_way_round_only_when_that_keeps_the_placed_order(
+    engine_over, waypoints, expected,
+):
+    """O→A→Wは避けたい道で、W→A→Oはそうでない。Wだけを置いた周回は、逆に回ってもWを通るので易しい向き
+    （O→南西→W→A→O）で出す。A・Wの順に置いた周回は、逆に回るとWがAより先になるので、難しくても置いた順で出す。"""
+    generator = engine_over(RING, avoid_weight=1.0)
+
+    candidates = await generator.generate_via_waypoints(
+        node_point(RING, 1), [node_point(RING, point) for point in waypoints], 8.0,
+        destination=None, max_routes=1, start_time=DEPARTURE)
+
+    assert [candidate.node_ids for candidate in candidates] == [[node_key(n) for n in expected]]
 
 
 @pytest.mark.parametrize("where", ["waypoint", "destination"])
@@ -328,6 +471,32 @@ async def test_a_segment_without_data_does_not_show_the_axis_as_zero(engine_over
     assert second.axis_difficulties[AVOID_AXIS] == 0.0
 
 
+def _slope_axis(*, is_published: bool) -> AxisDefinition:
+    """勾配の符号付きの値を地図が塗る軸（本番の勾配の軸と同じく、勾配の絶対値を読む折れ線）。"""
+    return AxisDefinition(
+        axis_id="slope", label="勾配", default_weight=0.0, is_published=is_published,
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material=GRADIENT_PERCENT)], preprocess="abs", breakpoints=[(0.0, 0.0), (10.0, 100.0)],
+        ),
+    )
+
+
+@pytest.mark.parametrize(("is_published", "carried"), [(True, True), (False, False)])
+async def test_a_published_slope_axis_carries_its_grade_on_every_segment_even_with_no_weight(
+    engine_over, is_published, carried,
+):
+    """地図のレンズはルートを作ったあとにも勾配へ切り替わり、切り替えでは作り直さない。重み0の勾配の軸でも
+    区間が勾配の値を持たないと、あとから勾配のレンズにしたとき全区間が「データなし」になる。下書きの軸はレンズに出ない。"""
+    network = grid_network()
+    flat = np.zeros(len(network.edge_way_id))
+    surveyed = replace(network, elevation_present=flat == 0, elevation_gain_m=flat, elevation_loss_m=flat)
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, "slope": _slope_axis(is_published=is_published)}):
+        candidates = await engine_over(surveyed).generate_via_waypoints(
+            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=1, start_time=DEPARTURE)
+
+    assert [GRADIENT_PERCENT in segment.material_values for segment in candidates[0].segments] == [carried, carried]
+
+
 @pytest.mark.parametrize("missing", ["no_gradient_ways", "no_stop_count_ways"])
 async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over, missing):
     """勾配の値が無い道は平地、停止要因の件数が無い道は待ち無しとして所要時間を出す。その距離の割合を候補が持ち、
@@ -380,6 +549,29 @@ async def test_each_segment_is_scored_with_the_rain_at_the_gauge_nearest_its_mid
     assert [segment.axis_difficulties["rain_and_bad"] for segment in fastest.segments] == [30.0, 10.0]
     assert fastest.axis_raw_values["rain"] == pytest.approx(
         3.0 * fastest.segments[0].distance_km / sum(segment.distance_km for segment in fastest.segments), rel=1e-3)
+
+
+#: 信号の密度（回/km）を、上に凸の折れ線で点数にする軸（本番の停止密度の軸と同じ折れ線）。
+STOP_AXIS = AxisDefinition(
+    axis_id="stops", label="停止", default_weight=0.0, is_published=True,
+    shape=BreakpointLinearShape(
+        terms=[MaterialTerm(material=stop_count_material_ids()[0])],
+        breakpoints=[(0.0, 0.0), (0.5, 15.0), (1.5, 40.0), (3.0, 60.0), (7.0, 82.0), (12.0, 100.0)],
+    ),
+)
+
+
+async def test_a_route_scores_a_density_axis_from_its_mean_count_rather_than_the_mean_of_segment_scores(engine_over):
+    """1kmあたりの回数で測る軸は、ルートの値を回数の距離平均から点数にする。南西→南東の最速は同じ長さの道100（2回/km）と
+    道101（0回/km）で、区間の点数（46.7点と0点）の平均は23.3点だが、回数の平均（1回/km）の点数は27.5点。"""
+    with replaced_axis_definitions({**AXIS_DEFINITIONS, "stops": STOP_AXIS}):
+        candidates = await engine_over(grid_network(stop_density_of={100: 2.0})).generate_via_waypoints(
+            at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3, start_time=DEPARTURE)
+
+    fastest = fastest_of(candidates)
+    assert ways_of(fastest) == [100, 101]
+    assert [segment.axis_difficulties["stops"] for segment in fastest.segments] == [46.7, 0.0]
+    assert fastest.axis_difficulties["stops"] == 27.5
 
 
 async def test_without_an_observation_history_only_the_rain_axis_has_no_data(engine_over, fake_redis):

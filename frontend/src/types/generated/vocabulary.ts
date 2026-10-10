@@ -146,5 +146,45 @@ export const vocabulary = {
       "key": "succeeded",
       "label": "成功"
     }
+  ],
+  "placeKinds": [
+    {
+      "key": "address",
+      "label": "住所"
+    },
+    {
+      "key": "facility",
+      "label": "施設"
+    }
+  ],
+  "placeMatchLevels": [
+    {
+      "key": "prefecture",
+      "label": "都道府県"
+    },
+    {
+      "key": "city",
+      "label": "市区町村"
+    },
+    {
+      "key": "ward",
+      "label": "区"
+    },
+    {
+      "key": "oaza",
+      "label": "大字・町"
+    },
+    {
+      "key": "aza",
+      "label": "字・丁目"
+    },
+    {
+      "key": "block",
+      "label": "街区・地番"
+    },
+    {
+      "key": "point",
+      "label": "地点"
+    }
   ]
 } as const;

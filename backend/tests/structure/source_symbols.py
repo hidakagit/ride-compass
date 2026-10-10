@@ -1,12 +1,13 @@
 """`backend`のソースを import せずに読み、名前がどこで定義されたかを辿る。
 
-構造テストはコードを動かさずに読む（docs/conventions/testing.md「ソースを読む検査は、専用ディレクトリへ置く」）。
+構造テストはコードを動かさずに読む（.claude/rules/testing-structure.md「ソースを読む検査は、専用ディレクトリへ置く」）。
 名前の定義元は、モジュールの最上位の束縛（`def`・`class`・`import`・代入）を辿って決める。
 """
 
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -161,3 +162,15 @@ class Scope:
             owner = self.resolve(expr.value)
             return self.source.attribute(owner, expr.attr) if owner else None
         return None
+
+
+def replacement_calls(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.AST]]:
+    """差し替えの呼び出しと、それを含む最上位の定義（関数・クラス。無ければモジュール）。"""
+    for top in tree.body:
+        for node in ast.walk(top):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
+            if name in ("setattr", "patch", "object"):
+                yield node, top

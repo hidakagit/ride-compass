@@ -1,7 +1,7 @@
 """生データ（`source_features`・`source_runs`）を、取込の入口（`app/batch/ingest.py: ingest_source`）から入れる足場。
 
 生データを読む側（派生の段・取り込んだ範囲・タイル）のテストは、本番と同じく取込を通った生データから始める
-（docs/conventions/testing.md パターン8）。表へ直接書くと、取込では作れない行（成功なのに終わった時刻の無いrun等）が
+（.claude/rules/testing-backend.md パターン8）。表へ直接書くと、取込では作れない行（成功なのに終わった時刻の無いrun等）が
 でき、取込の側が変わってもテストは気づかない。
 
 差し替えるのはアダプタ（外部の形を開いて1件ずつ返す部分）だけで、テストが渡した1件ずつをそのまま返す。
@@ -11,21 +11,23 @@ runの記録・パーティション・入れ替えは本物を通す。外部�
 変えた後の全行を渡して入れ直す。失敗したrunは、途中で例外を投げる`records`を渡して作る。
 """
 
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from dataclasses import replace
 from typing import Any
 
 import asyncpg
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
-from app.batch.common import asyncpg_dsn
 from app.batch.ingest import ADAPTERS, RegisteredAdapter, SourceRecord, ingest_source
-from app.batch.source_adapters.raster_wkb import tile_bbox_wkb
+from app.batch.source_adapters.gsi_dem_tile import NODATA, SCALE, pack_elevations
+from app.batch.source_adapters.raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_adapters.osm_pbf import way_payload
+from app.domain.address_area import standardize_address
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target, load_source_profile
+from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.source_models import WAY_KIND_TAG
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 
 #: テストが渡した行を返すアダプタの名前。取込の間だけ`ADAPTERS`に置く。
 _ADAPTER = "given_records"
@@ -41,6 +43,17 @@ def way_record(way_id: int, points: Sequence[tuple[float, float]], node_ids: Seq
                         attrs={WAY_KIND_TAG: "cycleway", **(tags or {})}, payload=way_payload(node_ids))
 
 
+#: 道の見本を置く基準の点（経度, 緯度）と、ノードの間隔（度。約100m）。
+WAY_ORIGIN = (139.70, 35.68)
+WAY_STEP = 0.001
+
+
+def zigzag_point(node_id: int, origin: tuple[float, float] = WAY_ORIGIN, step: float = WAY_STEP) -> tuple[float, float]:
+    """道の見本のノード`node_id`の (経度, 緯度)。`origin`から東へ`step`ずつ進み、奇数のノードは`step`だけ北へずらす
+    （道の区間が一直線に並ばず、方位が区間ごとに変わる）。"""
+    return (origin[0] + step * node_id, origin[1] + step * (node_id % 2))
+
+
 def point_record(key: int | str, lon: float, lat: float,
                  attrs: dict[str, Any] | None = None) -> SourceRecord:
     """点のソース（`osm_node`・`accident`）の1件。"""
@@ -48,10 +61,94 @@ def point_record(key: int | str, lon: float, lat: float,
                         attrs=attrs or {})
 
 
+def abr_prefecture_record(code: str, name: str, lon: float, lat: float) -> SourceRecord:
+    """住所の生データ（`abr`）の都道府県1件。列は取込のアダプタ（`source_adapters/abr.py`）が入れる配布の列の名前。
+    住所の区画の派生の段は`abr`の取込が無いと止まるので、派生を最初から流すテストは少なくともこれを取り込む。"""
+    return point_record(code, lon, lat, {"lg_code": code, "pref": name, "ablt_date": "",
+                                         "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
+def abr_city_record(code: str, prefecture: str, city: str, lon: float, lat: float, *, ward: str = "",
+                    county: str = "") -> SourceRecord:
+    """住所の生データ（`abr`）の市区町村1件（政令市の区は`ward`を持つ行）。"""
+    return point_record(code, lon, lat, {"lg_code": code, "pref": prefecture, "county": county, "city": city,
+                                         "ward": ward, "ablt_date": "", "rep_lon": str(lon), "rep_lat": str(lat),
+                                         "rep_srid": "EPSG:6668"})
+
+
+def abr_town_record(code: str, town_id: str, town_type: str, city: tuple[str, str, str], lon: float, lat: float, *,
+                    oaza: str = "", chome: str = "", koaza: str = "") -> SourceRecord:
+    """住所の生データ（`abr`）の町字1件。`code`は属す市区町村（区）のコード、`city`はその (都道府県, 市, 区) の名前。"""
+    prefecture, city_name, ward = city
+    return SourceRecord(
+        natural_key=f"{code}:{town_id}", geom_wkb=shapely.to_wkb(Point(lon, lat)),
+        attrs={"lg_code": code, "machiaza_id": town_id, "machiaza_type": town_type, "pref": prefecture, "county": "",
+               "city": city_name, "ward": ward, "oaza_cho": oaza, "chome": chome,
+               "chome_number": standardize_address(chome).rstrip("-"), "koaza": koaza, "ablt_date": "",
+               "rsdt_addr_flg": "0", "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
+def abr_block_record(town: SourceRecord, block_id: str, number: str, lon: float, lat: float) -> SourceRecord:
+    """住所の生データ（`abr`）の住居表示の街区1件。`town`は属す町字（`abr_town_record`）、`number`は街区符号。"""
+    code, town_id = town.attrs["lg_code"], town.attrs["machiaza_id"]
+    return SourceRecord(
+        natural_key=f"{code}:{town_id}:{block_id}", geom_wkb=shapely.to_wkb(Point(lon, lat)),
+        attrs={"lg_code": code, "machiaza_id": town_id, "blk_id": block_id, "city": town.attrs["city"],
+               "ward": town.attrs["ward"], "oaza_cho": town.attrs["oaza_cho"], "chome": town.attrs["chome"],
+               "koaza": town.attrs["koaza"], "blk_num": number, "rsdt_addr_flg": "1", "ablt_date": "",
+               "rep_lon": str(lon), "rep_lat": str(lat), "rep_srid": "EPSG:6668"})
+
+
+def isj_block_record(prefecture: str, city: str, oaza: str, number: str, lon: float, lat: float, *,
+                     koaza: str = "", residential: bool = False) -> SourceRecord:
+    """街区レベル位置参照情報（`isj_block`）の1件。名前は配布の書き方（市区町村は郡・政令市の区を含む）。"""
+    attrs = {"都道府県名": prefecture, "市区町村名": city, "大字・丁目名": oaza, "小字・通称名": koaza,
+             "街区符号・地番": number, "緯度": str(lat), "経度": str(lon), "住居表示フラグ": "1" if residential else "0",
+             "代表フラグ": "1", "更新前履歴フラグ": "0", "更新後履歴フラグ": "0"}
+    return SourceRecord(natural_key="|".join([prefecture, city, oaza, koaza, number]),
+                        geom_wkb=shapely.to_wkb(Point(lon, lat)), attrs=attrs)
+
+
+def estat_small_area_record(key_code: str, city: str, name: str, ring: Sequence[tuple[float, float]]) -> SourceRecord:
+    """小地域の境界（`estat_small_area`）の1件。`key_code`は都道府県2桁・市区町村3桁・町丁・字等6桁、`city`と`name`は
+    市区町村と町丁・字等の名前（配布の書き方。政令市は市と区をつなぐ）、`ring`は多角形の外周の (経度, 緯度) の列。"""
+    return SourceRecord(
+        natural_key=key_code, geom_wkb=shapely.to_wkb(Polygon(ring)),
+        attrs={"KEY_CODE": key_code, "PREF": key_code[:2], "CITY": key_code[2:5], "S_AREA": key_code[5:],
+               "CITY_NAME": city, "S_NAME": name, "HCODE": 8101})
+
+
 def tile_record(key: str, zoom: int, x: int, y: int, rast: bytes,
                 attrs: dict[str, Any]) -> SourceRecord:
     """面のソース（例: `lulc`）のタイル1枚。"""
     return SourceRecord(natural_key=key, geom_wkb=tile_bbox_wkb(zoom, x, y), attrs=attrs, rast=rast)
+
+
+#: 標高のタイル1枚の1辺の画素数。読み手はタイルの`attrs`の幅で画素の番地を出すので、配信元の幅に揃えなくてよい。
+_DEM_TILE_PIXELS = 256
+
+
+def dem_tile_records(product: str, zoom: int, bbox: BoundingBox,
+                     elevation: Callable[[float, float], float | None]) -> list[SourceRecord]:
+    """標高（`dem`）の`product`の、`bbox`を覆うズーム`zoom`のタイル。画素の値は、画素の中心の (経度, 緯度) を
+    `elevation`へ渡して決める（Noneは欠測）。画素の詰め方は取込のアダプタ（`gsi_dem_tile.pack_elevations`）を通す。"""
+    records = []
+    for x, y in tiles_covering_bbox(bbox, zoom):
+        pixel = _DEM_TILE_PIXELS
+        # z+8のタイル1枚が、ちょうどzのタイルの1画素に当たる。
+        centers = [tile_bounds_lonlat(zoom + 8, x * pixel + i, y * pixel + i) for i in range(pixel)]
+        lons = [(b.min_longitude + b.max_longitude) / 2 for b in centers]
+        lats = [(b.min_latitude + b.max_latitude) / 2 for b in centers]
+        text = "\n".join(
+            ",".join("e" if (v := elevation(lon, lat)) is None else f"{v:.2f}" for lon in lons)
+            for lat in lats) + "\n"
+        pixels, missing = pack_elevations(text)
+        records.append(SourceRecord(
+            natural_key=f"{product}/{zoom}/{x}/{y}", geom_wkb=tile_bbox_wkb(zoom, x, y),
+            attrs={"product": product, "z": zoom, "x": x, "y": y, "width": pixel, "scale": SCALE, "missing": missing},
+            rast=tile_raster_wkb(pixels, zoom=zoom, x=x, y=y, width=pixel, height=pixel,
+                                 dtype="int32_le", nodata=NODATA)))
+    return records
 
 
 def _profile(source: str, bbox: tuple[float, float, float, float] | None, rows: Any) -> SourceProfile:
@@ -83,11 +180,11 @@ async def ingest_records(source: str, records: Iterable[SourceRecord], *,
         for record in records:
             yield record
 
-    connection = conn if conn is not None else await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
+    if conn is None:
+        async with raw_connection() as connection:
+            return await ingest_records(source, records, conn=connection, bbox=bbox, rows=rows)
     ADAPTERS[_ADAPTER] = RegisteredAdapter(read=read, rows=NoFields, grid=NoFields)
     try:
-        return await ingest_source(connection, _profile(source, bbox, rows), source)
+        return await ingest_source(conn, _profile(source, bbox, rows), source)
     finally:
         del ADAPTERS[_ADAPTER]
-        if conn is None:
-            await connection.close()

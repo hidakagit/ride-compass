@@ -1,0 +1,24 @@
+# 本番のbackendでルートを1本作り、レンズで塗る値がルートの区間に載っているかを1日1回見る。
+# デプロイを伴わない変化（派生データの作り直し・取込・軸スタジオでの軸の変更・外部の観測の取込の止まり）で
+# 壊れたものを、次のデプロイを待たずに拾う。落ちたらGitHub Actionsの失敗の知らせが届く。
+# 何を見るか・上限の根拠は docs/architecture/tech-stack.md「本番でルートを作る確かめ」。
+name: Prod Route Check
+
+on:
+  schedule:
+    # 毎日 06:23（日本時間）。GitHubは毎時0分の起動が混んで遅れるので外す。
+    - cron: "23 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: 本番でルートを作って区間の値を見る
+        timeout-minutes: 3
+        run: python3 scripts/prod_route_check.py

@@ -1,6 +1,7 @@
 // 絵記号で描く点の絵（行の色の角丸四角に、白い絵記号を載せたもの）。地図へ登録する画素（`drawPointIcon`）と
 // 凡例の見本（`PointIconSwatch`）は同じ形の宣言を読む——別々に描くと、凡例と地図の絵が食い違う。
 
+import { drawCanvasIcon } from "@/features/map/layers/sdfIcon";
 import type { PointGlyph } from "@/lib/mapDisplay/legendFilter";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
@@ -25,31 +26,35 @@ const GLYPH_PATHS: Record<PointGlyph, string> = {
   toilet: "M2.5 8l1.75 8L7 10l2.75 6L11.5 8 M21 9.5a4 4 0 1 0 0 5",
   drop: "M12 3c-3 4.5-6 7.5-6 11a6 6 0 0 0 12 0c0-3.5-3-6.5-6-11Z",
   parking: "M9 19V5h4.5a4 4 0 0 1 0 8H9",
+  cup: "M5 8h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4Z M16 10h1.5a2.5 2.5 0 0 1 0 5H16 M5 21h11",
+  steam:
+    "M4 14h16v2a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Z M8 11c-1-1.5 1-2.5 0-4.5 M12 11c-1-1.5 1-2.5 0-4.5 M16 11c-1-1.5 1-2.5 0-4.5",
+  wrench: "M14.5 4.5a4 4 0 0 0-5 5L4 15l2.5 2.5L12 12a4 4 0 0 0 5-5l-2.5 2.5-2-2Z",
+  mountain: "M2.5 19L9 8l4 6.5L15.5 11l6 8Z",
+  bed: "M3 7v12 M3 15h18v4 M21 15v-3a3 3 0 0 0-3-3h-7v6 M7 12h.01",
+  gate: "M3 6c6 1 12 1 18 0 M5 10h14 M7 6.5V21 M17 6.5V21",
 };
 
 /** 地図へ登録する絵。canvasの2D描画が使えなければ投げる——空の絵を返すと点が地図から消えるだけで誰も気づけない。 */
 export function drawPointIcon(color: string, glyph: PointGlyph): { data: ImageData; pixelRatio: number } {
   const sizePx = mapDisplay.point.iconSizePx * PIXEL_RATIO;
-  const canvas = document.createElement("canvas");
-  canvas.width = sizePx;
-  canvas.height = sizePx;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvasの2D描画が使えない");
-  ctx.scale(sizePx / FRAME, sizePx / FRAME);
-  const box = new Path2D(BOX_PATH);
-  ctx.fillStyle = color;
-  ctx.fill(box);
-  ctx.strokeStyle = palette.semantic.mark_stroke;
-  ctx.lineWidth = BOX_STROKE;
-  ctx.stroke(box);
-  ctx.translate(GLYPH_OFFSET, GLYPH_OFFSET);
-  ctx.scale(GLYPH_SCALE, GLYPH_SCALE);
-  ctx.strokeStyle = palette.semantic.mark_glyph;
-  ctx.lineWidth = GLYPH_STROKE;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.stroke(new Path2D(GLYPH_PATHS[glyph]));
-  return { data: ctx.getImageData(0, 0, sizePx, sizePx), pixelRatio: PIXEL_RATIO };
+  const data = drawCanvasIcon(sizePx, (ctx) => {
+    ctx.scale(sizePx / FRAME, sizePx / FRAME);
+    const box = new Path2D(BOX_PATH);
+    ctx.fillStyle = color;
+    ctx.fill(box);
+    ctx.strokeStyle = palette.semantic.mark_stroke;
+    ctx.lineWidth = BOX_STROKE;
+    ctx.stroke(box);
+    ctx.translate(GLYPH_OFFSET, GLYPH_OFFSET);
+    ctx.scale(GLYPH_SCALE, GLYPH_SCALE);
+    ctx.strokeStyle = palette.semantic.mark_glyph;
+    ctx.lineWidth = GLYPH_STROKE;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke(new Path2D(GLYPH_PATHS[glyph]));
+  });
+  return { data, pixelRatio: PIXEL_RATIO };
 }
 
 /** 凡例の見本。地図と同じ形・同じ大きさ。 */

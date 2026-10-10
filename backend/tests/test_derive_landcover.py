@@ -1,4 +1,4 @@
-"""土地被覆の派生（`derive_raster_materials.derive`の土地被覆と道への集約）を流し直したときの値。
+"""土地被覆の派生（`derive_landcover.derive`）を流し直したときの値。
 
 見るのは、帯の画素だけを数えること・流し直すと前の値が残らないこと。
 
@@ -12,8 +12,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from app.batch import derive_counts, derive_raster_materials, derive_topology
-from app.batch.common import asyncpg_dsn
+from app.batch import derive_landcover, derive_topology
 from app.batch.source_adapters.raster_wkb import tile_raster_wkb
 from app.domain.landcover import (
     LANDCOVER_RING_INNER_M,
@@ -22,10 +21,9 @@ from app.domain.landcover import (
     landcover_key,
 )
 from app.domain.region import WEB_MERCATOR_HALF_M, tile_bounds_3857, tile_bounds_lonlat
-from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, tile_record, way_record
 
-# road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -39,9 +37,6 @@ SIZE = 256
 WAY_ID = 100
 #: 欠測値。`ST_Clip`がこの画素を外す。
 NODATA = 0
-
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
 
 
 def _raster(value: int) -> bytes:
@@ -99,26 +94,20 @@ def _ring_raster(inside: int, ring: int, outside: int) -> bytes:
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def module_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのはスキーマを作らせるため（`test_derive_topology.py`と同じ）。"""
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await ingest_records("osm_way", [way_record(WAY_ID, ROAD, [1, 2])], conn=conn)
-        await _ingest_tile(conn, _raster(PERCENT_CLASSES[0][1]))
-        await derive_topology.derive(conn)
-        await derive_counts.derive(conn)
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
+async def prepared_conn(derive_conn):
+    """道1本とタイル1枚を取り込み、区間まで作った状態。"""
+    conn = derive_conn
+    await ingest_records("osm_way", [way_record(WAY_ID, ROAD, [1, 2])], conn=conn)
+    await _ingest_tile(conn, _raster(PERCENT_CLASSES[0][1]))
+    await derive_topology.derive(conn)
+    return conn
 
 
 @pytest_asyncio.fixture(loop_scope="module")
-async def landcover_conn(module_conn):
+async def landcover_conn(prepared_conn):
     """テストごとにタイルを1クラス一色へ戻す。画素を変えて取り込み直すテストがあるため。"""
-    await _ingest_tile(module_conn, _raster(PERCENT_CLASSES[0][1]))
-    return module_conn
+    await _ingest_tile(prepared_conn, _raster(PERCENT_CLASSES[0][1]))
+    return prepared_conn
 
 
 async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landcover_conn):
@@ -129,13 +118,13 @@ async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landc
     async def shares() -> list[tuple[int | None, float | None]]:
         """区間と道それぞれの (有効画素数, 塗ったクラスの割合)。"""
         return [(r["lc_valid_pixels"], r[f"lc_{first}"]) for r in await conn.fetch(
-            f"SELECT lc_valid_pixels, lc_{first} FROM edge_materials"
-            f" UNION ALL SELECT lc_valid_pixels, lc_{first} FROM way_materials")]
+            f"SELECT lc_valid_pixels, lc_{first} FROM road_edges LEFT JOIN edge_landcover USING (osm_way_id, segment_index)"
+            f" UNION ALL SELECT lc_valid_pixels, lc_{first} FROM road_ways LEFT JOIN way_landcover USING (osm_way_id)")]
 
-    await derive_raster_materials.derive(conn)
+    await derive_landcover.derive(conn, previous=None)
     before = await shares()
     await _ingest_tile(conn, _raster(NODATA))
-    await derive_raster_materials.derive(conn)
+    await derive_landcover.derive(conn, previous=None)
 
     # 前提: 1回目は区間にも道にも値が付いている。
     assert len(before) == 2
@@ -151,10 +140,10 @@ async def test_only_pixels_in_the_band_around_the_road_are_counted(landcover_con
     await _ingest_tile(conn, _ring_raster(*(value for _, value in classes)))
     inside, ring, outside = (landcover_key(name) for name, _ in classes)
 
-    await derive_raster_materials.derive(conn)
+    await derive_landcover.derive(conn, previous=None)
 
     rows = await conn.fetch(
         f"SELECT lc_{inside} AS inside, lc_{ring} AS ring, lc_{outside} AS outside"
-        " FROM edge_materials UNION ALL"
-        f" SELECT lc_{inside}, lc_{ring}, lc_{outside} FROM way_materials")
+        " FROM edge_landcover UNION ALL"
+        f" SELECT lc_{inside}, lc_{ring}, lc_{outside} FROM way_landcover")
     assert [(r["inside"], r["ring"], r["outside"]) for r in rows] == [(0, 100, 0), (0, 100, 0)]

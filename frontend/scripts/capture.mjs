@@ -1,24 +1,27 @@
-// 画面を、選んだ版と応答で開き、脚本で進めた状態を撮る（Pull Request の修正前後のキャプチャ。docs/conventions/flow.md「作る担当」の5）。
+// 画面を、選んだ版と応答で開き、脚本で進めた状態を撮る（Pull Request の修正前後のキャプチャ。.claude/skills/task-work/SKILL.md「作る担当」の5）。
 //
 //   node scripts/capture.mjs [--script <脚本のファイル>] [--app production|worktree|<git の版>] [--api mock|<backend のオリジン>]
-//     [--backend <パスの頭>]... [--size <幅>x<高さ>] [--theme light|dark] [--out <出力のディレクトリ>] [--no-build]
+//     [--backend <パスの頭>]... [--size <幅>x<高さ>] [--theme light|dark] [--out <出力のディレクトリ>]
 //
 // --app は開く版: production は本番の frontend をそのまま開く（本番の backend を使うので --api を受けない）。worktree（既定）は
 // 作業ツリーの版を、<git の版>（例: origin/master）はその版を一時のディレクトリへ取り出して（作業ツリーは切り替えない）、ビルドして
-// 手元で起動する。取り出しとビルドは版の commit と --api ごとに使い回す。
+// 手元で起動する。取り出しは版の commit ごとに、ビルドは版の中身と渡す環境変数の組が前のビルドと同じときだけ使い回す（作業ツリーの
+// 版は、git が無視しない frontend のファイルの中身で見分ける）。
 // --api は応答: mock（既定）は e2e/fixtures.ts: installApiMocks（backend も外部も要らない）。<backend のオリジン> は本物の backend で、
 // 地図の塗り（道路タイル）はこちらでしか出ない（本番の宛先は docs/architecture/tech-stack.md「本番の宛先」）。
 // 手元で起動する版には、本番と同じ組の環境変数（frontendEnv）を渡す。frontend のコードが読む環境変数がその組に無ければ、撮る前に止まる。
 // --backend は、ブラウザがそのパスの頭（例: /api/jma-tile/）で --api の backend へ取りに行くものだけを、作業ツリーの backend
 // （backend/scripts/serve_capture.py。DB を読まずに起動する）が返す。backend が変える応答のうち DB を読まない経路（タイルの中継等）を
-// 後の画面へ出すときに使い、何度でも付けられる。DB を読む経路の応答は、脚本の patch で替える。
+// 後の画面へ出すときに使い、何度でも付けられる。DB を読む経路の応答（本番の backend にまだ無い経路も）は、脚本の patch で替える。
 // 脚本は default export の関数（capture/context.ts: CaptureScript）で、受け取った口（open・openAdmin・chooseLens・openLegend・clickMap・
-// clickVisible・patch・shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
+// clickVisible・clickFeature・patch・shot 等）だけを使い、何も読み込まない。管理画面は openAdmin で開く（モックの応答のときだけ。撮影用の資格情報はここが渡す）。
 // 作業ツリーの外に置いてよい（.ts も読める）。省略すると開いて1枚撮る。例は capture/examples/。
 // 撮る前に、宛先（本番の frontend・本物の backend）が応答するまで待ち、Playwright の Chromium と、Linux なら起こすのに要る依存と
-// 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<番号>-<名前>.png。
+// 日本語のフォント（無いと文字が豆腐になる）を入れる。画像は <出力>/<版>/<幅>x<高さ>[-<テーマ>]/<番号>-<名前>.png
+// （幅・テーマだけを変えて同じ --out へ撮り直しても、前の画像を上書きしない）。
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -76,7 +79,8 @@ function frontendEnv(target, commit) {
 function unpassedEnv(dir, env) {
   const names = new Set();
   for (const file of readdirSync(path.join(dir, "src"), { recursive: true })) {
-    if (!/\.(ts|tsx)$/.test(file)) continue;
+    // テストはビルドに入らず、足場の文字列に書いた process.env を読まない。
+    if (!/\.(ts|tsx)$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
     for (const [, name] of readFileSync(path.join(dir, "src", file), "utf-8").matchAll(
       /process\.env\.([A-Za-z_]\w*)/g,
     )) {
@@ -95,7 +99,6 @@ const { values } = parseArgs({
     size: { type: "string", default: "390x812" },
     theme: { type: "string" },
     out: { type: "string", default: path.join(os.tmpdir(), "ridecompass-capture") },
-    "no-build": { type: "boolean", default: false },
   },
 });
 
@@ -111,7 +114,11 @@ const [width, height] = values.size.split("x").map(Number);
 if (!(width > 0 && height > 0)) fail(`--size は <幅>x<高さ>（例: 390x812）: ${values.size}`);
 if (values.theme && !["light", "dark"].includes(values.theme)) fail(`--theme は light か dark: ${values.theme}`);
 const label = { production: "本番", worktree: "作業ツリー" }[values.app] ?? values.app;
-const out = path.join(path.resolve(values.out), label.replace(/[\\/:*?"<>|\s]+/g, "_"));
+const out = path.join(
+  path.resolve(values.out),
+  label.replace(/[\\/:*?"<>|\s]+/g, "_"),
+  `${width}x${height}${values.theme ? `-${values.theme}` : ""}`,
+);
 mkdirSync(out, { recursive: true });
 
 /** Chromium を入れて起こせるかを試し、Linux なら起こすのに要る依存と日本語のフォントを入れる。 */
@@ -200,12 +207,32 @@ function checkoutRef(ref) {
       fail("依存を入れられない");
     writeFileSync(ready, "");
   }
-  return { dir, commit };
+  return { dir, commit, source: commit };
 }
 
-/** ビルドに埋め込んだ環境変数。同じ版でも --api が違えばビルドし直す。 */
+/**
+ * 作業ツリーの frontend の中身の指紋。git が無視しないファイル（コミットしていない変更・まだ足していないファイルも）の
+ * パスと中身から作り、ビルドを使い回してよいかを見分ける。
+ */
+function worktreeFingerprint() {
+  const hash = createHash("sha256");
+  const files = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    cwd: frontendRoot,
+    encoding: "utf-8",
+  });
+  for (const file of [...new Set(files.split("\0").filter(Boolean))].sort()) {
+    const full = path.join(frontendRoot, file);
+    hash.update(`${file}\0`);
+    // 消したがまだコミットしていないファイルは、git が一覧に出すが中身が無い。
+    hash.update(existsSync(full) ? readFileSync(full) : "(消した)");
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/** ビルドの印（作った版の中身と埋め込んだ環境変数）。ほかの道具（e2e 等）の next build は .next を消してから作るので、印も消える。 */
 function builtWith(dir) {
-  const marker = path.join(dir, ".next", "capture-env");
+  const marker = path.join(dir, ".next", "capture-build");
   return existsSync(path.join(dir, ".next", "BUILD_ID")) && existsSync(marker) ? readFileSync(marker, "utf-8") : null;
 }
 
@@ -219,6 +246,7 @@ if (!production) {
       ? {
           dir: frontendRoot,
           commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: frontendRoot, encoding: "utf-8" }).trim(),
+          source: worktreeFingerprint(),
         }
       : checkoutRef(values.app);
   serverDir = checkout.dir;
@@ -229,16 +257,25 @@ if (!production) {
     fail(
       `frontend が読む環境変数を手元の版へ渡していない: ${unpassed.join(" / ")}（scripts/capture.mjs: frontendEnv へ本番と同じ向きで足す）`,
     );
-  const reuse = values["no-build"] || (serverDir !== frontendRoot && builtWith(serverDir) === JSON.stringify(env));
-  if (!reuse) {
+  const build = JSON.stringify({ source: checkout.source, env });
+  if (builtWith(serverDir) === build) {
+    console.log(`[capture] ${label} の版の前のビルドを使う（API: ${mocked ? "モック" : target}）`);
+  } else {
     console.log(`[capture] ${label} の版をビルドする（API: ${mocked ? "モック" : target}）`);
     if (run("npm", ["run", "build"], { cwd: serverDir, env }) !== 0) fail("ビルドに失敗");
-    writeFileSync(path.join(serverDir, ".next", "capture-env"), JSON.stringify(env));
+    writeFileSync(path.join(serverDir, ".next", "capture-build"), build);
   }
 }
 
 let worktreeBackend = null;
 if (values.backend.length > 0) {
+  const origin = `http://localhost:${WORKTREE_BACKEND_PORT}`;
+  // 前の実行の backend が残っていると、新しい backend は起きられないのに、残った方が応答して作業ツリーの backend として使われる。
+  const occupied = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(2_000) }).then(
+    () => true,
+    () => false,
+  );
+  if (occupied) fail(`${origin} でほかの backend が応答している（前の実行の残りなら止めてから打ち直す）`);
   const log = path.join(os.tmpdir(), "ridecompass-capture-backend.log");
   console.log(`[capture] 作業ツリーの backend を起こす（${values.backend.join(" / ")}。ログ: ${log}）`);
   const logFd = openSync(log, "w");
@@ -247,7 +284,7 @@ if (values.backend.length > 0) {
     stdio: ["ignore", logFd, logFd],
   });
   process.on("exit", () => server.kill());
-  worktreeBackend = { origin: `http://localhost:${WORKTREE_BACKEND_PORT}`, api, paths: values.backend };
+  worktreeBackend = { origin, api, paths: values.backend };
   await waitReady("作業ツリーの backend", `${worktreeBackend.origin}/health`);
 }
 

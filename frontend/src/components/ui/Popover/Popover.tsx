@@ -3,12 +3,21 @@
 import * as RadixPopover from "@radix-ui/react-popover";
 import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef } from "react";
+import { cardVariants } from "@/components/ui/Card/Card";
 import { cn } from "@/lib/cn";
+import { USAGE_OPENS_ATTRIBUTE, isInUsageGuide } from "@/components/UsageGuide/usageTarget";
 
 // 押すと開く浮きパネル。開閉・位置取り・外側を押したら閉じる・Escで閉じるはRadix Popoverが持つ。
 // 中身はdocument.body直下へ描く（呼び出し側がoverflowで切り取る容器の中にあっても欠けない）。
 export const Popover = RadixPopover.Root;
-export const PopoverTrigger = RadixPopover.Trigger;
+/** 押すと開くボタン。印（`data-usage-opens`）を持ち、説明を見る状態（`components/UsageGuide/UsageGuide.tsx`）は
+ * この部品の説明に「中を見る」を出す。 */
+export const PopoverTrigger = forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof RadixPopover.Trigger>
+>(function PopoverTrigger(props, ref) {
+  return <RadixPopover.Trigger ref={ref} {...{ [USAGE_OPENS_ATTRIBUTE]: "" }} {...props} />;
+});
 /** 押した部品以外の位置へ開くときの目印（`virtualRef`で要素を指す）。 */
 export const PopoverAnchor = RadixPopover.Anchor;
 
@@ -16,7 +25,10 @@ export const PopoverAnchor = RadixPopover.Anchor;
 export const POPOVER_COLLISION_PADDING_PX = 8;
 
 const contentVariants = cva(
-  "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-[length:var(--font-size-sm)] leading-[1.4] text-[var(--foreground)] shadow-float",
+  [
+    cardVariants({ variant: "float" }),
+    "px-3 py-2 text-[length:var(--font-size-sm)] leading-[1.4] text-[var(--foreground)]",
+  ],
   {
     variants: {
       /** 重なり順（globals.cssの--z-*）。`top`は開いた時点で必ず見えるべきもの（下部シート・ダイアログより上）、
@@ -43,7 +55,7 @@ interface PopoverContentProps
   extends React.ComponentPropsWithoutRef<typeof RadixPopover.Content>, VariantProps<typeof contentVariants> {}
 
 export const PopoverContent = forwardRef<HTMLDivElement, PopoverContentProps>(function PopoverContent(
-  { className, layer, tone, sideOffset = 6, ...props },
+  { className, layer, tone, sideOffset = 6, onInteractOutside, ...props },
   ref,
 ) {
   return (
@@ -52,6 +64,11 @@ export const PopoverContent = forwardRef<HTMLDivElement, PopoverContentProps>(fu
         ref={ref}
         sideOffset={sideOffset}
         className={cn(contentVariants({ layer, tone }), className)}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          // 説明を見る状態の案内・説明の面を押しても、そこへフォーカスが移っても閉じない（開いたまま、中の部品の説明を見られる）。
+          if (isInUsageGuide(event.target)) event.preventDefault();
+        }}
         {...props}
       />
     </RadixPopover.Portal>

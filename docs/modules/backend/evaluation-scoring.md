@@ -40,12 +40,15 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 | 型 | 載せ方 |
 |---|---|
-| 真偽 | `CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。欠損を「不明」として持つ真偽の材料（`bool_default`が`"nan"`）はこの載せ方の対象外で、タイルへ焼くなら「不明」を値として持つ分類の材料にする（例: 路面の見込み） |
+| 真偽 | `CASE WHEN (value_sql) THEN true END`。「該当しない」をNULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。タグの不在を「不明」とする真偽の材料（`coverage.missing_semantics`が`"unknown"`）はこの載せ方の対象外で、タイルへ焼くなら「不明」を値として持つ分類の材料にする（例: 路面の見込み） |
 | 分類 | 値式をそのまま |
 | 数値 | `MaterialSpec.tile_encoding`の形（丸めの桁・0の省略・倍精度）で包む。例: 密度は小数1桁へ丸め、0を省く |
 
-タイルの文は、値式が読む別名をフィーチャーの単位で与える。区間単位のフィーチャーは`em`が`edge_materials`の行・
-`re`の長さが区間の長さ、way丸ごとのフィーチャーは`em`が`way_materials`の同じ名前の列（無い列はNULL）・`re`の長さが
+材料の値1つがタイルにどう載るかを、`tile_property_value`がPythonの値で返す（画面へ配る期待値の表がタイルのプロパティを作るのに読む）。
+SQLの式と値の関数が同じ値を出すことは、`tests/test_material_values.py`が同じあるべき値を両方へ当てて見る。
+
+タイルの文は、値式が読む別名をフィーチャーの単位で与える。区間単位のフィーチャーは`em`が区間の値・
+`re`の長さが区間の長さ、way丸ごとのフィーチャーは`em`が道1本の値の同じ名前の列（無い列はNULL）・`re`の長さが
 wayの長さ（0はNULL）になる——件数と長さは必ず同じ側から取る。実行時の係数で割る材料
 （`tile_property_runtime_scale`）は割る前の値を焼き、係数の源が値式で読むSQLの引数
 （`TILE_RUNTIME_SCALE_SQL_PARAMS`）をタイルの文では1で束ねる（`tile_unscaled_sql_params`）。
@@ -97,10 +100,10 @@ wayの長さ（0はNULL）になる——件数と長さは必ず同じ側から
 | way標本 | `road_graph_repository.py: sample_way_material_values` | way標本（軸スタジオの分布プレビュー） |
 
 way粒度の経路も**区間向けと同じ式**を使う。`way_from_clause`がwayの行から同じ名前の
-エイリアス（`_WAY_ALIAS_CLAUSES`が持つ`wm`/`re`/`em`）を組み立てるだけで、式を2組持たない。
-区間の値を持つ`em`は、way粒度では`way_materials`を引く別名になる——**区間の値をway1本へ
+エイリアス（`wm`/`re`/`em`）を組み立てるだけで、式を2組持たない。
+区間の値を持つ`em`は、way粒度では道1本の値の同じ名前の列を引く別名になる——**区間の値をway1本へ
 落としているのではなく、way粒度の値を同じ名前で読んでいる**（way側の値は
-`derive_raster_materials`が区間から集約して持つ）。
+`derive_landcover`等の段が区間から集約して持つ）。
 
 **暗黙の前提**: 取込はタグを絞らない（`batch/source_adapters/osm_pbf.py`がタグを全部`attrs`へ入れる）。どのキーも
 `attrs`に在るため、値式はそこから読んでよい。**捨てると後から解釈を変えられない**という
@@ -247,8 +250,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 
 | 指標 | 定義 | 性質 |
 |---|---|---|
-| `overall_difficulty.average` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
-| `overall_difficulty.load` | 平均×距離合計（`difficulty.py: overall_difficulty`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
+| `overall_difficulty.average` | 距離加重平均（`route.py: merge_difficulty`。密度の軸の分は下の「密度の軸」） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
+| `overall_difficulty.load` | 平均×距離合計（`route.py: merge_overall_difficulty`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
 
 平均と総量は同じ区間から一緒に決まる（平均が出なければ総量も出ない）ため、1つの任意の項目
 `overall_difficulty`にまとめて返す。
@@ -258,6 +261,22 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 距離の合計が0以下ならNone）を持つ。前者を配列へ並べ替えて後者を通すと、1呼び出しあたりの所要が
 数µsから十数µsへ増え（区間5〜20件で2〜4µs→10〜14µs）、ビンごと・値の種類ごとに呼ぶルートの
 集約で積み上がるため、2本のままにしている。
+
+**密度の軸は、得点ではなく回数を平均してから得点にする。** 軸の折れ線の横軸の値が1kmあたりの量（密度）の重み付き和の軸
+（`evaluation.py: averages_density`。足せる材料`MaterialSpec.additive`だけを項に持ち、前処理が無い）は、ビン（500m）と候補の
+得点を、区間の得点の平均ではなく、横軸の値を距離で平均した値（その範囲の回数÷距離）を折れ線に通して作る。折れ線は上に凸で
+上限で頭打ちになることが多く、信号が交差点の脇の短い区間に集まる幹線では、区間ごとの得点の平均が回数どおりの得点よりずっと
+低く出る（都内の国道6号で回数どおり65.7点のところ40.3点）。勾配のように密度でない材料の軸・他の軸を項に持つ軸は得点の平均の
+まま（短い急坂を平均でならすと坂のつらさが消える）。
+- 運び方: 静的スコア行列が密度の軸の横軸の値の列（`StaticEdgeScoreMatrix.density_axes`）を持ち、`LegCostArrays.density_axes`を
+  経て、`_build_segment_details`が区間ごとの値・丸めない距離・その軸の重みの割合（`difficulty.py: axis_weight_shares_at_row`）を
+  区間の器の内部の値（`RouteSegmentDetail._density_inputs`。応答に出ない）として載せる。距離を丸めないのは、応答の区間の距離が
+  10m単位で、信号の脇の数mの区間が長さ0になって回数ごと消えるため。
+- 畳み方（`route.py`）: 得点は横軸の値の距離平均を折れ線に通した値（`merge_axis_difficulties`）、寄与度はその得点×重みの割合の
+  距離平均（`merge_axis_contributions`）、合成の難しさは区間の値の距離加重平均の、その軸の寄与度の項だけを作り直した寄与度へ
+  差し替えた値（`merge_difficulty`。寄与度の和と合成の難しさの関係を保つ）。ビンは区間から、候補はビンからもう一度同じ畳み方で作り、
+  ビンも中の区間の平均を内部の値として持つ。順回り・逆回りの比べ（`route_search.py: pick_better_candidate`）も同じ`merge_difficulty`を読む。
+- 探索の費用は区間ごとの得点の和のままで、この畳み方を持たない（区間ごとに費用を足すA*へは、区間をまたいだ平均をそのまま持ち込めない）。
 
 同じ集約を軸の**生値**（折れ点を通す前の値、`StaticEdgeScoreMatrix.axis_raw_values`）にも
 掛ける。区間の応答は生値を持たず、エンジンがEdge単位の生値を区間と同じ切り方でビンへ畳んでから
@@ -328,7 +347,6 @@ MaterialSpec]`が単一ソース。
 | `weather_grid_value` | 材料が読む自前のMSM格子の値（例: 風）。一次属性を持たない動的な材料の元データを、同じ格子の値を描く気象のチップ（`domain/weather_elements.py: WeatherElement.grid_value`）が地図に見せる。`GET /api/axis-catalog`はこれを軸ごとに`weather_layer_groups`へ解決し、地図の説明文がその評価の名前を差し込む |
 | `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER）。タイルへ焼く材料は必ず持つ |
 | `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
-| `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる）で、数値的に等価ではない。**宣言ではなく`coverage.missing_semantics`から導くプロパティ**（`"unknown"`なら`"nan"`）——欠損の意味を2か所に宣言すると、片方だけ書き換えたときに画面と評価が食い違う |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（生成物`material-catalog.json`と`GET /api/admin/material-catalog/{id}/values`が届ける） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
@@ -352,7 +370,7 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-- 土地被覆の割合材料は`edge_materials.lc_*`／`way_materials.lc_*`（区間単位・way単位、
+- 土地被覆の割合材料は`edge_landcover.lc_*`／`way_landcover.lc_*`（区間単位・way単位、
   [静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
   **どのクラスが割合列を持つかは`landcover.py: LANDCOVER_CLASSES`が単一の正本**で、
   列指向テーブル・集計SQL・読み出し・タイルの焼き込み列は、そこからクラス値の昇順で
@@ -362,7 +380,7 @@ MaterialSpec]`が単一ソース。
   `landcover.py: landcover_tile_property`だけが持つ——材料の`tile_property`と焼き込み列の名前がずれると、地図は黙って塗らない。
   **材料の値式は`em.lc_*`だけを読み、区間の値が無いときに道1本の値へ落とさない**——区間の値は全区間ぶん
   計算されており、落とす先は同じ道の平均でしかない。道1本を単位に値を求める文脈
-  （`road_graph_repository.py: _WAY_ALIAS_CLAUSES`が`em`を道1本の行へ読み替える）では道の値になる。
+  （`road_graph_repository.py: material_from_clause`が`em`を道1本の行へ読み替える）では道の値になる。
   路面タイルと区間インスペクタ（`get_feature_landcover`）も、フィーチャーの単位（区間かway丸ごとか）で
   読む列を選ぶ——単位を揃えないと、同じ場所で地図の色と内訳の数字が食い違う。
 
@@ -372,7 +390,7 @@ MaterialSpec]`が単一ソース。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
   同じ地面を二重に数える（[設計原則](../../architecture/design-principles.md)構造仕様14）。
 - 値式は`domain/material_sql.py`の組み立て関数から作る（タグの正規化・タグ値の一致・
-  数値パース・件数の密度化・wayの行の有無）。同じ判定を材料ごとに書き写さないため、
+  数値パース・件数の密度化・タグが無いときの非該当）。同じ判定を材料ごとに書き写さないため、
   判定を直すと全材料へ同時に効く。
 
 ### 値式が参照するエイリアス
@@ -384,16 +402,24 @@ MaterialSpec]`が単一ソース。
 |---|---|---|
 | `w` | 生の道（`source_features`の`source='osm_way'`を、よく引くタグを列へ出した副問い合わせ。`infrastructure/source_models.py: ways_source_sql`） | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
 | `re` | 区間の行（`road_edges`） | `highway`・距離（密度の分母） |
-| `em` | 区間に付く値（`edge_materials`） | 標高・件数の密度・区間単位の土地被覆 |
-| `wm` | 道1本に付く値（`way_materials`） | way単位の土地被覆・道の曲がり具合等 |
+| `em` | 区間に付く値（主キーが区間の鍵の派生の表） | 標高・件数の密度・区間単位の土地被覆 |
+| `wm` | 道1本に付く値（主キーが道の鍵の派生の表） | way単位の土地被覆・道の曲がり具合等 |
+
+`em`・`wm`を与えるJOINは、どの経路でも`road_graph_repository.py: material_from_clause`が組み立てる。式が読む列を
+宣言（`derived_models.py`）から引き、その列を持つ表だけを主キーで外部結合する。宣言に無い列を読む式は組み立てる時点で
+送出し、区間の表どうし（道の表どうし）が同じ名前の列を持つとimportの時点で送出する（別名の列の出どころが決まらない）。
+区間へ結ばずに値のある区間だけを数える欠損割合は、式が読む区間の値の表を同じ宣言から引き（`road_graph_repository.py: edge_material_table`）、
+その表を直に`em`として走査する。
 
 way粒度で引くときは、同じ式のまま`w`の行から同じ名前の別名を組み立てる
 （`road_graph_repository.py: way_from_clause`）。`em`はway側の同名列かNULLを返す1行になる
 ため、区間にしか無い値（標高）はNULLになる。
 
-**行の有無と値の有無を分ける。** `w`の行が無い（未取込の地域・PBF再取込の途中）ときは
-タグ由来の材料がすべて不明（NULL）になり、行があればタグが無くても非該当（false）として
-確定する（`tag_absent_is_false_sql`）。件数も同じで、集計行が無ければ不明、行があれば
+**行の有無と値の有無を分ける。** `w`の行が無い（求めた区間がDBに無い・取込で消えた道を、派生を
+作り直すまでの区間が指す）ときはタグ由来の材料が不明（NULL）になり、行があればタグが無くても非該当（false）として
+確定する（`tag_absent_is_false_sql`。真偽の材料（照明・橋・トンネル・自転車道の有無等）が使う）。ルート選びの配列でも
+真偽の材料は数値の行列に1.0/0.0で載り、不明は`NaN`のまま届く（`material_catalog.material_array_columns`）——真偽の行列に
+載せると欠損を持てず、不明が非該当に化ける。件数も同じで、集計行が無ければ不明、行があれば
 載っていないキーは0件。集計前を0件として読むと、全区間が「停止要因ゼロ＝最も易しい」と
 評価されてルート選択が静かに歪む。
 
@@ -402,7 +428,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 **エイリアスを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、既存の
 エイリアスの列として足す。新しいエイリアスを足すのは、元データの表そのものが増えるとき
-だけ（`way_from_clause`・区間向けのFROM句の両方へ同じ名前で用意する必要がある）。
+だけ（読む経路のFROM句の全部へ同じ名前で用意する必要がある）。区間・道の値の表を足すだけなら、`em`・`wm`の列が
+増えるだけで別名は増えない。
 
 ### 材料カタログのAPI（`api/routers/material_catalog.py`）
 
@@ -410,7 +437,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`services/axis_preview_service.py: material_values`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をルート生成用の長い`command_timeout`のセッションで実行する。繰り返し呼ばれるだけで接続を占有できるため、`coverage`と同じく認可を課す |
+| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`services/axis_preview_service.py: AxisPreviewService`経由、未知idは404・値一覧を持たない材料は空リスト・DB障害やタイムアウトは`available=false`）。索引の効かない`SELECT DISTINCT`をルート生成用の長い`command_timeout`のセッションで実行する。繰り返し呼ばれるだけで接続を占有できるため、`coverage`と同じく認可を課す |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 
 ## 材料の欠損割合（`infrastructure/material_coverage.py`・`services/material_coverage_service.py`）
@@ -426,15 +453,15 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 | 母集団 | 対象 | 判定 |
 |---|---|---|
 | `"way"` | 生の道の全行（`infrastructure/source_models.py: WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_condition`（`edge_materials AS em`の1行が値を持つときに真のSQL条件式）。全edge材料を`count(*) FILTER`で1回の走査にまとめる（`build_edge_coverage_sql`）。`edge_materials`の`(osm_way_id, segment_index)`は`road_edges`へのFK（ON DELETE CASCADE）のため、値が埋まっている行数をそのまま「値ありEdge数」として使いJOINを省く |
+| `"edge"` | `road_edges`全行 | `present_condition`（区間の値（別名`em`）が値を持つときに真のSQL条件式）。区間の値の表は区間への外部キーと同じ主キーを持ち区間1本に行は0か1なので、値のある区間は区間へ結ばずにその表だけを走査して数え、総数は`road_edges`の件数とする。式が読む表は宣言から引き（`road_graph_repository.py: edge_material_table`）、edge材料を`count(*) FILTER`で表ごとに1回の走査にまとめる（`build_edge_coverage_sql`）。判定式が区間の形（`re`）を読むなら区間へ結ぶ形に戻す |
 
 - **「行がある」と「値がある」を混同しない**。派生の表は区間ごとに行を持ち、値を出せない列は
   NULLのまま残す（土地被覆の`lc_*`がそう。NULLの意味は[静的道路属性](static-road-attributes.md)「値が無ければNULL」）。
   行の有無だけで数えると、値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
-  通常どおり評価される）。真偽の材料の配列上の欠損の持ち方（`MaterialSpec.bool_default`）は
-  これから導く——`"unknown"`の材料は欠損を`NaN`で持ち、非該当（`false`）と混同しない。
+  通常どおり評価される）。宣言はタグの不在の意味で、値の式がそれに合わせて`NULL`か`false`を返し、配列では読み替えない
+  （真偽の材料はどちらでも数値の行列へ載り、`NULL`を`NaN`で持つ）。地図の不明の帯（`axis_display.py`）もこの宣言から引く。
 - `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
   `wind_drag_ratio`、NOT NULL列由来の`oneway`、生データの道のCHECK`source_features_way_has_kind`でhighwayを必ず持つ`highway`・`highway_is_cycleway`等）。
   欠損し得ない材料を集計対象へ置かない——欠損の判定が常に0件を数える式になり、DBが持つ前提を式の側でもう一度持つことになる。
@@ -442,8 +469,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 - **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
   way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。
   「どちらの一覧にも載っていない材料」を作れないため、網羅性を確かめるテストは要らない。
-- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、router側で
-  503へ変換する（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
+- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、管理API共通の例外の扱い
+  （`api/admin_db_errors.py`）が503で返す（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
   `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
   `command_timeout`（180秒）を持つセッションを渡す（全表走査がタイル配信用の20秒を
   超えうるため）。

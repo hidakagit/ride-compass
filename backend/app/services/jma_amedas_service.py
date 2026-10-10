@@ -133,7 +133,9 @@ class JmaAmedasService:
 
         起動直後やRedisが空のときは全本を過去の地図JSONから取り直す（気象庁は過去の地図JSONも
         同じURLの形で置いている）。平常時に取りに行くのは、新しく来た正時の1本だけ。
-        取れなかった正時は欠けたまま残し、次のバッチでまた取りに行く。
+        取れなかった正時は欠けたまま残し、次のバッチでまた取りに行く。地図JSONが取れても1時間雨量の
+        値を持つ観測所が1つも無ければ取れなかったとする——取れたとして残すと二度と取り直さず、その正時を
+        含む窓が全国で値を持たないまま、窓から外れるまで戻らない。
         """
         latest_hour = latest_time.astimezone(JST).replace(minute=0, second=0, microsecond=0)
         hours = [latest_hour - timedelta(hours=back) for back in range(RAIN_HISTORY_HOURS)]
@@ -152,10 +154,11 @@ class JmaAmedasService:
                 hour_map: dict[str, AmedasReading] | None = latest_map
             else:
                 hour_map = await jma_amedas_client.fetch_observation_map(self._http_client, hour)
-            if hour_map is None:
+            rain = None if hour_map is None else _hourly_rain(hour_map)
+            if rain is None or all(mm is None for mm in rain.values()):
                 failed += 1
                 continue
-            history[hour] = _hourly_rain(hour_map)
+            history[hour] = rain
             fetched += 1
         if failed:
             log_throttled_warning(

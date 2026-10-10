@@ -1,0 +1,197 @@
+"""標高のタイルを区間の形状点で引いて、区間の標高と勾配（`edge_elevation`）にする。
+
+標高の生データは`source_features`にタイル1枚=1行、`raster`として入っている。**面のまま
+持つ派生は作らない**——面を読む出口は「そのまま見せる」か「線へ落とす」のどちらかで、
+面のままの中間結果を要る相手がいない。
+
+**処理はDB内で完結する。**画素をプロセスへ取り出さず、1点の画素を引く（`ST_Value`）。
+
+同じ地点に複数の製品のタイルがありうる。**どの製品の値を採るかは画素ごとに決める**
+——配信元の定める精度の順（`dem_tile_store.PRODUCT_PRIORITY`）に見て、値のある最初の製品を
+採る。どの製品にも値が無い画素は欠測のまま残る。
+
+**区間の値は、その区間の形と、区間が橋かトンネルかと、標高のタイルだけで決まる**（ほかの区間を読まない）。作り直しの入口が
+前回の表のスキーマを渡したとき（タイルとコードが前回と同じ）は、座標の並びまで同じ形で橋かトンネルかも同じ区間へ前回の値を
+写し、残りの区間だけ画素を引く。前回の表は読むだけで、書くのは作業用のスキーマの表だけ。
+
+値の出し方そのものはdomainが持つ（`elevation_values_sql`）。このバッチは画素の引き方を
+組み立てるだけで、勾配の上限を持たない。
+"""
+
+import logging
+import time
+
+import asyncpg
+
+from app.batch.dem_tile_store import PRODUCT_PRIORITY
+from app.domain.attributes import elevation_values_sql
+from app.domain.region import tile_position_sql
+from app.domain.material_sql import IS_BRIDGE_SQL, IS_TUNNEL_SQL
+from app.infrastructure.source_models import DEM_TILES_SQL, WAYS_SOURCE_SQL
+
+logger = logging.getLogger("ridecompass.derive_elevation")
+
+_EDGE_SHAPES = f"""
+SELECT e.osm_way_id, e.segment_index, e.geom,
+       ({IS_TUNNEL_SQL} OR {IS_BRIDGE_SQL}) AS on_structure
+FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
+"""
+
+
+_SHAPES = f"CREATE TEMP TABLE _shape ON COMMIT DROP AS {_EDGE_SHAPES}"
+
+#: 頂点を一度実体にしてからタイルへ結合する。関数から直に結合すると行数を見積もれず、
+#: プランナがタイル側を入れ子で読み直す計画を選ぶ。前回の値を写した区間（`_reused`）は作らない。
+_VERTICES = """
+CREATE TEMP TABLE _vertex ON COMMIT DROP AS
+SELECT row_number() OVER () AS vid, s.osm_way_id, s.segment_index, dp.path[1] AS ord,
+       ST_X(dp.geom) AS lon, ST_Y(dp.geom) AS lat, s.on_structure
+FROM _shape s
+CROSS JOIN LATERAL ST_DumpPoints(s.geom) AS dp
+WHERE NOT EXISTS (SELECT 1 FROM _reused r
+                  WHERE r.osm_way_id = s.osm_way_id AND r.segment_index = s.segment_index)
+"""
+
+#: 頂点ごとに採った標高。値のある画素だけを入れるので、行の無い頂点はまだどの製品でも
+#: 値が見つかっていない。
+_VERTEX_ELEVATION_TABLE = """
+CREATE TEMP TABLE _vertex_elev (vid bigint PRIMARY KEY, elev double precision) ON COMMIT DROP
+"""
+
+#: 頂点のタイル座標（小数）の式。`$2`は製品のズーム。
+_VERTEX_TILE_X, _VERTEX_TILE_Y = tile_position_sql("v.lon", "v.lat", "$2")
+
+#: 1製品ぶん、まだ値の無い頂点に画素を引く。**製品を優先順に1つずつ流す**ので、上の製品に
+#: 値のある頂点は下の製品を読まない——読む画素は欠けた頂点の分だけ増える。
+#:
+#: **どのタイルのどの画素かは算術で出す。**`ST_Intersects(rast, 点)`で絞ると当たり判定の
+#: たびにタイルの画素が実体化され、外枠だけで絞ると境界線上の点が隣のタイルへ割り当たる。
+#: 番地で決めれば、rasterに触らずに1枚・1画素へ確定する。製品ごとにズームが違っても、
+#: その製品のズームで番地を出せば同じ式で済む。
+#:
+#: 標高は`scale`で割って戻す（取込が整数へ詰めているため。尺度だけはrasterが持てない）。
+#: 幅は`attrs`が持つ——rasterから読むと、そのたびに画素が実体化される。
+_FILL_FROM_PRODUCT = f"""
+INSERT INTO _vertex_elev (vid, elev)
+SELECT vid, elev FROM (
+  SELECT a.vid,
+         ST_Value(t.rast, 1,
+                  least(w.n, floor((a.fx - a.tx) * w.n)::int + 1),
+                  least(w.n, floor((a.fy - a.ty) * w.n)::int + 1))
+         / (t.attrs->>'scale')::float AS elev
+  FROM (SELECT v.vid, p.fx, p.fy, floor(p.fx)::int AS tx, floor(p.fy)::int AS ty
+        FROM _vertex v
+        CROSS JOIN LATERAL (SELECT {_VERTEX_TILE_X} AS fx, {_VERTEX_TILE_Y} AS fy) p
+        WHERE NOT EXISTS (SELECT 1 FROM _vertex_elev e WHERE e.vid = v.vid)) a
+  JOIN {DEM_TILES_SQL} t
+    ON t.attrs->>'product' = $1
+   AND (t.attrs->>'x')::int = a.tx AND (t.attrs->>'y')::int = a.ty
+  CROSS JOIN LATERAL (SELECT (t.attrs->>'width')::int AS n) w
+) s
+WHERE elev IS NOT NULL
+"""
+
+_VERTEX_ELEVATIONS = """
+SELECT v.osm_way_id, v.segment_index, v.ord, v.lon, v.lat, v.on_structure, e.elev
+FROM _vertex v LEFT JOIN _vertex_elev e ON e.vid = v.vid
+"""
+
+_ELEVATION_COLUMNS = ("start_elevation_m", "end_elevation_m", "elevation_gain_m",
+                      "elevation_loss_m", "average_grade", "on_structure")
+
+#: 値の出た区間だけを入れる。
+_INSERT_ELEVATION = f"""
+INSERT INTO edge_elevation (osm_way_id, segment_index, {", ".join(_ELEVATION_COLUMNS)})
+SELECT osm_way_id, segment_index, {", ".join(_ELEVATION_COLUMNS)}
+FROM ({elevation_values_sql(_VERTEX_ELEVATIONS)}) v
+"""
+
+
+def _reused_edges_sql(previous: str | None) -> str:
+    """前回の値を写す区間。同じ形とみなすのは、鍵が同じで座標とその並びも同じ区間だけ（`=`。`ST_Equals`のように
+    形を幾何として比べる計算をしない）。前回に行の無かった区間は、橋かトンネルかが変わっても今回も行を持たない
+    ——行が出るかは値のある頂点の数だけで決まる。"""
+    if previous is None:
+        return "CREATE TEMP TABLE _reused ON COMMIT DROP AS SELECT osm_way_id, segment_index FROM _shape WHERE false"
+    return f"""
+CREATE TEMP TABLE _reused ON COMMIT DROP AS
+SELECT s.osm_way_id, s.segment_index
+FROM _shape s JOIN {previous}.road_edges p
+  ON p.osm_way_id = s.osm_way_id AND p.segment_index = s.segment_index AND p.geom = s.geom
+LEFT JOIN {previous}.edge_elevation v
+  ON v.osm_way_id = s.osm_way_id AND v.segment_index = s.segment_index
+WHERE v.osm_way_id IS NULL OR v.on_structure = s.on_structure
+"""
+
+
+def _copy_reused_sql(previous: str) -> str:
+    columns = ", ".join(_ELEVATION_COLUMNS)
+    return f"""
+INSERT INTO edge_elevation (osm_way_id, segment_index, {columns})
+SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in _ELEVATION_COLUMNS)}
+FROM _reused r JOIN {previous}.edge_elevation p
+  ON p.osm_way_id = r.osm_way_id AND p.segment_index = r.segment_index
+"""
+
+
+async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int]]:
+    """取り込まれた製品とそのズームを、画素の値を採る順に並べる。
+
+    順を知らない製品や、1製品に2つのズームがあれば止める——どちらも、どの値を採るかを
+    決められない。
+    """
+    rows = await conn.fetch(
+        "SELECT attrs->>'product' AS product, array_agg(DISTINCT (attrs->>'z')::int) AS zooms"
+        f" FROM {DEM_TILES_SQL} t GROUP BY 1")
+    zooms = {r["product"]: r["zooms"] for r in rows}
+    unknown = sorted(set(zooms) - set(PRODUCT_PRIORITY))
+    mixed = sorted(p for p, z in zooms.items() if len(z) != 1)
+    if unknown or mixed:
+        raise ValueError(f"標高タイルの製品を並べられません: 順を知らない {unknown}"
+                         f" / ズームが複数 {mixed}")
+    return [(p, zooms[p][0]) for p in PRODUCT_PRIORITY if p in zooms]
+
+
+async def _derive_elevation(conn: asyncpg.Connection, previous: str | None) -> int:
+    started = time.perf_counter()
+    products = await _products_in_priority(conn)
+    await conn.execute("TRUNCATE edge_elevation")
+    if not products:
+        logger.warning("標高タイルが1枚も取り込まれていません")
+        return 0
+
+    edges = await conn.fetchval("SELECT count(*) FROM road_edges")
+    await conn.execute(_SHAPES)
+    await conn.execute("ANALYZE _shape")
+    await conn.execute(_reused_edges_sql(previous))
+    await conn.execute("ANALYZE _reused")
+    reused = await conn.fetchval("SELECT count(*) FROM _reused")
+    if previous is not None:
+        await conn.execute(_copy_reused_sql(previous))
+    logger.info("標高: 形と橋・トンネルの変わらない区間 %d本へ前回の値を写し、%d本を計算する", reused, edges - reused)
+    await conn.execute(_VERTICES)
+    await conn.execute("ANALYZE _vertex")
+    await conn.execute(_VERTEX_ELEVATION_TABLE)
+    vertices = await conn.fetchval("SELECT count(*) FROM _vertex")
+    remaining = vertices
+    for product, zoom in products:
+        filled = int((await conn.execute(_FILL_FROM_PRODUCT, product, zoom)).split()[-1])
+        remaining -= filled
+        logger.info("標高: %s（z%d）で頂点 %d点に値が付いた / 残り %d/%d点",
+                    product, zoom, filled, remaining, vertices)
+        await conn.execute("ANALYZE _vertex_elev")
+    updated = int((await conn.execute(_INSERT_ELEVATION)).split()[-1])
+    for table in ("_vertex_elev", "_vertex", "_reused", "_shape"):
+        await conn.execute(f"DROP TABLE {table}")
+
+    logger.info("標高: 計算した区間 %d/%d本に値が付いた / %.1f秒",
+                updated, edges - reused, time.perf_counter() - started)
+    return updated
+
+
+async def derive(conn: asyncpg.Connection, *, previous: str | None) -> None:
+    """`previous`は前回の表のスキーマ。Noneなら全区間を計算する。"""
+    async with conn.transaction():
+        await _derive_elevation(conn, previous)
+        # 道路網の配列が作業用のスキーマのこの表を区間ごとに主キーで引く。統計が無いと実行計画が桁で外れる。
+        await conn.execute("ANALYZE edge_elevation")

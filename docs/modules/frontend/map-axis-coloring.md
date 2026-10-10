@@ -14,12 +14,12 @@
 |---|---|
 | `lib/mapDisplay/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
 | `lib/mapDisplay/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー）の表示宣言の型（`DedicatedWayValueDisplay`）。凡例は`features/map/view/lens.ts: dedicatedWayValueLegend`が作る。軸カタログの表示宣言だけから組み立て、軸ごとのファイル・定数を持たない |
-| `lib/mapDisplay/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）と、軸を塗る段の並び（`valueBands`・`rampAxisBands`・`dedicatedAxisBands`）。ルート前（ramp軸・専用配信軸）・ルート後の色分け・凡例・管理画面のプレビューが共有する（下記「valueScale.ts」）。難易度を出す桁（`formatDifficulty`。backendの`DIFFICULTY_DECIMALS`を生成物`mapDisplay.valueScale.difficultyDecimals`で読む）も持つ |
+| `lib/mapDisplay/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）と、軸を塗る段の並び（`valueBands`・`rampAxisBands`・`dedicatedAxisBands`）。ルート前（ramp軸・専用配信軸）・ルート後の色分け・凡例・管理画面のプレビューが共有する（下記「valueScale.ts」）。画面に出す難易度と負荷の数字の桁（`DIFFICULTY_DECIMALS`・`formatDifficulty`はbackendの`DIFFICULTY_DECIMALS`を生成物`mapDisplay.valueScale.difficultyDecimals`で読む。負荷は`LOAD_DECIMALS`・`formatLoad`で整数）も持ち、難易度の数字を出す画面はどれもここを通す（[ルート設定・結果パネル](route-settings-and-results.md)「難易度の数字の桁」） |
 | `features/map/scene/groups/axisLines.ts` | ルート確定前に評価軸（ramp軸・専用way値配信軸）で道を塗る線の宣言と、ramp軸の値・不明のMapLibre式（`buildAxisRampValueExpression`・`buildAxisRampUnknownExpression`）。段の色、値が無い道・取得中の道の色と濃さ、凡例で隠した段の落とし方（下記「評価軸の線」） |
 | `features/map/layers/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `lib/mapDisplay/axisLayers.ts`（`RampAxis`関連のみ） | 軸カタログ→ramp軸一覧の変換（`rampAxesFromCatalogAxes`）。段の色は持たない（`valueScale.ts: rampAxisBands`）。値が無い道の色は`palette.json: semantic.no_data`を別名を付けずに指す。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジックと、値が無い行（`NO_DATA_LEGEND_BAND`）。凡例を作る関数（`features/map/view/lens.ts`）・道の属性の凡例（`features/map/scene/legends.ts`）と管理画面が使う |
-| `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。画面での名前は「地図の色分け」（見出し・読み上げ名。「レンズ」はコードの中の名前で、画面には出さない）。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の札の並び（なし／総合難易度／評価に使用中の軸／未使用の軸。スマホの幅でも地図の塗りが窓の外に見えるよう、札と凡例を横へ流して窓を低く保つ）と「ルート後も周囲の道路を薄く塗る」トグルを開く（選択肢・凡例は`features/map/view/useMapView.ts`が組み立て、`page.tsx`はそのまま渡す）。周りの道を走る条件で塗っている間は、その条件の文（`view/lens.ts: lensConditionsLabel`）をピルと開いた先に出す |
+| `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。画面での名前は「地図の色分け」（見出し・読み上げ名。「レンズ」はコードの中の名前で、画面には出さない）。地図の上の中央のピルが現在のレンズと凡例を示し、タップで単一選択の札の並び（なし／総合難易度／評価に使用中の軸／未使用の軸。スマホの幅でも地図の塗りが窓の外に見えるよう、札と凡例を横へ流して窓を低く保つ）と「ルートを地図に出す」（ルートの線の出し入れ。候補を選ぶまで押せない）・「ルート後も周囲の道路を薄く塗る」トグルを開く（選択肢・凡例は`features/map/view/useMapView.ts`が組み立て、`page.tsx`はそのまま渡す）。周りの道を走る条件で塗っている間は、その条件の文（`view/lens.ts: lensConditionsLabel`）をピルと開いた先に出す |
 | `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（記述子の印で判定。地図上チップの一覧`overlayChips`が除くのに使う）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
 | `features/map/MapView/MapView.tsx`（専用way値配信軸・ルート線の区間クリックの箇所のみ） | 画面の状態を宣言の入力へ渡すだけの配線（下記「MapView.tsx側の配線」）。軸ごとの処理は持たない |
 | `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
@@ -54,7 +54,7 @@
 **段階の境界は`map_paint.thresholds`（`GET /api/axis-catalog`）だけを使う。**
 軸スタジオが編集したしきい値の上書きは生値で、スケールは軸がramp表示を持つかで
 変わる——ramp軸ではタイルの材料値を重み付き和にしたスケール（`buildAxisRampValueExpression`が
-組み立てる値、ルート前の`display.thresholds`が使う側）であり、難易度と直接は比べられない。
+組み立てる値、ルート前の`map_paint.tiles.thresholds`が使う側）であり、難易度と直接は比べられない。
 backend（`domain/map_paint.py: map_paint`）が軸の折れ線で写してから返し、カタログは上書きの生の値を配らないため、
 フロントはスケールの判断を持たない。折れ線が飽和する範囲へ置かれた境界は同じスコアへ写り、
 その分だけ段階が減る。
@@ -89,11 +89,10 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 専用配信軸のどちらのレイヤーを出すかは地図側（`scene/applyToMap.ts`）が導く（軸ごとの値を
 持たない）。ルート後も全道路の塗りを残すかは「ルート後も周囲を塗る」（既定ON）。
 **レンズを選ぶと、ルートのレイヤーがOFFならONにする**——選んだ色分けがルート線に出ないまま、
-理由が画面のどこにも無い状態を作らない。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
-載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
-`material_values`への当該材料の封入（`signed_material`種の軸の場合）を行う
-（backend側は`evaluation.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)
-参照）。
+理由が画面のどこにも無い状態を作らない。レンズは生成リクエストに載らず、切り替えてもルートを作り直さない。
+ルート線をどのレンズでも塗れるよう、backendは重み0の軸でも区間に値を載せる——軸の難易度（`axis_difficulties`）は
+どの軸も、`signed_material`種の軸の材料は`material_values`へいつも載せる（backend側は
+`evaluation.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)参照）。
 
 `map_paint.value.kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
 `material_values`からbackendが名指す材料（軸カタログの`map_paint.value.material`。生材料、例: `gradient_percent`）を
@@ -252,20 +251,20 @@ axis_display_for`が前の境界を決め、`domain/map_paint.py: map_paint`が
 ## dedicatedWayValueLayer.ts（ルート確定前の評価軸グループ線）
 
 - `DedicatedWayValueDisplay`: `{kind, boundaries, legend, bandLabels?}`。軸カタログの
-  `map_paint`/`display_band_labels_override`から、
+  `map_paint`（境界`thresholds`・凡例の目盛り`legend`・段階ラベル`band_labels`）から、
   `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が軸と同じ行で組み立てて
   `DedicatedWayValueAxis.display`へ載せる。**軸と表示宣言を別々に配らない**——別々に配ると
   「軸はあるのに表示宣言が無い」状態が生まれ、それを既定値で埋める経路が要る（既定値で
   埋めると、伝播の失敗が地図の見た目に出なくなる）。
 - `dedicatedWayValueLegend(display)`（`features/map/view/lens.ts`）: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
-  `display_band_labels_override`。backendが地図の段へ引き直して配るため件数は段数と一致する）は
+  `display_band_labels_override`。backendが地図の段へ引き直して`map_paint.band_labels`で配るため件数は段数と一致する）は
   `mapColorLegend.ts: bandLabelsForBandCount`が
   「件数が段階数と一致する間だけ」に絞ってから数値レンジの前に添える——**ルート後の凡例も
   同じ関数を使う**（後述の`routeStyleModes.ts`）。範囲の文字は`display.legend`で書く。
   `features/map/view/lens.ts: lensLegend`が現在のレンズに応じて凡例を1つ組み立てる（ルート後はルート線
   モードの凡例、ルート前はramp軸なら同じファイルの`buildAxisRampLegend`、専用配信軸なら
-  この関数）。`LensControl`（`features/map/LensControl/`）が地図上部中央のピルとポップオーバーに
+  この関数）。`LensControl`（`features/map/LensControl/`）が地図の左上のピルとポップオーバーに
   表示する（モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。
   `MapColorLegendBand`は`{key, label, color}`で、MapLibreのfilter述語を持たない
   （専用way値レイヤーの段階はfilterでは絞り込めないため。上記`valueScale.ts`参照）。
@@ -273,7 +272,7 @@ axis_display_for`が前の境界を決め、`domain/map_paint.py: map_paint`が
 ### 段階の表示ON/OFF（凡例のチェック）
 
 保存先はレンズを問わず隠した行の保存先（`useMapView`が持つ1つの表）の同じ鍵（軸id）で、
-地図上チップの▶パネルの絞り込み・「絞り込みをすべて解除する」もこの同じ場所を読み書きする。
+「表示」の一覧の▶の内訳の絞り込み・「絞り込みをすべて解除」もこの同じ場所を読み書きする。
 段階キーは`mapColorLegend.ts: legendBandKey`/`LEGEND_NO_DATA_KEY`が唯一の出どころで、軸の
 種類を問わずルート前とルート後が同じキーを使う——**ルート生成をまたいでも同じ段階が隠れた
 まま**になる。効かせ方だけがレンズの種類で異なる。

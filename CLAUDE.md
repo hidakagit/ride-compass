@@ -5,7 +5,7 @@
 
 タスクは GitHub の非公開リポジトリ ridecompass/ride-compass-tasks の issue で持つ（issue＝タスク、sub-issue＝段階。
 背景・方針・問いと答え・検証の結果も issue に書く）。ステータスと割り当ては遷移の表が決め、ゲートが守る。
-進め方は docs/conventions/flow.md。リファクタリング・機能追加の着手前に、該当する issue の有無を確認すること。
+進め方は docs/conventions/flow.md と流れのスキル（`.claude/skills/`）。リファクタリング・機能追加の着手前に、該当する issue の有無を確認すること。
 2026-09-28 までの記録は docs/records/tasks/T<番号>.md（タスク番号1件=1ファイル）に残っている（維持しない）。
 
 このファイルは入口で、いつも守る短い決まりと、作業の種類ごとに読む節の表だけを持つ。
@@ -13,20 +13,21 @@
 
 ## ドキュメント階層（必読、新しいルールを追加する前に確認すること）
 
-ルール・方針を書く場所は以下の基準で決める。**何でもCLAUDE.mdへ足さない**——毎セッション無条件で全文が読まれるため、
-肥大化すると常時必要な内容が埋もれる。
+ルール・方針を書く場所は以下の基準で決める。**何でもCLAUDE.mdへ足さない**。
 
 | 階層 | 置くもの | 判定基準 |
 |---|---|---|
 | **CLAUDE.md（本ファイル）** | 常時・無条件に従うべき短い方針＋「作業の種類と読む節」の表 | 「明示的に呼ばれなくても毎回のタスクで適用すべきか」がYesかつ短く書けるもの。長くなるなら下記のdocs/へ出して表に行か節を足し、ルールの経緯はタスクの issue に書く |
-| **docs/conventions/*.md**（logging.md・testing.md等） | 規約。仕事のやり方の取り決め | CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする（要点を写さない） |
+| **docs/conventions/*.md**（flow.md） | 規約。仕事のやり方の取り決め | CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする（要点を写さない） |
+| **.claude/rules/*.md**（testing.md・comments.md等） | ファイルの種類ごとの決まり。関係するファイルを触ると自動で読まれる | 先頭の`paths`に当てるファイルを書く。CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする |
+| **.claude/skills/<名前>/SKILL.md**（run-checks・production-data等） | 多段の手順。説明の1行は常に読まれ、本文は使うときに読まれる | 先頭の`name`と`description`（何をするか・いつ使うか）を書く。CLAUDE.mdからは「作業の種類と読む節」の表で節を指すだけにする |
 | **docs/architecture/*.md** | 構成・技術選定・外部の制約・設計原則（構造仕様） | コードから導けない事実と、コードが従うべき構造契約 |
 | **docs/modules/*.md** | モジュール単位の実装粒度の記述 | 実装作業者向けの詳細。architecture より細かいものはここへ落とす |
-| **.claude/commands/review.md**（`/review`） | 複数の変更を並べて初めて判断できる、周期実行向きのチェック（複雑度のトレンド・UI一貫性等） | 1タスク単体では判断材料が無いもの。grep一発で済む安価で機械的なチェックは`scripts/review_checks.py`の検知器にし（足す条件は fixing.md「検知器を足す条件は厳しい」）、ここには二重チェックとしてのみ残す |
+| **.claude/commands/review.md**（`/review`） | 複数の変更を並べて初めて判断できる、周期実行向きのチェック（複雑度のトレンド・UI一貫性等） | 1タスク単体では判断材料が無いもの。grep一発で済む安価で機械的なチェックは`scripts/review_checks.py`の検知器にし（足す条件は .claude/rules/fixing.md「検知器を足す条件は厳しい」）、ここには二重チェックとしてのみ残す |
 | **docs/records/** | 2026-09-28 までの記録（タスク・決定）。**維持しない**。新しい記録は issue に書く | 記録時点で嘘がなければよく、訂正は新しい記録で行う。レビュー・検知器の対象外（`docs/records/README.md`） |
 
 **ルール・基準は、上の表の置き場（リポジトリ）にだけ置く。** Claude の自動の記憶には、開発機の環境の事実（パス・道具の癖等）
-だけを置き、ルールを置かない——記憶は担当にも別のセッションにも届かず、誰も見直さない。
+だけを置き、ルールを置かない。
 
 ## 出力言語（必読）
 
@@ -34,38 +35,40 @@
 ScheduleWakeupのreason等）も含めて、常にすべて日本語で書く。** 英語の技術用語（ファイル名・コマンド・ライブラリ名等）は
 そのままでよい。道具の合間の短い文も同じで、英語の文はフック（`scripts/hooks/japanese_only.py`）が止める。英語の文を引くときは
 `` ` `` かコードブロックで囲む。
-**ユーザーを名前で呼ばない**（名乗っていない）。呼ぶ必要があれば「ユーザー」と書く。
+**ユーザーを名前で呼ばない**。呼ぶ必要があれば「ユーザー」と書く。
 
 ## 作業の種類と読む節（必読）
 
 作業を始める前に、当たる行の節を読む（いくつも当たれば全部）。節は「ファイル: 節の名前」で指し、ファイル名だけのものは
-docs/conventions/ にある。文書の末尾の「付録」（一度きりの準備・災害時の手順・方針の背景）は作業の前には読まず
+docs/conventions/ にある（.claude/rules/・.claude/skills/ のものはパスを書く）。flow.md の節か、そこから移した流れのスキル（task-work・ask・file-issue・dev-session）を指す行に当たったら、先に flow.md: 原則を読む（スキルの各節の「導く原則」は flow.md の原則を指す）。文書の末尾の「付録」（一度きりの準備・災害時の手順・方針の背景）は作業の前には読まず
 （「全文」も付録を除く）、その場面に当たったときに引く。
 
 | 作業 | 読む節 |
 |---|---|
-| 開発機の対話のセッションでタスクを進める（裏の作業役に任せるときも） | flow.md: 開発機の対話のセッション／.claude/commands/review.md: 回すとき |
-| タスクに着手する | flow.md: 1つのタスクを触るのは1者だけ・作る担当（1〜3）・前後関係と組（探す）・issue の形（規模M以上は最初に背景・方針を書く） |
+| 開発機の対話のセッションでタスクを進める（裏の作業役に任せるときも） | .claude/skills/dev-session/SKILL.md: 開発機の対話のセッション／.claude/commands/review.md: 回すとき |
+| タスクに着手する | flow.md: 1つのタスクを触るのは1者だけ／.claude/skills/task-work/SKILL.md: 作る担当（1〜3）／.claude/skills/file-issue/SKILL.md: 前後関係と組（探す）・issue の形（1つの Pull Request に収まらない・方針を選ぶタスクは最初に背景・方針を書く） |
 | 新しい仕組みを作る・設計を判断する | docs/architecture/design-principles.md（全文）／.claude/commands/review.md: 判断原則 |
-| backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／comments.md: ルール・判定基準（新しくコメントを書く/既存コメントを見直す/コードを撤去するとき）・残すと決めたものの行き先／logging.md: 基本原則・使う仕組み（新規実装はこれらを使うこと） |
-| APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | deployment-sync.md: コミットと同時に揃えるもの |
+| backend・frontend のコードを足す・変える | docs/modules/README.md: 着手の前に読む（と対象の docs/modules/*.md）／.claude/rules/comments.md: ルール・判定基準（新しくコメントを書く/既存コメントを見直す/コードを撤去するとき）・残すと決めたものの行き先／.claude/rules/logging.md: 基本原則・使う仕組み（新規実装はこれらを使うこと） |
+| APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値を変える | .claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
 | 依存の版・デプロイ・実行環境に触る | docs/modules/README.md: このディレクトリが扱わない領域（正本は別にある）と、そこが指す docs/architecture/ の節 |
-| キャッシュを足す・変える | caching.md（全文） |
+| キャッシュを足す・変える | .claude/rules/caching.md（全文）／.claude/rules/caching-retention.md（全文） |
 | 外部データソースを使う・使い方を変える | docs/architecture/data-sources.md: 使い方 |
-| 評価軸を足す・消す・調整する | deployment-sync.md: コミットと同時に揃えるもの・本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる |
-| 指摘・不具合を直す | fixing.md（全文） |
-| テストを書く | testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・テストの足場で、本来のNGを覆わない・挙動を変えるなら、テストを先に書く・当たるパターン（パターン1〜）／fixing.md: 書かないテスト |
-| テストや検査を回す | testing-operations.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
-| 画面を撮る | flow.md: 作る担当（5 の画面の変更のキャプチャ） |
-| コミットする | flow.md: コミット・ラベルと種類と欄（規模の札）／fixing.md: 報告と段取り（実装の増減）／deployment-sync.md: コミットと同時に揃えるもの |
-| PR を出す | flow.md: 作る担当（4〜6）・分布の前後 |
-| PR を確かめてマージする | flow.md: 確かめる担当・Pull Request のあと・競合を解く |
-| 本番へ書く操作を頼む | flow.md: 自動で進めないもの／deployment-sync.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
+| 評価軸を足す・消す・調整する | .claude/rules/deployment-sync.md: コミットと同時に揃えるもの／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる |
+| 指摘・不具合を直す | .claude/rules/fixing.md（全文） |
+| テストを書く | .claude/rules/testing.md: 確かめる高さ・単体で確かめるかを、コードの種類で先に決める・そのテストは要るか（3問を順に）・挙動を変えるなら、テストを先に書く（書く場所・足場に固有の決まりは、その場所の `.claude/rules/testing-*.md` が `paths` で読まれる） |
+| テストを消す・まとめる・変異テストで見直す | .claude/rules/testing-review.md（全文）／全部の測りで見直す1回は .claude/skills/test-review/SKILL.md（全文） |
+| テストを実装から起こし直す | .claude/rules/testing-rewrite.md（全文） |
+| テストや検査を回す | .claude/skills/run-checks/SKILL.md: 手元の検査の回し方・検査の置き場（手元・作業ブランチのCI・masterのCI）・開発機でのbackendテストの回し方／.claude/rules/testing.md: テストが落ちたときの直し方（①〜⑥）・警告は既定でエラー |
+| 画面を撮る | .claude/skills/task-work/SKILL.md: 作る担当（5 の画面に届く変更のキャプチャ） |
+| コミットする | flow.md: コミット／.github/pull_request_template.md（増減）／.claude/rules/deployment-sync.md: コミットと同時に揃えるもの |
+| PR を出す | .claude/skills/task-work/SKILL.md: 作る担当（4〜6） |
+| PR を確かめてマージする | .claude/skills/task-work/SKILL.md: 確かめる担当・Pull Request のあと・競合を解く |
+| 本番へ書く | flow.md: 自動で進めないもの／.claude/skills/dev-session/SKILL.md: 本番へ書く／.claude/skills/production-data/SKILL.md: 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる・派生データの作り直し |
 | 本番を読む | docs/modules/backend/cross-cutting-infrastructure.md の `run_probe.py` の行／docs/architecture/tech-stack.md: 本番の宛先／docs/architecture/setup.md: 開発機の本体のチェックアウトの遅れ |
-| 起票する | flow.md: 改善を起票する・issue の形・ラベルと種類と欄（規模の札・優先度の見積もり）・前後関係と組 |
-| 問う・保留する | flow.md: 問い・答え・保留と棚卸 |
-| 文書を書く | 上の「ドキュメント階層」／documentation.md（全文）／comments.md: 残すと決めたものの行き先 |
-| 流れの道具（`tools/flow-gate`・担当のワークフロー）を変える | flow.md: ゲートを変える・公開する・担当の権限・担当が書けないファイル・確かめる担当（1 の書き込みのある道具を流す） |
+| 起票する・流れ（手順・道具・ゲート・検査）で困った | .claude/skills/file-issue/SKILL.md: 流れの摩擦を記録する・起票する・issue の形・ラベルと種類と欄（規模の札・優先度の見積もり）・前後関係と組 |
+| 問う・保留する | .claude/skills/ask/SKILL.md: 問い・答え・保留と棚卸 |
+| 文書を書く | 上の「ドキュメント階層」／.claude/rules/documentation.md（全文）／.claude/rules/comments.md: 残すと決めたものの行き先 |
+| 流れの道具（`tools/flow-gate`・担当のワークフロー）を変える | flow.md: ゲートを変える・公開する・担当の権限・担当が書けないファイル／.claude/skills/task-work/SKILL.md: 確かめる担当（1 の書き込みのある道具を流す） |
 | 作業ツリーを作る・依存を入れる | docs/architecture/setup.md: 作業ツリーどうしで node_modules を共有しない |
 | 周期レビューをする | .claude/commands/review.md（全文） |
 
@@ -79,7 +82,7 @@ docs/conventions/ にある。文書の末尾の「付録」（一度きりの�
 - **コードの構造について言う前に、機械的に列挙する**: 「◯◯は2か所にある」「唯一の定義だ」「この形は
   他に無い」は思い出しで言わず、grepかASTで数えた結果を先に出す。所要時間も同じで、実測の無い数字は
   出さず「未計測」と言う。
-- **測る前に母集団の定義を書く**: 定義を決めずに測ると、押されるたびに数字が変わる。
+- **測る前に母集団の定義を書く**。
 - **列挙器そのものの穴を疑う**: 機械が見ていない形（関数を参照で渡す`asyncio.to_thread(f, ...)`・
   属性を文字列で指す`setattr(mod, "X", ...)`等）は0件として出る。0件だったときこそ、その形が拾えて
   いるかを既知の1件で検算する。独立した2通りで数えても、和は真値ではない。
@@ -91,28 +94,27 @@ docs/conventions/ にある。文書の末尾の「付録」（一度きりの�
 - **手で操作を組み立てる前に、既に仕組み化されているもので済まないかを見る**: 規模・churnは
   `scripts/review_checks.py metrics`、本番DBへの調査は`backend/scripts/run_probe.py`、docsの整合は
   `scripts/review_checks.py docs`。
-- **同じ操作を3回やったら仕組み化を検討する**: 手で組み立てる長いコマンドは、繰り返すたびに崩れる。
+- **同じ操作を3回やったら仕組み化を検討する**。
 - **道具を作ったら、どこから呼ぶかまで同じ作業で決める。**
 - **その作業に必要な最小の情報量で動く**: 確かめたいことに要る対象（1ファイル・1関数・1件）だけを回し、
   手持ちで一番大きいコマンド（フルスイート・全タイル・全期間）を反射的に叩かない。
 - **既に手元にある情報を取り直さない**: 失敗したファイル名・件数・エラー内容は直前の実行結果にある。
   回し直すのは「前回の実行時点から変えた結果」を取るときだけ。
-- **長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する**——Windowsでは長い
-  Bashのコマンドが黙って切れる（上限と症状は[setup.md](docs/architecture/setup.md)「Windowsの開発機での
-  Bashの長さの上限」）。
+- **長いスクリプト・ヒアドキュメントはWriteツールでファイルに書いてから実行する**（Windowsの開発機では長いBashのコマンドが黙って切れる。上限と症状は
+  [setup.md](docs/architecture/setup.md)「Windowsの開発機でのBashの長さの上限」）。
 
 ## 作業ツリーの安全（必読）
 
 並行セッション（複数のClaude Codeセッション・エージェント）が同じ作業ツリーを同時に触りうる。
 
 - **`git add -A` を使わない**: 変えたパスを明示してステージし、コミットの直前に `git diff --cached --stat` を読む。
-  調べのための使い捨ての spec を `frontend/e2e/` へ置かない（CI の対象になる）。並行セッションがある間は、本体の
-  作業ツリーでコミットしない（共有のインデックスに他のセッションのステージが混ざる）。コミットは作業ブランチの専用の作業ツリーで行う。
-- **読むだけの調べを Agent に委ねるときは Explore を使う**: 全部の道具を持つ Agent は、読むだけと頼んでも書き込み・削除をすることがある。
+  調べのための使い捨ての spec を `frontend/e2e/` へ置かない。並行セッションがある間は、本体の
+  作業ツリーでコミットしない。コミットは作業ブランチの専用の作業ツリーで行う。
+- **読むだけの調べを Agent に委ねるときは Explore を使う**。
 - **自分が変更したのではないファイルの変更を、絶対に自動で戻さない**（`git checkout --`/`git reset`/`git stash`/`git clean`等）。
-  並行セッションの作業中を疑い、対応が要るなら内容を報告してユーザーに確認してから行う（破棄した未ステージの変更は多くの場合復元できない）。
+  並行セッションの作業中を疑い、対応が要るなら内容を報告してユーザーに確認してから行う。
 - **最初から変更を目的としていない作業（調査・分析・レビュー系コマンド等）は、本体ではなく専用の`git worktree`で行う。**
-- **バックグラウンドAgentへ実装タスクを委任するときは、`isolation: "worktree"`を必ず指定する**（同じ作業ツリーで並行して書くと、互いの変更を壊す）。
-  タスクの担当は GitHub Actions のワークフローで起きる（flow.md「担当」）。開発機で裏の作業役に任せるときの渡し方は flow.md「開発機の対話のセッション」。
+- **バックグラウンドAgentへ実装タスクを委任するときは、`isolation: "worktree"`を必ず指定する**。
+  タスクの担当は GitHub Actions のワークフローで起きる（flow.md「担当」）。開発機で裏の作業役に任せるときの渡し方は .claude/skills/dev-session/SKILL.md「開発機の対話のセッション」。
 - **新しいタスクは、今あるタスクのどれにも属さず、今の作業の中では片付かない作業にだけ起こす**——今の流れで片付く直し・派生・
   気づきは元のタスクの issue へ書く。**進め方の指示**（待つ・続ける・順番を変える）は issue にもコミットにもしない。

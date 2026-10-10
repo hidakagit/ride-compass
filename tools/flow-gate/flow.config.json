@@ -13,10 +13,10 @@
   "statuses": ["回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
   "owner": { "回答待ち": "hidakagit", "保留": "hidakagit", "未着手": "hidakagit-bot", "進行中": "hidakagit-bot", "検証中": "hidakagit-bot" },
   "done": "完了", "waiting": "回答待ち", "hold": "保留", "todo": "未着手", "working": "進行中", "review": "検証中",
-  "adoption": "このタスクをやりますか？",
+  "todoTypes": ["保守", "調査", "不具合"],
   "transitions": {
     "回答待ち": ["未着手", "保留", "完了"],
-    "保留": ["未着手", "完了"],
+    "保留": ["未着手", "回答待ち", "完了"],
     "未着手": ["進行中", "回答待ち", "保留", "完了"],
     "進行中": ["検証中", "未着手", "保留", "回答待ち", "完了"],
     "検証中": ["完了", "未着手", "回答待ち"],
@@ -24,8 +24,7 @@
   },
   "code": { "repository": "hidakagit/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
   "coordinator": {
-    "workflow": "claude-task.yml", "watcher": "claude-dispatch.yml", "slots": { "作る": 6, "確かめる": 4 }, "devLabel": "開発機が要る",
-    "recent": 30, "recordsSince": "2026-10-04T00:09:49Z", "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350, "watchFailMinutes": 30,
-    "backendVariable": "BACKEND_ORIGIN", "backupMaxHours": 48
+    "workflow": "claude-task.yml", "watcher": "claude-dispatch.yml", "slots": { "作る": 6, "確かめる": 4 }, "devLabel": "開発機が要る", "holdRef": "refs/heads/hold/",
+    "recent": 30, "recordsSince": "2026-10-04T00:09:49Z", "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350, "watchFailMinutes": 30
   }
 }

@@ -33,7 +33,7 @@ logger = logging.getLogger("ridecompass.msm_client")
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 #: 本番の読み手はこのファイルだけだが、テストがディスク（プロセス境界）の置き場を一時ディレクトリへ差し替えるために公開する
-#: （testing.md「確かめる高さ」の例外）。置き場を引数で受けると、本番がいつも同じ置き場を渡すだけの、テストのための口になる。
+#: （testing.md「確かめる高さ」の (c)）。
 MSM_DIR = DATA_DIR / "msm"
 # 置き場の中の名前。パスはチャンク（`_chunk_path`）と同じく、使うたびに`MSM_DIR`から作る。
 _META_FILE_NAME = "meta.json"
@@ -266,9 +266,11 @@ async def refresh(client: httpx.AsyncClient) -> int:
     etags = _load_json(MSM_DIR / _ETAGS_FILE_NAME)
     downloaded = 0
     keep: set[Path] = set()
+    valid: set[str] = set()
     for variable in FORECAST_VARIABLES:
         for chunk_number in chunk_numbers:
             keep.add(_chunk_path(variable, chunk_number))
+            valid.add(f"{variable}/{chunk_number}")
             if await _download_chunk(client, variable, chunk_number, etags):
                 downloaded += 1
 
@@ -276,7 +278,6 @@ async def refresh(client: httpx.AsyncClient) -> int:
     (MSM_DIR / _META_FILE_NAME).write_text(json.dumps(meta), encoding="utf-8")
     # 消したチャンクのETagが残ると、次に同じ番号を引いたとき「変更なし」と誤判定して
     # 存在しないファイルを読みに行くため、保持するチャンクぶんだけを残す。
-    valid = {f"{variable}/{number}" for variable in FORECAST_VARIABLES for number in chunk_numbers}
     (MSM_DIR / _ETAGS_FILE_NAME).write_text(json.dumps({k: v for k, v in etags.items() if k in valid}), encoding="utf-8")
     await asyncio.to_thread(_prune, keep)
 
@@ -293,11 +294,15 @@ async def refresh(client: httpx.AsyncClient) -> int:
     return downloaded
 
 
-def _read_block(variable: str, chunk_number: int, window: MsmWindow, t0: int, t1: int) -> np.ndarray:
+def _synced_chunk_path(variable: str, chunk_number: int) -> Path:
     path = _chunk_path(variable, chunk_number)
     if not path.exists():
         raise MsmUnavailableError(f"MSMのチャンクが未同期です: {path.name}")
-    with OmFileReader(str(path)) as reader:
+    return path
+
+
+def _read_block(variable: str, chunk_number: int, window: MsmWindow, t0: int, t1: int) -> np.ndarray:
+    with OmFileReader(str(_synced_chunk_path(variable, chunk_number))) as reader:
         block = np.asarray(reader[window.lat_slice, window.lon_slice, t0:t1], dtype=np.float64)
     return block
 
@@ -327,9 +332,7 @@ def _read_series_sync(latitudes: np.ndarray, longitudes: np.ndarray, hours: int,
         raise MsmUnavailableError("MSMの予報データが現在時刻に追いついていません")
 
     # 形状は実データから読む（緯度・経度方向の格子点数を定数として持たないため）。
-    sample_path = _chunk_path(next(iter(FORECAST_VARIABLES)), _chunk_number(start, chunk_hours))
-    if not sample_path.exists():
-        raise MsmUnavailableError(f"MSMのチャンクが未同期です: {sample_path.name}")
+    sample_path = _synced_chunk_path(next(iter(FORECAST_VARIABLES)), _chunk_number(start, chunk_hours))
     with OmFileReader(str(sample_path)) as reader:
         n_lat, n_lon = int(reader.shape[0]), int(reader.shape[1])
     grid = _grid_from_meta(meta, n_lat, n_lon)

@@ -9,10 +9,8 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { heldReplies, inTurn, onBackend } from "@/testing/backendServer";
+import refreshIntervals from "@/types/generated/refresh-intervals.json";
 import type { WindGridPoint } from "@/types/weather";
-
-// 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
-vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
 import { windGridDetailSpacingDegForZoom, type MapViewport } from "@/features/map/layers/windLayer";
 
@@ -47,8 +45,8 @@ const serveDetail = (...responses: WindGridPoint[][]) =>
 
 type Results = { current: ReturnType<typeof useWeatherGrid> };
 
-// 取得の結果は網を通って届くので、偽にしていない時計で、粗い格子と（ズームしていれば）詳細格子が届くまで待つ
-// （届くまでの時間は CI の負荷で変わる）。
+// 範囲の変化を取得へ渡すまでの間引きは偽の時計で待ち（`vi.waitFor`が確かめのたびに偽の時計を進める）、取得の結果は
+// 網を通って、粗い格子と（ズームしていれば）詳細格子が届くまで待つ（届くまでの時間は CI の負荷で変わる）。
 async function fetched(result: Results, zoomed = false) {
   await vi.waitFor(() => {
     expect(result.current.hasFetched).toBe(true);
@@ -57,7 +55,7 @@ async function fetched(result: Results, zoomed = false) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
   serveGrid([point(35, 139)]);
   // 詳細格子は、問い合わせた範囲の南西と北東の角の2点を、問い合わせた間隔を風速にして返す。
   onBackend("GET", DETAIL, ({ query }) =>
@@ -89,7 +87,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     serveGrid([point(35, 139), point(35.1, 139)], [point(35, 139, 5)]);
     const { result } = render(true, WIDE);
     await fetched(result);
-    act(() => vi.advanceTimersByTime(3 * 60 * 60 * 1000));
+    act(() => vi.advanceTimersByTime(refreshIntervals.msm_seconds * 1000));
     await vi.waitFor(() =>
       expect(result.current.grid.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
         [35, 5],
@@ -144,7 +142,7 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     serveDetail([point(35.61, 139.71)], [point(35.61, 139.71, 5)]);
     const { result } = render(true, ZOOMED);
     await fetched(result, true);
-    act(() => vi.advanceTimersByTime(3 * 60 * 60 * 1000));
+    act(() => vi.advanceTimersByTime(refreshIntervals.msm_seconds * 1000));
     await vi.waitFor(() => {
       expect(result.current.grid.map((p) => p.wind_speed_ms[0])).toEqual([3]);
       expect(result.current.detail?.points.map((p) => p.wind_speed_ms[0])).toEqual([5]);

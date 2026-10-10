@@ -1,56 +1,71 @@
-"""派生を作り直す入口。**順番はここだけが持つ**。
+"""派生を作り直す入口。**順番と、段ごとの入力の宣言はここだけが持つ**。
 
-生データを差し替えたら、下流を全部作り直す。段は次の依存で決まっており、飛ばせない:
-形（`road_edges`）が無いと材料の行が作れず、ノードの枝数が無いと交差点を数えられず、
-区間の値が無いと道の値を導けない。
+生データを差し替えたら、下流を作り直す。段は次の依存で決まっており、並べ替えられない:
+形（`road_edges`）が無いと値の行が作れず、ノードの枝数と種別が無いと交差点と停止要因を数えられない。
+派生の表はどれも書く段が1つで（`infrastructure/derived_models.py`）、段は自分の表を空にしてから埋める。
 
     .venv\\Scripts\\python.exe -m app.batch.derive_cli
-    .venv\\Scripts\\python.exe -m app.batch.derive_cli --from counts
 
-途中から流し直すのは、ある段のやり方だけを変えたとき（分類器を直した・しきい値を
-変えた）。`--from`はその段から後ろを全部流す。生データを取り直したとき・派生の表の列を足した・消したときは
-最初から通す——`--from`は、全ソースの成功した最新の取込と派生の表の宣言の列が前の作り直しの記録
-（`derived_source_runs`・`derived_columns`）と同じときだけ流し、違えば止まる（流すと、前の段が古い取込から
-作った値や、前の段が書く足した列のNULLが残る）。
+**入力が前回の作り直しと同じ段は流さない。** 段の出力は、読むソースの取込・読む前の段の出力・較正値・書く表の列・
+段のコード・実行環境の版（Python・ライブラリ・DB）だけで決まる（乱数・時刻・外部への問い合わせを読まない）ので、段ごとにこれらから指紋を作って
+（`stage_fingerprints`）派生の記録（`derived_stages`）と比べ、同じ段の表は作業用のスキーマに作らず、`public`の前回の表を
+そのまま読み、入れ替えでも残す。前の段の指紋も入力に入れるので、流した段を読む後ろの段は必ず流れる——外部キーで
+表を指す段も、指す表を書く段を前の段に挙げるので、指される表を作り直せば一緒に作り直す。全部の段が同じなら、
+作業用のスキーマも道路網の配列も入れ替えも作らずに終える。段は単独の入口を持たない。
+
+**道路網の配列も、入力が前回と同じなら作らない。** 配列の入力は、配列の読み出しが読む表を書く段の指紋・直に読むソースの取込・
+事故の収録年数・配列を組むコードで（`network_inputs`）、前回の置き場の入力と同じなら、その配列を新しい世代の名前で出し直す。
+
+**区間の値がその区間の形と前の段の外の入力だけで決まる段（`DeriveStage.per_edge`）は、区間ごとに前回の値を写す。**
+前の段が区間を作り直して段が流れても、前の段を除いた入力の指紋が前回と同じなら、段へ前回の表のスキーマ（`public`。
+入れ替えまで前回の表が残っている）を渡し、形の同じ区間は前回の値を写させて、残りの区間だけを計算させる。段が区間ごとに
+読んだ値を表に残して前回と比べるソース（`DeriveStage.compared`）は、この指紋に入れない。
+
+段が何を読むかは`STAGES`の宣言が持ち、宣言の漏れは段が読んだ表の数で見張る（`tests/test_derive_skip.py: test_each_stage_declares_what_it_reads_and_writes`）。
+前の段（`after`）には、読む表を書く段と、自分が書く表の行を入れる・消す段を挙げる（区間を切る段は、区間・道・頂点を
+外部キーで指す値の表を空にする）。
 作り直しは取込と同時に走らない（`common.py: SOURCE_DATA_LOCK`）。
-
-後ろの段がみな直前の段の値を読むわけではない。面を線へ落とす段（`raster`）はノードの値も
-数の値も読まず、数の段が作る道1本の行へ書き込むためにその後ろにある。そのため`--from`は、
-変えた段の値を読まない段まで流し直すことがある。段は単独の入口を持たない——どの段がどの段の
-値を読むかは宣言されておらず、1段だけ流してそれを読む段を流し忘れると、古い入力から作った
-値が残る。
 
 **作り直しは作業用のスキーマで行い、道路網の配列まで作ってから1つのトランザクションで`public`の
 表と入れ替える**（仕組みと理由は`docs/modules/backend/static-road-attributes.md`「派生」）。
 段のSQLは表の名前をスキーマを付けずに書く——接続の`search_path`が作業用のスキーマを先に探し、
-生データは`public`から読む。
+流さない段の表と生データは`public`から読む。
 
 **段が読む較正値は、作り直しを始めるときに1度だけDBの上書きから読み、段の関数へ値で渡す**。
 バッチはwebアプリと別のプロセスで、プロセス内の較正値（`domain/tuning.py: TUNING_VALUES`）へは
 何も読み込まれていない——そこを読むと、管理画面で変えた値ではなく宣言の既定が効く。
-どの段がどの較正値を読むかは`STAGES`が持つ。
+段へ渡るのは`STAGES`が宣言した較正値だけである。
 """
 
 import argparse
 import asyncio
+import hashlib
+import json
 import logging
 import shutil
 import sys
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import asyncpg  # noqa: E402
 
 from app.batch import (  # noqa: E402
+    derive_addresses,
     derive_counts,
-    derive_node_materials,
-    derive_raster_materials,
+    derive_elevation,
+    derive_landcover,
+    derive_nodes,
+    derive_stop_places,
     derive_topology,
-    derive_way_materials,
+    derive_way_directions,
 )
+from app.batch.code_fingerprint import code_fingerprint, library_versions  # noqa: E402
+from app.batch.ingest import partition_table_name  # noqa: E402
 from app.batch.common import (  # noqa: E402
     SOURCE_DATA_LOCK,
     asyncpg_dsn,
@@ -60,26 +75,114 @@ from app.batch.common import (  # noqa: E402
 )
 from app.infrastructure.tuning_overrides import load_tuning_values  # noqa: E402
 from app.infrastructure import derived_data_meta, road_network_store  # noqa: E402
-from app.infrastructure.derived_data_freshness import declared_columns, derived_tables  # noqa: E402
+from app.infrastructure.derived_data_freshness import declared_columns  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
-from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL  # noqa: E402
+from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL, Source  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
-#: 段は接続と、いま効くべき較正値（id → 値）を受ける。
-Stage = Callable[[asyncpg.Connection, Mapping[str, float]], Awaitable[object]]
 
-#: 本番の読み手はこのファイルだけだが、テストが段の後ろに覗き窓・失敗を挟むために公開する（testing.md「確かめる高さ」の
-#: 例外）: 入れ替えまでは読み手が前の表を読むこと・途中で落ちても読み手の見るものが何も変わらないことは、段と段の
-#: 間に入らないと作れず、入口（`run`）の引数で段を受けると、本番がいつも同じ表を渡すだけのテストのための口になる。
-STAGES: tuple[tuple[str, Stage], ...] = (
-    ("topology", lambda conn, tuning: derive_topology.derive(conn)),
-    ("nodes", lambda conn, tuning: derive_node_materials.derive(
-        conn, signal_radius_m=tuning["signal.match_radius_m"])),
-    ("counts", lambda conn, tuning: derive_counts.derive(conn)),
-    ("raster", lambda conn, tuning: derive_raster_materials.derive(conn)),
-    ("ways", lambda conn, tuning: derive_way_materials.derive(conn)),
+@dataclass(frozen=True)
+class DeriveStage:
+    """段1つの宣言。指紋（`stage_fingerprints`）は、ここに挙げた入力とコードから作る。"""
+
+    name: str
+    #: 段のモジュール。`derive(conn, **較正値)`を持ち、段のコードの指紋はここからたどる。
+    module: ModuleType
+    #: 読むソース。
+    sources: frozenset[Source]
+    #: 前の段（名前。この段より前にあるもの）。挙げる基準は冒頭。
+    after: tuple[str, ...]
+    #: 書く派生の表。
+    tables: tuple[str, ...]
+    #: `derive`の引数の名前 → 渡す較正値のid。
+    tuning: Mapping[str, str] = field(default_factory=dict)
+    #: 区間の値が、その区間の形と前の段の外の入力だけで決まり、ほかの区間を読まない。`derive`は引数`previous`に
+    #: 前回の表のスキーマ（写せないならNone）を受け、形の同じ区間へ前回の値を写す。
+    per_edge: bool = False
+    #: 区間ごとに写す段が、区間ごとに読んだ値を自分の表に残して前回と比べるソース。前の段の外の入力の指紋に入れない。
+    compared: frozenset[Source] = frozenset()
+
+    async def run(self, conn: asyncpg.Connection, tuning: Mapping[str, float], previous: str | None) -> None:
+        arguments: dict[str, object] = {argument: tuning[param] for argument, param in self.tuning.items()}
+        if self.per_edge:
+            arguments["previous"] = previous
+        await self.module.derive(conn, **arguments)
+
+
+def _outside_key(stage: DeriveStage) -> str:
+    """区間ごとに写す段の、前の段を除いた入力の指紋を記録する名前。"""
+    return f"{stage.name}/outside"
+
+
+STAGES: tuple[DeriveStage, ...] = (
+    DeriveStage("topology", derive_topology, frozenset({Source.OSM_WAY}), (), ("road_edges", "road_ways", "road_nodes")),
+    DeriveStage("nodes", derive_nodes, frozenset({Source.OSM_NODE, Source.OSM_WAY}), ("topology",),
+                ("node_kinds", "node_turns"), {"signal_radius_m": "signal.match_radius_m"}),
+    DeriveStage("counts", derive_counts, frozenset({Source.OSM_NODE, Source.OSM_WAY, Source.ACCIDENT}),
+                ("topology", "nodes"), ("edge_counts", "way_counts")),
+    # 標高の段は、道から区間が橋かトンネルかだけを読み、その値を区間ごとに表へ残す。
+    DeriveStage("elevation", derive_elevation, frozenset({Source.OSM_WAY, Source.DEM}), ("topology",), ("edge_elevation",),
+                per_edge=True, compared=frozenset({Source.OSM_WAY})),
+    DeriveStage("landcover", derive_landcover, frozenset({Source.LULC}), ("topology",), ("edge_landcover", "way_landcover"),
+                per_edge=True),
+    DeriveStage("directions", derive_way_directions, frozenset({Source.OSM_WAY}), ("topology",), ("way_directions",)),
+    # 住所の区画は、道路（`osm_way`）のパーティションを読まず、取込の記録から範囲だけを読む（読んだ数の見張りに出ないので、
+    # 手で挙げる）。
+    DeriveStage("addresses", derive_addresses, frozenset({Source.ABR, Source.ISJ_BLOCK, Source.OSM_WAY}), (),
+                ("address_areas", "address_search_keys", "address_blocks")),
+    DeriveStage("stop_places", derive_stop_places,
+                frozenset({Source.OVERTURE_PLACE, Source.BUNKA_HERITAGE, Source.ESTAT_SMALL_AREA}), (),
+                ("stop_places",)),
 )
+
+
+def stage_fingerprints(runs: Mapping[str, int], tuning: Mapping[str, float],
+                       columns: Mapping[str, frozenset[str]], database: str) -> dict[str, str]:
+    """段ごとの入力の指紋（段の名前 → 指紋）。区間ごとに写す段は、前の段を除いた入力の指紋も`_outside_key`の名前で持つ。
+    `runs`は全ソースの成功した最新の取込、`columns`は派生の表の宣言の列、`database`はDBの版（PostgreSQLとPostGIS）。"""
+    runtime = {"python": sys.version, "libraries": library_versions(), "database": database}
+    fingerprints: dict[str, str] = {}
+    for stage in STAGES:
+        inputs = {
+            "sources": {source: runs.get(source) for source in sorted(stage.sources)},
+            "after": {name: fingerprints[name] for name in stage.after},
+            "tuning": {param: tuning[param] for param in sorted(stage.tuning.values())},
+            "columns": {table: sorted(columns[table]) for table in stage.tables},
+            "code": code_fingerprint(stage.module.__name__),
+            "runtime": runtime,
+        }
+        if stage.per_edge:
+            outside = {key: value for key, value in inputs.items() if key != "after"}
+            outside["sources"] = {source: runs.get(source) for source in sorted(stage.sources - stage.compared)}
+            fingerprints[_outside_key(stage)] = _digest(outside)
+        fingerprints[stage.name] = _digest(inputs)
+    return fingerprints
+
+
+def network_inputs(relations: Iterable[str]) -> tuple[list[DeriveStage], set[Source]]:
+    """道路網の配列が読む表（`relations`）を書く段（段の順）と、配列が直に読むソース。
+
+    どの段も書かず、ソースのパーティションでもない表を読むなら送出する——その表が変わっても配列の入力の指紋が変わらず、
+    前回の配列を使い回してしまう。
+    """
+    owners = {table: stage.name for stage in STAGES for table in stage.tables}
+    partitions = {partition_table_name(source): source for source in Source}
+    stages: set[str] = set()
+    sources: set[Source] = set()
+    for relation in relations:
+        if relation in owners:
+            stages.add(owners[relation])
+        elif relation in partitions:
+            sources.add(partitions[relation])
+        else:
+            raise RuntimeError(f"道路網の配列が、どの段も書かない表を読む: {relation}")
+    return [stage for stage in STAGES if stage.name in stages], sources
+
+
+def _digest(inputs: Mapping[str, object]) -> str:
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+
 
 #: 作り直す間の表を置くスキーマ。同時に2本走ると互いの表を消し合うため、作り直しは排他の鍵
 #: （`SOURCE_DATA_LOCK`）を取って1本に限る。
@@ -92,9 +195,10 @@ _SWAP_LOCK_TIMEOUT = "5s"
 _SWAP_ATTEMPTS = 60
 _SWAP_RETRY_SECONDS = 10.0
 
-#: 写す表の、索引を伴う制約（主キー・一意）と外部キー。外部キーは参照先の鍵の後に作る。
+#: 作業用のスキーマに作る表の、索引を伴う制約（主キー・一意）と外部キー。外部キーは参照先の鍵の後に作る。
 #: 定義は`search_path`が`public`だけのときに読むので、`public`の表は名前だけで出る——
-#: 作業用のスキーマを先に探す接続で打てば、写した表どうしを指し、生データの表は`public`を指す。
+#: 作業用のスキーマを先に探す接続で打てば、作業用のスキーマに作った表どうしを指し、作らなかった派生の表と生データの表は
+#: `public`を指す。
 _CONSTRAINTS_SQL = """
 SELECT r.relname AS table_name, c.conname AS name, pg_get_constraintdef(c.oid) AS definition
 FROM pg_constraint c
@@ -117,14 +221,12 @@ ORDER BY r.relname
 """
 
 
-async def _copy_to_work_schema(conn: asyncpg.Connection, tables: list[str]) -> None:
-    """派生の表を今の中身ごと作業用のスキーマへ写し、接続がそちらを先に探すようにする。
+async def _create_work_tables(conn: asyncpg.Connection, tables: list[str]) -> None:
+    """`tables`を空で作業用のスキーマに作り、接続がそちらを先に探すようにする。
 
     列・既定値・検査制約は`LIKE`で、鍵・外部キー・索引は`public`の定義から名前ごと写す——
-    入れ替えた後の`public`の表は、入れ替える前と同じ名前の制約と索引を持つ。索引は行を
-    入れてから作る（1行ずつ索引を伸ばすより速い）。
+    入れ替えた後の`public`の表は、入れ替える前と同じ名前の制約と索引を持つ。行は段が入れる。
     """
-    started = time.perf_counter()
     await conn.execute("SET search_path = public")
     constraints = await conn.fetch(_CONSTRAINTS_SQL, tables)
     indexes = await conn.fetch(_INDEXES_SQL, tables)
@@ -133,7 +235,6 @@ async def _copy_to_work_schema(conn: asyncpg.Connection, tables: list[str]) -> N
     for table in tables:
         await conn.execute(
             f"CREATE TABLE {_WORK_SCHEMA}.{table} (LIKE public.{table} INCLUDING ALL EXCLUDING INDEXES)")
-        await conn.execute(f"INSERT INTO {_WORK_SCHEMA}.{table} SELECT * FROM public.{table}")
     await conn.execute(f"SET search_path = {_WORK_SCHEMA}, public")
     for row in constraints:
         await conn.execute(f'ALTER TABLE {row["table_name"]} ADD CONSTRAINT {row["name"]} {row["definition"]}')
@@ -142,18 +243,31 @@ async def _copy_to_work_schema(conn: asyncpg.Connection, tables: list[str]) -> N
         if qualified not in row["definition"]:
             raise RuntimeError(f"索引の定義を読み替えられない: {row['definition']}")
         await conn.execute(row["definition"].replace(qualified, f" ON {_WORK_SCHEMA}.{row['table_name']} ", 1))
-    await conn.execute("ANALYZE " + ", ".join(tables))
-    logger.info("派生の表を作業用のスキーマ %s へ写した / %s",
-                _WORK_SCHEMA, format_duration(time.perf_counter() - started))
+    logger.info("作業用のスキーマ %s に表を作った: %s", _WORK_SCHEMA, ", ".join(tables))
 
 
-async def _build_road_network(database_url: str, revision: int) -> Path:
-    """作業用のスキーマの表から道路網の配列を作り、読み手がまだ拾わない名前で置く。"""
+async def _build_road_network(database_url: str, revision: int, fingerprints: Mapping[str, str],
+                              runs: Mapping[str, int]) -> Path:
+    """作業用のスキーマの表から道路網の配列を作り、読み手がまだ拾わない名前で置く。入力が前回の置き場と同じなら作らずに、
+    その配列を出し直す。"""
     started = time.perf_counter()
     async with batch_session_factory(database_url, schema=_WORK_SCHEMA) as session_factory:
         async with session_factory() as session:
-            network = await road_network_store.build(RoadGraphRepository(session), revision)
-    pending = road_network_store.write_pending(network)
+            repository = RoadGraphRepository(session)
+            stages, sources = network_inputs(await repository.network_relations())
+            inputs = _digest({
+                "stages": {stage.name: fingerprints[stage.name] for stage in stages},
+                "sources": {source: runs.get(source) for source in sorted(sources)},
+                # 収録年数は読み出しの文へ値で渡り、文が読む表には出ない。
+                "accident_years": await repository.get_accident_years_covered(),
+                "code": code_fingerprint(road_network_store.__name__),
+            })
+            pending = road_network_store.reuse_pending(inputs, revision)
+            if pending is not None:
+                logger.info("道路網の配列は入力が前回と同じなので作らずに、前回の配列を世代 %d の名前で出し直した", revision)
+                return pending
+            network = await road_network_store.build(repository, revision)
+    pending = road_network_store.write_pending(network, inputs)
     logger.info("道路網の配列を作った / %s", format_duration(time.perf_counter() - started))
     return pending
 
@@ -189,13 +303,7 @@ async def _read_tuning(database_url: str) -> dict[str, float]:
             return await load_tuning_values(session)
 
 
-async def run(database_url: str, start_from: str | None) -> int:
-    names = [name for name, _ in STAGES]
-    begin = names.index(start_from) if start_from else 0
-    # 作った取込と列の記録も写す——事故密度の分母が取込の記録から読まれ、写しから作る道路網の配列も数と同じ取込の年で
-    # 割るため。どちらの記録も派生の表と一緒に入れ替わる。
-    tables = [*(table.name for table in derived_tables()), derived_data_meta.DerivedSourceRunRow.__tablename__,
-              derived_data_meta.DerivedColumnRow.__tablename__]
+async def run(database_url: str) -> int:
     columns = declared_columns()
     tuning = await _read_tuning(database_url)
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
@@ -206,20 +314,34 @@ async def run(database_url: str, start_from: str | None) -> int:
     started = time.perf_counter()
     try:
         runs = {row["source"]: row["run_id"] for row in await conn.fetch(LATEST_SUCCEEDED_RUNS_SQL)}
-        if start_from and (runs != await derived_data_meta.read_source_runs(conn)
-                           or columns != await derived_data_meta.read_columns(conn)):
-            raise RuntimeError("生データか派生の表の列が前の作り直しから変わっている。--from を外して最初から流す")
-        await _copy_to_work_schema(conn, tables)
+        database = await conn.fetchval("SELECT version() || ' / ' || postgis_full_version()")
+        fingerprints = stage_fingerprints(runs, tuning, columns, database)
+        recorded = await derived_data_meta.read_stage_fingerprints(conn)
+        changed = [stage for stage in STAGES if recorded.get(stage.name) != fingerprints[stage.name]]
+        if not changed:
+            logger.info("どの段も入力が前回と同じなので、作り直さずに終える（派生の表・世代・道路網の配列は前のまま）")
+            return 0
+        # 作った取込・列・段の指紋の記録も作業用のスキーマで書く——事故密度の分母が取込の記録から読まれ、作業用のスキーマから
+        # 作る道路網の配列も数と同じ取込の年で割るため。どの記録も派生の表と一緒に入れ替わる。
+        tables = [*(table for stage in changed for table in stage.tables),
+                  derived_data_meta.DerivedSourceRunRow.__tablename__, derived_data_meta.DerivedColumnRow.__tablename__,
+                  derived_data_meta.DerivedStageRow.__tablename__]
+        await _create_work_tables(conn, tables)
         await derived_data_meta.replace_source_runs(conn, runs)
         await derived_data_meta.replace_columns(conn, columns)
-        for index, (name, stage) in enumerate(STAGES[begin:], start=1):
+        await derived_data_meta.replace_stage_fingerprints(conn, fingerprints)
+        for stage in STAGES:
+            if stage not in changed:
+                logger.info("段 %s を飛ばした（入力が前回と同じ）", stage.name)
+                continue
             stage_started = time.perf_counter()
-            logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
-            await stage(conn, tuning)
-            logger.info("段 %s 完了 / %s", name,
+            logger.info("段 %s を開始（%d/%d）", stage.name, changed.index(stage) + 1, len(changed))
+            reusable = stage.per_edge and recorded.get(_outside_key(stage)) == fingerprints[_outside_key(stage)]
+            await stage.run(conn, tuning, "public" if reusable else None)
+            logger.info("段 %s 完了 / %s", stage.name,
                         format_duration(time.perf_counter() - stage_started))
         revision = (await conn.fetchval("SELECT revision FROM derived_data_meta") or 0) + 1
-        pending = await _build_road_network(database_url, revision)
+        pending = await _build_road_network(database_url, revision, fingerprints, runs)
         await _swap(conn, tables, revision)
         road_network_store.publish(pending)
         pending = None
@@ -232,16 +354,14 @@ async def run(database_url: str, start_from: str | None) -> int:
             logger.warning("作業用のスキーマ %s を消せなかった（次の作り直しの最初に消す）",
                            _WORK_SCHEMA, exc_info=True)
         await conn.close()
-    logger.info("派生を作り直して入れ替えた: %s / 派生データの世代 %d / %s",
-                "→".join(names[begin:]), revision, format_duration(time.perf_counter() - started))
+    logger.info("派生を作り直して入れ替えた: 流した段 %s / 派生データの世代 %d / %s",
+                "→".join(stage.name for stage in changed), revision, format_duration(time.perf_counter() - started))
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="生データから派生を作り直す")
-    parser.add_argument("--from", dest="start_from", default=None,
-                        choices=[name for name, _ in STAGES])
-    return run_batch_cli(parser, lambda args, database_url: run(database_url, args.start_from))
+    parser = argparse.ArgumentParser(description="生データから派生を作り直す（入力が前回と同じ段は流さない）")
+    return run_batch_cli(parser, lambda args, database_url: run(database_url))
 
 
 if __name__ == "__main__":

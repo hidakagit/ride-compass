@@ -22,7 +22,7 @@ layers =
 exhaustive = true
 
 # Redis keys, value shapes and the get_json/set_json callers belong to infrastructure
-# (docs/architecture/directory-layout.md "backend", docs/conventions/caching.md).
+# (docs/architecture/directory-layout.md "backend", .claude/rules/caching.md).
 # Reaching Redis through an infrastructure module is the intended path, so only
 # direct imports are checked.
 [importlinter:contract:redis-in-infrastructure]
@@ -39,8 +39,8 @@ forbidden_modules =
 allow_indirect_imports = True
 
 # Disk cache keys and the check/fetch/store skeleton belong to infrastructure, as for
-# Redis (docs/conventions/caching.md). The admin "clear everything" of the basemap
-# router is the one operator action caching.md keeps on the raw cache.
+# Redis (.claude/rules/caching-retention.md). The admin "clear everything" of the basemap
+# router is the one operator action caching-retention.md keeps on the raw cache.
 [importlinter:contract:disk-cache-in-infrastructure]
 name = Disk caches are read only by infrastructure
 type = forbidden

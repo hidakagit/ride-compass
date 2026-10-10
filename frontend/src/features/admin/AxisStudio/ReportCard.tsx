@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { textVariants } from "@/components/ui/Text/Text";
 import { formatJstDateTime } from "@/lib/time";
+import { errorMessage } from "@/lib/apiError";
 
 /** 件数・行数（3桁区切り）。数えられなかったものは「-」。 */
 export function formatCount(value: number | null): string {
@@ -43,7 +44,7 @@ export function ReportCard<T extends { computed_at: string }>({
     setError(null);
     load()
       .then(setReport)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err) => setError(errorMessage(err)))
       .finally(() => setLoading(false));
   };
 

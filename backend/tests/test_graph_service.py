@@ -7,17 +7,18 @@
 - 切り出した区間の材料と雨の観測から組む得点 → `test_route_generation_behavior.py`
 
 リポジトリは代役で、各メソッドを`RoadGraphRepository`の同名メソッドの署名へ当ててから呼ぶ（`bound`）。
-道路網全体の配列は`road_network_store.current`を、コンテナのメモリ上限はcgroupのファイルの置き場を差し替えて与える。
+道路網全体の配列は`tests/route_world.py: serve_road_network`で、コンテナのメモリ上限はcgroupのファイルの置き場を差し替えて与える。
 """
 
 import pytest
 
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.region import BoundingBox
-from app.infrastructure import container_memory, road_network_store
+from app.infrastructure import container_memory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.graph_service import GraphService
 from tests.bound_fake import bound
+from tests.route_world import serve_road_network
 from tests.test_road_network import network
 
 #: `test_road_network.network()`の西側の2本の道（35.00N・139.00〜139.02E）を覆う。
@@ -39,7 +40,7 @@ class FakeRepository:
 @pytest.fixture
 def road_network(monkeypatch):
     """取込範囲全体の道路網は`test_road_network.network()`。"""
-    monkeypatch.setattr(road_network_store, "current", network)
+    serve_road_network(monkeypatch, network)
 
 
 async def test_outside_the_ingested_area_there_is_no_search_range():

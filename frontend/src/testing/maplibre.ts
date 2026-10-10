@@ -1,11 +1,12 @@
 /**
  * `maplibre-gl` の代役。地図の部品を本物で描くテストが、描画の手前（WebGL を要する所）で差し替えるのに使う
- * （docs/conventions/testing.md「確かめる高さ」の境界の表の「テスト環境に無いブラウザの機能」）。
+ * （.claude/rules/testing-frontend.md「確かめる高さ（frontend）」の境界の表の「テスト環境に無いブラウザの機能」）。
  *
  * 代役は MapLibre の振る舞いを真似ず、受けたものを記録して返すだけにする:
  * - ソース・レイヤー・地物の状態は `mapTrace/recordingMap.ts` へ記録し、`MapOnScreen` から読む。
  * - 印（`Marker`）とポップアップ（`Popup`）は、渡された要素を地図の器へ置く（画面の問い合わせで引ける）。
  * - カメラの操作（`fitBounds`）とスタイルの取り直し（`setStyle`）は、引数を残す。
+ * - `addProtocol` で登録された受け手は、`protocolHandler` で引ける（テストが要求を渡して呼ぶ）。
  * - 出来事（"load"・"click" 等）は自分では起こさず、テストが `MapOnScreen` で起こす。押した所に描かれている地物も、
  *   テストが渡したものを返す。
  *
@@ -13,7 +14,7 @@
  */
 import type { Coordinates } from "@/types/route";
 
-import { createRecordingMap } from "./mapTrace/recordingMap";
+import { createRecordingMap, type RecordingMap, type StyleLayer } from "./mapTrace/recordingMap";
 
 type Handler = (event: Record<string, unknown>) => void;
 type Listener = { readonly type: string; readonly layerId?: string; readonly handler: Handler; readonly once: boolean };
@@ -176,7 +177,7 @@ class StandInMap extends Evented {
   readonly markers = new Set<Marker>();
   readonly fits: unknown[] = [];
   readonly styles: string[];
-  readonly content: ReturnType<typeof createRecordingMap>["handle"];
+  readonly content: RecordingMap;
   private readonly container: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly zoom: number;
@@ -184,7 +185,7 @@ class StandInMap extends Evented {
 
   constructor(options: { container: HTMLElement; style: string; zoom: number }) {
     super();
-    const { map, handle } = createRecordingMap({ styleReady: false });
+    const { map, handle } = createRecordingMap();
     Object.assign(this, Object.fromEntries(STYLE_OPERATIONS.map((name) => [name, map[name]])));
     this.content = handle;
     this.container = options.container;
@@ -279,7 +280,16 @@ class StandInMap extends Evented {
 
 export { StandInMap as Map };
 
-export function addProtocol() {}
+const protocols = new Map<string, unknown>();
+
+export function addProtocol(name: string, handler: unknown) {
+  protocols.set(name, handler);
+}
+
+/** `addProtocol` でその名前に登録された受け手。 */
+export function protocolHandler(name: string): unknown {
+  return protocols.get(name);
+}
 
 export function setWorkerUrl() {}
 
@@ -287,6 +297,8 @@ export function setWorkerUrl() {}
 export interface MapOnScreen {
   /** 出来事を起こす（"load"・"style.load" 等）。 */
   emit(type: string): void;
+  /** スタイルを読み込んだ状態にする（`layers` はスタイルが最初から持つレイヤー。undefined なら読み込み中）。 */
+  loadStyle(layers: readonly StyleLayer[] | undefined): void;
   /** `lngLat` を押す。`features` はそこに描かれている地物。 */
   click(lngLat: Coordinates, features?: readonly PointedFeature[]): void;
   /** いま表示しているレイヤーの id。 */
@@ -301,27 +313,16 @@ export interface MapOnScreen {
   readonly styles: readonly string[];
 }
 
-/** ソースへ最後に渡された中身（作ったときの宣言の `data` か、そのあとの `setData`）。消えていれば undefined。 */
-function lastData(trace: StandInMap["content"]["trace"], sourceId: string): unknown {
-  for (const { call, args } of [...trace].reverse()) {
-    if (call === "__styleReplaced") return undefined;
-    if (args[0] !== sourceId) continue;
-    if (call === "setData") return args[1];
-    if (call === "addSource") return (args[1] as { data?: unknown }).data;
-    if (call === "removeSource") return undefined;
-  }
-  return undefined;
-}
-
 export function mapOnScreen(): MapOnScreen {
   const map = drawn.at(-1);
   if (map === undefined) throw new Error("地図が描かれていない");
   return {
     emit: (type) => map.emit(type),
+    loadStyle: (layers) => map.content.loadStyle(layers),
     click: (lngLat, features = []) => map.click(lngLat, features),
     visibleLayerIds: () => map.content.layerOrder().filter((id) => map.content.layer(id)?.visibility !== "none"),
     sourceFeatures: (sourceId) =>
-      (lastData(map.content.trace, sourceId) as GeoJSON.FeatureCollection | undefined)?.features ?? [],
+      (map.content.sourceContent(sourceId)?.data as GeoJSON.FeatureCollection | undefined)?.features ?? [],
     markers: () =>
       [...map.markers].map((marker) => ({
         coordinates: { latitude: marker.getLngLat().lat, longitude: marker.getLngLat().lng },

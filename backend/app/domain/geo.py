@@ -10,6 +10,9 @@ EARTH_RADIUS_KM = 6371.0
 # 置かない——置くとFastAPIがこの型の範囲を読まず、範囲の外の値が黙って通る。
 Latitude = Annotated[float, Field(ge=-90, le=90)]
 Longitude = Annotated[float, Field(ge=-180, le=180)]
+# 走行方位（度、北=0から時計回り）。方位を受ける入口（地図の配信・区間インスペクタ）はこの型で書く。範囲の検査は
+# NaN・無限大も断る。
+BearingDeg = Annotated[float, Field(ge=0, lt=360)]
 
 
 class LatLon(Protocol):
@@ -67,6 +70,18 @@ def degrees_covering_m(radius_m: float) -> float:
     """
     return radius_m / (km_per_degree_longitude(COVERED_LATITUDE_LIMIT) * 1000.0)
 
+
+#: 地面の m で測る平面（日本の中ほどを中心にした正距方位図法）。中心から1,500km（北海道・沖縄）でも、近くの2点の間の
+#: 距離の誤差は1%に満たない。経度・緯度を点ごとの緯度の cos で縮める形は、縮めが原点のまわりにかかるため、南北に
+#: ずれた2点の間に原点からの遠さに比例した横のずれが乗る（関東で南北に20mの2点が約31mになる）。
+_GROUND_M_PROJ = "+proj=aeqd +lat_0=36 +lon_0=138 +datum=WGS84 +units=m +no_defs"
+
+
+def ground_m_sql(geom_expr: str) -> str:
+    """経度・緯度の幾何（SRID 4326）を、2点の間が地面の m になる平面へ写す式。`ST_ClusterDBSCAN`等の平面の演算へ渡す。"""
+    return f"ST_Transform({geom_expr}, '{_GROUND_M_PROJ}')"
+
+
 #: 16方位の呼び名（0=北から時計回り）。8方位の呼び名はこの1つおきで、別に持たない——
 #: 片方だけ直すと、同じ向きを場所によって違う名前で出す。
 SIXTEEN_POINT_LABELS = [
@@ -79,13 +94,21 @@ COMPASS_LABELS = SIXTEEN_POINT_LABELS[::2]
 def compass_label(bearing_deg: float) -> str:
     """任意の角度（0=北、時計回り）を方位の呼び名に変換する。区分の幅は呼び名の数から決まる。
 
-    区分の境界は上の区分へ倒す（half-up）。組み込みの`round`は偶数丸めのため使わない。
     画面も同じ角度を名付けるので、境界を含む入力とこの関数の答えを
     `scripts/cross_language_expectations.py: geo_expectations`が表にして配り、画面のテストが通す。
     """
-    count = len(COMPASS_LABELS)
-    index = math.floor((bearing_deg % 360) / (360 / count) + 0.5) % count
-    return COMPASS_LABELS[index]
+    return COMPASS_LABELS[bearing_sector(bearing_deg, len(COMPASS_LABELS))]
+
+
+def bearing_sector(bearing_deg: float, count: int) -> int:
+    """任意の角度（0=北、時計回り）を、北を中心にした`count`等分の区分の番号（0〜count-1）へ丸める。
+    境界は上の区分へ倒す（組み込みの`round`は偶数丸めで、境界の区分の幅が揃わない）。"""
+    return math.floor((bearing_deg % 360) / (360 / count) + 0.5) % count
+
+
+def compass_degrees(bearing_deg: float) -> int:
+    """方位（度）を応答に載せる桁（0〜359の整数の度）へ丸める。"""
+    return int(round(bearing_deg)) % 360
 
 
 def bearing_between(origin: LatLon, destination: LatLon) -> float:

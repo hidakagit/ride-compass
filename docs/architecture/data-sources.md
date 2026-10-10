@@ -13,7 +13,7 @@
 - 表記の要件は画面の出典表記（[static-map-layers.md](../modules/frontend/static-map-layers.md)
   「出典表記」）が満たす。行を足したら、表記が要件を満たしているかも見る。
 - 観測や第三者の記事から推測して埋めない。公式の文言を読めなかった項目は「要確認」と書き、
-  確認の手順をタスクとして提案する（置き場に issue を起こす。[flow.md](../conventions/flow.md)）。
+  確認の手順をタスクとして提案する（置き場に issue を起こす。[file-issue/SKILL.md](../../.claude/skills/file-issue/SKILL.md)）。
 
 ## 母集団の取り方
 
@@ -42,10 +42,87 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 | 気象庁MSM（Open-MeteoがAWS Open Dataで公開する前処理済みデータ） | `backend/app/infrastructure/msm_client.py`（`msm_base_url`） | 配布物はCC BY 4.0（Open-Meteo）。元データは気象庁の利用条件（PDL1.0）に従い、**気象業務法の制約**（第17条 予報業務の許可）が別にかかる——格子の値をどう扱えば許可が要るかは下の「気象業務法の予報業務許可」節 | Open-Meteo分は可。気象業務法との関係は**要確認**（公式の文書で決まらない部分があり、気象庁への照会が要る。許可の要否は有償・無償で変わらないため、無償で公開している今も同じ問い） | Open-Meteoへのクレジット（表示箇所の近くにリンク）＋気象庁の出典 | [Open-Meteo licence](https://open-meteo.com/en/licence)・[open-data](https://github.com/open-meteo/open-data)・[気象庁 copyright](https://www.jma.go.jp/jma/en/copyright.html)・[予報業務許可Q&A](https://www.jma.go.jp/jma/kishou/minkan/q_a_m.html) | 2026-09-26 |
 | 気象庁ホームページの防災情報（アメダス・警報・ナウキャスト・キキクル・洪水予報・推計気象分布等のJSON・タイル） | `backend/app/infrastructure/`の`jma_*`・`flood_client.py` | 気象庁ホームページ利用規約（PDL1.0準拠）。**気象業務法の制約**（第17条 予報業務の許可・第23条 警報の制限）が別にかかる。アメダスの観測を累計して評価の材料（雨の材料）にするのと、推計気象分布（天気。実況で予報ではない）の地点の区分を晴れ・くもりに読み替えて観測所の降水と合わせ、天気のアイコンにするのと、降水ナウキャスト・降水短時間予報のタイルの色を、段をそのままにアプリの段の色へ1対1で塗り替えて重ねるのは加工に当たり、規約は出典と加工した旨の記載で加工を認める（観測値の加工についての別段の定めは無い）。塗り替えが気象業務法の上で「そのまま掲載」に入るかは、下の「気象業務法の予報業務許可」節の書いていないこと。出発時刻の予報で延ばす使い方は、下の「気象業務法の予報業務許可」節の確認が先 | 可（気象業務法の範囲で） | 出典。加工した場合は**加工した旨** | [利用規約](https://www.jma.go.jp/jma/kishou/info/coment.html)・[推計気象分布の解説](https://www.jma.go.jp/jma/kishou/know/suikei_kishou/kaisetsu.html) | 2026-10-05 |
 | 暑さ指数（WBGT、環境省 熱中症予防情報サイト） | `backend/app/infrastructure/wbgt_client.py`（予測値API・情報提供地点マスタCSV） | サイトの利用規約（PDL1.0準拠）。規約が適用外として挙げるのはメール配信サービスと「電子情報提供サービス」（事業者向けのCSVファイル提供）で、使っている予測値API（`api/v1/getForecastData`）と地点マスタCSVは別の「暑さ指数の実況値・予測値ダウンロード」の側にあり、適用外に挙がっていない。同サイトのよくある質問は、アプリで使うならこのWebAPIを案内している。自動化ツールからの高頻度アクセスは控えるよう求めている | 可 | 出典（例: 「出典：環境省熱中症予防情報サイト（当該ページのURL）」）。加工した場合は出典とは別に加工した旨 | [ご利用にあたって](https://www.wbgt.env.go.jp/tos.php)・[実況値・予測値ダウンロード](https://www.wbgt.env.go.jp/wbgt_data_download.php)・[API仕様書](https://www.wbgt.env.go.jp/man15NH/wbgt_data_api_service_manual.pdf)・[よくある質問](https://www.wbgt.env.go.jp/faq2.php)・[電子情報提供サービス](https://www.wbgt.env.go.jp/data_service.php) | 2026-09-26 |
+| アドレス・ベース・レジストリ（デジタル庁）の都道府県・市区町村・町字マスター・住居表示の街区マスターと位置参照拡張 | `backend/scripts/fetch_abr.py`（取得）、アダプタ`abr` | 配布の一覧（DCAT）がデータセットを CC BY 4.0 とする（2026-10-09 の調べで確認）。リンク先のデジタル庁のサイトの規約は、権利表記の無いコンテンツを公共データ利用規約（PDL1.0。CC BY 4.0 と互換）とし、出典の記載と、加工したら出典とは別に加工した旨を求める。地番マスター・地番マスター位置参照だけに登記所備付地図データ利用規約が掛かり、使う町字マスター・住居表示の街区マスター・位置参照拡張には掛からない（住居表示の街区マスターは規約に別の定めが無い。2026-10-09 に規約で確認） | 可 | 出典（「アドレス・ベース・レジストリ」（デジタル庁）＋リンク）と加工した旨。`backend/app/domain/place_search.py: ADDRESS_AREA_ATTRIBUTIONS`の行が`ALWAYS_SHOWN_ATTRIBUTIONS`に入って満たす | [利用規約](https://www.digital.go.jp/policies/base_registry_address_tos/)・[アドレス・ベース・レジストリ](https://www.digital.go.jp/policies/base_registry_address/) | 2026-10-09 |
+| e-Stat 統計地理情報システムの境界データ（令和2年国勢調査 小地域（町丁・字等）、総務省統計局） | `backend/scripts/fetch_estat_small_areas.py`（取得）、アダプタ`estat_small_area` | e-Stat の利用規約（政府標準利用規約（第2.0版）に準拠。CC BY 4.0 と互換）。統計地理情報システムの規約は、コンテンツの利用条件を e-Stat の利用規約に委ね、境界データに固有の条件を持たない。境界の多角形は画面に出さず、位置を含む境界の市区町村名と町丁・字等の名前をつないで、施設と置いた位置の辺りとして添える（加工に当たる） | 可 | 出典（記載例「出典：政府統計の総合窓口(e-Stat)（https://www.e-stat.go.jp/）」）と、出典とは別に加工した旨（記載例「「○○調査結果」（A省）を加工して作成」）。`ADDRESS_AREA_ATTRIBUTIONS`の行が満たす | [利用規約](https://www.e-stat.go.jp/terms-of-use)・[統計地理情報システムの利用規約](https://www.e-stat.go.jp/gis-terms) | 2026-10-09 |
+| 街区レベル位置参照情報（国土交通省） | `backend/scripts/fetch_isj_blocks.py`（取得）、アダプタ`isj_block` | 位置参照情報利用約款。無償で使え（第3条）、位置参照情報か、編集・加工した成果物を転載・引用するときは出典を明記する（第2条第3項。例「街区レベル位置参照情報　国土交通省」、できる限り整備年・ファイル名・編集・加工の責任者も）。公共測量など高い精度の測量・証明には使えない（第2条第2項）。商用・再配布の定めは無い | 定めなし（禁止は無い） | 出典（「街区レベル位置参照情報」（国土交通省）＋リンク）と加工した旨。`backend/app/domain/place_search.py: ADDRESS_AREA_ATTRIBUTIONS`の行が`ALWAYS_SHOWN_ATTRIBUTIONS`に入って満たす | [利用約款](https://nlftp.mlit.go.jp/isj/agreement.html)・[位置参照情報ダウンロードサービス](https://nlftp.mlit.go.jp/isj/) | 2026-10-09 |
+| Overture Maps places（Overture Maps Foundation。地点の出どころは Meta・Microsoft・Foursquare・AllThePlaces・PinMeTo・DAC 等で、1つの地点の出どころは1つ） | `backend/scripts/fetch_overture_places.py`（取得）、アダプタ`overture_places` | テーマは出どころごとに CDLA Permissive 2.0（Meta・Microsoft・PinMeTo・DAC 等）・Apache 2.0（Foursquare）・CC0 1.0（AllThePlaces）。OpenStreetMap のデータを含まず、ODbL の共有の義務がかからない。Foursquare の NOTICE は、ライセンスの写しを渡すこと・変えた所を目立つように示すこと・NOTICE の全文を残すことを求め、API の形で配るなら NOTICE の内容を開発者向けの文書に目立つように載せることを勧める | 可（CDLA Permissive 2.0・Apache 2.0・CC0 1.0 のどれも商用の利用を制限しない） | 出どころごとの表示（Overture の出典の文書の文言）。Foursquare は著作権の1行・Apache 2.0・Overture の形へ変えた旨・NOTICE。`backend/app/domain/map_display.py: ALWAYS_SHOWN_ATTRIBUTIONS`の行と、そこからリンクする`frontend/public/licenses/`の Apache 2.0 の本文・NOTICE の写し（変えた旨を末尾に足したもの）が満たす | [出典](https://docs.overturemaps.org/attribution/)・[places](https://docs.overturemaps.org/guides/places/)・[Foursquare NOTICE](https://opensource.foursquare.com/places-notice-txt/) | 2026-10-08 |
+| 文化遺産オンライン（文化庁・国立情報学研究所）の国の指定・登録の文化財の建造物を、ジャパンサーチ（国立国会図書館）の簡易Web APIで | `backend/scripts/fetch_bunka_heritages.py`（取得）、アダプタ`bunka_heritages` | ジャパンサーチのサイトポリシー「データの利用について」: メタデータはデータベースの紹介ページの条件に従い、書かれていなければ CC0 1.0。文化遺産オンラインの紹介ページの条件は「解説文：CC BY」だけで、使う項目（名称・位置・所有者・指定の別）に条件は無い（解説文は使わない）。文化遺産オンラインのサイト自体は「無断で転用・引用・改変することを禁じます」と書くが、簡易Web APIで取れるのは連携機関が API での提供を許したものだけ（簡易Web APIガイド 1.2）で、その条件がジャパンサーチの紹介ページに付いているので、それに従う。API は間を空けて打つよう求め、上限の目安は示さない（同 1.4） | 可（CC0・CC BY） | 条件は無いが、サイトポリシーの記載例の形（「ジャパンサーチ「文化遺産オンライン（文化庁・国立情報学研究所）」のメタデータを改変して利用」＋紹介ページのURL）で`ALWAYS_SHOWN_ATTRIBUTIONS`に出す | [サイトポリシー](https://jpsearch.go.jp/policy)・[紹介ページ](https://jpsearch.go.jp/database/bunka)・[簡易Web APIガイド](https://jpsearch.go.jp/static/developer/webapi/ja.html)・[文化遺産オンライン](https://online.bunka.go.jp/about) | 2026-10-08 |
 
 公共データ利用規約（PDL1.0）は商用利用を認め、CC BY 4.0と互換である
 （[デジタル庁](https://www.digital.go.jp/resources/open_data/public_data_license_v1.0)）。
 どの提供元も、加工したものを国が作成したかのように見せることを禁じている。
+
+## 版を持つ配布物の入れ替え
+
+配布元が版ごとのファイルで配り、コードが版を1か所で名指して取りに行くものの、版と入れ替えの手順。
+
+### Overture Maps の地点（places）
+
+| 項目 | 内容 |
+|---|---|
+| 今の版 | `backend/app/batch/source_profile.yaml`の`overture_place`の`rows.release` |
+| 配布の頻度 | 毎月（公式の[リリースの予定](https://docs.overturemaps.org/release-calendar/)）。配布元の S3 に残るのは最大60日（2つの版）で、それより古い版は取り直せない |
+| 新しい版の見つけ方 | [リリースの予定](https://docs.overturemaps.org/release-calendar/)の表。版ごとのリリースノート（`https://docs.overturemaps.org/blog/<年>/<月>/<日>/release-notes/`）へのリンクがある。版の名前（`2026-09-23.1`等）は S3 の置き場の`release/<版>/`になる |
+
+手元へ写したファイル（本番は VM の`/home/ubuntu/ridecompass-cache-data/overture/`）は配布元から消えても残るので、
+版を上げるのは、新しい地点を入れたいときと、写したファイルを失って取り直すとき（古い版が配布元から消えていれば取り直せない）。
+
+入れ替えの手順:
+
+1. リリースノートで places のスキーマの変更（列の名前・`taxonomy`の語）と、出どころ（`sources[].dataset`）の増減を読む。
+   取込と派生が読む列（`backend/app/infrastructure/source_models.py: OVERTURE_PLACES_SOURCE_SQL`・アダプタの絞り）と群の語
+   （`backend/app/domain/stop_place.py: OVERTURE_GROUP_WORDS`）が変わっていれば合わせる。
+   新しい版で`convenience_store`の地点のうちコンビニのチェーンの語（同じファイルの`CHAIN_WORDS`）に当たらない名前を
+   数え、新しいコンビニのチェーン・看板の掛け替え・まとまった表記の崩れがあれば語を足す（当たらない店は補給休憩のコンビニに出ない）。
+2. [出典の文書](https://docs.overturemaps.org/attribution/)と Foursquare の NOTICE を読み、出どころと文言が変わっていれば
+   `ALWAYS_SHOWN_ATTRIBUTIONS`の行と`frontend/public/licenses/foursquare-places-NOTICE.txt`を合わせる（生成物`mapDisplay.ts`を作り直す）。
+   上の表の行の確認日も直す。
+3. `rows.release`を新しい版へ書き換えてマージする。
+4. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
+   `python scripts/fetch_overture_places.py`（範囲の地点を写す。関東の枠で約190MB。Actions のランナーで17秒）→ `python -m app.batch.ingest_cli --source overture_place`
+   → `python -m app.batch.derive_cli`の順に打つ。本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[dev-session/SKILL.md](../../.claude/skills/dev-session/SKILL.md)「本番へ書く」）。
+
+### 文化財の建造物（文化遺産オンライン）
+
+| 項目 | 内容 |
+|---|---|
+| 今の版 | `backend/app/batch/source_profile.yaml`の`bunka_heritage`の`rows.snapshot`（取った日。配信元は版を持たず、今の一覧だけを返す） |
+| 更新の頻度 | 公表されていない。ジャパンサーチが最後に取り込んだ時刻は、連携データベースの参照API（`https://jpsearch.go.jp/api/database/bunka`）の`lastDataUpdated`（ミリ秒）で見られる |
+| 取り方 | 全国の建造物（2026-10-08 に 17,560 件、1秒おきに18回・約30秒）を取る。取込の範囲は取込が絞るので、範囲を広げても取り直さない |
+
+手元へ写したファイル（本番は VM の`/home/ubuntu/ridecompass-cache-data/bunka/`）は配信元が変わっても残るので、取り直すのは、
+新しい指定を入れたいときと、写したファイルを失ったとき。
+
+入れ替えの手順:
+
+1. [紹介ページ](https://jpsearch.go.jp/database/bunka)のメタデータの条件と、[サイトポリシー](https://jpsearch.go.jp/policy)の
+   出典の記載例を読み、変わっていれば`ALWAYS_SHOWN_ATTRIBUTIONS`の行を合わせる（生成物`mapDisplay.ts`を作り直す）。上の表の行の確認日も直す。
+2. `rows.snapshot`を取る日へ書き換えてマージする。
+3. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
+   `python scripts/fetch_bunka_heritages.py` → `python -m app.batch.ingest_cli --source bunka_heritage` → `python -m app.batch.derive_cli`
+   の順に打つ。本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[dev-session/SKILL.md](../../.claude/skills/dev-session/SKILL.md)「本番へ書く」）。
+
+### 住所の区画の元データ（アドレス・ベース・レジストリ・e-Stat の小地域の境界・街区レベル位置参照情報）
+
+| 項目 | 内容 |
+|---|---|
+| 今の版 | アドレス・ベース・レジストリは`backend/app/batch/source_profile.yaml`の`abr`の`rows.snapshot`（取った日。配布元は版を持たず、同じ URL に今の全件を置く）。e-Stat の境界は`estat_small_area`の`rows.survey`（統計調査の識別子。`A002005212020`が令和2年国勢調査の小地域）。街区レベル位置参照情報は`isj_block`の`rows.version`（配布元の置き場の名前。`24.0a`が2025年版） |
+| 更新の頻度 | アドレス・ベース・レジストリは配布元のファイルの更新時刻（応答の`last-modified`。町字のテキストは 2026-10-02）で見る。e-Stat の境界は国勢調査ごと（5年おき）。街区レベル位置参照情報は年に1度（配布元の一覧に新しい版が出る） |
+| 取り方 | アドレス・ベース・レジストリは全国の1ファイルずつ（都道府県・市区町村・町字のテキストと、都道府県・市区町村の代表点）と、取込の範囲に掛かる都道府県の町字の代表点と住居表示の街区のテキストと代表点（関東で街区 267,612件・代表点 357,732行。2026-10-10）。e-Stat の境界と街区レベル位置参照情報は範囲に掛かる都道府県の zip（位置参照情報は山梨県で約1.4MB・26.6万行。2026-10-09）。範囲に掛かる都道府県は市区町村の代表点で決める（関東の範囲で12県。全国の1ファイルずつが約12MB、町字の代表点が約1MB、境界が約81MB。2026-10-09） |
+
+手元へ写したファイル（本番は VM の`/home/ubuntu/ridecompass-cache-data/abr/`・`estat/`）は配布元が変わっても残るので、取り直すのは、
+新しい住所を入れたいときと、写したファイルを失ったとき。
+
+入れ替えの手順:
+
+1. アドレス・ベース・レジストリは[利用規約](https://www.digital.go.jp/policies/base_registry_address_tos/)、e-Stat は
+   [利用規約](https://www.e-stat.go.jp/terms-of-use)を読み、出典の求めが変わっていれば`ADDRESS_AREA_ATTRIBUTIONS`を合わせる。街区レベル位置参照情報は[利用約款](https://nlftp.mlit.go.jp/isj/agreement.html)を読む
+   （生成物`mapDisplay.ts`を作り直す）。上の表の行の確認日も直す。
+2. `rows.snapshot`を取る日へ（e-Stat を新しい国勢調査にするなら`rows.survey`も）書き換えてマージする。
+3. 本番 VM で、別のコンテナ（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)「派生データの作り直し」と同じ`docker run`）から
+   `python scripts/fetch_abr.py` → `python scripts/fetch_estat_small_areas.py` → `python scripts/fetch_isj_blocks.py`（都道府県を ABR の市区町村の代表点から決めるので、ABR を先に）
+   → `python -m app.batch.ingest_cli --source abr --source estat_small_area --source isj_block` → `python -m app.batch.derive_cli`の順に打つ。
+   本番 DB へ書くので、開発機の対話のセッションで、ユーザーがチャットで言ったときだけ Claude が打つ（[dev-session/SKILL.md](../../.claude/skills/dev-session/SKILL.md)「本番へ書く」）。
 
 ## 気象業務法の予報業務許可
 

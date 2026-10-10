@@ -1,15 +1,8 @@
-// レイヤーごとのデータ取得状態（loading/empty/error）の算出・追跡。純粋関数
-// （computeLayerDataStatus・clearStaleTrackedSourceErrors）とそれを使う状態管理・
-// イベント配線（erroredSourceIdsRef・recomputeLayerDataStatus）を1つのカスタムフックへ
-// まとめてある。
-//
-// MapView.tsxとの循環import回避のため、対象レイヤーの(source, source-layer)対応表
-// （MapView.tsx: buildLayerDataSources()）はこのモジュールが持たず、呼び出し側から引数で渡す
-// （このモジュール自体はMapView.tsxを一切importしない）。
+// レイヤーごとのデータ取得状態（loading/empty/error）の算出と追跡。
 import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type { LayerDataStatusByLayer, MapLayerId } from "@/features/map/layers/mapLayers";
 
-interface LayerDataSourceEntry {
+export interface LayerDataSourceEntry {
   key: MapLayerId;
   sourceId: string;
   sourceLayer?: string;
@@ -33,11 +26,8 @@ function computeLayerDataStatus(
   layerDataSources: readonly LayerDataSourceEntry[],
 ): LayerDataStatusByLayer {
   const status: LayerDataStatusByLayer = {};
-  // 複数レイヤーが同じ(sourceId,
-  // sourceLayer)を共有するため、querySourceFeatures（実タイルのフィーチャーを走査する
-  // 軽くない処理、road_surfaceは6,000件超になりうる）を同じ引数で繰り返し呼ばないよう、
-  // この1回の呼び出し内でだけ結果をメモ化する（この関数はsourcedata等の高頻度イベントの
-  // たびに呼ばれるため無視できないコスト）。
+  // 複数レイヤーが同じ(sourceId, sourceLayer)を共有する。querySourceFeaturesは実タイルの地物を走査して軽くなく、
+  // この関数はsourcedata等の高頻度イベントのたびに呼ばれるので、同じ引数の結果をこの1回の呼び出しの中で使い回す。
   const emptyBySourceLayer = new Map<string, boolean>();
   for (const { key, sourceId, sourceLayer } of layerDataSources) {
     if (!visibility[key]) continue;
@@ -81,9 +71,8 @@ function layerDataStatusEqual(a: LayerDataStatusByLayer, b: LayerDataStatusByLay
 // されていない）状態でも「保留中の要求が無い」という理由でtrueを返す（'errored'を'loaded'と
 // 同列に「settled」とみなすため）。ビューポートが変わっていない"idle"でこれを解除条件に使うと、
 // 今まさに進行中の障害（例: バックエンド停止で該当タイルがずっとerrored状態のまま）を
-// 「もう問題ない」と誤って解除してしまい、"取得失敗"表示が"データなし"に化けてしまう
-// （useLayerDataStatusのsettleViewport参照）。moveend/zoomendは定義上ビューポートが
-// 実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは
+// 「もう問題ない」と誤って解除してしまい、"取得失敗"表示が"データなし"に化けてしまう。
+// moveend/zoomendは定義上ビューポートが実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは
 // 「新しいビューポートのタイルは問題なく決着した」という意味を持てるが、同じ判定を"idle"だけに
 // 基づいて行うことはできない。
 function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSourceIds: Set<string>): boolean {
@@ -107,21 +96,13 @@ interface UseLayerDataStatusArgs {
   onChange: (status: LayerDataStatusByLayer) => void;
 }
 
-// レイヤーデータ状態（loading/empty/error）の状態管理・再計算・イベント配線をまとめて
-// 持つフック。呼び出し元（MapView.tsx）はmap.on("error"/"sourcedata"/"sourcedataloading"/
-// "moveend"/"zoomend"/"idle", ...)自体は自分で登録し（他の関心事のハンドラと同じ
-// 巨大useEffect内に既にあるため、登録自体を切り離すとかえって複雑になる）、各ハンドラの中で
-// このフックが返す関数を呼ぶだけにする。
+// 地図のイベントの登録は呼び出し元が持ち、各イベントの受け手の中でこのフックが返す関数を呼ぶ。
 export function useLayerDataStatus({ mapRef, layerDataSources, getVisibility, onChange }: UseLayerDataStatusArgs) {
   const erroredSourceIdsRef = useRef<Set<string>>(new Set());
   const lastStatusRef = useRef<LayerDataStatusByLayer>({});
   const trackedSourceIds = useMemo(() => new Set(layerDataSources.map((entry) => entry.sourceId)), [layerDataSources]);
 
-  // 呼び出し元は複数（tracked sourceのsourcedata/sourcedataloading/errorイベント、
-  // moveend/zoomend、表示ON/OFFが変わるeffect）だが、算出そのものはcomputeLayerDataStatus
-  // （純粋関数）に閉じているため、ここでは「今のmap・エラー集合・表示状態を渡して呼ぶ」だけ。
-  // 値が変わらなければコールバックを呼ばない（呼び出し元のuseState更新→再レンダーを
-  // 無駄に発生させないため）。
+  // 値が変わらなければonChangeを呼ばない（呼び出し元の再描画を起こさない）。
   const recompute = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -160,8 +141,7 @@ export function useLayerDataStatus({ mapRef, layerDataSources, getVisibility, on
     [trackedSourceIds, recompute],
   );
 
-  // moveend/zoomend用。clearStaleTrackedSourceErrorsのdocstring参照（"idle"から呼んでは
-  // いけない理由）。
+  // moveend/zoomend用。"idle"からは呼ばない（進行中の障害の"取得失敗"を解いてしまう）。
   const settleViewport = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;

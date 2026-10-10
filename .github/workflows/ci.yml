@@ -7,17 +7,16 @@
 # - frontend: prettier → eslint → knip → tsc --noEmit → vitest の順。書式・lint・型エラーは実行の速い順に
 #   先へ置き、失敗を早く返す。knipは本番・テスト・e2eの入口から辿れないファイル・export・依存を見る。
 # - e2e: 本番ビルドを実ブラウザで開き、実機でしか出ないもの（収まる・押せる、ブラウザと地図の
-#   実挙動、カスケード）を見る（対象の定義は docs/conventions/testing.md パターン4）。
+#   実挙動、カスケード）を見る（対象の定義は .claude/rules/testing-e2e.md パターン4）。
 #   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
 #   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
-# - e2e-scan: e2eのうち全状態の走査を、幅ごとの別ジョブで走らせる（1本の中で画面の状態を辿るため、
-#   分けられる単位は幅）。
-# - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。文書（docs/**・*.md）・
-#   Claude Codeの設定（.claude/**）・運用の道具（scripts/ のうちテストとデプロイが読まないもの）・タスク管理
-#   （.github/taskflow-paths の置き場。検査と公開は claude-gate.yml）だけの変更では走らせない。飛ばしてよいのは、
-#   このワークフローの検査が読まないものだけで、読む範囲がディレクトリに限られる検査は、そのディレクトリを先に当てて
-#   入れ直す（frontend/src/structure/caseOnlyPaths.test.ts は frontend/src の下の .md も読む）。全ての文書を読む検査（backend/tests/structure/test_named_references.py）と運用の道具の静的検査は、
-#   常に走る docs-consistency.yml が持つ。決め方は docs/architecture/tech-stack.md「CIの実行枠」。
+#   e2eとe2e-scanは、Playwrightの公式のcontainerのimage（ブラウザとその依存を入れたもの）の中で走らせ、
+#   ブラウザを取り込む段を持たない。imageの版は、changesがfrontend/package-lock.jsonの@playwright/testの版から
+#   決める（版が違うとブラウザの実行ファイルが見つからない。公式の文書 https://playwright.dev/docs/docker ）。
+#   @playwright/testを上げる変更（Dependabot等）が、そのままimageも上げる。
+# - e2e-scan: e2eのうち全状態の走査（幅 × 段階ごとに1本）を、幅ごとに段階の数だけの別ジョブ（--shard）で走らせる。
+# - changes: 変更されたパスから、重い検査（backend〜e2e-scan）を走らせるかを決める。飛ばす範囲の決め方は
+#   docs/architecture/tech-stack.md「CIの実行枠」。
 # - ci-ok: コードのリポジトリの必須チェックに置く1本。changes が成功し、重い検査が changes の決めたとおりに
 #   終わった（走らせるなら全部成功、飛ばすなら全部スキップ）ときだけ通し、それ以外は落とす。通す形を列挙するのは、
 #   GitHub Actions の障害でランナーが付かずに取り消されたジョブが、needs の結果に cancelled として渡らないことがあるため
@@ -26,6 +25,11 @@
 # - deploy-backend・deploy-frontend: masterへのpushで上の全ジョブが通ったときだけ、backend・frontendを本番へ出す
 #   （出すかの判定と手順は deploy-backend.yml・deploy-frontend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
+# - 持ち時間（各ジョブの timeout-minutes）: 2026-10-07 に測った成功した実行（masterへのpushの直近20件と
+#   Pull Requestの直近60件）の、ジョブごとの最長の所要の2倍を5分単位へ切り上げた値（e2e-scan は幅のうち長いほう）。
+#   段が止まったジョブ（playwright install が進まなくなった等）を既定の360分まで待たせず、取り消しで終わらせて、
+#   作る担当・確かめる担当が流し直す（.claude/skills/task-work/SKILL.md「作る担当」の5）。成功する実行が切られるようになったら、同じ決め方で
+#   測り直す。deploy-backend・deploy-frontend の持ち時間は、呼ばれる側の deploy-*.yml が持つ。
 name: CI
 
 on:
@@ -51,17 +55,38 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # master の実行の一覧を読む（下の BASE）。
+    permissions:
+      contents: read
+      actions: read
     outputs:
       heavy: ${{ steps.diff.outputs.heavy }}
+      playwright: ${{ steps.playwright.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # e2e・e2e-scan の container の image の版（上の e2e の説明）。
+      - id: playwright
+        run: |
+          version=$(jq -er '.packages["node_modules/@playwright/test"].version' frontend/package-lock.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # 比べる相手が無い（手での実行）ときは、すべて走らせる。
+          # master の push は、直前のコミット（github.event.before）でなく、master の祖先のうち push の実行が成功で
+          # 終わった一番近いコミットと比べる。直前のコミットの実行が失敗で終わったか、待ちのまま取り消された
+          # （concurrency）とき、その変更は検査もデプロイもされていないので、この実行の判定に入れる。
+          # 一覧の並びは公式の文書に無いので、並びに頼らず祖先の側から辿る（見つからなければすべて走らせる）。
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=master&event=push&status=success&per_page=100" --jq '.workflow_runs[].head_sha') || ok=""
+            BASE=$(git rev-list --first-parent --skip=1 "$GITHUB_SHA" | awk 'NR == FNR { ok[$0] = 1; next } !found && ($0 in ok) { print; found = 1 }' <(printf '%s\n' "$ok") -)
+            echo "比べる相手: ${BASE:-無し}"
+          fi
+          # 比べる相手が無い（手での実行・成功した master の実行が見つからない）ときは、すべて走らせる。
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}"; then
             echo "heavy=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -69,6 +94,7 @@ jobs:
           heavy=false
           while IFS= read -r f; do
             case "$f" in
+              # frontend/src の下の .md も読む検査（frontend/src/structure/caseOnlyPaths.test.ts）があるので、先に当てて入れ直す。
               frontend/src/*) heavy=true; continue ;;
               docs/*|*.md|.claude/*|scripts/size_thresholds.json|scripts/remote_dev/*) continue ;;
             esac
@@ -84,6 +110,7 @@ jobs:
     # 本番（Oracle Cloud VMのAmpere A1）と同じaarch64・同じUbuntu 24.04で判定する。版の正本は
     # docs/architecture/tech-stack.md「DBの版」。
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -118,7 +145,7 @@ jobs:
       - run: lint-imports
       # -n auto（pytest-xdist）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
-      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/conventions/testing.mdパターン2）
+      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、.claude/rules/testing-backend.mdパターン2）
       # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
       # 実行順はpytest-randomlyがばらす。-qでは種が見出しに出ないため、runのIDを種に渡す——落ちた並びは
       # 手元で --randomly-seed=<runのID> を付けて同じ順に並べ直せる。
@@ -128,6 +155,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: backend
@@ -163,6 +191,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: frontend
@@ -191,6 +220,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
+      # --user 1001 は公式の文書（https://playwright.dev/docs/ci の GitHub Actions の container の例）のとおり。
+      # --ipc=host（Chromiumがメモリ不足で落ちない）と --init（PID 1 のプロセスの扱い）は https://playwright.dev/docs/docker が勧める。
+      options: --user 1001 --ipc=host --init
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: frontend
@@ -202,7 +237,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       # 全状態の走査は、下のe2e-scanが幅ごとの別ジョブで走らせる。
       - run: npm run test:e2e -- --grep-invert "全状態の走査"
       - uses: actions/upload-artifact@v4
@@ -211,7 +245,8 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
-  # 全状態の走査（frontend/e2e/all-states.spec.ts）を幅ごとに別のジョブで走らせる。
+  # 全状態の走査（frontend/e2e/all-states.spec.ts）を幅ごとに、段階（生成前・生成後・乗り換え後）の数の別のジョブで走らせる。
+  # 段階の所要は揃っている（2026-10-08 の成功した実行で desktop 35〜41秒ずつ）ので、1つのジョブに1段階ずつ割る。
   e2e-scan:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
@@ -219,8 +254,14 @@ jobs:
       fail-fast: false
       matrix:
         width: [mobile, desktop]
-    name: e2e-scan (${{ matrix.width }})
+        shard: [1, 2, 3]
+    name: e2e-scan (${{ matrix.width }} ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
+      # 付ける options は上の e2e と同じ。
+      options: --user 1001 --ipc=host --init
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: frontend
@@ -232,19 +273,19 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - run: |
-          npm run test:e2e -- -g "全状態の走査: ${{ matrix.width }}"
+          npm run test:e2e -- -g "全状態の走査: ${{ matrix.width }}" --shard=${{ matrix.shard }}/3
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report-scan-${{ matrix.width }}
+          name: playwright-report-scan-${{ matrix.width }}-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 7
   ci-ok:
     needs: [changes, backend, api-contract, frontend, e2e, e2e-scan]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - env:
           NEEDS: ${{ toJSON(needs) }}

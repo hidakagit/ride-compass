@@ -17,10 +17,10 @@ from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dyn
 from app.domain.time_zone import JST, as_series_time
 from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.region import BoundingBox, tile_bounds_lonlat
-from app.domain.wind import kmh_to_ms
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
+from app.domain.wind import WIND_DRAG_RATIO_DECIMALS, kmh_to_ms
+from app.infrastructure.debug_log import log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services.feature_midpoints import feature_midpoint_arrays
 from app.services.weather_service import WeatherService
 
 _CATEGORY = "region:wind-way-penalty"
@@ -61,19 +61,10 @@ class WindWayService:
         bbox = tile_bounds_lonlat(z, x, y)
 
         with log_external_call(_CATEGORY, z=z, x=x, y=y) as fields:
-            try:
-                midpoints = await self._repository.get_feature_midpoints_in_tile(z, x, y, bbox)
-            except DB_UNAVAILABLE_ERRORS as exc:
-                mark_failed(fields, exc)
+            features = await feature_midpoint_arrays(self._repository, z, x, y, bbox, fields)
+            if features is None:
                 return {}
-            if not midpoints:
-                fields["postgis"] = "uncovered" if midpoints is None else "empty"
-                return {}
-            fields["feature_count"] = len(midpoints)
-
-            keys = list(midpoints)
-            latitudes = np.array([midpoints[key][0] for key in keys], dtype=float)
-            longitudes = np.array([midpoints[key][1] for key in keys], dtype=float)
+            keys, latitudes, longitudes = features
             # タイルをまたぐ道の中ほどはタイルの外にありうるため、格子はタイルと中ほどの両方を覆う。
             series = await self._weather_service.get_wind_forecast_lattice(BoundingBox(
                 min_latitude=min(bbox.min_latitude, float(latitudes.min())),
@@ -105,4 +96,4 @@ class WindWayService:
             values = evaluate_dynamic_material_arrays(context)[self.material_id]
             fields["computed"] = len(keys)
             # 値はキャッシュしない（docs/modules/backend/dynamic-way-values.md「キャッシュ」節）。
-            return {key: round(float(value), 3) for key, value in zip(keys, values)}
+            return {key: round(float(value), WIND_DRAG_RATIO_DECIMALS) for key, value in zip(keys, values)}

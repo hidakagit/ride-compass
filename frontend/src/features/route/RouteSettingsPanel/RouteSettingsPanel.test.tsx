@@ -87,7 +87,7 @@ function boundary(name: string) {
   return screen.getByRole("slider", { name });
 }
 
-describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
+describe("RouteSettingsPanel 評価軸の一覧を取れないとき", () => {
   it("重みが反映されないことと再試行を出し、再試行を押すと取り直して告知を下ろす", async () => {
     onBackend(
       "GET",
@@ -97,7 +97,7 @@ describe("RouteSettingsPanel 軸一覧を取れないとき", () => {
     renderPanel({});
 
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると重み配分は反映されずサーバー既定の配分で探索します。",
+      "評価軸の一覧を取得できませんでした。地図の道路・スポットを表示できません。ルートは重み配分を変えていても反映できず、既定の配分で作ります。ルートの合成も使えません。",
     );
 
     await userEvent.click(screen.getByRole("button", { name: "再試行" }));
@@ -254,6 +254,20 @@ describe("RouteSettingsPanel 配分の帯", () => {
     await userEvent.keyboard("{Enter}{Home}{ArrowLeft}");
 
     expect(onRoutePreferenceChange).not.toHaveBeenCalled();
+  });
+
+  it("合計が1でない配分でも、区切りは割合の上限（説明の文の%）で止まる", async () => {
+    serveCatalog();
+    // 合計 0.38 で、道幅は 0.22（58%）。もう1刻み足すと 0.23（61%）で上限を越える。
+    const { onRoutePreferenceChange } = renderPanel({ width: 0.22, traffic: 0.08, slope: 0.08, light: 0 });
+    await chipsShown();
+
+    boundary("道幅と交通の配分").focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await userEvent.click(screen.getByRole("button", { name: "重みの配分の説明を表示" }));
+
+    expect(onRoutePreferenceChange).not.toHaveBeenCalled();
+    expect(await screen.findByText(/1つの評価軸に置ける重みは60%まで/)).toBeInTheDocument();
   });
 
   /** 帯の幅を決めて、区切りを押してから画面の上で指を動かす。 */

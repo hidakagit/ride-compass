@@ -129,7 +129,7 @@ describe("RouteSplicePanel 見出しと操作", () => {
   it("区間を持たない候補では、操作と指標を出さずに区間を出せないことを書き、戻る操作は残す", () => {
     renderPanel({ displayed: { ...DISPLAYED, edge_ids: [] }, appliedCount: 1 });
 
-    expect(screen.getByText("この候補は経路のEdge情報を持たないため、区間を出せません。")).toBeInTheDocument();
+    expect(screen.getByText("この候補は通る道の並びを持たないため、区間を出せません。")).toBeInTheDocument();
     for (const name of ACTIONS) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     expect(screen.queryByText("距離", { selector: "dt" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe("RouteSplicePanel 指標", () => {
     expect(["距離", "所要", "総合難易度", "負荷"].map((label) => metric(label).base.textContent)).toEqual([
       "12.3km",
       "30分",
-      "40",
+      "40.4",
       "301",
     ]);
     for (const label of ["距離", "所要", "総合難易度", "負荷"]) {
@@ -157,7 +157,7 @@ describe("RouteSplicePanel 指標", () => {
       edge_ids: ["e1", "e4", "e3"],
       distance_km: 13,
       estimated_duration_seconds: 1500,
-      overall_difficulty: { average: 40.6, load: 280.2 },
+      overall_difficulty: { average: 40.44, load: 280.2 },
     });
     renderPanel({ appliedCount: 1, preview });
 
@@ -168,8 +168,8 @@ describe("RouteSplicePanel 指標", () => {
     expect(rows).toEqual([
       ["距離", "→", "13.0km", "+0.7", "悪い", "悪い"],
       ["所要", "→", "25分", "−5", "良い", "良い"],
-      // 差0.2は0桁で書くと0になるので、良し悪しを言わない。
-      ["総合難易度", "→", "41", "±0", "なし", "なし"],
+      // 差0.04は1桁で書くと0になるので、良し悪しを言わない。
+      ["総合難易度", "→", "40.4", "±0", "なし", "なし"],
       ["負荷", "→", "280", "−20", "良い", "良い"],
     ]);
   });
@@ -193,7 +193,7 @@ describe("RouteSplicePanel 指標", () => {
     });
     expect(rows).toEqual([
       ["—", "25分", ""],
-      ["—", "40", ""],
+      ["—", "40.0", ""],
     ]);
   });
 });
@@ -241,6 +241,18 @@ describe("RouteSplicePanel 案内", () => {
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText(/乗り換えた結果が出ます/)).toHaveTextContent("差分を見るを押すと、乗り換えた結果が出ます");
+  });
+
+  it("差分を見て寄与度が0.1以上動いた軸が無ければ、棒も「差分を見る」を押す案内も出さず、どの軸もほぼ変わらないと出す", () => {
+    const unmoved = makeRouteCandidate({
+      edge_ids: ["e1", "e4", "e3"],
+      axis_contributions: { width: 10.05, traffic: 5, slope: 3 },
+    });
+    renderPanel({ appliedCount: 1, preview: unmoved });
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText(/乗り換えた結果が出ます/)).not.toBeInTheDocument();
+    expect(screen.getByText("どの評価軸も、元とほぼ変わりません")).toBeInTheDocument();
   });
 
   it.each([

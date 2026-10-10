@@ -19,6 +19,8 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 
+const TAB_PANEL_CLASS = cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3");
+
 // 軸スタジオ・開発者向け機能をまとめた独立URLの管理画面。一般向けメイン
 // ページ（/）とはURLレベルで分離しており、権限制御はこのルーティング境界
 // （src/proxy.ts、matcher: ["/admin","/admin/:path*"]）にHTTP Basic認証として敷いている
@@ -40,25 +42,25 @@ export default function AdminPage() {
           <TabsTrigger value="developer">開発者</TabsTrigger>
         </TabsList>
 
-        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="axisStudio">
+        <TabsContent className={TAB_PANEL_CLASS} value="axisStudio">
           <AxisStudio />
         </TabsContent>
 
-        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="materials">
+        <TabsContent className={TAB_PANEL_CLASS} value="materials">
           <MaterialCoveragePanel />
         </TabsContent>
 
-        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="tuning">
+        <TabsContent className={TAB_PANEL_CLASS} value="tuning">
           <TuningPanel />
         </TabsContent>
 
-        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="maintenance">
+        <TabsContent className={TAB_PANEL_CLASS} value="maintenance">
           <DerivedDataFreshnessPanel />
           <DbStatusPanel />
           <TileCachePanel />
         </TabsContent>
 
-        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3")} value="developer">
+        <TabsContent className={TAB_PANEL_CLASS} value="developer">
           <div className={cn(textVariants({ variant: "hint" }), "flex flex-wrap items-center gap-3")}>
             <div className="inline-flex items-center gap-2">
               <DebugPanel />

@@ -1,25 +1,6 @@
 """リポジトリの機械的な検査と計測。
 
-## 検知器の設計要件
-
-検知器はプロジェクト全体への一律チェックとして自動実行され、**実行タイミングも走査範囲も
-こちらで選べない**。したがって置いてよいのは、**どの文脈でも絶対に正しいと保証できる
-事実だけ**である。
-
-この要件から、次が導かれる。
-
-- **走査範囲を絞る仕組みを持たない。** 不変条件なら、全件でも差分でも同じ答えになる。
-  「新しく入った分だけを咎める」必要があるなら、それは不変条件ではない
-- **許可リストを持たない。** 許可リストは誤検知を認めた印である。「この綴りは外部の
-  語彙だから除外する」が必要なら、その検査は事実を見ていない
-- **母集団を手で書かない。** 「どのファイルが対象か」を人が列挙すると、実装が動いた
-  ときに静かにずれる。対象は、その検査が読む対象そのもの（マークダウン全件）
-  から自然に決まるものに限る
-- **実装そのものを検査対象にしない**（コードの書き方・import規則・型・レイヤーの
-  不変条件）。実装側の道具（lint・型検査・テスト）が持つ。検知器が実装の姿を知ろうと
-  すると写し（スナップショット・定数表）を抱え、実装が変わった瞬間に黙って死ぬ
-- **保存した過去の値と比べない。** それは検査ではなく報告である。必要な過去の値は
-  `periodic-review/NNN` タグが指すコミットから導く
+検知器（`docs`）を足す条件は .claude/rules/fixing.md「検知器を足す条件は厳しい」が持つ。
 
 ## 使い方
 
@@ -32,7 +13,7 @@
 終了コード: `docs`は違反があれば1。それ以外は表示のみで常に0。
 
 `change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
-（差分の起点を選ぶので、上の設計要件の外にある）。
+（差分の起点を選ぶので、検知器を足す条件の外にある）。
 
 `size`・`metrics`・`trigger`はプロジェクトの今の姿を HEAD から測るので、HEAD が origin/master より
 遅れていれば止まる（`scripts/checkout_freshness.py`）。`docs`は手元の作業ツリーそのものを検査し、
@@ -43,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
 import json
 import re
 import subprocess
@@ -91,10 +73,24 @@ TASKFLOW_PREFIXES = tuple(
 #: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか
 #: 鳴らなくなり、周期ごとの複利で黙って膨らむ。
 LARGE_FILE_LINES = 1000
-#: 前回比の発火（+15%）に要る増分の下限。小さいファイルは数十行の増分でも率が大きく出る。
+#: 前回比の発火の増加率（%）。個別閾値の見直しも同じ率を縮む側に当てる。
+GROWTH_PERCENT = 15
+#: 前回比の発火に要る増分の下限。小さいファイルは数十行の増分でも率が大きく出る。
 GROWTH_MIN_LINES = 50
-#: 個別閾値は自動では下がらない。到達率がこれを下回ったら、下げるか外すかを判断する。
-THRESHOLD_SLACK_RATIO = 0.5
+#: 個別閾値の刻み。閾値は今の行数+GROWTH_PERCENTをこの刻みへ切り上げた値に置く。
+THRESHOLD_STEP_LINES = 100
+
+
+def fitted_threshold(lines: int) -> int:
+    """今の行数に置く個別閾値。個別閾値は自動では下がらないので、置いた閾値がこれより
+    緩くなったら（縮んだ）見直しに出し、下げるか外すかを判断する。"""
+    step = THRESHOLD_STEP_LINES
+    return -(-lines * (100 + GROWTH_PERCENT) // (100 * step)) * step
+
+
+def instruction_limit(path: str, limits: dict[str, int]) -> int | None:
+    """指示の文書の種類ごとの上限（size_thresholds.json の instruction_limits）。当たらなければ None。"""
+    return next((limit for pattern, limit in limits.items() if fnmatch.fnmatchcase(path, pattern)), None)
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -172,24 +168,14 @@ def find_dead_doc_links(md_files: list[str], universe: set[str]) -> list[str]:
 
 def cmd_docs(args: argparse.Namespace) -> int:
     universe = set(tracked_files())
-    md_files = [f for f in universe
-                if f.endswith(".md") and not f.startswith(FROZEN_PREFIXES)]
-
-    sections = [
-        ("dead_doc_links", "文書のリンクが解決しない",
-         find_dead_doc_links(sorted(md_files), universe)),
-    ]
-
-    total = 0
-    for key, title, lines in sections:
-        print(f"## [{key}] {title}: {len(lines)}件")
-        for line in lines:
-            print(f"  - {line}")
-        total += len(lines)
+    lines = find_dead_doc_links(sorted(f for f in universe if is_maintained_doc(f)), universe)
+    print(f"## [dead_doc_links] 文書のリンクが解決しない: {len(lines)}件")
+    for line in lines:
+        print(f"  - {line}")
 
     print()
-    if total:
-        print(f"違反 {total}件")
+    if lines:
+        print(f"違反 {len(lines)}件")
         return 1
     print("違反なし")
     return 0
@@ -235,6 +221,10 @@ def is_test(path: str) -> bool:
             or path.startswith(TEST_PREFIXES))
 
 
+def is_maintained_doc(path: str) -> bool:
+    return path.endswith(".md") and not path.startswith(FROZEN_PREFIXES)
+
+
 def is_code(path: str) -> bool:
     return path.endswith(CODE_SUFFIXES) or path.startswith(WORKFLOW_PREFIXES)
 
@@ -243,7 +233,7 @@ def volume_kind(path: str) -> str | None:
     """総量を数える種別（実装・テスト・維持する文書）。数えないものはNone。"""
     if is_code(path):
         return "テスト" if is_test(path) else "実装"
-    if path.endswith(".md") and not path.startswith(FROZEN_PREFIXES):
+    if is_maintained_doc(path):
         return "文書"
     return None
 
@@ -277,7 +267,11 @@ def volume_totals(counts: dict[str, int]) -> dict[str, int]:
 def cmd_size(args: argparse.Namespace) -> int:
     counts = volume_counts(tracked_files())
     decided = json.loads(read(SIZE_THRESHOLDS)) if SIZE_THRESHOLDS.exists() else {}
-    thresholds = decided.get("thresholds", {})
+    limits = decided.get("instruction_limits", {})
+    # 指示の文書は種類ごとの上限だけで見て、ファイルごとに置いた閾値は上書きする。
+    exceptions = sorted(f for f in decided.get("thresholds", {}) if instruction_limit(f, limits) is not None)
+    thresholds = dict(decided.get("thresholds", {}))
+    thresholds.update({f: limit for f in counts if (limit := instruction_limit(f, limits)) is not None})
     on_fire = decided.get("on_fire", {})
     groups: dict[str, list[str]] = defaultdict(list)
     for f in counts:
@@ -308,7 +302,7 @@ def cmd_size(args: argparse.Namespace) -> int:
             continue
         p = prev.get(f)
         reasons = []
-        if p is not None and p > 0 and (cur - p) / p >= 0.15 and cur - p >= GROWTH_MIN_LINES:
+        if p is not None and p > 0 and (cur - p) * 100 >= GROWTH_PERCENT * p and cur - p >= GROWTH_MIN_LINES:
             reasons.append(f"+{(cur - p) / p * 100:.0f}%")
         if th is None and cur >= LARGE_FILE_LINES:
             reasons.append(f"{LARGE_FILE_LINES:,}行以上・閾値未設定")
@@ -316,8 +310,8 @@ def cmd_size(args: argparse.Namespace) -> int:
             reasons.append(f"閾値{th:,}超過")
         if reasons:
             fired.append(f)
-        if th and cur / th < THRESHOLD_SLACK_RATIO:
-            slack.append(f"{f}（{cur / th:.0%}）")
+        if th and instruction_limit(f, limits) is None and th > fitted_threshold(cur):
+            slack.append(f"{f}（{th}→{fitted_threshold(cur)}）")
         delta = f"{cur - p:+d}" if p is not None else "新規"
         rate = f"{cur / th:.0%}" if th else "-"
         print(f"| {f} | {cur:,} | {p if p is not None else '-'} | {delta} | {th or '-'} | "
@@ -327,11 +321,21 @@ def cmd_size(args: argparse.Namespace) -> int:
     for f in fired:
         if f in on_fire:
             print(f"  - {f} の既定の対応: {on_fire[f]}")
-    print(f"閾値の見直し（到達率{THRESHOLD_SLACK_RATIO:.0%}未満・削除済み） {len(slack)}件: "
+    print(f"閾値の見直し（今の行数+{GROWTH_PERCENT}%を{THRESHOLD_STEP_LINES}行に切り上げた値より緩い・削除済み） "
+          f"{len(slack)}件: "
           + (", ".join(slack) if slack else "なし"))
+    if exceptions:
+        print(f"指示の文書のファイルごとの閾値（無視した。上限は instruction_limits だけ） {len(exceptions)}件: "
+              + ", ".join(exceptions))
     if not base_sha:
         print("（周期レビューのタグが無いため前回比は出していない）")
     return 0
+
+
+def code_churn(sha: str) -> int:
+    """`sha` から HEAD までの backend・frontend の追加と削除の行数の和。"""
+    stat = git("diff", "--shortstat", f"{sha}..HEAD", "--", "backend", "frontend", check=False)
+    return sum(int(x) for x in re.findall(r"(\d+) (?:insertion|deletion)", stat))
 
 
 def cmd_metrics(args: argparse.Namespace) -> int:
@@ -350,9 +354,7 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     churn = "-"
     previous = None
     if tags:
-        stat = git("diff", "--shortstat", f"{tags[0][1]}..HEAD",
-                   "--", "backend", "frontend", check=False)
-        churn = f"{sum(int(x) for x in re.findall(r'(\d+) (?:insertion|deletion)', stat)):,}行"
+        churn = f"{code_churn(tags[0][1]):,}行"
         previous = volume_totals(volume_counts(files_at(tags[0][1]), tags[0][1]))
 
     print(f"# 定量メトリクス（{dt.datetime.now(tz=dt.timezone.utc).date().isoformat()}、"
@@ -393,8 +395,7 @@ def cmd_trigger(args: argparse.Namespace) -> int:
     print(f"- 前回レビュー: {name} / {day}（{days}日経過、閾値 {TRIGGER_DAYS}日）")
     if days is not None and days >= TRIGGER_DAYS:
         fired.append("日数")
-    stat = git("diff", "--shortstat", f"{sha}..HEAD", "--", "backend", "frontend", check=False)
-    lines = sum(int(x) for x in re.findall(r"(\d+) (?:insertion|deletion)", stat))
+    lines = code_churn(sha)
     print(f"- コードの変更行数（{sha[:7]}..HEAD）: {lines:,}行（閾値 {TRIGGER_IMPL_LINES:,}）")
     if lines >= TRIGGER_IMPL_LINES:
         fired.append("変更行数")
@@ -405,17 +406,13 @@ def cmd_trigger(args: argparse.Namespace) -> int:
 
 # --- 差分の報告（作業者が自分の差分に対して打つ。検査ではない） -----------------
 
-#: docs/conventions/flow.md「規模の札」の閾値（実装＋テストの変更行の上限）。
+#: .claude/skills/file-issue/SKILL.md「規模の札」の閾値（実装＋テストの変更行の上限）。
 SIZE_LABELS = ((200, "S"), (1000, "M"))
 GENERATED_NAMES = ("package-lock.json",)
 
 
-def merge_base(base: str, head: str) -> str:
-    return git("merge-base", base, head).strip()
-
-
 def change_kind(path: str) -> str:
-    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる（docs/conventions/flow.md「規模の札」）。
+    """変更の行数を分ける種別。規模の札は実装とテストだけで決まる。
 
     実装とテストは総量と同じ分け方（`volume_kind`）で、コードでないファイルは設定。
     """
@@ -428,7 +425,7 @@ def change_kind(path: str) -> str:
 
 def cmd_change(args: argparse.Namespace) -> int:
     target = args.head or "HEAD"
-    mb = merge_base(args.base, target)
+    mb = git("merge-base", args.base, target).strip()
     # -z では、移したファイルの行が「追加\t削除\t」のあと移す前と後のパスを別の欄に持つ。
     fields = git("diff", "-M", "--numstat", "-z", mb, *([args.head] if args.head else [])).split("\0")
     rows = []
@@ -446,8 +443,9 @@ def cmd_change(args: argparse.Namespace) -> int:
             rows.append((path, len(read(REPO_ROOT / path).splitlines()), 0))
     totals = {kind: [0, 0] for kind in ("実装", "テスト", "文書", "設定", "生成物")}
     for path, added, deleted in rows:
-        totals[change_kind(path)][0] += added
-        totals[change_kind(path)][1] += deleted
+        pair = totals[change_kind(path)]
+        pair[0] += added
+        pair[1] += deleted
     measured = sum(totals["実装"]) + sum(totals["テスト"])
     label = next((name for limit, name in SIZE_LABELS if measured <= limit), "L")
     shown = git("rev-parse", "--short", args.head).strip() if args.head else "作業ツリー（未追跡のファイルを含む）"

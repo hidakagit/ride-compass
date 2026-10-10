@@ -13,12 +13,10 @@ import {
   type MapValueKind,
 } from "./valueScale";
 
-type RouteStyleModeId = "difficulty" | "none" | (string & {});
-
 /** レンズ（地図を何で塗るか）の識別子。`"none"`（塗らない）・`"difficulty"`（総合難易度）
  * 以外は公開軸のaxis_id。ルート前は全道路（rampタイル・専用配信）、ルート後はルート線
  * （`axis_difficulties`）を同じ識別子で塗る。 */
-export type LensId = RouteStyleModeId;
+export type LensId = "difficulty" | "none" | (string & {});
 /** レンズの中立色。「なし」「総合難易度」のようにどの軸にも紐づかないレンズと、
  * 軸色が未設定の軸のフォールバックで使う（候補線の非選択色と同じ）。 */
 export const LENS_NEUTRAL_COLOR = palette.semantic.neutral;
@@ -27,7 +25,7 @@ export const LENS_NONE_ID: LensId = "none";
 export const LENS_DIFFICULTY_ID: LensId = "difficulty";
 
 export interface RouteStyleMode {
-  id: RouteStyleModeId;
+  id: LensId;
   /** モード選択メニューに出す名前 */
   label: string;
   legend: LegendEntry[];
@@ -37,38 +35,9 @@ export interface RouteStyleMode {
   noDataExpression?: unknown[];
 }
 
-// 段（凡例）から色の式と絞り込み付きの凡例を組む。`boundaries[i]`は段iとi+1の境界。区間の値にはnullが明示的に入り、
-// to-numberはnullを0にするため、null（データなし）を先に分ける。`valueExpression`は入れ子のプロパティも指せる
-// （例: `["get", <軸id>, ["get", "axis_difficulties"]]`）。
-function buildSteppedMode(
-  valueExpression: unknown[],
-  steps: { key: string; label: string; color: string }[],
-  boundaries: readonly number[],
-): Pick<RouteStyleMode, "legend" | "colorExpression" | "noDataExpression"> {
-  const value: unknown[] = ["to-number", valueExpression];
-  const noData: unknown[] = ["==", valueExpression, null];
-  const hasData: unknown[] = ["!=", valueExpression, null];
-
-  const colorExpression: unknown[] = ["step", value, steps[0].color];
-  boundaries.forEach((boundary, i) => colorExpression.push(boundary, steps[i + 1].color));
-
-  const legend: LegendEntry[] = steps.map(({ key, label, color }, i) => {
-    const conditions: unknown[] = [hasData];
-    if (i > 0) conditions.push([">=", value, boundaries[i - 1]]);
-    if (i < boundaries.length) conditions.push(["<", value, boundaries[i]]);
-    return { key, label, color, filter: ["all", ...conditions] };
-  });
-  legend.push({ ...NO_DATA_LEGEND_BAND, filter: noData });
-
-  return {
-    legend,
-    colorExpression: ["case", noData, palette.semantic.no_data, colorExpression],
-    noDataExpression: noData,
-  };
-}
-
 // 段の数は境界（軸カタログの`map_paint.thresholds`）の数で決まり、ラベルは凡例の目盛り（`map_paint.legend`）の境界の数字から作る
-// （しきい値を変えても一致する）。
+// （しきい値を変えても一致する）。区間の値にはnullが明示的に入り、to-numberはnullを0にするため、null（データなし）を先に分ける。
+// `valueExpression`は入れ子のプロパティも指せる（例: `["get", <軸id>, ["get", "axis_difficulties"]]`）。
 function buildRangeSteppedMode(options: {
   id: string;
   label: string;
@@ -79,38 +48,48 @@ function buildRangeSteppedMode(options: {
   bandLabels?: readonly string[] | null;
 }): RouteStyleMode {
   const { id, label, valueExpression, kind, boundaries, legend, bandLabels } = options;
-  const steps = valueBands(kind, boundaries, legend, bandLabels);
+  const bands = valueBands(kind, boundaries, legend, bandLabels);
+  const value: unknown[] = ["to-number", valueExpression];
+  const noData: unknown[] = ["==", valueExpression, null];
+  const hasData: unknown[] = ["!=", valueExpression, null];
+
+  const colorExpression: unknown[] = ["step", value, bands[0].color];
+  for (const band of bands.slice(1)) colorExpression.push(band.lowerBound, band.color);
+
+  const legendEntries: LegendEntry[] = bands.map(({ key, label: bandLabel, color, lowerBound }, i) => {
+    const conditions: unknown[] = [hasData];
+    if (i > 0) conditions.push([">=", value, lowerBound]);
+    if (i < bands.length - 1) conditions.push(["<", value, bands[i + 1].lowerBound]);
+    return { key, label: bandLabel, color, filter: ["all", ...conditions] };
+  });
+  legendEntries.push({ ...NO_DATA_LEGEND_BAND, filter: noData });
+
   return {
     id,
     label,
-    ...buildSteppedMode(valueExpression, steps, boundaries),
+    legend: legendEntries,
+    colorExpression: ["case", noData, NO_DATA_LEGEND_BAND.color, colorExpression],
+    noDataExpression: noData,
   };
 }
 
 // 公開軸1本のモード。塗る値の種類・単位・しきい値はbackendが決め、ルート前の専用配信の塗りと同じ尺度・配色になる。
+// 生値を塗る材料はbackendが名指す（`map_paint.value.material`）。
 function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
-  const { value: mapValue, thresholds: boundaries, legend } = axis.map_paint;
-  // 生値を塗る材料はbackendが名指す（`map_paint.value.material`）。
-  if (mapValue.kind === "signed_material") {
-    return buildRangeSteppedMode({
-      id: axis.axis_id,
-      label: axis.label,
-      valueExpression: ["get", mapValue.material, ["get", "material_values"]],
-      kind: mapValue.kind,
-      boundaries,
-      legend,
-      bandLabels: axis.display_band_labels_override,
-    });
-  }
-  return buildRangeSteppedMode({
-    id: axis.axis_id,
-    label: `${axis.label}の影響`,
-    valueExpression: ["get", axis.axis_id, ["get", "axis_difficulties"]],
-    kind: "difficulty",
-    boundaries,
-    legend,
-    bandLabels: axis.display_band_labels_override,
-  });
+  const { value: mapValue, thresholds: boundaries, legend, band_labels: bandLabels } = axis.map_paint;
+  const painted =
+    mapValue.kind === "signed_material"
+      ? {
+          label: axis.label,
+          valueExpression: ["get", mapValue.material, ["get", "material_values"]],
+          kind: mapValue.kind,
+        }
+      : {
+          label: `${axis.label}の影響`,
+          valueExpression: ["get", axis.axis_id, ["get", "axis_difficulties"]],
+          kind: "difficulty" as const,
+        };
+  return buildRangeSteppedMode({ id: axis.axis_id, ...painted, boundaries, legend, bandLabels });
 }
 
 // 総合難易度（全軸を重みで合成した0-100）。特定の軸に紐づかない固定のモード。

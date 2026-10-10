@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import math
 from functools import partial
 from datetime import datetime
 from typing import Annotated, Literal
@@ -24,16 +23,17 @@ from app.domain.route_request import (
     MAX_SPLICED_EDGES,
     MAX_WAYPOINTS,
     MIN_ROUTES,
-    LoopTarget,
+    AssumedSpeedKmh,
+    DistanceTarget,
+    FixedPoints,
+    NoDistanceTarget,
     RouteTarget,
     SplicedTarget,
-    WaypointsTarget,
-    check_point_distance,
     check_spliced_edge_count,
     check_waypoint_count,
+    search_distance_km,
 )
 from app.domain.geo import Latitude, Longitude, haversine_distance_km
-from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
@@ -71,6 +71,9 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
             raise ValueError(f"route_preference must specify every published axis_id (missing={missing})")
         check_axis_weights(self.root)
         return self
+
+    def to_preference(self) -> RoutePreference:
+        return RoutePreference(weights=dict(self.root))
 
 
 class HardFilterOverride(RootModel[dict[str, bool]]):
@@ -125,30 +128,22 @@ class RouteGenerateRequest(StrictModel):
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF。
     hard_filters: HardFilterOverride
-    # 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ合格・
-    # overall_difficulty昇順の上位この件数を返す）。経由地の無い目的地ルート
-    # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
-    # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
-    # あるとレグごとに代替案が組合せで増えるため）。下限・上限と画面の既定値はOpenAPI生成物
+    # 返す候補の上限件数。周回は距離フィルタ合格・overall_difficulty昇順の上位この件数、経由地・目的地を
+    # 置いたときは最後の区間の代わりの道をこの件数まで返す。下限・上限と画面の既定値はOpenAPI生成物
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする。
     max_routes: int = Field(ge=MIN_ROUTES, le=MAX_ROUTES)
     # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
     # 算出に使う。範囲と画面の既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
     # 渡す唯一の情報源にする。
-    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH)
-    # ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で通過する単一経路を
-    # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
-    # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
+    assumed_speed_kmh: AssumedSpeedKmh
+    # ユーザーが地図上で指定した経由地（起点→経由地1→...→終点の順に通る）。bboxが際限なく広がらないよう、
+    # 起点から`MAX_ROUTE_DISTANCE_KM`以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
     # 成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=MAX_WAYPOINTS)
     # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
     # 終わる周回）。
     destination: Coordinates | None = None
-    # 地図のレンズ（色分け）が表示を要求している軸id。探索の重みが0の軸でも、レンズに
-    # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
-    # 未知のidや軸以外（総合難易度・なし）は無視される。
-    lens_axis_id: str | None = None
-    # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱う。
+    # 出発時刻。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱い、JSTの時刻にして持つ。
     start_time: datetime
     # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路。
     # 指定時は探索を行わず、この経路だけを既存候補と同じ経路で評価して1件返す
@@ -172,25 +167,29 @@ class RouteGenerateRequest(StrictModel):
             check_spliced_edge_count(len(value))
         return value
 
+    @field_validator("start_time")
+    @classmethod
+    def _start_time_in_jst(cls, value: datetime) -> datetime:
+        return as_jst(value)
+
     _target: RouteTarget = PrivateAttr()
 
     @model_validator(mode="after")
     def _resolve_target(self) -> "RouteGenerateRequest":
-        # 経由地・目的地を置いたときの距離は探索の範囲と「点が遠すぎないか」の検査に使う値で、最も遠い点より
-        # 長くする（ただし上限`MAX_ROUTE_DISTANCE_KM`を超えないので、最も遠い点が上限ちょうどなら等しい）。
-        # 周回では距離が目標そのものなので送られた値が要る。
+        # 仕上げの戦略（距離あり・距離なし）を選ぶのはここだけ。経由地・目的地を置いたときは距離なしで、距離は
+        # 探索の範囲として置いた点から決める（`search_distance_km`）。周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
             if self.spliced_edge_ids:
                 raise ValueError("spliced_edge_ids requires destination")
             if self.distance_km is None:
                 raise ValueError("distance_km is required without waypoints/destination")
-            self._target = LoopTarget(distance_km=self.distance_km)
+            self._target = DistanceTarget(
+                distance_km=self.distance_km, points=FixedPoints(waypoints=[], destination=None)
+            )
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
-        farthest_km = max(haversine_distance_km(origin, point) for point in points)
-        check_point_distance(farthest_km)
-        distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
+        distance_km = search_distance_km(max(haversine_distance_km(origin, point) for point in points))
         if self.spliced_edge_ids:
             # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
             # 乗り換えると戻れる保証が無くなる）。
@@ -201,14 +200,15 @@ class RouteGenerateRequest(StrictModel):
                 distance_km=distance_km, destination=self.destination, edge_ids=(first, *rest)
             )
         else:
-            self._target = WaypointsTarget(
-                distance_km=distance_km, waypoints=self.waypoints or [], destination=self.destination
+            self._target = NoDistanceTarget(
+                distance_km=distance_km,
+                points=FixedPoints(waypoints=self.waypoints or [], destination=self.destination),
             )
         return self
 
     @property
     def target(self) -> RouteTarget:
-        """検証を通った要求が何を生成するか（周回・経由地と目的地・差し替えた経路）。"""
+        """検証を通った要求が何を生成するか（距離あり・距離なし・差し替えた経路）。"""
         return self._target
 
 
@@ -231,8 +231,7 @@ class GenerationConditions(StrictModel):
     max_average_grade_percent: float | None
     # 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
-    # 候補数の上限（実際に適用された値）。経由地を伴う生成では、指定によらず
-    # `route_request.ROUTES_WITH_WAYPOINTS`。
+    # 候補数の上限。
     max_routes: int
     # 実際に適用された出発時刻（JST）。
     start_time: datetime
@@ -242,7 +241,7 @@ class GenerationConditions(StrictModel):
     waypoints: list[Coordinates] | None
     # 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
     destination: Coordinates | None
-    # 経由地の無い目的地ルートで、`destination`がメインの道路網から孤立した
+    # 距離なしの目的地ルートで、`destination`がメインの道路網から孤立した
     # Node（歩道橋・私有地内通路等）にスナップされたため、実際にはアクセス可能な最寄りNode
     # へ補正して探索した場合の座標。補正しなかった（`destination`をそのまま使えた）場合は
     # None。
@@ -337,8 +336,8 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
     if record is None:
         raise HTTPException(
             status_code=404,
-            detail="ジョブが見つかりません[完了から時間が経過して破棄された、"
-            "またはサーバーが再起動された可能性があります]",
+            detail="ルート生成の結果が見つかりません[完了から時間が経って消えたか、"
+            "アプリが再起動した可能性があります]",
         )
     if isinstance(record, job_registry.JobDone):
         return RouteGenerateJobDone(result=record.result)
@@ -358,12 +357,9 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
     try:
         # 重みの上書き（省略時はエンジンを組む側で既定値を読む）。
         # 適用された値はconditionsへエコーする。
-        preference_override = (
-            RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
-        )
+        preference_override = request.route_preference.to_preference() if request.route_preference else None
 
         job_registry.set_running(job_id)
-        start_time = as_jst(request.start_time)
         target = request.target
         generated = await generate_route_candidates(
             partial(
@@ -373,11 +369,10 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
                 max_average_grade_percent=request.max_average_grade_percent,
                 hard_filters=request.hard_filters.to_frozenset(),
                 assumed_speed_kmh=request.assumed_speed_kmh,
-                lens_axis_id=request.lens_axis_id,
             ),
             origin=Coordinates(latitude=request.latitude, longitude=request.longitude),
             target=target,
-            start_time=start_time,
+            start_time=request.start_time,
             max_routes=request.max_routes,
             distance_tolerance_km=request.distance_tolerance_km,
         )
@@ -395,7 +390,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
                 max_average_grade_percent=applied.max_average_grade_percent,
                 hard_filters=HardFilterOverride.from_frozenset(applied.hard_filters),
                 max_routes=generated.max_routes,
-                start_time=start_time,
+                start_time=request.start_time,
                 assumed_speed_kmh=applied.assumed_speed_kmh,
                 waypoints=request.waypoints,
                 destination=request.destination,

@@ -1,51 +1,33 @@
-// @vitest-environment node
-import type { Map as MapLibreMap } from "maplibre-gl";
+import { Map as MapLibreMap } from "maplibre-gl";
 import { describe, expect, it, vi } from "vitest";
 
+import { mapOnScreen } from "@/testing/maplibre";
+import { matchesFilter } from "@/testing/mapExpressions";
+import type { StyleLayer } from "@/testing/mapTrace/recordingMap";
+
+vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
+
 import {
+  type BasemapPoiKinds,
+  NO_BASEMAP_POI_KINDS,
   areaLayerAnchor,
-  prepareBasemapForAreaLayers,
-  resetBasemapAreaLayerPreparation,
+  hideBasemapPois,
+  labelLayerAnchor,
+  prepareBasemap,
+  reloadStyle,
   runWhenStyleReady,
 } from "./mapStyleOps";
 
-type StyleLayer = { id: string; type: string; "source-layer"?: string };
-
-/** スタイルのレイヤー列を持ち、`moveLayer`で実際に並べ替える地図。 */
-function fakeMap(initial: StyleLayer[] | undefined) {
-  let layers = initial;
-  const loadListeners: (() => void)[] = [];
-  const map = {
-    getStyle: () => (layers === undefined ? undefined : { layers }),
-    getLayer: (id: string) => layers?.find((layer) => layer.id === id),
-    moveLayer: vi.fn((id: string, beforeId: string) => {
-      if (!layers) return;
-      const moving = layers.find((layer) => layer.id === id)!;
-      const rest = layers.filter((layer) => layer.id !== id);
-      rest.splice(
-        rest.findIndex((layer) => layer.id === beforeId),
-        0,
-        moving,
-      );
-      layers = rest;
-    }),
-    once: (event: string, listener: () => void) => {
-      if (event === "load") loadListeners.push(listener);
-    },
-  };
-  return {
-    map: map as unknown as MapLibreMap,
-    moveLayer: map.moveLayer,
-    order: () => layers?.map((layer) => layer.id),
-    setLayers: (next: StyleLayer[] | undefined) => {
-      layers = next;
-    },
-    fireLoad: () => loadListeners.splice(0).forEach((listener) => listener()),
-  };
+/** スタイル`layers`を読み込んだ地図（undefined なら読み込み中）。 */
+function drawMap(layers: readonly StyleLayer[] | undefined) {
+  const map = new MapLibreMap({ container: document.createElement("div"), style: "basemap", zoom: 14 });
+  const screen = mapOnScreen();
+  screen.loadStyle(layers);
+  return { map, screen, order: () => screen.visibleLayerIds() };
 }
 
 // 基礎地図の並び: 土地の塗り → 道路網 → 道路より後ろに置かれた建物の面 → 地名
-const BASEMAP: StyleLayer[] = [
+const BASEMAP: readonly StyleLayer[] = [
   { id: "background", type: "background" },
   { id: "park", type: "fill", "source-layer": "park" },
   { id: "road_minor", type: "line", "source-layer": "transportation" },
@@ -57,8 +39,8 @@ const BASEMAP: StyleLayer[] = [
 
 describe("面レイヤーの差し込み位置", () => {
   it("道路網を描き始める最初のレイヤーの下に面を入れ、道路より後ろの面（建物）はその手前へ動かす", () => {
-    const { map, order } = fakeMap(BASEMAP.map((layer) => ({ ...layer })));
-    prepareBasemapForAreaLayers(map);
+    const { map, order } = drawMap(BASEMAP);
+    prepareBasemap(map);
     expect(areaLayerAnchor(map)).toBe("road_minor");
     expect(order()).toEqual([
       "background",
@@ -72,50 +54,170 @@ describe("面レイヤーの差し込み位置", () => {
   });
 
   it("同じスタイルには1度だけ当て、スタイルを差し替えたら新しいスタイルへ当て直す", () => {
-    const { map, moveLayer, setLayers } = fakeMap(BASEMAP.map((layer) => ({ ...layer })));
-    prepareBasemapForAreaLayers(map);
-    prepareBasemapForAreaLayers(map);
-    expect(moveLayer).toHaveBeenCalledTimes(2);
+    const { map, screen } = drawMap(BASEMAP);
+    prepareBasemap(map);
 
-    setLayers([
+    const replaced: StyleLayer[] = [
       { id: "water", type: "fill", "source-layer": "water" },
       { id: "highway", type: "line", "source-layer": "transportation" },
-    ]);
-    resetBasemapAreaLayerPreparation(map);
-    prepareBasemapForAreaLayers(map);
+    ];
+    reloadStyle(map, "replaced", () => prepareBasemap(map));
+    screen.loadStyle(replaced);
+    prepareBasemap(map);
+    expect(areaLayerAnchor(map)).toBeUndefined();
+
+    screen.emit("style.load");
     expect(areaLayerAnchor(map)).toBe("highway");
   });
 
   it("スタイルを読み込み中（読めない間）は決めず、読めるようになってから決める", () => {
-    const { map, setLayers } = fakeMap(undefined);
-    prepareBasemapForAreaLayers(map);
+    const { map, screen } = drawMap(undefined);
+    prepareBasemap(map);
     expect(areaLayerAnchor(map)).toBeUndefined();
-    setLayers(BASEMAP.map((layer) => ({ ...layer })));
-    prepareBasemapForAreaLayers(map);
+    screen.loadStyle(BASEMAP);
+    prepareBasemap(map);
     expect(areaLayerAnchor(map)).toBe("road_minor");
   });
 
   it("道路網を持たないスタイルは差し込み先なし（面は最前面へ積まれる）", () => {
-    const { map } = fakeMap([{ id: "background", type: "background" }]);
-    prepareBasemapForAreaLayers(map);
+    const { map } = drawMap([{ id: "background", type: "background" }]);
+    prepareBasemap(map);
     expect(areaLayerAnchor(map)).toBeUndefined();
   });
 
   it("記録した位置が今のスタイルから消えていれば使わない（無いidへ差し込むと例外になる）", () => {
-    const { map, setLayers } = fakeMap(BASEMAP.map((layer) => ({ ...layer })));
-    prepareBasemapForAreaLayers(map);
-    setLayers([{ id: "background", type: "background" }]);
+    const { map, screen } = drawMap(BASEMAP);
+    prepareBasemap(map);
+    screen.loadStyle([{ id: "background", type: "background" }]);
     expect(areaLayerAnchor(map)).toBeUndefined();
+  });
+});
+
+describe("文字に場所を譲る点の差し込み位置", () => {
+  it("基礎地図が最後まで続けて描く記号の並びの頭にする（途中の記号の後ろに線・面があれば、その後ろ）", () => {
+    // libertyの並び: 道路網の途中に一方通行の矢印（記号）があり、その後ろに橋の線・建物・境界を描いてから文字が続く。
+    const { map } = drawMap([
+      { id: "road_minor", type: "line", "source-layer": "transportation" },
+      { id: "road_one_way_arrow", type: "symbol", "source-layer": "transportation" },
+      { id: "bridge_street", type: "line", "source-layer": "transportation" },
+      { id: "building", type: "fill", "source-layer": "building" },
+      { id: "boundary_2", type: "line", "source-layer": "boundary" },
+      { id: "water_name_point_label", type: "symbol", "source-layer": "water_name" },
+      { id: "poi_r1", type: "symbol", "source-layer": "poi" },
+      { id: "label_city", type: "symbol", "source-layer": "place" },
+    ]);
+    prepareBasemap(map);
+    expect(labelLayerAnchor(map)).toBe("water_name_point_label");
+  });
+});
+
+describe("基礎地図の店・施設", () => {
+  // libertyの店・施設のレイヤーの絞り（OpenFreeMapのスタイルから写した）。点を順位で3段に分け、駅・バス・空港は別に描く。
+  const POINT = ["match", ["geometry-type"], ["MultiPoint", "Point"], true, false];
+  const POI_LAYERS: readonly StyleLayer[] = [
+    { id: "road_minor", type: "line", "source-layer": "transportation" },
+    { id: "poi_r20", type: "symbol", "source-layer": "poi", filter: ["all", POINT, [">=", ["get", "rank"], 20]] },
+    {
+      id: "poi_r7",
+      type: "symbol",
+      "source-layer": "poi",
+      filter: ["all", POINT, [">=", ["get", "rank"], 7], ["<", ["get", "rank"], 20]],
+    },
+    {
+      id: "poi_r1",
+      type: "symbol",
+      "source-layer": "poi",
+      filter: ["all", POINT, [">=", ["get", "rank"], 1], ["<", ["get", "rank"], 7]],
+    },
+    {
+      id: "poi_transit",
+      type: "symbol",
+      "source-layer": "poi",
+      filter: ["match", ["get", "class"], ["airport", "bus", "rail"], true, false],
+    },
+  ];
+
+  /** その地物（点）を描くレイヤーのid。 */
+  function drawnBy(map: MapLibreMap, properties: Record<string, unknown>): string[] {
+    return map
+      .getStyle()
+      .layers.flatMap((layer) =>
+        "source-layer" in layer && layer["source-layer"] === "poi" && matchesFilter(layer.filter, properties, 1)
+          ? [layer.id]
+          : [],
+      );
+  }
+
+  const RESTAURANT = { class: "restaurant", subclass: "restaurant" };
+  const CONVENIENCE = { class: "shop", subclass: "convenience" };
+  const HIDE = { class: ["restaurant"], subclass: ["convenience"] };
+
+  it("名指した種類（束ねた種類か元のタグの値）だけを、どの順位でも描かない", () => {
+    const { map } = drawMap(POI_LAYERS);
+    prepareBasemap(map);
+
+    hideBasemapPois(map, HIDE);
+
+    for (const rank of [3, 8, 25]) {
+      expect(drawnBy(map, { ...RESTAURANT, rank })).toEqual([]);
+      expect(drawnBy(map, { ...CONVENIENCE, rank })).toEqual([]);
+    }
+    expect(drawnBy(map, { class: "shop", subclass: "bakery", rank: 3 })).toEqual(["poi_r1"]);
+    expect(drawnBy(map, { class: "rail", subclass: "station", rank: 25 })).toEqual(["poi_r20", "poi_transit"]);
+  });
+
+  it("種類を空にすると、配信元の絞りへ戻す", () => {
+    const { map } = drawMap(POI_LAYERS);
+    prepareBasemap(map);
+    const original = map.getStyle().layers;
+
+    hideBasemapPois(map, HIDE);
+    hideBasemapPois(map, NO_BASEMAP_POI_KINDS);
+
+    expect(map.getStyle().layers).toEqual(original);
+  });
+
+  it("何度当てても絞りを重ねない", () => {
+    const { map } = drawMap(POI_LAYERS);
+    prepareBasemap(map);
+    hideBasemapPois(map, HIDE);
+    const once = map.getStyle().layers;
+
+    hideBasemapPois(map, { class: ["park"], subclass: [] });
+    hideBasemapPois(map, HIDE);
+
+    expect(map.getStyle().layers).toEqual(once);
+  });
+
+  it("スタイルを取り直す間に当てても、新しいスタイルが読み込まれてから、その配信元の絞りへ当て直す", () => {
+    const { map, screen } = drawMap(POI_LAYERS);
+    const apply = (kinds: BasemapPoiKinds) => {
+      prepareBasemap(map);
+      hideBasemapPois(map, kinds);
+    };
+    apply(HIDE);
+    const hidden = map.getStyle().layers;
+
+    reloadStyle(map, "basemap", () => apply(HIDE));
+    apply(HIDE);
+    screen.loadStyle(POI_LAYERS);
+    screen.emit("style.load");
+
+    expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual([]);
+    apply(NO_BASEMAP_POI_KINDS);
+    expect(drawnBy(map, { ...RESTAURANT, rank: 3 })).toEqual(["poi_r1"]);
+    apply(HIDE);
+    expect(map.getStyle().layers).toEqual(hidden);
   });
 });
 
 describe("runWhenStyleReady（スタイルが一度読めたら実行）", () => {
   it("初回の読み込みを待って実行し、以後は待たずにすぐ実行する", () => {
-    const { map, fireLoad } = fakeMap(BASEMAP);
+    const { map, screen } = drawMap(BASEMAP);
     const first = vi.fn();
     runWhenStyleReady(map, first);
     expect(first).not.toHaveBeenCalled();
-    fireLoad();
+    screen.emit("load");
     expect(first).toHaveBeenCalledTimes(1);
 
     const later = vi.fn();

@@ -2,53 +2,39 @@
 
 履歴は一時的なgitリポジトリで作る。
 
-ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`size`・`trigger`は周期レビューで
-人が読む出力で、ここでは通さない。
+ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`と、`size`の表・発火は
+周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」と、指示の文書へ置いたファイルごとの閾値を
+無視することは、緩んだ閾値に誰も気づかなくなるので通す。
 """
 
 import argparse
-import importlib.util
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-_SPEC = importlib.util.spec_from_file_location(
-    "review_checks", Path(__file__).resolve().parents[2] / "scripts" / "review_checks.py"
-)
-rc = importlib.util.module_from_spec(_SPEC)
-sys.modules["review_checks"] = rc
-_SPEC.loader.exec_module(rc)
+from tests.git_repo import git
+from tests.script_module import load_script
 
-
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout.strip()
+rc = load_script("review_checks")
 
 
 def _commit(repo: Path, files: dict[str, str | None]) -> str:
     for name, text in files.items():
         path = repo / name
         if text is None:
-            _git(repo, "rm", "-q", name)
+            git(repo, "rm", "-q", name)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-        _git(repo, "add", name)
-    _git(repo, "commit", "-q", "-m", "c")
-    return _git(repo, "rev-parse", "HEAD")
+        git(repo, "add", name)
+    git(repo, "commit", "-q", "-m", "c")
+    return git(repo, "rev-parse", "HEAD")
 
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
-    _git(tmp_path, "init", "-q", "-b", "master")
+    git(tmp_path, "init", "-q", "-b", "master")
     monkeypatch.setattr(rc, "REPO_ROOT", tmp_path)
     return tmp_path
 
@@ -86,7 +72,7 @@ def test_change_splits_lines_by_kind_and_labels_the_size(repo, monkeypatch, caps
 @pytest.mark.parametrize(("lines", "label"), [(200, "S"), (201, "M"), (1000, "M"), (1001, "L")])
 def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, capsys, lines, label):
     base = _commit(repo, {"README.md": "x\n"})
-    _git(repo, "checkout", "-q", "-b", "work")
+    git(repo, "checkout", "-q", "-b", "work")
     (repo / "app.py").write_text("a\n" * lines, encoding="utf-8")
 
     out = _run(monkeypatch, capsys, "change", "--base", base)
@@ -97,9 +83,9 @@ def test_change_counts_the_working_tree_with_untracked_files(repo, monkeypatch, 
 
 def test_metrics_counts_everything_outside_the_product_places_as_tooling(repo, capsys):
     _commit(repo, {"backend/app/a.py": "a\n", "frontend/src/b.ts": "b\n"})
-    _git(repo, "tag", "-a", "periodic-review/001", "-m", "r")
+    git(repo, "tag", "-a", "periodic-review/001", "-m", "r")
     (repo / "stop-dev.bat").write_bytes("rem 止める\r\n".encode("cp932") * 2)
-    _git(repo, "add", "stop-dev.bat")
+    git(repo, "add", "stop-dev.bat")
     _commit(
         repo,
         {
@@ -132,3 +118,33 @@ _DECLARED_PREFIXES = sorted(
 def test_each_declared_place_holds_a_tracked_file(prefix):
     """置き場を改名・撤去すると、その置き場で分けていたファイルが黙って別の種別へ落ちる。"""
     assert any(f.startswith(prefix) for f in rc.tracked_files()), f"{prefix} に当たる追跡ファイルが無い"
+
+
+def test_size_lists_thresholds_looser_than_the_growth_from_the_current_lines(repo, monkeypatch, capsys):
+    # 縮んだファイルの閾値が、今の行数から増える側の発火（+15%）で付け直す値より緩ければ見直しに出す。
+    _commit(repo, {"app/shrunk.py": "a\n" * 400, "app/kept.py": "b\n" * 400})
+    thresholds = repo / "size_thresholds.json"
+    thresholds.write_text('{"thresholds": {"app/shrunk.py": 800, "app/kept.py": 500}}', encoding="utf-8")
+    monkeypatch.setattr(rc, "SIZE_THRESHOLDS", thresholds)
+
+    assert rc.cmd_size(argparse.Namespace(top=5)) == 0
+    out = capsys.readouterr().out
+
+    assert "閾値の見直し（今の行数+15%を100行に切り上げた値より緩い・削除済み） 1件: app/shrunk.py（800→500）" in out
+
+
+def test_size_holds_instruction_docs_to_the_kind_limit_and_ignores_per_file_thresholds(repo, monkeypatch, capsys):
+    # 指示の文書は種類ごとの上限だけで発火し、ファイルごとに置いた緩い閾値は効かずに名指しされる。
+    _commit(repo, {".claude/rules/long.md": "a\n" * 250, ".claude/commands/review.md": "b\n" * 300})
+    thresholds = repo / "size_thresholds.json"
+    thresholds.write_text('{"instruction_limits": {".claude/rules/*.md": 200, ".claude/commands/*.md": 500},'
+                          ' "thresholds": {".claude/rules/long.md": 400}}', encoding="utf-8")
+    monkeypatch.setattr(rc, "SIZE_THRESHOLDS", thresholds)
+
+    assert rc.cmd_size(argparse.Namespace(top=5)) == 0
+    out = capsys.readouterr().out
+
+    assert "| .claude/rules/long.md | 250 | - | 新規 | 200 | 125% | 閾値200超過 |" in out
+    assert "| .claude/commands/review.md | 300 | - | 新規 | 500 | 60% |  |" in out
+    assert "指示の文書のファイルごとの閾値（無視した。上限は instruction_limits だけ） 1件: .claude/rules/long.md" in out
+    assert "閾値の見直し（今の行数+15%を100行に切り上げた値より緩い・削除済み） 0件" in out

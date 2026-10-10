@@ -53,18 +53,17 @@ def _drop_thresholds_that_share_a_score(
     """地図に出す段は、評価が区別できる差より細かくしない。
 
     区別できない差に境界を引くと、色は変わるのに評価は同じという見分けを地図が見せる。
-    さらにルート線は難易度で塗るためその段を作れず、ルート前後で段の数が食い違う
-    （`domain/map_paint.py: map_paint`の段の境界と対で読むこと）。
+    さらにルート線は難易度で塗るためその段を作れず、ルート前後で段の数が食い違う。
     折れ線の最も低い得点も、最初の境界の手前の段として数える——その得点へ写る境界の下には、
     得点で入る道が無い（凡例に「0点未満」のような届かない段が出る）。
     """
     kept: list[float] = []
-    seen: list[float] = [min(shape.score_at(x) for x, _ in shape.breakpoints)]
+    last_score = min(shape.score_at(x) for x, _ in shape.breakpoints)
     for threshold in thresholds:
         score = shape.score_at(threshold)
-        if score <= seen[-1]:
+        if score <= last_score:
             continue
-        seen.append(score)
+        last_score = score
         kept.append(threshold)
     return kept
 
@@ -82,10 +81,11 @@ def _boolean_terms_thresholds(weights: list[float], cap: float) -> list[float]:
 
 def _boolean_score_tile_input(spec: MaterialSpec, true_score: float, false_score: float) -> TileInputSpec:
     """真偽値の材料をタイル入力へ写す。**真偽値の入力を作るのはここだけ**——タイルに値が
-    無いことが「不明」を意味するか「false」を意味するかは材料の`bool_default`だけが知って
-    おり、組み立てが2か所に分かれると片方が灰色の不明帯を落とす。
+    無いことが「不明」を意味するか「false」を意味するかは材料の`coverage.missing_semantics`だけが
+    知っており、組み立てが2か所に分かれると片方が灰色の不明帯を落とす。タイルは道の生データのある道
+    だけを載せるので、効くのはタグの不在の意味だけになる。
     """
-    has_unknown_fallback = spec.bool_default == "nan"
+    has_unknown_fallback = spec.coverage.missing_semantics == "unknown"
     assert spec.tile_property is not None  # 呼び出し元で保証済み
     return TileInputSpec(
         property=spec.tile_property,
@@ -174,9 +174,8 @@ def _derive_ramp_inputs(
         if set(shape.mapping.keys()) == {True, False}:
             true_score = shape.mapping[True]
             false_score = shape.mapping[False]
-            lower, upper = sorted([true_score, false_score])
             tile_input = _boolean_score_tile_input(spec, true_score, false_score)
-            return RampInputs(tile_inputs=[tile_input], thresholds=[(lower + upper) / 2])
+            return RampInputs(tile_inputs=[tile_input], thresholds=[(true_score + false_score) / 2])
         if any(isinstance(key, bool) for key in shape.mapping):
             return None
         str_mapping = cast(dict[str, float], dict(shape.mapping))
@@ -253,8 +252,7 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     """軸を地図にどう出すか。塗れない軸は`kind="none"`（地図に出ない）。
 
     ルート確定後のルート線の境界（`map_paint.py: map_paint`の`thresholds`）も
-    ここの段の境界を折れ線で写して作る——段の識別子は前後で同じ保存先へ書かれるため、
-    数が違うとルート前に隠した段が生成後に別の段へ化ける。
+    ここの段の境界を折れ線で写して作る。
     """
     ramp = _derive_ramp_inputs(definition.axis_id, definition.shape, definition.priority_overrides)
     if ramp is None:
@@ -284,12 +282,11 @@ def bands_the_map_keeps(
     return [0] + [index + 1 for index, threshold in enumerate(thresholds) if threshold in kept]
 
 
-def thresholds_the_map_drops(
-    axis_id: str, shape: AxisShape, priority_overrides: list[PriorityCondition], thresholds: list[float]
-) -> list[float]:
-    """人が上書きした段の境界のうち、地図が段として作らないもの（入力の並び順）。"""
-    kept_bands = set(bands_the_map_keeps(axis_id, shape, priority_overrides, thresholds))
-    return [threshold for index, threshold in enumerate(thresholds) if index + 1 not in kept_bands]
+def thresholds_the_map_drops(thresholds: list[float], kept_bands: list[int]) -> list[float]:
+    """人が上書きした段の境界のうち、地図が段として作らないもの（入力の並び順）。`kept_bands`は
+    同じ境界で`bands_the_map_keeps`が返した段。"""
+    kept = set(kept_bands)
+    return [threshold for index, threshold in enumerate(thresholds) if index + 1 not in kept]
 
 
 def map_band_labels(definition: AxisDefinition) -> list[str] | None:

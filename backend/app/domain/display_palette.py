@@ -20,19 +20,27 @@ _MAX_LIGHTNESS = 58.0
 #: 分類を良し悪しの色で読ませない。暗い端は黒と見分けられる所で止める。
 _ORDERED_HUE_RANGE_DEG = (305.0, 205.0)
 _ORDERED_LIGHTNESS_RANGE = (26.0, 56.0)
+#: 上の範囲の両端（並びの先頭・末尾の行）の色を、画面で呼ぶ名前。地図の説明の文が差し込む。範囲を変えたら、ここも変える。
+ORDERED_END_COLOR_NAMES: tuple[str, str] = ("濃い紫", "明るい水色")
 #: 目標の彩度。暗い側の色相によってはsRGBに収まらないので、収まるところまで下げる（`_fit_chroma`）。
 _ORDERED_CHROMA = 45.0
 
-#: 順序を持たない列挙。明度と彩度は軸の中で1つに固定し、**軸の行へ色相環を等分して配る**——連番の
+#: 順序を持たない列挙。明度と彩度は軸の中で1つに固定し（軸の`tone`の段）、**軸の行へ色相環を等分して配る**——連番の
 #: 色相を当てると、同じ軸の行どうしが最も見分けにくい隣の色相になる。起点は軸が
 #: `hue_slot`（12分割の枠）で宣言する。
 NOMINAL_HUE_SLOTS = 12
 _NOMINAL_START_HUE_DEG = 255.0
 _NOMINAL_CHROMA = 28.0
-#: 明度の段（軸の`tone`）。同時に出る点のレイヤーどうしは色相の起点を変えても色相環の上で
+#: 明度と彩度の段（軸の`tone`）。同時に出る点のレイヤーどうしは色相の起点を変えても色相環の上で
 #: 近い色が残るので、レイヤーごとに明度を変えて離す。暗い段は色相によってsRGBに収まらない
-#: （水色〜青）ので、そこだけ収まるところまで彩度を下げる（`_fit_chroma`）。
-_NOMINAL_LIGHTNESS: dict[str | None, float] = {None: 52.0, "dark": 42.0, "light": _MAX_LIGHTNESS}
+#: （水色〜青）ので、そこだけ収まるところまで彩度を下げる（`_fit_chroma`）。鮮やかな段は明度を標準のまま
+#: 彩度で離す——明度は上を地色とのコントラストが、下を絵記号の白との見分けが決め、明度だけでは段が足りない。
+_NOMINAL_TONES: dict[str | None, tuple[float, float]] = {
+    None: (52.0, _NOMINAL_CHROMA),
+    "dark": (42.0, _NOMINAL_CHROMA),
+    "light": (_MAX_LIGHTNESS, _NOMINAL_CHROMA),
+    "vivid": (52.0, 40.0),
+}
 
 
 def _lch_hex(lightness: float, chroma: float, hue_deg: float) -> str:
@@ -84,8 +92,8 @@ def nominal_colors(hue_slot: int, count: int, tone: str | None) -> list[str]:
     if not 0 <= hue_slot < NOMINAL_HUE_SLOTS:
         raise ValueError(f"色相の起点は0〜{NOMINAL_HUE_SLOTS - 1}: {hue_slot}")
     start = _NOMINAL_START_HUE_DEG + (360.0 / NOMINAL_HUE_SLOTS) * hue_slot
-    lightness = _NOMINAL_LIGHTNESS[tone]
-    return [_fit_chroma(lightness, _NOMINAL_CHROMA, start + 360.0 * i / count) for i in range(count)]
+    lightness, chroma = _NOMINAL_TONES[tone]
+    return [_fit_chroma(lightness, chroma, start + 360.0 * i / count) for i in range(count)]
 
 
 #: 役割ごとの色。名前は「どこで使うか」ではなく「何を意味するか」で付ける——使い場所で
@@ -132,8 +140,7 @@ SEMANTIC_COLORS: dict[str, str] = {
     "inspected": "#f59e0b",
     # 「値が無い」と「この軸の対象外」を見分けるため、no_dataより青寄りにする。
     "neutral": "#94a3b8",
-    # 地点のピン。出発地は白い台の上に十字（地図の上での慣習）。
-    "pin_origin_background": "#ffffff",
+    # 地点のピン。出発地の台はテーマに従う面の色で、frontendのCSSのトークンが持つ。
     "pin_origin": "#e11d48",
     "pin_origin_unresolved": "#9ca3af",
     "pin_waypoint": "#2563eb",

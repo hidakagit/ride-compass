@@ -1,26 +1,27 @@
 """`api/routers/material_catalog.py`——材料の実データの値・分布・欠損割合（軸スタジオの管理API）。
 
 ここで見るもの: 未知の材料を404で断ること、値と分布を出せなかったことを`available`で伝えること、
-値に表示名を添えること、欠損割合の集計の結果をそのまま返し、DBの失敗を503にすること。
+値に表示名を添えること、欠損割合の集計の結果をそのまま返すこと。
 
 ここで見ないもの:
 - 値の表示名の形（「論理名 - 物理名」・対訳の無い値） → `test_material_catalog.py`
-- 分布の計算 → `test_axis_preview_service.py`
+- 分布の計算 → `test_value_distribution.py`
 - 欠損割合の組み立て（並び・割合・集計の対象外） → `test_material_coverage.py`
 - 認可 → `test_admin_route_authorization.py`
+- DBの失敗の503 → `test_admin_db_unavailable.py`
 """
 
 from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import DBAPIError
 
-from app.api.dependencies import get_material_coverage_service, get_road_graph_repository
+from app.api.dependencies import get_axis_preview_service, get_material_coverage_service
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
 from app.domain.value_distribution import EMPTY_SPREAD, ValueSpread
+from app.services.axis_preview_service import AxisPreviewService
 from app.services.material_coverage_service import build_material_coverage_report
 from tests.admin_auth import AUTH_HEADERS
 
@@ -28,11 +29,11 @@ client = TestClient(app)
 
 
 @pytest.fixture
-def repository():
-    """`get_road_graph_repository`を、テストが置いた値へ差し替える。"""
+def preview():
+    """`get_axis_preview_service`を、テストが置いた値へ差し替える。"""
 
     def _set(value):
-        app.dependency_overrides[get_road_graph_repository] = lambda: value
+        app.dependency_overrides[get_axis_preview_service] = lambda: value
 
     yield _set
     app.dependency_overrides.clear()
@@ -65,8 +66,8 @@ def values_url(material_id: str) -> str:
     return f"/api/admin/material-catalog/{material_id}/values"
 
 
-def test_get_material_values_returns_each_value_with_its_label(admin_credentials, repository):
-    repository(FakeRepositoryForMaterialValues(values=["cycleway"]))
+def test_get_material_values_returns_each_value_with_its_label(admin_credentials, preview):
+    preview(AxisPreviewService(FakeRepositoryForMaterialValues(values=["cycleway"])))
 
     response = client.get(values_url("highway"), headers=AUTH_HEADERS)
 
@@ -76,8 +77,8 @@ def test_get_material_values_returns_each_value_with_its_label(admin_credentials
     }
 
 
-def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials, repository):
-    repository(FakeRepositoryForMaterialValues(error=ConnectionRefusedError("db down")))
+def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credentials, preview):
+    preview(AxisPreviewService(FakeRepositoryForMaterialValues(error=ConnectionRefusedError("db down"))))
 
     response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)
 
@@ -98,14 +99,13 @@ def test_get_material_values_the_db_could_not_read_is_unavailable(admin_credenti
     ids=["分布がある", "数値の材料でない"],
 )
 def test_material_distribution_answers_the_distribution_or_that_there_is_none(
-    admin_credentials, monkeypatch, repository, result, available
+    admin_credentials, preview, result, available
 ):
-    repository(object())
+    class FakePreview:
+        async def material_value_distribution(self, material_id):
+            return result
 
-    async def _distribution(repository, material_id):
-        return result
-
-    monkeypatch.setattr("app.api.routers.material_catalog.material_value_distribution", _distribution)
+    preview(FakePreview())
 
     response = client.get("/api/admin/material-catalog/surface/distribution", headers=AUTH_HEADERS)
 
@@ -119,12 +119,7 @@ COVERAGE_URL = "/api/admin/material-catalog/coverage"
 
 
 class FakeMaterialCoverageService:
-    def __init__(self, error: Exception | None = None):
-        self._error = error
-
     async def get_material_coverage(self):
-        if self._error is not None:
-            raise self._error
         return REPORT
 
 
@@ -145,14 +140,3 @@ def test_get_material_coverage_returns_the_report(admin_credentials):
 
     assert response.json() == REPORT.model_dump(mode="json")
 
-
-def test_get_material_coverage_translates_db_errors_to_503(admin_credentials):
-    db_error = DBAPIError("SELECT 1", {}, Exception("connection refused"))
-    app.dependency_overrides[get_material_coverage_service] = lambda: FakeMaterialCoverageService(error=db_error)
-    try:
-        response = client.get(COVERAGE_URL, headers=AUTH_HEADERS)
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 503
-    assert "欠損割合" in response.json()["detail"]

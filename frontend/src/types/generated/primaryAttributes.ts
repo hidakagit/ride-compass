@@ -6,6 +6,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "highway",
@@ -85,6 +87,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -93,6 +97,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -100,8 +106,46 @@ export const primaryAttributes = [
     "label": "自転車インフラ",
     "geometry": "line",
     "point_facts": [],
-    "tile_kind": null,
-    "display_axes": []
+    "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
+    "display_axes": [
+      {
+        "key": "cycleway",
+        "label": "",
+        "property": "cycleway_class",
+        "categories": [
+          {
+            "key": "separated",
+            "label": "自転車道",
+            "values": [
+              "separated"
+            ],
+            "description": "車道から分けられた、自転車の通る道[OSM の highway=cycleway・cycleway=track]。",
+            "color": "#807e4d"
+          },
+          {
+            "key": "lane",
+            "label": "自転車レーン",
+            "values": [
+              "lane"
+            ],
+            "description": "車道の上に線で区切った、自転車の通る帯[OSM の cycleway=lane]。",
+            "color": "#25879d"
+          },
+          {
+            "key": "shared",
+            "label": "共用の道",
+            "values": [
+              "shared"
+            ],
+            "description": "バス・車と共用の帯か、自転車も通ってよい歩道・遊歩道[OSM の cycleway=share_busway・shared_lane、highway=footway・path かつ bicycle=yes・designated]。",
+            "color": "#a36b89"
+          }
+        ],
+        "missing_semantics": "definite"
+      }
+    ]
   },
   {
     "attr_id": "surface",
@@ -109,6 +153,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "surface",
@@ -171,6 +217,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "tracktype",
@@ -233,6 +281,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -241,6 +291,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -249,6 +301,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "tunnel",
@@ -275,6 +329,8 @@ export const primaryAttributes = [
     "geometry": "line",
     "point_facts": [],
     "tile_kind": "road_surface",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "oneway",
@@ -301,6 +357,8 @@ export const primaryAttributes = [
     "geometry": "area",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -309,6 +367,8 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": "poi",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "kind",
@@ -321,7 +381,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_signals"
             ],
-            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals など]。",
+            "description": "信号機。信号付きの横断歩道もここに入る[OSM の highway=traffic_signals・crossing]。",
             "color": "#885270"
           },
           {
@@ -395,6 +455,8 @@ export const primaryAttributes = [
       }
     ],
     "tile_kind": "accident",
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": [
       {
         "key": "party",
@@ -433,7 +495,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "description": "死者が1人以上記録された事故[警察庁の交通事故統計の死者数]。",
+            "description": "死者が1人以上記録された事故[事故後24時間以内の死者。警察庁の交通事故統計の死者数]。",
             "radius_px": 6
           },
           {
@@ -456,6 +518,8 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -464,6 +528,8 @@ export const primaryAttributes = [
     "geometry": "area",
     "point_facts": [],
     "tile_kind": null,
+    "point_thinning": null,
+    "point_name_property": null,
     "display_axes": []
   },
   {
@@ -472,6 +538,8 @@ export const primaryAttributes = [
     "geometry": "point",
     "point_facts": [],
     "tile_kind": "poi",
+    "point_thinning": null,
+    "point_name_property": "name",
     "display_axes": [
       {
         "key": "kind",
@@ -484,7 +552,7 @@ export const primaryAttributes = [
             "values": [
               "convenience"
             ],
-            "description": "コンビニエンスストア[OSM の shop=convenience]。",
+            "description": "コンビニのチェーンの店[Overture Maps の地点のコンビニの分類のうち、チェーンの名前に当たるもの]。",
             "glyph": "bag",
             "color": "#7d89ba"
           },
@@ -537,6 +605,95 @@ export const primaryAttributes = [
             "description": "自転車を止められる所[OSM の amenity=bicycle_parking]。",
             "glyph": "parking",
             "color": "#3b97ad"
+          }
+        ],
+        "missing_semantics": null
+      }
+    ]
+  },
+  {
+    "attr_id": "stop_place",
+    "label": "立ち寄り先",
+    "geometry": "point",
+    "point_facts": [],
+    "tile_kind": "stop_place",
+    "point_thinning": {
+      "rows": [
+        "temple_shrine",
+        "bath",
+        "bicycle",
+        "lodging",
+        "scenic",
+        "eat_drink"
+      ],
+      "ratio_property": "confidence"
+    },
+    "point_name_property": "name",
+    "display_axes": [
+      {
+        "key": "group",
+        "label": "",
+        "property": "group",
+        "categories": [
+          {
+            "key": "eat_drink",
+            "label": "飲食店",
+            "values": [
+              "eat_drink"
+            ],
+            "description": "飲食店・カフェ・酒場[Overture Maps の地点の飲食の分類]。",
+            "glyph": "cup",
+            "color": "#9f7439"
+          },
+          {
+            "key": "bath",
+            "label": "銭湯・温泉",
+            "values": [
+              "bath"
+            ],
+            "description": "銭湯・温泉・サウナ[Overture Maps の地点の分類]。",
+            "glyph": "steam",
+            "color": "#59884a"
+          },
+          {
+            "key": "bicycle",
+            "label": "自転車",
+            "values": [
+              "bicycle"
+            ],
+            "description": "自転車の店・修理・貸し自転車[Overture Maps の地点の分類]。",
+            "glyph": "wrench",
+            "color": "#018b89"
+          },
+          {
+            "key": "scenic",
+            "label": "景色・名所",
+            "values": [
+              "scenic"
+            ],
+            "description": "公園・庭園・湖・滝・山・浜・城・展望台・博物館の類[Overture Maps の地点の分類]。",
+            "glyph": "mountain",
+            "color": "#0984ba"
+          },
+          {
+            "key": "lodging",
+            "label": "宿",
+            "values": [
+              "lodging"
+            ],
+            "description": "ホテル・旅館・民宿・キャンプ場の類[Overture Maps の地点の分類]。",
+            "glyph": "bed",
+            "color": "#956cad"
+          },
+          {
+            "key": "temple_shrine",
+            "label": "寺社",
+            "values": [
+              "temple_shrine"
+            ],
+            "description": "国の指定・登録の文化財の建造物を持つ寺社[文化遺産オンライン]。",
+            "glyph": "gate",
+            "color": "#bd606c"
           }
         ],
         "missing_semantics": null

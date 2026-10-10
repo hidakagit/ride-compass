@@ -8,14 +8,13 @@
  *
  * ここで見ないもの:
  * - 管理画面のクライアントが叩く先・待ち時間 → `app/admin/adminApi.test.ts`
- * - 資格情報の「片方だけ設定」の扱い → `lib/adminBasicAuth.ts`
+ * - 資格情報の「片方だけ設定」の扱い → `lib/adminBasicAuth.test.ts`
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BACKEND_INTERNAL_URL } from "@/lib/backendInternalUrl";
+import { openApi } from "@/testing/openApi";
 
 import * as route from "./route";
 
@@ -24,9 +23,6 @@ vi.mock("@/lib/adminBasicAuth", () => ({ adminBasicAuthCredentials: () => creden
 
 const handlers = route as unknown as Record<string, (request: Request) => Promise<Response>>;
 
-const openApi: { paths: Record<string, Record<string, unknown>> } = JSON.parse(
-  readFileSync(join(__dirname, "../../../../types/generated/openapi.json"), "utf-8"),
-);
 const adminOperations = Object.entries(openApi.paths)
   .filter(([path]) => path.startsWith("/api/admin/"))
   .flatMap(([path, ops]) => Object.keys(ops).map((method) => [method.toUpperCase(), path] as const));

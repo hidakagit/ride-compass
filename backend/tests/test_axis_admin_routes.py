@@ -6,21 +6,21 @@
 - 書き込みの本体（DBへの反映と`AXIS_DEFINITIONS`の差し替え） → `test_axis_registry_service.py`
 - 地図表示の導出・段が落ちるかの判定 → `test_axis_display.py`
 - 下書きの点数の計算と段の境界の並びの検証の入力違い → `test_axis_definitions.py`
-- 分布の計算 → `test_axis_preview_service.py`
+- 分布の計算 → `test_value_distribution.py`
 - 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
+- DBの失敗の503 → `test_admin_db_unavailable.py`
 
-ここで見るのは、口ごとの受け渡し（DBの例外・無い軸・断られた書き込みを状態コードへ変えること・
+ここで見るのは、口ごとの受け渡し（無い軸・断られた書き込みを状態コードへ変えること・
 応答に地図表示を添えること）と、ルーターが自分で持つ検証（URLと本文の軸の一致・配信の実装の有無）。
 
-**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無・分布の計算（DB）。
-どれも読むだけなので、応答を差し替えるだけで呼ばれ方は見ない。
+**ルーターが名前空間に持つ外向きの参照は差し替える**——軸の集合・配信実装の有無。注入するサービス（軸の書き込み・
+分布の計算（DB））は依存の差し替えで与える。どれも読むだけなので、応答を差し替えるだけで呼ばれ方は見ない。
 地図表示の導出（domain）と材料カタログは本物を通し、材料は性質ごとに本物のカタログから選ぶ。
 """
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import DBAPIError
 
 from app.api.routers import axis_admin
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
@@ -45,7 +45,6 @@ RAMP_NUM = next(
     if MATERIAL_CATALOG[m].tile_property and not MATERIAL_CATALOG[m].tile_property_direction_dependent
 )
 REFERENCED_AXIS = "ref"
-REPOSITORY = object()
 
 
 def linear_shape(*materials):
@@ -120,81 +119,43 @@ def registry():
     return FakeAxisRegistry()
 
 
+class FakePreview:
+    """分布の計算（`AxisPreviewService`）の代役。"""
+
+    async def raw_value_distribution(self, shape):
+        return ValueDistribution(sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)])
+
+
+@pytest.fixture
+def preview():
+    return FakePreview()
+
+
 @pytest.fixture
 def seams(monkeypatch):
     def served_dedicated_way_value_material(materials):
         return NUM_A if list(materials) == [NUM_A] else None
 
-    async def axis_raw_value_distribution(repository, shape):
-        return ValueDistribution(
-            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)]
-        )
-
-    fakes = {
-        "served_dedicated_way_value_material": served_dedicated_way_value_material,
-        "axis_raw_value_distribution": axis_raw_value_distribution,
-    }
-    for name, fake in fakes.items():
-        monkeypatch.setattr(axis_admin, name, bound(getattr(axis_admin, name), fake))
+    monkeypatch.setattr(
+        axis_admin,
+        "served_dedicated_way_value_material",
+        bound(axis_admin.served_dedicated_way_value_material, served_dedicated_way_value_material),
+    )
     monkeypatch.setattr(axis_admin, "AXIS_DEFINITIONS", {REFERENCED_AXIS: stored(REFERENCED_AXIS)})
 
 
 @pytest.fixture
-def app(registry, seams):
+def app(registry, preview, seams):
     app = FastAPI()
     app.include_router(axis_admin.router)
     app.dependency_overrides[axis_admin.get_axis_registry_admin_service] = lambda: registry
-    app.dependency_overrides[axis_admin.get_road_graph_repository] = lambda: REPOSITORY
+    app.dependency_overrides[axis_admin.get_axis_preview_service] = lambda: preview
     return app
 
 
 @pytest.fixture
 def client(app, admin_credentials):
     return TestClient(app, headers=AUTH_HEADERS)
-
-
-# 口ごとの(本文, DBが落ちたときの状態コード)。母集団は`router.routes`から取るので、口を足して
-# ここへ足し忘れるとKeyErrorで落ちる。
-ROUTE_CASES = {
-    ("GET", BASE): (None, 503),
-    ("POST", BASE): (payload(), 503),
-    ("GET", BASE + "/{axis_id}"): (None, 503),
-    ("PUT", BASE + "/{axis_id}"): (payload(), 503),
-    ("DELETE", BASE + "/{axis_id}"): (None, 503),
-    ("POST", BASE + "/{axis_id}/unpublish"): (None, 503),
-    ("POST", BASE + "/preview-distribution"): ({"shape": linear_shape(NUM_A)}, 503),
-    ("POST", BASE + "/preview-display-thresholds"): (
-        {"axis_id": "a", "shape": linear_shape(NUM_A), "thresholds": [1.0]},
-        200,
-    ),
-    ("POST", BASE + "/preview-scores"): ({"shape": linear_shape(NUM_A), "xs": [0.5]}, 200),
-}
-ROUTES = [(method, route.path) for route in axis_admin.router.routes for method in sorted(route.methods)]
-
-
-def send(client, method, path):
-    body, _ = ROUTE_CASES[(method, path)]
-    return client.request(method, path.replace("{axis_id}", "a"), json=body)
-
-
-@pytest.mark.parametrize(("method", "path"), ROUTES)
-def test_a_database_failure_becomes_a_503_on_every_route_that_reads_it(client, registry, monkeypatch, method, path):
-    failure = DBAPIError("SELECT 1", {}, Exception("接続できない"))
-    registry.axes["a"] = stored()
-    registry.errors = {name: failure for name in ("list_all", "create", "update", "delete", "unpublish")}
-
-    async def failing_distribution(repository, shape):
-        raise failure
-
-    monkeypatch.setattr(
-        axis_admin, "axis_raw_value_distribution", bound(axis_admin.axis_raw_value_distribution, failing_distribution)
-    )
-
-    response = send(client, method, path)
-
-    assert response.status_code == ROUTE_CASES[(method, path)][1]
-    if response.status_code == 503:
-        assert "軸定義DBへのアクセスに失敗しました" in response.json()["detail"]
 
 
 class TestRead:

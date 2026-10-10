@@ -1,22 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
+import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
 import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
 import MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
 import {
-  ClearAllFiltersIcon,
-  ClearAllLayersIcon,
   ClearRoutesIcon,
   GenerateRoutesIcon,
   LocateIcon,
-  RedrawMapIcon,
   RouteIcon,
   RouteSettingsIcon,
 } from "@/components/ui/icons/icons";
@@ -25,10 +23,12 @@ import LensControl from "@/features/map/LensControl/LensControl";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
-import SavedConditionsPanel from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
+import SavedConditionsPanel, { SaveConditionsButton } from "@/features/route/SavedConditionsPanel/SavedConditionsPanel";
 import { useGenerationConditions } from "@/features/route/useGenerationConditions";
 import { useSavedConditions } from "@/features/route/useSavedConditions";
+import { useSavedPlaces } from "@/features/route/useSavedPlaces";
 import type { RouteOutcomeKind } from "@/features/route/useRouteGeneration";
+import type { Coordinates, PinRole, PlaceCandidate } from "@/types/route";
 import { useRoutePlanner } from "@/features/route/useRoutePlanner";
 import RouteOutcome from "@/features/route/RouteOutcome/RouteOutcome";
 import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
@@ -44,7 +44,6 @@ import { axisCatalogFetchFailure, useAxisCatalog } from "@/hooks/useAxisCatalog"
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState } from "@/hooks/useStoredState";
 import { useRideConditions } from "@/features/conditions/useRideConditions";
@@ -67,18 +66,41 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
-/** モバイルの下部タブの使い方。 */
-const MOBILE_TAB_USAGES = {
-  routeSettings:
-    "ルートを作る条件[距離・地点・重み・除外・保存した設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
-  routeOutcome: "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗です。",
-} as const;
-
 /** モバイルの下部タブ（シートと同じ並び）。 */
 const MOBILE_TABS = [
-  { sheet: "routeSettings", label: "ルート設定", Icon: RouteSettingsIcon },
-  { sheet: "routeOutcome", label: "ルート結果", Icon: RouteIcon },
+  {
+    sheet: "routeSettings",
+    label: "ルート設定",
+    Icon: RouteSettingsIcon,
+    usage:
+      "ルートを作る条件[距離・地点・重み・除外・保存した地点と設定]と「ルート生成」を開きます。もう一度押すと閉じます。",
+  },
+  {
+    sheet: "routeOutcome",
+    label: "ルート結果",
+    Icon: RouteIcon,
+    usage:
+      "作った候補の一覧と、その難易度の内訳を開きます。点は新しい結果か条件の変更の合図で、赤は失敗、中が空いた丸は候補が無かったことです。",
+  },
 ] as const;
+
+type OutcomeTabSignal = { tone: "error" | "empty" | "warning"; label: string };
+
+// モバイルの「ルート結果」タブの印。失敗と候補0件は形を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
+const UNSEEN_OUTCOME_SIGNALS: Record<RouteOutcomeKind, OutcomeTabSignal> = {
+  failed: { tone: "error", label: "生成に失敗しました" },
+  empty: { tone: "empty", label: "候補が見つかりませんでした" },
+  fresh: { tone: "warning", label: "新しい結果があります" },
+};
+const CONDITIONS_DIRTY_SIGNAL: OutcomeTabSignal = { tone: "warning", label: "生成条件が変更されています" };
+
+/** 「ルート設定」のタブ（中身は `RouteForm` が描く）。 */
+const SETTINGS_TABS: readonly { value: SettingsTab; label: string; usage: string }[] = [
+  { value: "generate", label: "条件", usage: "周回か目的地か、距離・地点・候補の数を決めます。" },
+  { value: "weights", label: "重み", usage: "道を選ぶときに、どの評価軸をどれだけ重く見るかを決めます。" },
+  { value: "exclusions", label: "除外", usage: "ルートに使わない道路の種類を選びます。" },
+  { value: "saved", label: "保存", usage: "名前を付けて保存した地点と設定を並べます。" },
+];
 
 export default function Home() {
   const {
@@ -91,23 +113,32 @@ export default function Home() {
     handleLocateMe,
     setManualLocation,
   } = useLocation();
+  const originManual = locationSource === "manual";
 
   const axisCatalog = useAxisCatalog();
 
-  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。失敗だけは色を変えて見分けられるようにする。
+  // 生成の結果が出て、まだ「ルート結果」を開いていない（モバイルのタブの合図）。失敗と候補0件は形を変えて見分けられるようにする。
   const [unseenOutcome, setUnseenOutcome] = useState<RouteOutcomeKind | null>(null);
 
   // 生成の条件（「ルート設定」の入力）と走行条件。
   const conditions = useGenerationConditions({ onOriginPlace: setManualLocation });
+  // 住所の検索で置いた地点。置くたびに地図をそこへ寄せる（ピンを直すのは地図の上なので）。
+  const [foundPoint, setFoundPoint] = useState<Coordinates | null>(null);
+  function placeFound(role: PinRole, candidate: PlaceCandidate, waypointIndex: number | null) {
+    conditions.placeFound(role, candidate, waypointIndex);
+    setFoundPoint({ latitude: candidate.latitude, longitude: candidate.longitude });
+  }
   const ride = useRideConditions();
   // 名前を付けて保存した生成の条件（「保存」タブ）。
   const savedConditions = useSavedConditions({
     conditions,
     origin: locationKnown ? location : null,
-    originManual: locationSource === "manual",
+    originManual,
     onOriginPlace: setManualLocation,
     onOriginFollowCurrent: handleLocateMe,
   });
+  // 名前を付けて保存した地点（地点の詳しくで保存し、打つ欄の候補に出す）。
+  const savedPlaces = useSavedPlaces();
 
   // デスクトップの区分の開閉（モバイルはシートの開閉がこれに当たる）。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
@@ -121,20 +152,15 @@ export default function Home() {
     MOBILE_SHEET_HEIGHT_STORAGE_KEY,
     null,
     {
-      serialize: (v) => JSON.stringify(v),
+      serialize: JSON.stringify,
       deserialize: (raw) => {
-        try {
-          const parsed = JSON.parse(raw);
-          return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
-        } catch {
-          return null;
-        }
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === "number" && Number.isFinite(parsed) ? clampSheetHeightVh(parsed) : null;
       },
     },
   );
   const [workingSheetHeightVh, setWorkingSheetHeightVh] = useState<number | null>(null);
   const mobileSheetHeightVh = workingSheetHeightVh ?? chosenSheetHeightVh ?? DEFAULT_SHEET_HEIGHT_VH;
-  const sheetHeightChosen = chosenSheetHeightVh !== null;
 
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
@@ -189,11 +215,6 @@ export default function Home() {
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
   const pinPlacementArmedRole = pointEditingEnabled ? conditions.armedPinRole : null;
 
-  // 地図のチップ列は、下部の行（時刻スライダー等）の高さを知らない。地図の枠へ実測の高さをCSS変数で渡す。
-  const mapPaneRef = useRef<HTMLDivElement>(null);
-  const bottomControlRowRef = useRef<HTMLDivElement>(null);
-  useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
-
   // 地図はモバイルの下部タブバー・シートの下にも描かれるため、ルートを収めるときに覆われた高さを測って渡す
   // （そのままだとシートの裏へ収まって1本も見えない）。
   const mobileTabBarRef = useRef<HTMLElement>(null);
@@ -204,22 +225,25 @@ export default function Home() {
   };
 
   // モバイルのタブ。同じタブをもう一度押したら閉じる。
-  const handleMobileTabClick = useCallback(
-    (sheet: Exclude<MobileSheet, null>) => {
-      setMobileSheet((prev) => (prev === sheet ? null : sheet));
-      // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
-      if (sheet === "routeOutcome") setUnseenOutcome(null);
-    },
-    [setMobileSheet],
-  );
+  const handleMobileTabClick = (sheet: Exclude<MobileSheet, null>) => {
+    setMobileSheet((prev) => (prev === sheet ? null : sheet));
+    // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+    if (sheet === "routeOutcome") setUnseenOutcome(null);
+  };
 
-  const handleMobileSheetHeightCommit = useCallback(
-    (vh: number) => {
+  // 2枚のシートが共有する開閉と高さ。
+  const sharedSheetProps = {
+    onClose: () => setMobileSheet(null),
+    heightVh: mobileSheetHeightVh,
+    onHeightChange: setWorkingSheetHeightVh,
+    onHeightCommit: (vh: number) => {
       setChosenSheetHeightVh(vh);
       setWorkingSheetHeightVh(null);
     },
-    [setChosenSheetHeightVh, setWorkingSheetHeightVh],
-  );
+    autoFitHeight: chosenSheetHeightVh === null,
+  };
+
+  const handleSettingsTabChange = (value: string) => setSettingsTab(value as SettingsTab);
 
   // 「今日」のパネル・最寄りの実測・警報の類（位置が分かってから、位置が変わるたびに取る。仮の地点では取らない）。
   const {
@@ -242,40 +266,30 @@ export default function Home() {
     [locationFailure, warningFetchFailures, axisCatalogFailure],
   );
 
-  // モバイルの「ルート結果」タブの印。失敗だけ色を変える（条件の変更と新しい結果は、開けば新しいものがある点で同じ）。
-  const outcomeTabSignal: { tone: "error" | "warning"; label: string } | null =
-    unseenOutcome === "failed"
-      ? { tone: "error", label: "生成に失敗しました" }
-      : unseenOutcome === "fresh"
-        ? { tone: "warning", label: "新しい結果があります" }
-        : generation.conditionsDirty
-          ? { tone: "warning", label: "生成条件が変更されています" }
-          : null;
+  const outcomeTabSignal: OutcomeTabSignal | null = unseenOutcome
+    ? UNSEEN_OUTCOME_SIGNALS[unseenOutcome]
+    : generation.conditionsDirty
+      ? CONDITIONS_DIRTY_SIGNAL
+      : null;
 
-  // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「ルート生成」は同じ行の右端に離して置く（どのタブを
-  // 見ていても押せる）。
+  // 「ルート設定」のタブ列は見出し行に置き（本文の縦を空ける）、「いまの設定を保存」「ルート生成」は同じ行の右端に離して置く
+  // （どのタブを見ていても押せる）。タブの間と左右の余白・操作の間を詰めているのは、スマホの幅で見出しの題・タブ・操作（条件の
+  // 変更の印も）を1行に切らずに収めるため。
   function renderSettingsTabs() {
     return (
-      <TabsList className="gap-2 overflow-visible border-b-0" aria-label="ルート設定">
-        <TabsTrigger value="generate" usage="周回か目的地か、距離・地点・候補の数を決めます。">
-          条件
-        </TabsTrigger>
-        <TabsTrigger value="weights" usage="道を選ぶときに、どの評価をどれだけ重く見るかを決めます。">
-          重み
-        </TabsTrigger>
-        <TabsTrigger value="exclusions" usage="ルートに使わない道路の種類を選びます。">
-          除外
-        </TabsTrigger>
-        <TabsTrigger value="saved" usage="いまの設定に名前を付けて保存し、保存した設定を呼び出します。">
-          保存
-        </TabsTrigger>
+      <TabsList className="gap-0 overflow-visible border-b-0" aria-label="ルート設定">
+        {SETTINGS_TABS.map(({ value, label, usage }) => (
+          <TabsTrigger key={value} className="px-1.5" value={value} usage={usage}>
+            {label}
+          </TabsTrigger>
+        ))}
       </TabsList>
     );
   }
 
   function renderRouteSectionHeaderActions() {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* 条件を変えている本人は設定の側を見ているので、押すべきボタンの隣でも知らせる。 */}
         {generation.conditionsDirty && (
           <InfoPopover
@@ -285,11 +299,19 @@ export default function Home() {
             生成条件が変更されています。表示中の候補は変更前の条件で作ったものです。
           </InfoPopover>
         )}
+        <SaveConditionsButton
+          saved={savedConditions.saved}
+          current={savedConditions.current}
+          suggestedName={savedConditions.suggestedName}
+          originManual={originManual}
+          originKnown={locationKnown}
+          onSave={savedConditions.save}
+        />
         <Button
           variant="primary"
           size="panelIcon"
           disabled={generation.running}
-          onClick={() => void generation.submit(mapView.lens)}
+          onClick={() => void generation.submit()}
           aria-label={generation.running ? (generation.progressLabel ?? "生成中...") : "ルート生成"}
           usage="いまの条件・重み・除外でルートの候補を作ります。候補は「ルート結果」に並び、地図に線が出ます。"
         >
@@ -299,26 +321,41 @@ export default function Home() {
     );
   }
 
+  // 押した「生成」が候補を出せなかった理由の1行（候補0件の理由・入力の誤りか失敗）。モバイルの「ルート設定」シートの見出しの
+  // 下に出す——シートは1枚ずつしか開かず、押した直後に見えるのは「ルート結果」タブの点だけで、点では理由が読めないため。
+  // 候補が出たときは点と地図のルートで分かるので出さない（狭い画面で地図を空ける）。
+  function renderGenerationOutcomeNote() {
+    const { outcome } = generation;
+    if (!outcome) return null;
+    if (outcome.kind === "failed") {
+      return (
+        <ErrorText>
+          <GuideText text={outcome.message} />
+        </ErrorText>
+      );
+    }
+    return (
+      <p role="status" className={textVariants({ variant: "hint" })}>
+        {outcome.message}
+      </p>
+    );
+  }
+
   // 「ルート設定」の中身（デスクトップの区分・モバイルのシートの両方）。生成の結果・誤りはここに出さない（ボタンは
-  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは入力の誤りも添える（シートの側）。
+  // 本文を畳んだままでも押せるため）。出し先は「ルート結果」で、モバイルのシートだけは見出しの下に候補を出せなかった理由の1行も添える。
   function renderRouteSectionBody() {
     return (
       <RouteForm
-        distance={conditions.distanceInput}
-        onDistanceChange={conditions.setDistanceInput}
-        maxRoutes={conditions.maxRoutesInput}
-        onMaxRoutesChange={conditions.setMaxRoutesInput}
-        routeMode={conditions.routeMode}
-        onRouteModeChange={conditions.changeRouteMode}
-        waypointCount={conditions.waypoints.length}
-        onWaypointsClear={conditions.clearWaypoints}
-        destinationSet={conditions.destination !== null}
-        onDestinationClear={conditions.clearDestination}
-        originManual={locationSource === "manual"}
+        conditions={conditions}
+        origin={location}
+        originManual={originManual}
         originLocated={locationKnown}
         onOriginReset={handleLocateMe}
-        armedPinRole={conditions.armedPinRole}
-        onArmPinRole={conditions.armPinRole}
+        originFound={originManual ? conditions.foundAt(location) : null}
+        // 地図は出発地を真ん中にして開くので、地図が範囲を知らせる前は出発地が真ん中。
+        mapCenter={mapView.center ?? location}
+        onPlaceFound={placeFound}
+        savedPlaces={savedPlaces}
         weightsPanel={
           <RouteSettingsPanel
             routePreference={conditions.routePreference}
@@ -330,20 +367,20 @@ export default function Home() {
         exclusionsPanel={
           <HardFilterPanel hardFilters={conditions.hardFilters} onHardFiltersChange={conditions.setHardFilters} />
         }
-        savedPanel={
+        savedConditionsPanel={
           <SavedConditionsPanel
             saved={savedConditions.saved}
-            current={savedConditions.current}
-            suggestedName={savedConditions.suggestedName}
-            originManual={locationSource === "manual"}
-            originKnown={locationKnown}
-            onSave={savedConditions.save}
             onRecall={savedConditions.recall}
             onRemove={savedConditions.remove}
           />
         }
       />
     );
+  }
+
+  // 「ルート結果」の中身（デスクトップの区分・モバイルのシートの両方）。
+  function renderRouteOutcome() {
+    return <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />;
   }
 
   // 「ルート結果」の見出しの操作。候補すべてに効く操作だけを置き、候補1本への操作はその候補のタブの中に置く
@@ -355,6 +392,8 @@ export default function Home() {
           size="panelIcon"
           onClick={() => setConfirmingClear(true)}
           aria-label="候補を全消去"
+          aria-haspopup="dialog"
+          aria-expanded={confirmingClear}
           usage="作った候補をすべて消します。地図に置いた地点は残ります。"
         >
           <ClearRoutesIcon size={18} />
@@ -391,6 +430,7 @@ export default function Home() {
               debugConsoleOpen={debugConsoleOpen}
               onToggleDebugConsole={() => setDebugConsoleOpen((v) => !v)}
               onStartUsageGuide={() => setUsageGuideActive(true)}
+              onRedrawMap={mapView.redrawMap}
             />
           </div>
         </div>
@@ -413,25 +453,10 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* モバイルの下部タブと同じ区分・同じ順序。タブ列（見出し行）とタブの中身（本文）の両方を囲む。 */}
-                <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
-                  <Disclosure
-                    className="border-t border-[var(--color-border)] pt-2"
-                    headerClassName={"flex items-center justify-between gap-2"}
-                    triggerClassName={cn(
-                      textVariants({ variant: "heading" }),
-                      "group flex cursor-pointer items-center gap-1.5",
-                    )}
-                    bodyClassName={"flex flex-col gap-2"}
+                <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
+                  <SectionDisclosure
                     id={GENERATE_SECTION_TITLE_ID}
-                    summary={
-                      <>
-                        <span
-                          aria-hidden="true"
-                          className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                        />
-                        ルート設定
-                      </>
-                    }
+                    title="ルート設定"
                     trailing={
                       <div className="flex min-w-0 flex-auto items-center justify-between gap-2">
                         {renderSettingsTabs()}
@@ -443,27 +468,12 @@ export default function Home() {
                     usage="押すと開き・畳みます。ルートを作る条件をここで決め、右の「ルート生成」で作ります。"
                   >
                     {renderRouteSectionBody()}
-                  </Disclosure>
+                  </SectionDisclosure>
                 </Tabs>
 
-                <Disclosure
-                  className="border-t border-[var(--color-border)] pt-2"
-                  headerClassName={"flex items-center justify-between gap-2"}
-                  triggerClassName={cn(
-                    textVariants({ variant: "heading" }),
-                    "group flex cursor-pointer items-center gap-1.5",
-                  )}
-                  bodyClassName={"flex flex-col gap-2"}
+                <SectionDisclosure
                   id={OUTCOME_SECTION_TITLE_ID}
-                  summary={
-                    <>
-                      <span
-                        aria-hidden="true"
-                        className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
-                      />
-                      ルート結果
-                    </>
-                  }
+                  title="ルート結果"
                   trailing={
                     results.routes.length > 0 ? (
                       <div className="flex flex-shrink-0 items-center gap-2">{renderRouteResultHeaderActions()}</div>
@@ -473,148 +483,102 @@ export default function Home() {
                   onOpenChange={setOutcomeOpen}
                   usage="押すと開き・畳みます。作った候補と、その難易度の内訳がここに並びます。"
                 >
-                  <RouteOutcome
-                    results={results}
-                    generation={generation}
-                    splice={splice}
-                    routeWeights={route.routeWeights}
-                  />
-                </Disclosure>
+                  {renderRouteOutcome()}
+                </SectionDisclosure>
               </>
             )}
           </aside>
         )}
 
-        {/* 下部シートの高さを地図の側へ渡す（地図の操作ボタンは画面の下端からの距離で置くため、シートの裏へ隠れない
-            よう持ち上げる）。 */}
-        <div
-          ref={mapPaneRef}
-          className="app-map-pane relative flex-1"
-          style={
-            {
-              "--mobile-sheet-height": isMobile && mobileSheet ? `${mobileSheetHeightVh}vh` : "0px",
-            } as React.CSSProperties
-          }
-        >
-          <MapView
-            routes={route.mapRoutes}
-            {...splice.map}
-            selectedRouteId={results.selectedRouteId}
-            location={location}
-            locationSource={locationSource}
-            look={mapView.look}
-            rideConditions={ride.ride}
-            routePreference={conditions.routePreferenceToSend}
-            selectedRouteSegment={results.selectedRouteSegment}
-            onRouteSegmentSelect={(selection) => {
-              if (!routeInspectionEnabled) return;
-              results.selectSegment(selection);
-            }}
-            waypoints={conditions.routeMode === "destination" ? conditions.waypoints : []}
-            onWaypointRemove={conditions.removeWaypoint}
-            onWaypointMove={conditions.moveWaypoint}
-            destination={conditions.routeMode === "destination" ? conditions.destination : null}
-            onDestinationClear={conditions.clearDestination}
-            armedPinRole={pinPlacementArmedRole}
-            pointEditingEnabled={pointEditingEnabled}
-            onPinPlace={conditions.placePin}
-            measureRouteFitObscuredPx={measureRouteFitObscuredPx}
-          />
-
-          <LensControl {...mapView.lensControl} />
-
-          <MapOverlayControls {...mapView.overlayControls} />
-
-          <FirstVisitIntro isMobile={isMobile} locationUnknown={locationFailure !== null} />
-
-          {usageGuideActive && <UsageGuide onEnd={() => setUsageGuideActive(false)} />}
-
-          {/* 地図の下の中央に「まとめて元に戻す」操作を並べる（レイヤーのON/OFFと凡例の絞り込みは別の状態）。 */}
-          <div
-            ref={bottomControlRowRef}
-            {...mapOverlayEdge("bottom")}
-            className="pointer-events-none absolute bottom-3 left-1/2 z-[var(--z-map-control)] flex max-w-[100vw] -translate-x-1/2 flex-row items-center gap-2 max-mobile:bottom-[max(calc(var(--space-3)+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]"
-          >
-            <Button
-              variant="float"
-              size="iconRound"
-              onClick={mapView.bulk.hideAllLayers}
-              disabled={!mapView.bulk.anyLayerOn}
-              aria-label="表示中のレイヤーをすべて非表示にする"
-              title="表示中のレイヤーをすべて非表示にする"
-              usage="地図の左のチップでONにした表示を、まとめてOFFにします。"
-            >
-              <ClearAllLayersIcon size={14} />
-            </Button>
-            <Button
-              variant="float"
-              size="iconRound"
-              onClick={mapView.bulk.showAllLegendRows}
-              disabled={!mapView.bulk.anyLegendHidden}
-              aria-label="絞り込みをすべて解除する"
-              title="絞り込みをすべて解除する"
-              usage="凡例のチェックを外して隠した段階を、まとめて地図に戻します。"
-            >
-              <ClearAllFiltersIcon size={14} />
-            </Button>
-            {/* 押した人の地図だけを描き直す（ページを読み込み直すと生成したルートが消える）。 */}
-            <Button
-              variant="float"
-              size="iconRound"
-              onClick={mapView.bulk.redraw}
-              aria-label="地図の表示を再描画する"
-              title="地図の表示を再描画する"
-              usage="地図の表示が欠けたときに、地図だけを描き直します。作ったルートは消えません。"
-            >
-              <RedrawMapIcon size={14} />
-            </Button>
-          </div>
-
-          <TravelBearingControl value={ride.bearingDeg} onChange={ride.setBearingDeg} />
-
-          {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。 */}
-          <div
-            {...mapOverlayEdge("right")}
-            className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
-          >
-            <RideConditionBar
-              departureTime={ride.departure.at}
-              onDepartureTimeChange={ride.departure.setAt}
-              onDepartureNow={ride.departure.followNow}
-              speedKmh={ride.speedKmh}
-              onSpeedKmhChange={ride.setSpeedKmh}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="app-map-pane relative min-h-0 flex-1">
+            <MapView
+              routes={route.mapRoutes}
+              {...splice.map}
+              selectedRouteId={results.selectedRouteId}
+              location={location}
+              locationSource={locationSource}
+              look={mapView.look}
+              rideConditions={ride.ride}
+              routePreference={conditions.routePreferenceToSend}
+              selectedRouteSegment={results.selectedRouteSegment}
+              onRouteSegmentSelect={(selection) => {
+                if (!routeInspectionEnabled) return;
+                results.selectSegment(selection);
+              }}
+              waypoints={conditions.routeMode === "destination" ? conditions.waypoints : []}
+              onWaypointRemove={conditions.removeWaypoint}
+              onWaypointMove={conditions.moveWaypoint}
+              destination={conditions.routeMode === "destination" ? conditions.destination : null}
+              onDestinationClear={conditions.clearDestination}
+              armedPinRole={pinPlacementArmedRole}
+              pointEditingEnabled={pointEditingEnabled}
+              onPinPlace={conditions.placePin}
+              focusPoint={foundPoint}
+              measureRouteFitObscuredPx={measureRouteFitObscuredPx}
             />
-          </div>
 
-          <Button
-            variant="float"
-            size="bare"
-            shape="pill"
-            onClick={handleLocateMe}
-            disabled={locating}
-            {...mapOverlayEdge("right")}
-            aria-label="現在地に移動"
-            title="現在地に移動"
-            usage="現在地を取り直して地図をそこへ動かし、出発地を現在地にします。"
-            className={cn(
-              "absolute right-[calc(var(--map-ctrl-margin)+(var(--map-ctrl-column-width)-44px)/2)] bottom-10 z-[var(--z-map-control)] max-mobile:bottom-[max(calc(5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
-              "size-11 text-[1.3rem]",
-              locating && "cursor-wait opacity-60",
-            )}
-          >
-            {locating ? "…" : <LocateIcon size={20} />}
-          </Button>
-
-          {locateError && (
-            <p
-              className={cn(
-                cardVariants({ variant: "float" }),
-                "pointer-events-none absolute right-3 bottom-25 z-[var(--z-map-control)] max-w-55 border-0 px-2.5 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)] max-mobile:bottom-[max(calc(8.5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+3.5rem+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
-              )}
+            {/* 地図の左上に「表示」（重ねる情報の一覧）、上の中央に色分けを置く。 */}
+            <div
+              {...mapOverlayEdge("top")}
+              className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex"
             >
-              {locateError}
-            </p>
-          )}
+              <MapOverlayControls {...mapView.overlayControls} />
+            </div>
+            {/* 左右の余白は、右の縦の列を両側で避ける幅（中央に置くため）。 */}
+            <div
+              {...mapOverlayEdge("top")}
+              className="pointer-events-none absolute inset-x-0 top-3 z-[var(--z-map-control)] flex justify-center px-[calc(var(--map-ctrl-margin)_+_var(--map-ctrl-column-width)_+_var(--space-2))]"
+            >
+              <LensControl {...mapView.lensControl} />
+            </div>
+
+            <FirstVisitIntro isMobile={isMobile} locationUnknown={locationFailure !== null} />
+
+            {usageGuideActive && <UsageGuide onEnd={() => setUsageGuideActive(false)} />}
+
+            <TravelBearingControl value={ride.bearingDeg} onChange={ride.setBearingDeg} />
+
+            {/* 走行条件（出発時刻・想定速度）は走行方位の直下に積む。出発時刻は気象レイヤーの表示時刻と同じもの。
+              その下へ現在地を続ける。 */}
+            <div
+              {...mapOverlayEdge("right")}
+              className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)] flex flex-col gap-[var(--map-ctrl-stack-gap)]"
+            >
+              <RideConditionBar
+                departureTime={ride.departure.at}
+                onDepartureTimeChange={ride.departure.setAt}
+                onDepartureNow={ride.departure.followNow}
+                speedKmh={ride.speedKmh}
+                onSpeedKmhChange={ride.setSpeedKmh}
+              />
+              <div className="relative flex">
+                <Button
+                  variant="mapCtrl"
+                  size="mapCtrl"
+                  onClick={handleLocateMe}
+                  disabled={locating}
+                  aria-label="現在地に移動"
+                  title="現在地に移動"
+                  usage="現在地を取り直して地図をそこへ動かし、出発地を現在地にします。"
+                  className={cn(locating && "cursor-wait opacity-60")}
+                >
+                  {locating ? "…" : <LocateIcon />}
+                </Button>
+                {locateError && (
+                  <p
+                    className={cn(
+                      cardVariants({ variant: "float" }),
+                      textVariants({ variant: "error" }),
+                      "pointer-events-none absolute top-0 right-full mr-2 w-max max-w-55 border-0 px-2.5 py-1.5",
+                    )}
+                  >
+                    {locateError}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -626,7 +590,7 @@ export default function Home() {
             className="fixed right-0 bottom-0 left-0 z-[var(--z-bottom-sheet)] flex h-[var(--mobile-tabbar-height)] touch-none border-t border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_-1px_8px_rgba(0,0,0,0.15)]"
             aria-label="パネル切り替え"
           >
-            {MOBILE_TABS.map(({ sheet, label, Icon }) => (
+            {MOBILE_TABS.map(({ sheet, label, Icon, usage }) => (
               <Button
                 key={sheet}
                 variant="ghost"
@@ -634,7 +598,7 @@ export default function Home() {
                 className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
                 aria-expanded={mobileSheet === sheet}
                 aria-description={sheet === "routeOutcome" ? outcomeTabSignal?.label : undefined}
-                usage={MOBILE_TAB_USAGES[sheet]}
+                usage={usage}
                 onClick={() => handleMobileTabClick(sheet)}
               >
                 <Icon />
@@ -649,41 +613,60 @@ export default function Home() {
             ))}
           </nav>
 
-          <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+          <Tabs value={settingsTab} onValueChange={handleSettingsTabChange}>
             <BottomSheet
+              {...sharedSheetProps}
               open={mobileSheet === "routeSettings"}
-              onClose={() => setMobileSheet(null)}
               title="ルート設定"
               titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
               headerLead={renderSettingsTabs()}
               headerAction={renderRouteSectionHeaderActions()}
-              heightVh={mobileSheetHeightVh}
-              onHeightChange={setWorkingSheetHeightVh}
-              onHeightCommit={handleMobileSheetHeightCommit}
-              autoFitHeight={!sheetHeightChosen}
               fitKey={`${settingsTab}:${conditions.routeMode}`}
+              headerNote={renderGenerationOutcomeNote()}
             >
-              {/* シートは1枚ずつしか開かず「ルート結果」の誤りは見えないため、直す場所であるここにも出す。 */}
-              {generation.inputError && <ErrorText>{generation.inputError}</ErrorText>}
               {renderRouteSectionBody()}
             </BottomSheet>
           </Tabs>
 
           <BottomSheet
+            {...sharedSheetProps}
             open={mobileSheet === "routeOutcome"}
-            onClose={() => setMobileSheet(null)}
             title="ルート結果"
             titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
             headerAction={results.routes.length > 0 ? renderRouteResultHeaderActions() : undefined}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={setWorkingSheetHeightVh}
-            onHeightCommit={handleMobileSheetHeightCommit}
-            autoFitHeight={!sheetHeightChosen}
           >
-            <RouteOutcome results={results} generation={generation} splice={splice} routeWeights={route.routeWeights} />
+            {renderRouteOutcome()}
           </BottomSheet>
         </>
       )}
     </div>
+  );
+}
+
+// デスクトップのサイドバーの区分（「ルート設定」「ルート結果」）。見出しの見た目と開閉の矢印をここに1つだけ持つ。
+function SectionDisclosure({
+  title,
+  ...props
+}: { title: string } & Omit<
+  ComponentProps<typeof Disclosure>,
+  "className" | "headerClassName" | "triggerClassName" | "bodyClassName" | "summary"
+>) {
+  return (
+    <Disclosure
+      {...props}
+      className="border-t border-[var(--color-border)] pt-2"
+      headerClassName="flex items-center justify-between gap-2"
+      triggerClassName={cn(textVariants({ variant: "heading" }), "group flex cursor-pointer items-center gap-1.5")}
+      bodyClassName="flex flex-col gap-2"
+      summary={
+        <>
+          <span
+            aria-hidden="true"
+            className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
+          />
+          {title}
+        </>
+      }
+    />
   );
 }

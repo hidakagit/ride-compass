@@ -65,8 +65,6 @@ def arrays() -> EdgeMaterialArrays:
     return EdgeMaterialArrays(
         numeric_ids=("num_a", "num_b"),
         numeric_values=np.array([[1.0, 2.0], [3.0, np.nan]]),
-        boolean_ids=("bool_a",),
-        boolean_values=np.array([[True], [False]]),
         categorical_ids=("cat_a",),
         categorical_columns=(CategoricalColumn.encode(["x", None]),),
         hard_filter_ids=("filter_a", "filter_b"),
@@ -84,10 +82,9 @@ def arrays() -> EdgeMaterialArrays:
 def test_every_material_is_found_by_its_id_whatever_its_dtype():
     columns = arrays().columns()
 
-    assert set(columns) == {"num_a", "num_b", "bool_a", "cat_a"}
+    assert set(columns) == {"num_a", "num_b", "cat_a"}
     assert columns["num_a"].tolist() == [1.0, 3.0]
     assert columns["num_b"][0] == 2.0
-    assert columns["bool_a"].tolist() == [True, False]
     assert columns["cat_a"].value_at(0) == "x"
 
 

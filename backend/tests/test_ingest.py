@@ -21,7 +21,6 @@ import shapely
 from shapely.geometry import Point
 
 from app.batch import derive_cli
-from app.batch.common import asyncpg_dsn
 from app.batch.ingest import (
     ADAPTERS,
     RegisteredAdapter,
@@ -31,9 +30,9 @@ from app.batch.ingest import (
 )
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, load_source_profile
 from app.infrastructure.source_models import SourceFeatureRow
-from tests.conftest import postgis_database_url
+from tests.conftest import postgis_database_url, raw_connection
 
-# road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -64,14 +63,13 @@ async def _large_rows(spec, profile, origin):
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def conn(road_graph_engine):
     """`road_graph_engine`に依存するのはスキーマを作らせるため。"""
-    connection = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        yield connection
-    finally:
-        for source in (SOURCE, REQUIRED_SOURCE):
-            await connection.execute(f'DROP TABLE IF EXISTS "{partition_table_name(source)}"')
-            await connection.execute("DELETE FROM source_runs WHERE source = $1", source)
-        await connection.close()
+    async with raw_connection() as connection:
+        try:
+            yield connection
+        finally:
+            for source in (SOURCE, REQUIRED_SOURCE):
+                await connection.execute(f'DROP TABLE IF EXISTS "{partition_table_name(source)}"')
+                await connection.execute("DELETE FROM source_runs WHERE source = $1", source)
 
 
 async def test_memory_held_while_ingesting_does_not_grow_with_the_rows(conn, monkeypatch):
@@ -127,7 +125,7 @@ async def test_ingesting_inside_a_transaction_is_refused(conn, monkeypatch):
 async def test_a_rebuild_is_refused_while_an_import_runs(conn, monkeypatch):
     async def rebuild_meanwhile(spec, profile, origin):
         with pytest.raises(RuntimeError, match="取込が走っている"):
-            await derive_cli.run(postgis_database_url(), None)
+            await derive_cli.run(postgis_database_url())
         yield SourceRecord(natural_key="new", geom_wkb=POINT_WKB, attrs={})
 
     monkeypatch.setitem(ADAPTERS, "rebuild", RegisteredAdapter(read=rebuild_meanwhile, rows=NoFields, grid=NoFields))

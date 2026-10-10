@@ -27,6 +27,7 @@ function renderLens(props: Partial<Parameters<typeof LensControl>[0]> = {}) {
     onToggleLegendKey: vi.fn(),
     onSetHiddenLegendKeys: vi.fn(),
     onKeepAfterRouteChange: vi.fn(),
+    onRouteShownChange: vi.fn(),
   };
   render(
     <LensControl
@@ -36,6 +37,8 @@ function renderLens(props: Partial<Parameters<typeof LensControl>[0]> = {}) {
       hiddenLegendKeys={[]}
       keepAfterRoute
       hasDetail={false}
+      routeShown
+      routeSelectable
       conditions={null}
       {...handlers}
       {...props}
@@ -67,7 +70,7 @@ describe("LensControl（レンズのピル）", () => {
     expect(screen.getByRole("status")).toHaveTextContent(LAYER_DATA_STATUS_LABELS.error);
   });
 
-  it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、使用中か未使用かは見出しで分け、ルート後のみの印を付ける（総合難易度にも）", async () => {
+  it("選択肢は「なし」「総合難易度」、評価軸に使用中の軸、未使用の軸の順で、使用中か未使用かは見出しで分け、ルート後のみの印を付ける（総合難易度にも）", async () => {
     renderLens();
     await open();
     const group = screen.getByRole("radiogroup", { name: "地図の色分け" });
@@ -81,7 +84,7 @@ describe("LensControl（レンズのピル）", () => {
       "routeの軸ルート後のみ",
       "idleの軸",
     ]);
-    expect(within(group).getByText("評価に使用中")).toBeInTheDocument();
+    expect(within(group).getByText("評価軸に使用中")).toBeInTheDocument();
     expect(within(group).getByText("未使用")).toBeInTheDocument();
   });
 
@@ -135,5 +138,20 @@ describe("LensControl（レンズのピル）", () => {
     expect(pill().querySelectorAll("[title]")).toHaveLength(0);
     await open();
     expect(screen.queryByText("凡例")).not.toBeInTheDocument();
+  });
+
+  it("一覧の「ルートを地図に出す」を押すと、出し入れを反転した値で知らせる", async () => {
+    const { onRouteShownChange } = renderLens({ routeShown: true });
+    await open();
+    await userEvent.click(screen.getByRole("checkbox", { name: "ルートを地図に出す" }));
+    expect(onRouteShownChange).toHaveBeenCalledWith(false);
+  });
+
+  it("候補を選ぶまでは、「ルートを地図に出す」を押せず、ONに見えない", async () => {
+    renderLens({ routeShown: true, routeSelectable: false });
+    await open();
+    const route = screen.getByRole("checkbox", { name: "ルートを地図に出す" });
+    expect(route).toBeDisabled();
+    expect(route).not.toBeChecked();
   });
 });

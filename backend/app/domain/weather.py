@@ -15,6 +15,10 @@ PRECIPITATION_MIN_MM = 0.1
 _PRECIPITATION_MODERATE_MM = 1.0
 _PRECIPITATION_HEAVY_MM = 4.0
 _SNOW_MAX_TEMPERATURE_C = 0.0
+#: 応答に出す桁。降水量（mm/h）は「今日」のパネル・コマ・地図の格子で揃える。
+PRECIPITATION_MM_DECIMALS = 2
+WIND_SPEED_MS_DECIMALS = 2
+WIND_DIRECTION_DEG_DECIMALS = 1
 
 #: 推計気象分布（天気）の区分。配信元の色からの読み替えは`infrastructure/jma_suikei_client.py`。
 SuikeiWeather = Literal["clear", "cloudy", "rain", "rain_or_snow", "snow"]
@@ -107,19 +111,26 @@ def rounded_rows(values: np.ndarray, digits: int) -> list[list[float | None]]:
     return rounded.tolist()
 
 
+def _complete_values(values: np.ndarray, indices: list[int]) -> np.ndarray | None:
+    """`indices`の時刻の値。時刻が無いか、格子の欠損（NaN）を含めばNone。"""
+    if not indices:
+        return None
+    picked = values[indices]
+    return None if np.isnan(picked).any() else picked
+
+
 def daily_max(values: np.ndarray, indices: list[int]) -> float | None:
     """`indices`の時刻の最大値（小数1桁）。時刻が無いか、格子の欠損（NaN）を含めばNone。"""
-    if not indices or np.isnan(values[indices]).any():
-        return None
-    return round(float(np.max(values[indices])), 1)
+    picked = _complete_values(values, indices)
+    return None if picked is None else round(float(np.max(picked)), 1)
 
 
 def daily_range(temperature: np.ndarray, indices: list[int]) -> TemperatureRange | None:
     """`indices`の時刻の最低・最高気温。時刻が無いか、格子の欠損（NaN）を含めば両方を欠く。"""
-    if not indices or np.isnan(temperature[indices]).any():
+    picked = _complete_values(temperature, indices)
+    if picked is None:
         return None
-    values = temperature[indices]
-    return TemperatureRange(min_c=round(float(np.min(values)), 1), max_c=round(float(np.max(values)), 1))
+    return TemperatureRange(min_c=round(float(np.min(picked)), 1), max_c=round(float(np.max(picked)), 1))
 
 
 def period_outlooks(times: list[datetime], temperature: np.ndarray, precipitation: np.ndarray) -> list[WeatherPeriodOutlook]:
@@ -127,16 +138,11 @@ def period_outlooks(times: list[datetime], temperature: np.ndarray, precipitatio
 
     予報の終端に達したらそこで打ち切るため、コマ数はMSMのrunによって変動する。
     """
-    results = []
-    for slot in range(_PERIOD_SLOT_COUNT):
-        index = slot * PERIOD_INTERVAL_HOURS
-        if index >= len(times):
-            break
-        results.append(
-            WeatherPeriodOutlook(
-                period=times[index].strftime("%H:%M"),
-                temperature_c=rounded_or_none(temperature[index], 1),
-                precipitation_mm=rounded_or_none(precipitation[index], 2),
-            )
+    return [
+        WeatherPeriodOutlook(
+            period=times[index].strftime("%H:%M"),
+            temperature_c=rounded_or_none(temperature[index], 1),
+            precipitation_mm=rounded_or_none(precipitation[index], PRECIPITATION_MM_DECIMALS),
         )
-    return results
+        for index in range(0, min(len(times), _PERIOD_SLOT_COUNT * PERIOD_INTERVAL_HOURS), PERIOD_INTERVAL_HOURS)
+    ]

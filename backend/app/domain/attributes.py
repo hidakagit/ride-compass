@@ -11,7 +11,7 @@ class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
     average_gradeは符号付き（登り=正、下り=負）で、値が取れなかった区間はNone。
-    獲得・喪失標高は揃って入る（表の制約`edge_materials_elevation_all_or_none`が区間の標高の4列を揃える）。
+    獲得・喪失標高は揃って入る（区間の標高の表`edge_elevation`は4列とも空を許さない）。
     """
 
     edge_id: str
@@ -36,6 +36,8 @@ class ElevationAttribute(StrictModel):
 # 超えた区間は値を持たせず「データなし」にする——0次ハードフィルタは値の無い区間を
 # 除外しない（`domain/hard_filters.py`）ので、誤った値で黙って経路から外すより安全側になる。
 MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
+#: 平均勾配（%）を保存・配信する桁。
+AVERAGE_GRADE_DECIMALS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,15 +85,15 @@ MaterialColumn = np.ndarray | CategoricalColumn
 
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialArrays:
-    """区間の材料を、**dtypeごとに1つの2次元配列**で保持する表現。
+    """区間の材料を、**数値（真偽を含む）は1つの2次元配列**で保持する表現。
 
     値はDBが導出したものをそのまま受ける（`MaterialSpec.value_sql`）。
     区間ごとのPythonオブジェクトを経由しない。
 
     材料ごとに別々の配列を持たず、`StaticEdgeScoreMatrix`と同じ「値の行列＋idの並び」の形に
     する。材料が増えてもフィールドは増えず、列の追加は`*_ids`が1つ伸びるだけになる。
-    dtypeで3つに分かれるのは、真偽とカテゴリを数値の行列へ混ぜられないため（分け方は
-    `MaterialSpec.dtype`と`bool_default`が決める。`material_array_group`が唯一の判定）。
+    数値と分類の2つに分かれるのは、カテゴリを数値の行列へ混ぜられないため（真偽の材料は数値の行列に
+    1.0/0.0/NaNで載る。分け方は`material_catalog.material_array_columns`が唯一の判定）。
     カテゴリは列ごとに語彙が違うため、行列ではなく列ごとの`CategoricalColumn`で持つ。
 
     0次ハードフィルタの生フラグを同じ1回のクエリで求めてここへ持たせるのは、別に引くと
@@ -104,8 +106,6 @@ class EdgeMaterialArrays:
 
     numeric_ids: tuple[str, ...]
     numeric_values: np.ndarray  # shape=(n, len(numeric_ids)), float64, NaN=欠損
-    boolean_ids: tuple[str, ...]
-    boolean_values: np.ndarray  # shape=(n, len(boolean_ids)), bool
     categorical_ids: tuple[str, ...]
     categorical_columns: tuple[CategoricalColumn, ...]  # categorical_idsと同じ並び
     # 0次ハードフィルタの生フラグ。フィルタ名がそのまま列で、`domain/hard_filters.py:
@@ -128,7 +128,6 @@ class EdgeMaterialArrays:
         """材料id→その列。行列の列はビューのためコピーしない。"""
         return {
             **{m: self.numeric_values[:, i] for i, m in enumerate(self.numeric_ids)},
-            **{m: self.boolean_values[:, i] for i, m in enumerate(self.boolean_ids)},
             **dict(zip(self.categorical_ids, self.categorical_columns, strict=True)),
         }
 
@@ -151,7 +150,7 @@ def elevation_values_sql(vertices: str) -> str:
     中間の点は桁や坑道ではなく下の地形を指す。谷を渡る平らな橋で、谷底の起伏がそのまま
     獲得標高へ積まれてしまう。橋台・坑口は道が地面と接する位置なので、両端の標高は使える。
 
-    値が出せない区間（有効な標高が2点未満）は返らない。
+    値が出せない区間（有効な標高が2点未満）は返らない。値と一緒に、値が依った`on_structure`も返す。
     """
     return f"""
 WITH v AS ({vertices}),
@@ -197,6 +196,7 @@ SELECT osm_way_id, segment_index,
                    ELSE gain END)::numeric, 1)  AS elevation_gain_m,
        round((CASE WHEN on_structure THEN greatest(start_e - end_e, 0)
                    ELSE loss END)::numeric, 1)  AS elevation_loss_m,
-       round(avg_g::numeric, 2) AS average_grade
+       round(avg_g::numeric, {AVERAGE_GRADE_DECIMALS}) AS average_grade,
+       on_structure
 FROM raw
 """

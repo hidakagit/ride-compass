@@ -1,4 +1,4 @@
-"""土地被覆クラス別割合（`edge_materials.lc_*`・`way_materials.lc_*`）の算出。
+"""土地被覆クラス別割合（`edge_landcover.lc_*`・`way_landcover.lc_*`）の算出。
 
 Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラム（バッチが
 道路centerline周囲のリングから集計したクラス別画素数）を、クラスごとの割合(%)へ
@@ -9,9 +9,9 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import create_model
+from pydantic import Field, create_model
 
 from app.domain.strict_model import StrictModel
 
@@ -149,6 +149,7 @@ LandcoverPercentages = create_model(
 # UTMゾーン1枚ぶんで、これより広い表示では面が画面の一部を塗るだけになり読み取れない。
 LANDCOVER_TILE_MIN_ZOOM = 6
 LANDCOVER_TILE_MAX_ZOOM = 14
+LandcoverTileZoom = Annotated[int, Field(ge=LANDCOVER_TILE_MIN_ZOOM, le=LANDCOVER_TILE_MAX_ZOOM)]
 
 
 def class_percentages_sql(counts: str) -> str:

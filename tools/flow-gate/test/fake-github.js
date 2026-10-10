@@ -13,28 +13,32 @@ export const config = {
   statuses: ["答え待ち", "置き", "前", "中", "検", "済"],
   owner: { 答え待ち: "u", 置き: "u", 前: "c", 中: "c", 検: "c" },
   done: "済", waiting: "答え待ち", hold: "置き", todo: "前", working: "中", review: "検",
-  adoption: "やる？",
-  transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
+  todoTypes: ["保"],
+  questionTemplate: "## 問い\n<問い>\n\n### 案\n- <案>\n\n<details><summary>判断材料</summary>\n\n**約束**: <約束>\n**案ごと**: <案ごと>\n**推奨**: <推奨>\n</details>",
+  transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "答え待ち", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
   code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },
-  coordinator: { workflow: "w.yml", slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 4, recordsSince: "2026-10-01T00:00:00Z", backendVariable: "B", backupMaxHours: 24 },
+  coordinator: { workflow: "w.yml", slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", holdRef: "refs/heads/hold/", recent: 4, recordsSince: "2026-10-01T00:00:00Z" },
 };
 
 const OPTIONS = Object.fromEntries(config.statuses.map((s) => [s, `S:${s}`]));
-const FIELDS = { [config.project.priorityField]: ["上", "並", "下"], [config.project.sizeField]: ["S", "M", "L"] };
+const FIELDS = { [config.project.priorityField]: ["上", "並", "下"] };
 const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
 
-// issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, parent, lastClose }
-// parent を渡すと issue をその子にし、親の優先度は parent.fields から読む。records は番号 → 記録の並び（コメント { by, at, body } か
-// 閉じ { closed: at }）で、見回りが issue ごとに読むもの（読んだ番号を read に残す）。
-export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [], records = {} }) {
-  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [] };
-  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates, read: [] };
+// issue: { number, author（login）, type（種類の名前）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, lastClose,
+// blockedBy（前提の状態の並び） }
+// parent（issue と同じ形）を渡すと issue をその子にする。records は番号 → 記録の並び（コメント { by, at, body } か閉じ { closed: at }）で、
+// 見回りが issue ごとに読むもの（読んだ番号を read に残す）。closed は閉じた issue（{ number, size, closedAt, updatedAt（無ければ
+// closedAt）, stateReason（無ければ COMPLETED）, project（無ければ config の Project の番号） }）で、更新日の新しい順に 100 件ずつ返す
+// （読んだページの数を closedPages に残す）。
+export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel, "札"], updates = [], records = {}, closed = [] }) {
+  const blank = { state: "OPEN", body: "本文", labels: [], assignees: [], fields: {}, comments: [], lastClose: [], blockedBy: [] };
+  const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates, read: [], closedPages: 0 };
   const node = (i) => ({
     id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
-    author: { databaseId: config.people[i.author ?? config.user]?.id }, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
+    author: { databaseId: config.people[i.author ?? config.user]?.id }, issueType: i.type ? { name: i.type } : null, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
     assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login].node, login })) }, labels: { nodes: i.labels.map((name) => ({ name })) },
-    lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
+    lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository }, blockedBy: { nodes: i.blockedBy.map((state, k) => ({ number: k, state })) },
     comments: { nodes: i.comments.map((c, k) => ({ author: { login: c.author }, createdAt: "2026-10-04T00:00:00Z", url: `c${k}`, body: c.body, bodyHTML: `<p>描いた: ${c.body}</p>` })) },
     projectItems: { nodes: [{ id: "PVTI", project: { id: "PVT" }, fieldValues: { nodes: [
       { name: i.status, field: { name: config.project.statusField } },
@@ -68,7 +72,14 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
         { id: config.project.startField, name: config.project.startField, dataType: "DATE" }] } } },
         repository: { labels: { nodes: labels.map((name) => ({ id: `L:${name}`, name })) }, issue: node(i) }, node: node(i) } };
     }
-    if (query.startsWith("query Open")) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [{ number: s.issue.number }] } } } };
+    if (query.startsWith("query Closed")) {
+      s.closedPages++;
+      const all = closed.map((t) => ({ updatedAt: t.closedAt, ...t })).toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      const from = Number(v.c ?? 0);
+      return { data: { repository: { issues: { pageInfo: { hasNextPage: from + 100 < all.length, endCursor: String(from + 100) },
+        nodes: all.slice(from, from + 100).map((t) => ({ number: t.number, closedAt: t.closedAt, updatedAt: t.updatedAt, stateReason: t.stateReason ?? "COMPLETED",
+          projectItems: { nodes: [{ project: { number: t.project ?? config.project.number }, size: t.size ? { name: t.size } : null }] } })) } } } };
+    }
     // GraphQL は App の名義を [bot] を付けずに返す。
     if (query.startsWith("query Records")) {
       const numbers = [...query.matchAll(/i(\d+): issue/g)].map(([, k]) => Number(k));
@@ -89,6 +100,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
     if (path.endsWith("/access_tokens")) return json({ token: "app-token", expires_at: "2099-01-01T00:00:00Z" });
     if (path === "/graphql") return json(graphql(body, as));
     if (path === "/markdown") return new Response(`<p>描いた: ${body.text}</p>`);
+    if (init.method === "POST" && path === `/repos/${config.repository}/issues/${s.issue.number}/comments`) return json(apply("addComment", { id: "I_1", body: body.body }, as) ?? {});
     throw new Error(`テストの GitHub が知らない呼び出し: ${init.method} ${path}`);
   };
   return s;

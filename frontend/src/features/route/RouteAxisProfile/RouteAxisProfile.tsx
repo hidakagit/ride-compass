@@ -5,10 +5,17 @@ import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { OverallDifficulty, RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
-import AxisDetail from "./AxisDetail";
+import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
+import { formatDifficulty, formatLoad } from "@/lib/mapDisplay/valueScale";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+
+/** 区間ごとに速度を変える条件の名前（backendの走行モデルが宣言する並び）。 */
+const SPEED_CONDITIONS = routeGenerateConfig.segment_speed_conditions.join("・");
+/** 総合難易度（平均）と負荷（総量）の数え方の文。backendが式の横で持つ。 */
+const DIFFICULTY_WORDING = routeGenerateConfig.overall_difficulty_wording;
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
@@ -94,7 +101,7 @@ export default function RouteAxisProfile({
       <AxisDetail axis={axis} difficulty={axisDifficulties[axis.axisId]}>
         {rawText && <span className="block text-[var(--color-muted-strong)] tabular-nums">{rawText}</span>}
         {breakdownTexts.length > 0 && (
-          <span className="block text-[var(--color-muted-strong)] tabular-nums">{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
+          <span className="block text-[var(--color-muted-strong)] tabular-nums">{`この評価軸の内訳: ${breakdownTexts.join("・")}`}</span>
         )}
       </AxisDetail>
     );
@@ -109,12 +116,12 @@ export default function RouteAxisProfile({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
               <span className={textVariants({ variant: "hint" })}>総合難易度</span>
-              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty.average)}</span>
+              <span className="text-[1.05rem] font-semibold">{formatDifficulty(overallDifficulty.average)}</span>
               <span className={textVariants({ variant: "hint" })}>/100</span>
               <InfoPopover triggerAriaLabel="総合難易度の説明">
                 <p>
-                  区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
-                  軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補の一覧は、最速ルートのほかは所要時間の短い順に並びます。
+                  {DIFFICULTY_WORDING.average}
+                  評価軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補の一覧は、最速ルートのほかは所要時間の短い順に並びます。
                 </p>
               </InfoPopover>
             </span>
@@ -124,8 +131,8 @@ export default function RouteAxisProfile({
                 <span className="text-[1.05rem] font-semibold">{formatDurationShort(estimatedDurationSeconds)}</span>
                 <InfoPopover triggerAriaLabel="所要時間の説明">
                   <p>
-                    走行時間[勾配・風・想定した巡航速度から区間ごとに計算]に、信号などで止まる
-                    待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
+                    {`走行時間[${SPEED_CONDITIONS}と想定した巡航速度から区間ごとに計算]に、`}
+                    信号などで止まる待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや走り方で変わります。
                   </p>
                 </InfoPopover>
               </span>
@@ -134,16 +141,16 @@ export default function RouteAxisProfile({
               {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
                 ぶんだけ縦を食うため、見出しは短い語に留める。 */}
               <span className={textVariants({ variant: "hint" })}>負荷</span>
-              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty.load)}</span>
+              <span className="text-[1.05rem] font-semibold">{formatLoad(overallDifficulty.load)}</span>
               <InfoPopover triggerAriaLabel="負荷の説明">
                 <p>
-                  総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
-                  平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
+                  {DIFFICULTY_WORDING.load}
                   難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
                 </p>
                 <p>
                   上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
-                  [色ごとの面積がその軸の負荷]。灰色は値の無い区間で、平均の高さで数えています。
+                  [色ごとの面積がその評価軸の負荷]。灰色は値の無い区間で、平均の高さで描いています。
+                  {DIFFICULTY_WORDING.missing}
                 </p>
               </InfoPopover>
             </span>
@@ -169,7 +176,7 @@ export default function RouteAxisProfile({
               renderDetail={renderAxisDetail}
             />
           ) : (
-            <p className={textVariants({ variant: "hint" })}>このルートで表示できる評価軸データがありません</p>
+            <p className={textVariants({ variant: "hint" })}>このルートで表示できる評価軸の値がありません</p>
           )}
         </div>
       )}

@@ -1,7 +1,7 @@
 """`scripts/fetch_jma_area_boundaries.py`——配布元のzip（シェープファイル）から区域の境界を作り、置き場へ置く。
 
 入口は`main`（デプロイが呼ぶ）と、zipから区域を読む`read_areas`。配布元は`respx_mock`で代わりのzipを返し、
-置き場（`BOUNDARY_PATH`）は`tmp_path`へ移す。作った境界は`jma_area_boundaries.find_class20_code`で引いて確かめる。
+置き場は`tests/conftest.py: boundary_path`。作った境界は`jma_area_boundaries.find_class20_code`で引いて確かめる。
 見るのは、置き場に今の版があれば取りに行かないこと・取得から書き込みまで・取得の失敗で置き場を作らないこと・
 他の版の掃除・コードの空の図形を落とすこと・同じコードの図形をまとめること・簡略化。
 
@@ -56,14 +56,7 @@ DISTRIBUTED = [
 ]
 
 
-@pytest.fixture
-def destination(monkeypatch, tmp_path):
-    path = tmp_path / "jma_area" / "current.json"
-    monkeypatch.setattr(jma_area_boundaries, "BOUNDARY_PATH", path)
-    return path
-
-
-async def test_fetches_and_places_the_boundaries_of_each_area(destination, respx_mock):
+async def test_fetches_and_places_the_boundaries_of_each_area(boundary_path, respx_mock):
     respx_mock.get(jma_area_boundaries.SOURCE_URL).respond(content=_archive(DISTRIBUTED))
 
     assert fetch_jma_area_boundaries.main() == 0
@@ -74,25 +67,25 @@ async def test_fetches_and_places_the_boundaries_of_each_area(destination, respx
     assert await jma_area_boundaries.find_class20_code(43.05, 145.05) is None
 
 
-def test_other_versions_and_the_archive_are_removed_after_placing(destination, respx_mock):
+def test_other_versions_and_the_archive_are_removed_after_placing(boundary_path, respx_mock):
     respx_mock.get(jma_area_boundaries.SOURCE_URL).respond(content=_archive(DISTRIBUTED))
-    destination.parent.mkdir(parents=True)
-    (destination.parent / "older.json").write_text("{}", encoding="utf-8")
+    boundary_path.parent.mkdir(parents=True)
+    (boundary_path.parent / "older.json").write_text("{}", encoding="utf-8")
 
     fetch_jma_area_boundaries.main()
 
-    assert list(destination.parent.iterdir()) == [destination]
+    assert list(boundary_path.parent.iterdir()) == [boundary_path]
 
 
-def test_present_version_is_not_fetched_again_but_other_versions_are_removed(destination, respx_mock):
+def test_present_version_is_not_fetched_again_but_other_versions_are_removed(boundary_path, respx_mock):
     """置き場に今の版があれば配布元へ問い合わせない（代役に経路が無いので、問い合わせれば落ちる）。"""
-    destination.parent.mkdir(parents=True)
-    destination.write_text("{}", encoding="utf-8")
-    (destination.parent / "older.json").write_text("{}", encoding="utf-8")
+    boundary_path.parent.mkdir(parents=True)
+    boundary_path.write_text("{}", encoding="utf-8")
+    (boundary_path.parent / "older.json").write_text("{}", encoding="utf-8")
 
     assert fetch_jma_area_boundaries.main() == 0
 
-    assert list(destination.parent.iterdir()) == [destination]
+    assert list(boundary_path.parent.iterdir()) == [boundary_path]
 
 
 @pytest.mark.parametrize(
@@ -102,12 +95,12 @@ def test_present_version_is_not_fetched_again_but_other_versions_are_removed(des
         pytest.param({"content": b"<html>maintenance</html>"}, id="zipでない"),
     ],
 )
-def test_failed_fetch_places_nothing(destination, respx_mock, response):
+def test_failed_fetch_places_nothing(boundary_path, respx_mock, response):
     respx_mock.get(jma_area_boundaries.SOURCE_URL).respond(**response)
 
     assert fetch_jma_area_boundaries.main() == 1
 
-    assert not destination.exists()
+    assert not boundary_path.exists()
 
 
 def test_boundaries_are_simplified_within_the_tolerance(tmp_path):

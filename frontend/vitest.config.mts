@@ -25,7 +25,7 @@ export default defineConfig({
     // 既定のDOM環境はhappy-dom（jsdomより環境の準備もテスト本体も速い）。happy-domで挙動の違うAPIに
     // 当たったら、そのファイルに`// @vitest-environment jsdom`のdocblockを付けてjsdomで動かす。
     // `isolate: false`（ファイル間でモジュール状態・DOM環境を使い回す）は、実行のたびに違うテストが
-    // 落ちるため使わない（docs/conventions/testing.md「基本原則」の3: 速度の最適化は確かめる内容を変えない範囲で行う）。
+    // 落ちるため使わない（.claude/rules/testing.md「基本原則」の3: 速度の最適化は確かめる内容を変えない範囲で行う）。
     environment: "happy-dom",
     // backendは画面と別のオリジンにあり、happy-domの`fetch`はCORSの事前の要求（OPTIONS）を出して応答の見出しを照らす。
     // CORSを許すのはbackendの設定で、画面のテストが見るものではないため外す（外さないと、網の層の差し替え
@@ -35,7 +35,7 @@ export default defineConfig({
     // 使わない純ロジック）はファイルの先頭の`// @vitest-environment node`docblockでnode環境に倒す。
     // 設定での一括の振り分け（`environmentMatchGlobs`）はVitest 4に無く、代わりの`test.projects`は
     // 対象のパターンに入らないテストファイルを黙って外しうるため使わない。docblockの無いファイルは既定の
-    // happy-domで動くので、DOMを後から使い始めても黙って壊れない（docs/conventions/testing.md「パターン3」）。
+    // happy-domで動くので、DOMを後から使い始めても黙って壊れない（.claude/rules/testing-frontend.md「パターン3」）。
     setupFiles: ["./vitest.setup.ts"],
     css: true,
     // frontend/e2e/・frontend/e2e-live/・frontend/capture/はPlaywright（別ランナー）専用のため、

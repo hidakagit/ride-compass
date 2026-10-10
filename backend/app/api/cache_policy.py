@@ -20,6 +20,7 @@ from typing import Final
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.api.admin_db_errors import ADMIN_PATH_PREFIX
 from app.infrastructure import jma_tile_redis_cache
 
 
@@ -59,6 +60,9 @@ BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: ブラウザの保持分へ手が届かないため、消した効果が各利用者の画面へ現れるのはこの
 #: `max-age`ぶん遅れる。押す頻度と表示速度の釣り合いで10分にしてある。
 BASEMAP = CachePolicy(max_age_seconds=10 * 60)
+#: 派生の作り直しまで答えが変わらない引き当て（地点の検索。住所（住所の区画の表）も施設（立ち寄り先の表）も
+#: 派生の作り直しのときにしか変わらない。施設を近い順に並べる点はURLに入るので、同じURLの答えは変わらない）。caching-retention.md「TTLの決め方」の「ほぼ不変なマスタ」。
+MASTER_LOOKUP = CachePolicy(max_age_seconds=24 * 60 * 60)
 #: 数分の再利用で表示が古くならないもの（例: 風グリッド・材料タイル・天候予報）。
 SHORT = CachePolicy(max_age_seconds=5 * 60)
 #: 数分で変わりうる警戒情報・実測値。
@@ -123,11 +127,15 @@ ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/weather/flood-forecast", VOLATILE),
     ("/api/weather/amedas", VOLATILE),
     ("/api/weather", SHORT),
+    # 地点の検索（URLに入力の文字列を含むため入力ごとに別エントリになる）
+    ("/api/place-search", MASTER_LOOKUP),
+    # 置いた位置の辺り（URLに緯度経度を含むため位置ごとに別エントリになる）
+    ("/api/place-area", MASTER_LOOKUP),
     # ルート生成（POSTはそもそもキャッシュされないが、進捗のGETは明示的に禁じる）
     ("/api/routes/", NO_STORE),
     ("/api/region/axis-inspector", NO_STORE),
     # 管理・状態確認（認可必須の情報を中間キャッシュへ残さない）
-    ("/api/admin/", NO_STORE),
+    (ADMIN_PATH_PREFIX, NO_STORE),
     ("/api/debug/", NO_STORE),
     ("/health", NO_STORE),
 )

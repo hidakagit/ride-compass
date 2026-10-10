@@ -32,6 +32,7 @@ from app.domain.axis_display import (
 )
 from app.domain.material_catalog import CoverageExcluded, MaterialSpec
 from app.domain.registry import TileInputSpec
+from tests.axis_system_fixture import shaped_axis
 
 
 def _material(material_id, dtype, *, tile=True, unknown=False, **fields) -> MaterialSpec:
@@ -82,24 +83,20 @@ def _line(*terms, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity"
     )
 
 
-def _axis(shape, axis_id="axis_a", **fields) -> AxisDefinition:
-    return AxisDefinition(axis_id=axis_id, shape=shape, default_weight=1.0, label="軸A", **fields)
-
-
 def _drawn(shape, **fields):
-    display = axis_display_for(_axis(shape, **fields))
+    display = axis_display_for(shaped_axis(shape, **fields))
     assert display.kind == "ramp"
     return display
 
 
 NOT_ON_THE_MAP = {
-    "0次条件を持つ": _axis(_line("num_a"), priority_overrides=[PriorityCondition(material="flag", equals="true", value=0)]),
-    "タイルに無い材料": _axis(_line("num_a", "num_untiled")),
-    "向きで値が変わる材料": _axis(_line("num_directional")),
-    "どこにも無い材料": _axis(_line("nowhere")),
-    "符号を畳む前処理": _axis(_line("num_a", preprocess="abs")),
-    "得点が1つしかない分類": _axis(CategoricalShape(material="kind", mapping={"x": 50.0, "y": 50.0})),
-    "真偽の片方しか無い対応表": _axis(CategoricalShape(material="flag", mapping={True: 100.0})),
+    "0次条件を持つ": shaped_axis(_line("num_a"), priority_overrides=[PriorityCondition(material="flag", equals="true", value=0)]),
+    "タイルに無い材料": shaped_axis(_line("num_a", "num_untiled")),
+    "向きで値が変わる材料": shaped_axis(_line("num_directional")),
+    "どこにも無い材料": shaped_axis(_line("nowhere")),
+    "符号を畳む前処理": shaped_axis(_line("num_a", preprocess="abs")),
+    "得点が1つしかない分類": shaped_axis(CategoricalShape(material="kind", mapping={"x": 50.0, "y": 50.0})),
+    "真偽の片方しか無い対応表": shaped_axis(CategoricalShape(material="flag", mapping={True: 100.0})),
 }
 
 
@@ -112,9 +109,9 @@ def test_an_axis_the_tile_cannot_reproduce_is_not_drawn(definition):
 
 
 def test_a_categorical_axis_over_another_axis_is_not_drawn(axes):
-    axes["inner"] = _axis(_line("num_a"), axis_id="inner")
+    axes["inner"] = shaped_axis(_line("num_a"), axis_id="inner")
 
-    assert axis_display_for(_axis(CategoricalShape(material="inner", mapping={"x": 0.0, "y": 100.0}))).kind == "none"
+    assert axis_display_for(shaped_axis(CategoricalShape(material="inner", mapping={"x": 0.0, "y": 100.0}))).kind == "none"
 
 
 @pytest.mark.parametrize(("material", "unknown"), [("flag", False), ("flag_unknown", True)])
@@ -179,14 +176,14 @@ def test_a_line_axis_of_up_to_twelve_flags_is_drawn_and_more_is_not():
     """部分和は2のN乗通りあるため、項の数で止める。"""
 
     def flags(count):
-        return _axis(_line(*["flag"] * count, breakpoints=[(0.0, 0.0), (float(count), 100.0)]))
+        return shaped_axis(_line(*["flag"] * count, breakpoints=[(0.0, 0.0), (float(count), 100.0)]))
 
     assert len(axis_display_for(flags(12)).thresholds) == 12
     assert axis_display_for(flags(13)).kind == "none"
 
 
 def test_a_term_over_a_named_value_axis_folds_the_outer_weight_into_its_scores(axes):
-    axes["inner"] = _axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 100.0}), axis_id="inner")
+    axes["inner"] = shaped_axis(CategoricalShape(material="kind", mapping={"x": 0.0, "y": 100.0}), axis_id="inner")
 
     display = _drawn(_line(MaterialTerm(material="inner", weight=0.5), breakpoints=[(0.0, 0.0), (50.0, 100.0)]))
 
@@ -197,7 +194,7 @@ def test_a_term_over_a_named_value_axis_folds_the_outer_weight_into_its_scores(a
 
 
 def test_a_term_over_a_flag_axis_folds_the_outer_weight_into_its_two_scores(axes):
-    axes["inner"] = _axis(CategoricalShape(material="flag", mapping={True: 100.0, False: 20.0}), axis_id="inner")
+    axes["inner"] = shaped_axis(CategoricalShape(material="flag", mapping={True: 100.0, False: 20.0}), axis_id="inner")
 
     display = _drawn(_line(MaterialTerm(material="inner", weight=0.5), breakpoints=[(0.0, 0.0), (50.0, 100.0)]))
 
@@ -206,7 +203,7 @@ def test_a_term_over_a_flag_axis_folds_the_outer_weight_into_its_two_scores(axes
 
 
 def test_a_term_over_a_line_axis_of_one_material_paints_that_line_on_the_tile_value(axes):
-    axes["inner"] = _axis(_line("num_a", breakpoints=[(0.0, 0.0), (8.0, 100.0)]), axis_id="inner")
+    axes["inner"] = shaped_axis(_line("num_a", breakpoints=[(0.0, 0.0), (8.0, 100.0)]), axis_id="inner")
 
     display = _drawn(_line(MaterialTerm(material="inner", weight=0.5), breakpoints=[(0.0, 0.0), (50.0, 100.0)]))
 
@@ -214,17 +211,17 @@ def test_a_term_over_a_line_axis_of_one_material_paints_that_line_on_the_tile_va
 
 
 INNER_AXES_THAT_DO_NOT_FOLD = {
-    "0次条件を持つ": _axis(
+    "0次条件を持つ": shaped_axis(
         _line("num_a"), axis_id="inner", priority_overrides=[PriorityCondition(material="flag", equals="true", value=0)]
     ),
-    "符号を畳む": _axis(_line("num_a", preprocess="abs"), axis_id="inner"),
-    "項が2つ": _axis(_line("num_a", "num_per_year"), axis_id="inner"),
-    "内側の重みが1でない": _axis(_line(MaterialTerm(material="num_a", weight=2.0)), axis_id="inner"),
-    "さらに軸を読む": _axis(_line("deeper"), axis_id="inner"),
-    "向きで値が変わる材料": _axis(_line("num_directional"), axis_id="inner"),
-    "実行時の係数が要る材料": _axis(_line("num_per_year"), axis_id="inner"),
-    "真偽の材料": _axis(_line("flag"), axis_id="inner"),
-    "塗れない分類": _axis(CategoricalShape(material="kind_untiled", mapping={"x": 0.0, "y": 100.0}), axis_id="inner"),
+    "符号を畳む": shaped_axis(_line("num_a", preprocess="abs"), axis_id="inner"),
+    "項が2つ": shaped_axis(_line("num_a", "num_per_year"), axis_id="inner"),
+    "内側の重みが1でない": shaped_axis(_line(MaterialTerm(material="num_a", weight=2.0)), axis_id="inner"),
+    "さらに軸を読む": shaped_axis(_line("deeper"), axis_id="inner"),
+    "向きで値が変わる材料": shaped_axis(_line("num_directional"), axis_id="inner"),
+    "実行時の係数が要る材料": shaped_axis(_line("num_per_year"), axis_id="inner"),
+    "真偽の材料": shaped_axis(_line("flag"), axis_id="inner"),
+    "塗れない分類": shaped_axis(CategoricalShape(material="kind_untiled", mapping={"x": 0.0, "y": 100.0}), axis_id="inner"),
 }
 
 
@@ -232,14 +229,14 @@ INNER_AXES_THAT_DO_NOT_FOLD = {
 def test_an_axis_reading_an_axis_the_tile_cannot_reproduce_is_not_drawn(axes, inner):
     """内側の折れ線をタイルの値へ当てる形は、1つの材料をそのまま折れ線へ通すものしか書けない。"""
     axes["inner"] = inner
-    axes["deeper"] = _axis(_line("num_a"), axis_id="deeper")
+    axes["deeper"] = shaped_axis(_line("num_a"), axis_id="deeper")
 
-    assert axis_display_for(_axis(_line("num_a", "inner"))).kind == "none"
+    assert axis_display_for(shaped_axis(_line("num_a", "inner"))).kind == "none"
 
 
 def test_a_draft_reading_its_own_saved_version_is_not_on_the_map_and_keeps_every_band(axes):
     """保存前の下書きは自分自身を読めてしまう（保存は循環として断られる）。保存済みの自分を材料として畳まない。"""
-    axes["axis_a"] = _axis(_line("num_a"))
+    axes["axis_a"] = shaped_axis(_line("num_a"))
 
     assert bands_the_map_keeps("axis_a", _line("axis_a"), [], [1.0, 2.0]) == [0, 1, 2]
 
@@ -257,7 +254,7 @@ STEPPED = _line("num_a", breakpoints=[(0.0, 0.0), (2.0, 50.0), (4.0, 50.0), (6.0
 
 def test_band_labels_are_taken_for_the_bands_left_on_the_map():
     """落ちた境界の上下は1つの段にまとまり、下端が同じ値の下側の段として扱う。"""
-    definition = _axis(
+    definition = shaped_axis(
         STEPPED, display_thresholds_override=[2.0, 3.0, 4.0, 6.0], display_band_labels_override=list("abcde")
     )
 
@@ -265,7 +262,7 @@ def test_band_labels_are_taken_for_the_bands_left_on_the_map():
 
 
 def test_band_labels_are_missing_without_overriding_labels():
-    assert map_band_labels(_axis(STEPPED, display_thresholds_override=[2.0, 3.0])) is None
+    assert map_band_labels(shaped_axis(STEPPED, display_thresholds_override=[2.0, 3.0])) is None
 
 
 @st.composite
@@ -281,7 +278,7 @@ def test_the_map_keeps_the_boundaries_whose_score_rises_and_labels_every_band_it
     """残る境界の得点は折れ線の最も低い得点から上がり続け、落ちる境界の得点は直前に残した境界の得点（無ければ
     最も低い得点）を上回らない。体感ラベルは地図の段の数だけ配る。"""
     line, boundaries = line_and_boundaries
-    definition = _axis(
+    definition = shaped_axis(
         line,
         display_thresholds_override=boundaries,
         display_band_labels_override=[f"段{i}" for i in range(len(boundaries) + 1)],
@@ -292,8 +289,9 @@ def test_the_map_keeps_the_boundaries_whose_score_rises_and_labels_every_band_it
     lowest = min(line.score_at(x) for x, _ in line.breakpoints)
     scores = [line.score_at(boundary) for boundary in kept]
     assert all(lower < upper for lower, upper in zip([lowest, *scores], scores))
-    for dropped in thresholds_the_map_drops("axis_a", line, [], boundaries):
+    dropped_on_map = thresholds_the_map_drops(boundaries, bands_the_map_keeps("axis_a", line, [], boundaries))
+    for dropped in dropped_on_map:
         below = [line.score_at(boundary) for boundary in kept if boundary < dropped]
         assert line.score_at(dropped) <= max([lowest, *below])
-    assert kept == [b for b in boundaries if b not in thresholds_the_map_drops("axis_a", line, [], boundaries)]
+    assert kept == [b for b in boundaries if b not in dropped_on_map]
     assert len(map_band_labels(definition) or []) == len(kept) + 1

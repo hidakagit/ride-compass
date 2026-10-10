@@ -1,7 +1,7 @@
 """`scripts/measure_axis_saturation.py`の集計（上端下端の割合・張り付きの原因・最多の値の割合）。
 
 ここで見ないもの:
-- 延長で重み付けた分位点と標本の作り方 → `test_axis_preview_service.py`（軸スタジオの分布プレビューと共有する実装）
+- 延長で重み付けた分位点と標本の作り方 → `test_value_distribution.py`（軸スタジオの分布プレビューと共有する実装）
 """
 
 import sys

@@ -2,12 +2,7 @@
 
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 
-// フィールドラベル+情報アイコン。タップでも確実に開くクリック式の開閉ボタン
-// （MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。説明本体はRadix Popoverで
-// フローティング表示する——トリガー位置基準のためDOM上の配置形（div直後 vs テーブル行内等）
-// に依存しない。開閉状態は`InfoPopover`が持つため、呼び出し側は`description`を
-// 渡すだけでよい。
-
+/** 入力欄の名前と、その脇の(i)。説明の開閉と浮かべ方は`InfoPopover`が持つので、呼び出し側は`description`を渡すだけでよく、表の行の中に置いても並びを崩さない。 */
 export function FieldLabel({ label, description }: { label: string; description: string }) {
   return (
     <InfoPopover

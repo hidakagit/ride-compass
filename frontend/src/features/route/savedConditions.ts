@@ -128,7 +128,7 @@ export function suggestedConditionName(conditions: GenerationConditionsSnapshot)
 interface ConditionsDescription {
   /** 周回か目的地か・距離・経由地・候補数。 */
   route: string;
-  /** 配分の種類と、使う軸ごとの割合（重みの合計に占める%。「重み」タブのチップと同じ数）。 */
+  /** 使う軸ごとの割合（重みの合計に占める%。「重み」タブのチップと同じ数）。 */
   weights: string;
   /** 除外する道路の名前。 */
   exclusions: string;
@@ -145,16 +145,15 @@ function routeDescription(conditions: GenerationConditionsSnapshot): string {
 }
 
 // 上書きしない重みは、生成のときbackendの既定の配分で探すので、軸カタログが配る既定の重みを割合にして見せる。
-// 上書きした重みは、呼び出して送るときと同じく公開軸へ揃えてから割合にする。
+// 上書きした重みは、呼び出して送るときと同じく公開軸へ揃えてから割合にする。上書きしたかは出さない（残るのは割合だけ）。
 function weightsDescription(routePreference: RoutePreferenceWeights | null, catalog: AxisCatalog): string {
-  const kind = routePreference === null ? "おすすめの配分" : "自分で変えた配分";
   const weights = alignRoutePreference(routePreference ?? catalog.defaultWeights, catalog);
   const total = totalWeight(weights);
   const shares = catalog.axes
     .filter((axis) => weights[axis.axisId] > 0)
     .map((axis) => ({ label: axis.label, pct: Math.round((weights[axis.axisId] / total) * 100) }))
     .sort((a, b) => b.pct - a.pct);
-  return shares.length === 0 ? kind : `${kind}（${shares.map(({ label, pct }) => `${label} ${pct}%`).join("・")}）`;
+  return shares.length === 0 ? "—" : shares.map(({ label, pct }) => `${label} ${pct}%`).join("・");
 }
 
 function exclusionsDescription(hardFilters: HardFilterOverride): string {

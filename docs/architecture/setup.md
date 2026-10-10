@@ -4,11 +4,11 @@
 
 ## テスト
 
-手元で検査とテストを回すかと、回すときの範囲は[../conventions/testing-operations.md](../conventions/testing-operations.md)「手元の検査の回し方」が決める。
+手元で検査とテストを回すかと、回すときの範囲は[run-checks/SKILL.md](../../.claude/skills/run-checks/SKILL.md)「手元の検査の回し方」が決める。
 ここには、回すときの開発機での前提と所要を置く。
 
 ```bash
-cd backend && pytest tests/test_road_graph_engine.py -q
+cd backend && pytest tests/test_route_search.py -q
 cd frontend && ./node_modules/.bin/vitest run <対象ファイル> --pool=threads
 cd frontend && ./node_modules/.bin/tsc --noEmit
 ```
@@ -20,7 +20,7 @@ backendのフルスイートは開発機で5〜10分かかる（CIは`-n auto`�
 
 PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
 テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
-[testing-operations.md](../conventions/testing-operations.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
+[run-checks/SKILL.md](../../.claude/skills/run-checks/SKILL.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
 落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
 `-m "not postgis"`で除外して回す。
 
@@ -116,7 +116,7 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
 **スキーマを作っても、軸定義が0行のままではbackendは起動しない**（`refresh_axis_definitions`が
 0行を起動失敗にする。[axis-studio.md](../modules/backend/axis-studio.md)「まっさらなDBに軸の行は
 入らない」）。軸を入れる管理APIも起動したbackendにしか無いため、新しい環境へ軸が入るのは管理データの
-バックアップから戻したときだけで、それは本番を作り直すための経路である（[deployment-sync.md](../conventions/deployment-sync.md)
+バックアップから戻したときだけで、それは本番を作り直すための経路である（[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)
 「本番DBを失ったとき」）——composeのDB・クラウドのセッションは**テストを回す場**であり、アプリを実データで
 確かめるのは本番か手元の開発機で行う（地図に色を出すには軸のほかに取込済みのデータも要る）。
 テスト（`-m postgis`を含む）は軸を要らないので、この状態で回せる。

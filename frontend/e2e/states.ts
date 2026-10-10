@@ -1,7 +1,9 @@
 import { expect, type Page } from "@playwright/test";
+import { catalogEntry } from "@/testing/catalogAxes";
 import { makeRouteCandidate, routeThrough, type Places } from "@/testing/routeFixtures";
 import {
   MOBILE_VIEWPORT,
+  axisCatalogFixture,
   clickMap,
   defaultAxisCatalogFixture,
   doneJobFixture,
@@ -10,9 +12,9 @@ import {
   runGeneration,
 } from "./fixtures";
 
-// 走査する画面の状態（docs/conventions/testing.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後・区間を乗り換えた後）。
+// 走査する画面の状態（.claude/rules/testing-e2e.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後・区間を乗り換えた後）。
 // 土台の上では、画面がARIAで宣言している開閉の部品（`aria-expanded`・`role="tab"`）のうち、最前面で
-// 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅ごとに1枚のページで辿り、開いたものは閉じて戻す。
+// 押せるものを押せる限り辿る。どの状態へも1回だけ入る: 幅 × 段階ごとに1枚のページで辿り、開いたものは閉じて戻す。
 
 export const WIDTHS = {
   mobile: MOBILE_VIEWPORT,
@@ -21,7 +23,7 @@ export const WIDTHS = {
 export type WidthName = keyof typeof WIDTHS;
 
 /** アプリの段階。ルートを生成する前と後、区間を乗り換えた後で、画面に出る部品の集合が入れ替わる。 */
-export type Phase = "生成前" | "生成後" | "乗り換え後";
+export const PHASES = ["生成前", "生成後", "乗り換え後"] as const;
 
 /** 幅の分岐はCSSのブレークポイント1つだけで、WIDTHSはその両側に1つずつ置く。 */
 export async function assertWidthsStraddleBreakpoint(page: Page): Promise<void> {
@@ -289,9 +291,15 @@ const SPLICE_PLACES: Places = {
   D: [139.7466, 35.7622],
 };
 
-/** 乗り換えの入口が出る軸カタログ（区間を割る下限の較正値がある）。アプリを開く前に入れる。 */
-export async function installSpliceMocks(page: Page): Promise<void> {
-  const catalog = defaultAxisCatalogFixture();
+/**
+ * 走査の軸カタログ。アプリを開く前に入れる。本番と同じく重みのある軸を3つ持つ（重みのある軸が2つ以上のときだけ
+ * 出る部品があり、既定の1軸では走査に入らない）。乗り換えの入口が出るように、区間を割る下限の較正値を持つ。
+ */
+export async function installScanMocks(page: Page): Promise<void> {
+  const catalog = axisCatalogFixture([
+    ...defaultAxisCatalogFixture().axes,
+    ...["first", "second", "third"].map((axisId) => ({ ...catalogEntry({ axis_id: axisId }), default_weight: 1 / 3 })),
+  ]);
   catalog.client_tuning = { "splice.min_stretch_km": 0 };
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: catalog }));
 }
@@ -328,10 +336,18 @@ export async function clickVisible(page: Page, lngLat: readonly [number, number]
 export async function splice(page: Page, width: WidthName): Promise<void> {
   const result = routeGenerateResponseFixture();
   result.routes = [
-    makeRouteCandidate({ ...routeThrough(SPLICE_PLACES, ["S", "N1", "N2", "D"]), id: "route-1", distance_km: 3.1 }),
+    makeRouteCandidate({
+      ...routeThrough(SPLICE_PLACES, ["S", "N1", "N2", "D"]),
+      id: "route-1",
+      kind: "destination",
+      spliceable: true,
+      distance_km: 3.1,
+    }),
     makeRouteCandidate({
       ...routeThrough(SPLICE_PLACES, ["S", "N1", "VIA", "N2", "D"]),
       id: "route-2",
+      kind: "destination",
+      spliceable: true,
       distance_km: 3.6,
     }),
   ];
@@ -340,7 +356,7 @@ export async function splice(page: Page, width: WidthName): Promise<void> {
   await scope.getByRole("radio", { name: "目的地" }).click();
   // スマホ幅は、シートを閉じると目的地の指定が外れるので、開いたまま見えている地図を押す。
   await clickVisible(page, SPLICE_PLACES.D);
-  await expect(scope.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
+  await expect(scope.getByRole("button", { name: "目的地を地図で置き直す" })).toBeVisible();
   await runGeneration(scope);
   if (width === "mobile") {
     await page.getByRole("button", { name: "ルート設定", exact: true }).click();

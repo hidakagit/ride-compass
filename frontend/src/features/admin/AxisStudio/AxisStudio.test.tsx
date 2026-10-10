@@ -14,7 +14,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
-import { heldReplies, onSameOrigin, type SentRequest, serveAxisCatalog } from "@/testing/backendServer";
+import { heldReplies, inTurn, onSameOrigin, type SentRequest, serveAxisCatalog } from "@/testing/backendServer";
 import { catalogResponse, rampEntry } from "@/testing/catalogAxes";
 import type { AxisCatalogEntry, AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
@@ -235,6 +235,31 @@ describe("保存", () => {
     ]);
   });
 
+  it("保存を待つ間に閉じて別のフォームを開いたら、保存が済んでもそのフォームを閉じない", async () => {
+    const held = heldReplies();
+    onSameOrigin("PUT", DEFINITION, held.reply);
+    // 保存の後に取り直す一覧は名前を変えて返し、取り直しが画面へ届いたことを見分ける。
+    const saved = { ...DRAFT, label: "保存した軸" };
+    onSameOrigin(
+      "GET",
+      DEFINITIONS,
+      inTurn(Response.json([DRAFT, PUBLISHED, PUBLISHED_2]), Response.json([saved, PUBLISHED, PUBLISHED_2])),
+    );
+    const user = await renderStudio();
+    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
+    await user.click(saveButton());
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.type(labelField(), "打ちかけ");
+    await held.answer(0, Response.json(saved));
+
+    await waitFor(() =>
+      expect(screen.getByText(new RegExp(`^${DRAFT.axis_id} ・`)).parentElement).toHaveTextContent("保存した軸"),
+    );
+    expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
+    expect(labelField()).toHaveValue("打ちかけ");
+  });
+
   it("保存に失敗したら、フォームへ失敗を返し、開いたままにする", async () => {
     onSameOrigin("PUT", DEFINITION, () => failure("軸は公開済みです"));
     const user = await renderStudio();
@@ -292,6 +317,36 @@ describe("公開済みの軸を「調整する」", () => {
     await waitFor(() => expect(screen.queryByText(/下書きへ戻したまま編集を終えました/)).not.toBeInTheDocument());
   });
 
+  it("下書きへ戻す間に別の軸の編集を開いたら、そのフォームを替えず、下書きのまま残ったことを知らせる", async () => {
+    const held = heldReplies();
+    onSameOrigin("POST", UNPUBLISH, held.reply);
+    const user = await renderStudio();
+    await adjust(user);
+    await user.click(screen.getByRole("tab", { name: /下書き/ }));
+    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "編集" }));
+    await user.type(labelField(), "（打ちかけ）");
+    await held.answer(0, Response.json({ ...PUBLISHED, is_published: false }));
+
+    expect(await screen.findByText(/下書きへ戻したまま編集を終えました/)).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "軸を編集: 下書きの軸" });
+    expect(labelField()).toHaveValue("下書きの軸（打ちかけ）");
+    expect(within(dialog).queryByText(REPUBLISH_NOTE)).not.toBeInTheDocument();
+  });
+
+  it("公開へ戻す保存を待つ間に閉じたら、下書きのまま残ったと知らせ、保存が済むと知らせを外す", async () => {
+    const held = heldReplies();
+    onSameOrigin("PUT", DEFINITION, held.reply);
+    const user = await renderStudio();
+    await adjust(user);
+    await screen.findByText(REPUBLISH_NOTE);
+    await user.click(saveButton());
+    await user.keyboard("{Escape}");
+    expect(await screen.findByText(/下書きへ戻したまま編集を終えました/)).toBeInTheDocument();
+
+    await held.answer(0, Response.json(PUBLISHED));
+    await waitFor(() => expect(screen.queryByText(/下書きへ戻したまま編集を終えました/)).not.toBeInTheDocument());
+  });
+
   it("下書きへ戻せなければ、理由を出してフォームを開かない", async () => {
     onSameOrigin("POST", UNPUBLISH, () => failure("戻せません"));
     const user = await renderStudio();
@@ -333,6 +388,28 @@ describe("非公開に戻す", () => {
     expect(within(rowOf("公開の軸")).getByRole("button", { name: "調整する" })).toBeDisabled();
   });
 
+  it("2つの軸を続けて戻すと、先の軸が戻ったあとも、まだ戻している軸のボタンは押せない", async () => {
+    const held = heldReplies();
+    onSameOrigin("POST", UNPUBLISH, held.reply);
+    // 先の軸を戻したあとに取り直す一覧は名前を変えて返し、取り直しが画面へ届いたことを見分ける。
+    onSameOrigin(
+      "GET",
+      DEFINITIONS,
+      inTurn(
+        Response.json([DRAFT, PUBLISHED, PUBLISHED_2]),
+        Response.json([DRAFT, { ...PUBLISHED, label: "戻した軸" }, PUBLISHED_2]),
+      ),
+    );
+    const user = await renderStudio();
+    await openPublishedTab(user);
+    await user.click(within(rowOf("公開の軸")).getByRole("button", { name: "非公開に戻す" }));
+    await user.click(within(rowOf("公開の軸2")).getByRole("button", { name: "非公開に戻す" }));
+    await held.answer(0, Response.json({ ...PUBLISHED, is_published: false }));
+
+    expect(await screen.findByText("戻した軸")).toBeInTheDocument();
+    expect(within(rowOf("公開の軸2")).getByRole("button", { name: "非公開に戻す" })).toBeDisabled();
+  });
+
   it("公開済みの軸には削除の口を置かない（先に非公開へ戻す）", async () => {
     const user = await renderStudio();
     await openPublishedTab(user);
@@ -363,6 +440,29 @@ describe("削除", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(writes.deleted).toEqual([]);
+  });
+
+  it("2つの軸を続けて消すと、先の軸が消えたあとも、まだ消している軸の削除は押せない", async () => {
+    const DRAFT_2 = axis({ axis_id: "axis_draft2", label: "下書きの軸2" });
+    const held = heldReplies();
+    onSameOrigin("DELETE", DEFINITION, held.reply);
+    onSameOrigin(
+      "GET",
+      DEFINITIONS,
+      inTurn(Response.json([DRAFT, DRAFT_2, PUBLISHED, PUBLISHED_2]), Response.json([DRAFT_2, PUBLISHED, PUBLISHED_2])),
+    );
+    const user = await renderStudio();
+    await deleteDraft(user);
+    await user.click(within(rowOf("下書きの軸2")).getByRole("button", { name: "削除" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "「下書きの軸2」を削除します" })).getByRole("button", {
+        name: "削除する",
+      }),
+    );
+    await held.answer(0, new Response(null, { status: 204 }));
+
+    await waitFor(() => expect(screen.queryByText("下書きの軸")).not.toBeInTheDocument());
+    expect(within(rowOf("下書きの軸2")).getByRole("button", { name: "削除" })).toBeDisabled();
   });
 
   it("削除している間はその軸の削除を押せず、失敗したら理由を出す", async () => {

@@ -50,22 +50,11 @@
   --color-surface-2: #f3f4f2;
   --color-accent-strong: #1d4ed8;
 
-  /* 地図チップの最上位グループを見分ける色。ON状態の青（--color-accent）・展開見出しの地味色
-   * （--color-neutral）と別の意味で使うので、それらと被らない色相にする。OFF状態の枠線に使う。 */
+  /* 「表示」の一覧で、群（道路・環境・スポット）の見出しを見分ける色。ONのチェックの青（--color-accent）と
+   * 別の意味で使うので、それと被らない色相にする。 */
   --color-group-road: #0d9488;
   --color-group-environment: #b45309;
   --color-group-spot: #db2777;
-  /* ON状態の塗りつぶし背景。グループの色と同じ値にし、ダークモードでは明るく差し替えたOFF用の色へ
-   * そろえる（別の値にすると、同じグループの見出しとメンバーで色相がずれて見える）。 */
-  --color-group-road-on: #0d9488;
-  --color-group-environment-on: #b45309;
-  --color-group-spot-on: #db2777;
-  /* -onの背景に乗せる文字色。ダークモードは背景が明るい色になるので黒系へ切り替える。 */
-  --color-group-on-text: #ffffff;
-  /* グループの見出しチップを展開している間の薄い背景。文字と枠線は同じグループの濃い色を乗せる。 */
-  --color-group-road-bg: #ccfbf1;
-  --color-group-environment-bg: #fef3c7;
-  --color-group-spot-bg: #fce7f3;
 
   --shadow-float: 0 1px 4px rgba(0, 0, 0, 0.3);
 
@@ -84,8 +73,6 @@
 
   /* モバイルの下部タブバーの高さ。下部シートはこの高さぶん上に置き、タブバーの上に乗せる。 */
   --mobile-tabbar-height: 3.5rem;
-  /* 下部シートが占める高さ（page.tsxが地図ペインへ実値を与える。閉じている間は0）。 */
-  --mobile-sheet-height: 0px;
 
   /* 重なり順の共通スケール。**画面全体で重なり合う層はここにあるものだけ**——部品ごとに素の数値を
    * 持つと、新しい層がどれより上か下かを確かめる手立てが無くなる（Radix Portalでbody直下へ出る
@@ -147,14 +134,6 @@
     --color-group-road: #2dd4bf;
     --color-group-environment: #fbbf24;
     --color-group-spot: #f472b6;
-    --color-group-road-bg: #0f2e2b;
-    --color-group-environment-bg: #3a2a0f;
-    --color-group-spot-bg: #3a1329;
-    /* ON状態の背景は明るく差し替えたOFF用の色へそろえ、その上の文字は黒系にする。 */
-    --color-group-road-on: var(--color-group-road);
-    --color-group-environment-on: var(--color-group-environment);
-    --color-group-spot-on: var(--color-group-spot);
-    --color-group-on-text: #171717;
   }
 }
 
@@ -259,8 +238,9 @@
 
 .app-sidebar {
   /* デスクトップ専用（スマホ幅は下部タブバー＋下部シート）。ルート結果が「左に候補一覧・右に
-     その中身」の2列になるので、狭くすると右の中身が1語ずつ折り返す。 */
-  width: 380px;
+     その中身」の2列になるので、狭くすると右の中身が1語ずつ折り返す。「ルート設定」の見出しの行（題・タブ・
+     操作）も1行に収まる幅が要り、狭くすると題が折れて操作が縁を越える。 */
+  width: 400px;
   flex-shrink: 0;
   overflow-y: auto;
   border-right: 1px solid var(--color-border);
@@ -366,10 +346,26 @@
   }
 }
 
-/* 右上のMapLibre純正コントロール（ズーム+/−・回転）を、その下に積むアプリのボタンと同じ幅に
-   そろえて1本の列にする（高さはMapLibreのまま）。 */
+/* 右上のMapLibre純正コントロール（ズーム+/−・回転）を、その下に積むアプリのボタン（`Button`の`mapCtrl`）と同じ幅・
+   同じ面の色にそろえて1本の列にする（高さはMapLibreのまま）。MapLibreは白の面と#333の絵（背景のSVG）を固定で持ち、
+   テーマに従わない。 */
+.app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+  background: var(--color-surface);
+}
+
 .app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group button {
   width: var(--map-ctrl-column-width);
+}
+
+.app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group button + button {
+  border-top-color: var(--color-border);
+}
+
+/* 暗い面の上では、#333の絵を明るさだけ反転する（色相を戻すので、回転の北の赤は赤のまま）。 */
+@media (prefers-color-scheme: dark) {
+  .app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-icon {
+    filter: invert(1) hue-rotate(180deg);
+  }
 }
 
 /* MapView.tsxがattributionControlを常時コンパクト（ⓘアイコン）固定にしているため、
@@ -382,12 +378,6 @@
   background-color: var(--color-surface);
   color: var(--foreground);
   box-shadow: var(--shadow-float);
-}
-
-/* 展開した出典は地図の下端の操作（元に戻すボタンの列・現在地ボタン）と重なる。出典は読めることが利用条件なので、
-   展開している間だけ操作系より前に出す（ⓘで畳めば操作系が戻る）。 */
-.app-map-pane .maplibregl-ctrl-bottom-right:has(.maplibregl-compact-show) {
-  z-index: var(--z-map-popup);
 }
 
 .app-map-pane .maplibregl-ctrl-attrib a {

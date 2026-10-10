@@ -1,6 +1,6 @@
 """テストが`app.domain`の関数・クラスを差し替えていないことの検査。
 
-自分のdomainの関数・クラスは差し替えずに本物を通す（docs/conventions/testing.md「確かめる高さ」）。
+自分のdomainの関数・クラスは差し替えずに本物を通す（.claude/rules/testing.md「確かめる高さ」）。
 差し替えると、テストは実装の途中の手順を写したものになり、作り替えを越えられない。
 差し替えてよい宣言のデータ（`TUNING_VALUES`・`MATERIAL_CATALOG`等）は関数・クラスではないので、ここでは落ちない。
 
@@ -22,22 +22,10 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-from tests.structure.source_symbols import Scope, SourceTree, Symbol
+from tests.structure.source_symbols import Scope, SourceTree, Symbol, replacement_calls
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 DOMAIN = "app.domain"
-
-
-def _replacement_calls(tree: ast.Module) -> Iterator[tuple[ast.Call, ast.AST]]:
-    """差し替えの呼び出しと、それを含む最上位の定義（関数・クラス。無ければモジュール）。"""
-    for top in tree.body:
-        for node in ast.walk(top):
-            if not isinstance(node, ast.Call) or not node.args:
-                continue
-            func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
-            if name in ("setattr", "patch", "object"):
-                yield node, top
 
 
 def _string_literals(node: ast.AST) -> set[str]:
@@ -80,7 +68,7 @@ def domain_replacements(root: Path) -> list[str]:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         scope = Scope(source, source.module_of(path), tree)
-        for call, enclosing in _replacement_calls(tree):
+        for call, enclosing in replacement_calls(tree):
             for text, target in _replaced(scope, call, enclosing):
                 if target.kind in ("function", "class") and (
                     target.module == DOMAIN or target.module.startswith(f"{DOMAIN}.")
@@ -94,7 +82,7 @@ def test_tests_do_not_replace_domain_functions_or_classes() -> None:
 
     assert violations == [], (
         "`app.domain`の関数・クラスを差し替えているテストがある。本物を通し、入力（宣言のデータ・引数）で"
-        "条件を作ること（docs/conventions/testing.md「確かめる高さ」）:\n  " + "\n  ".join(violations)
+        "条件を作ること（.claude/rules/testing.md「確かめる高さ」）:\n  " + "\n  ".join(violations)
     )
 
 

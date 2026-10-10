@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
 import ErrorText from "@/features/route/ErrorText/ErrorText";
@@ -11,9 +11,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/T
 import { textVariants } from "@/components/ui/Text/Text";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { cn } from "@/lib/cn";
+import { formatDifficulty } from "@/lib/mapDisplay/valueScale";
 import { formatJstHourMinute } from "@/lib/time";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
-import AxisDetail from "@/features/route/RouteAxisProfile/AxisDetail";
+import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
@@ -56,7 +57,7 @@ interface RouteOutcomeProps {
     RouteGeneration,
     | "running"
     | "progressLabel"
-    | "lastMessage"
+    | "outcome"
     | "failure"
     | "conditionsDirty"
     | "weightsNotApplied"
@@ -73,6 +74,8 @@ interface RouteOutcomeProps {
  */
 export default function RouteOutcome({ results, generation, splice, routeWeights }: RouteOutcomeProps) {
   const axisCatalog = useAxisCatalog();
+  // 道のりのグラフが下から積む軸の並び。同じ参照を渡し、描き直しのたびにグラフの形を組み直させない。
+  const axisOrder = useMemo(() => axisCatalog.axes.map((axis) => axis.axisId), [axisCatalog.axes]);
   const { routes, selectedRouteId, selectedRouteSegment, reusedRouteId } = results;
   // 乗り換えで作った経路と同じ道だったので選んだ行。一覧の見える範囲の外にあっても、選んだことが見えるように出す。
   const reusedRowRef = useRef<HTMLButtonElement>(null);
@@ -80,14 +83,26 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (reusedRouteId !== null) reusedRowRef.current?.scrollIntoView({ block: "nearest" });
   }, [reusedRouteId]);
 
-  // 「ルート結果」に候補が無いときの中身（生成前・生成中・失敗）。候補0件で生成前の案内へ戻ると、押したのに何も
+  // 「ルート結果」に候補が無いときの中身（生成前・生成中・候補0件・失敗）。候補0件で生成前の案内へ戻ると、押したのに何も
   // 起きていないように見える。
   function renderRouteOutcomeEmptyState() {
+    const { outcome } = generation;
     if (generation.running) {
       return <p className={textVariants({ variant: "hint" })}>{generation.progressLabel ?? "生成中..."}</p>;
     }
-    if (generation.lastMessage) {
-      return <ErrorText>{generation.lastMessage}</ErrorText>;
+    if (outcome?.kind === "failed") {
+      return (
+        <ErrorText>
+          <GuideText text={outcome.message} />
+        </ErrorText>
+      );
+    }
+    if (outcome?.kind === "empty") {
+      return (
+        <p role="status" className={textVariants({ variant: "hint" })}>
+          {outcome.message}
+        </p>
+      );
     }
     return (
       <p className={textVariants({ variant: "hint" })}>
@@ -256,7 +271,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       {/* 算出できなかった候補は「—」（0と欠損を同じ見た目にしない）。 */}
                       <span className="text-right font-normal text-[var(--color-muted-strong)] tabular-nums">
                         <span className="sr-only">難易度</span>
-                        {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty.average)}
+                        {route.overall_difficulty === null ? "—" : formatDifficulty(route.overall_difficulty.average)}
                       </span>
                     </TabsTrigger>
                   </Fragment>
@@ -274,7 +289,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                   <DifficultyProfile
                     segments={route.segments}
                     overallDifficulty={route.overall_difficulty?.average ?? null}
-                    axisOrder={axisCatalog.axes.map((axis) => axis.axisId)}
+                    axisOrder={axisOrder}
                     axisColors={axisCatalog.axisColors}
                     scaleKm={longestDistanceKm}
                     selected={selectedRouteSegment}
@@ -311,14 +326,14 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
                       <span className="font-semibold">
                         {selectedRouteSegment.segment.difficulty === null
                           ? "—"
-                          : Math.round(selectedRouteSegment.segment.difficulty)}
+                          : formatDifficulty(selectedRouteSegment.segment.difficulty)}
                       </span>
                       <span className={textVariants({ variant: "hint" })}>/100</span>
                     </span>
                     {selectedRouteSegment.segment.difficulty !== null &&
                       !Object.keys(selectedRouteSegment.segment.axis_contributions).some((axisId) =>
                         hasContribution(selectedRouteSegment.segment.axis_contributions, axisId),
-                      ) && <p className={cn(textVariants({ variant: "hint" }), "m-0")}>どの評価も0（易しい）</p>}
+                      ) && <p className={cn(textVariants({ variant: "hint" }), "m-0")}>どの評価軸も0（易しい）</p>}
                     <AxisContributionBar
                       axes={axisCatalog.axes}
                       contributions={selectedRouteSegment.segment.axis_contributions}

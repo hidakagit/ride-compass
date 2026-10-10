@@ -1,28 +1,25 @@
-// 起こし直したテストを外から測る（docs/conventions/testing.md「既存テストを直さず、実装から起こし直す」の手順3）。
+// 起こし直したテストを外から測る（.claude/rules/testing-rewrite.md「既存テストを直さず、実装から起こし直す」の手順3）。
 //
-//   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--ref <git の版>] [--summary]
+//   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--summary]
 //
-// 出すもの: テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
+// 出すもの: 実装を変えていないか（①）・テストの本数（実行した数。it.each は展開した後）・テストの行数・行と分岐のカバレッジ・届いていない行と分岐・
 // テストごとの「そのテストだけが届く行」。パスは frontend からの相対で渡す。
 // テストを渡さなければ、母集団を集める: src の *.test.ts(x) のうち、import の指定子（相対・@/）をテストの位置から解決すると
-// 渡した実装のパスになるもの（間接に通すテストは入らないので、要れば並べて渡す）。--ref でも同じ規則でその版から集める。
-// --ref は「前」の値を測る（例: --ref origin/master）。母集団をその版から集め、その版のテストを元のテストの隣へ一時の名前で
-// 書き出して流し、終わったら消す。実装はその版と同じでなければならない（起こし直しは実装を変えない）。
-// --ref ではテストごとの「そのテストだけが届く行」を出さない（旧版のテスト名が出るため。起こし直しの手順1〜3では旧版を開かない）。
-// --summary も「そのテストだけが届く行」を出さない。それはテストを1本ずつ流して取るので、母集団の本数に比例して時間がかかる。
+// 渡した実装のパスになるもの（間接に通すテストは入らないので、要れば並べて渡す）。
+// --summary は「そのテストだけが届く行」を出さない。それはテストを1本ずつ流して取るので、母集団の本数に比例して時間がかかる。
 // 起こし直しの報告と完了の条件は全体の値と届いていない行・分岐で足り、テストごとの値は見落としを探す場面でだけ要るので、
-// 全体の値だけでよいときに付ける。--ref と一緒に付けてもよい。
+// 全体の値だけでよいときに付ける。
 // 1本だけ流すのは、vitest の -t が describe と題名を「 > 」でつないだ名前に当てるため、その形で絞る。
 // 絞って1本も流れなければ（どれも skipped）、0行とせずに落とす。
 // 実装が *.test.ts(x) のとき（src/structure のように検査の本体がテストファイルの中にあるもの）は、そのファイルが母集団の
 // 全部で、テストを渡さない（渡すならそのファイルだけ）。vitest はテストの include に当たるファイルを coverage.exclude へ
 // 必ず足し、設定では外せないので、同じ置き場へテストでない名前（.audit-copy）で写し、それを import するだけのテスト
 // （.audit-run.test。元の @vitest-environment を継ぐ）から流して写しを測り、終わったら消す。写しは元と同じ行なので、
-// 届いていない行は元のファイルの行番号で出る。--ref では、その版のファイルを写す（前の版のファイルそのものを測る）。
+// 届いていない行は元のファイルの行番号で出る。
 // この数え方では、テストの本体（it に渡した関数の中の文）も実装の行と分岐に入る。テストを消すと、その本体の行は
 // 届いていない行にならず分母から消える。
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,7 +36,7 @@ function fail(message) {
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { ref: { type: "string" }, summary: { type: "boolean" } },
+  options: { summary: { type: "boolean" } },
 });
 const [implementation, ...givenTests] = positionals.map((p) => p.replaceAll("\\", "/"));
 if (!implementation)
@@ -50,16 +47,12 @@ const implementationIsTest = testFile.test(implementation);
 if (implementationIsTest && givenTests.some((test) => test !== implementation))
   fail(`実装がテストファイルのときは、そのファイルだけを測る: ${implementation}`);
 
-function git(args) {
-  return execFileSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
-}
-
 /**
- * 版 ref（無ければ作業ツリー）で、実装そのものを import するテスト。指定子（相対・`@/` の別名）をテストの位置から
+ * 作業ツリーで、実装そのものを import するテスト。指定子（相対・`@/` の別名）をテストの位置から
  * 実装のパスへ解決して比べる（ファイル名だけで比べると、同じ名前の別の実装のテストが入る）。拡張子を省いた指定子と、
  * index を指すディレクトリの指定子も実装と同じとみなす。
  */
-function collectPopulation(ref) {
+function collectPopulation() {
   const stem = implementation.replace(/\.[^./]+$/, "");
   const targets = new Set([implementation, stem]);
   if (path.posix.basename(stem) === "index") targets.add(path.posix.dirname(stem));
@@ -67,10 +60,9 @@ function collectPopulation(ref) {
   // 作業ツリーでは、まだ追跡していない起こし直したテストも拾う。
   const args = [
     "grep",
-    ...(ref ? [] : ["--untracked"]),
+    "--untracked",
     "-E",
     `(from|import)[[:space:]]*\\(?[[:space:]]*["'][.@]`,
-    ...(ref ? [ref] : []),
     "--",
     ":(glob)src/**/*.test.ts",
     ":(glob)src/**/*.test.tsx",
@@ -78,12 +70,11 @@ function collectPopulation(ref) {
   const result = spawnSync("git", args, { cwd: frontendRoot, encoding: "utf-8", maxBuffer: 1 << 30 });
   if (result.status !== 0 && result.status !== 1) fail(`母集団を集められない: ${result.stderr}`);
   const population = new Set();
-  // git grep は「[<版>:]<frontend からのパス>:<行>」で返す。
+  // git grep は「<frontend からのパス>:<行>」で返す。
   for (const line of result.stdout.split("\n").filter(Boolean)) {
-    const rest = ref ? line.slice(ref.length + 1) : line;
-    const separator = rest.indexOf(":");
-    const test = rest.slice(0, separator);
-    for (const [, spec] of rest.slice(separator + 1).matchAll(specifier)) {
+    const separator = line.indexOf(":");
+    const test = line.slice(0, separator);
+    for (const [, spec] of line.slice(separator + 1).matchAll(specifier)) {
       const resolved = spec.startsWith("@/")
         ? path.posix.join("src", spec.slice(2))
         : spec.startsWith(".")
@@ -105,27 +96,9 @@ function writeTemporary(file, content) {
   temporaryFiles.push(file);
 }
 
-/** --ref の版のテストを元の隣へ書き出し、流すパスの並びを返す。 */
-function writeRefTests(ref, tests) {
-  try {
-    git(["diff", "--quiet", ref, "--", implementation]);
-  } catch {
-    fail(`実装が ${ref} と違う。前の値は実装を変える前に測る: ${implementation}`);
-  }
-  return tests.map((test) => {
-    const temporary = test.replace(testFile, ".audit-before.test.$1");
-    if (!existsSync(path.dirname(path.join(frontendRoot, test))))
-      fail(`${ref} のテストの置き場が作業ツリーに無い: ${test}`);
-    writeTemporary(temporary, git(["show", `${ref}:frontend/${test}`]));
-    return temporary;
-  });
-}
-
-/** 実装のテストファイル（--ref ならその版）をテストでない名前へ写し、写しと、写しを流すテストのパスを返す。 */
-function writeTestCopy(ref) {
-  const source = ref
-    ? git(["show", `${ref}:frontend/${implementation}`])
-    : readFileSync(path.join(frontendRoot, implementation), "utf-8");
+/** 実装のテストファイルをテストでない名前へ写し、写しと、写しを流すテストのパスを返す。 */
+function writeTestCopy() {
+  const source = readFileSync(path.join(frontendRoot, implementation), "utf-8");
   const copy = implementation.replace(testFile, ".audit-copy.$1");
   const runner = implementation.replace(testFile, ".audit-run.test.$1");
   const environment = source.match(/@vitest-environment\s+(\S+)/);
@@ -204,33 +177,31 @@ function ranges(numbers) {
 
 const percent = (covered, total) => (total === 0 ? "100%" : `${((covered / total) * 100).toFixed(2)}%`);
 
-const tests = implementationIsTest
-  ? [implementation]
-  : givenTests.length > 0
-    ? givenTests
-    : collectPopulation(values.ref);
+const tests = implementationIsTest ? [implementation] : givenTests.length > 0 ? givenTests : collectPopulation();
 if (tests.length === 0) fail(`母集団が空: ${implementation} を import するテストが無い`);
-const missing = values.ref
-  ? tests.filter(
-      (test) =>
-        spawnSync("git", ["cat-file", "-e", `${values.ref}:frontend/${test}`], { cwd: frontendRoot }).status !== 0,
-    )
-  : tests.filter((test) => !existsSync(path.join(frontendRoot, test)));
-if (missing.length > 0) fail(`テストが無い${values.ref ? `（${values.ref}）` : ""}: ${missing.join(" ")}`);
+const missing = tests.filter((test) => !existsSync(path.join(frontendRoot, test)));
+if (missing.length > 0) fail(`テストが無い: ${missing.join(" ")}`);
 // lineSources は行数を数えるファイル、files は流すファイル、measured はカバレッジを取るファイル。
 let lineSources, files, measured;
 if (implementationIsTest) {
-  const { copy, runner } = writeTestCopy(values.ref);
+  const { copy, runner } = writeTestCopy();
   [lineSources, files, measured] = [[copy], [runner], copy];
 } else {
-  files = values.ref ? writeRefTests(values.ref, tests) : tests;
-  [lineSources, measured] = [files, implementation];
+  [lineSources, files, measured] = [tests, tests, implementation];
 }
 
 console.log(`対象: ${implementation}`);
-console.log(
-  `版:   ${values.ref ? `${values.ref} の${implementationIsTest ? "ファイル" : "テスト（実装は同じ）"}` : "作業ツリー"}`,
-);
+// 実装の変更は origin/master との合流点から作業ツリーまでの差で見る（コミット済みの変更も含む）。
+const base = spawnSync("git", ["merge-base", "origin/master", "HEAD"], { cwd: frontendRoot, encoding: "utf-8" });
+if (base.status !== 0) {
+  console.log(`① 実装の変更: **測れない**（origin/master との合流点が取れない: ${base.stderr.trim()}）`);
+} else {
+  const diff = spawnSync("git", ["diff", "--stat", base.stdout.trim(), "--", implementation], {
+    cwd: frontendRoot,
+    encoding: "utf-8",
+  }).stdout.trim();
+  console.log(`① 実装の変更（origin/master との合流点から）: ${diff ? `**あり** → ${diff}` : "なし"}`);
+}
 console.log(
   `母集団（${implementationIsTest ? "実装のテストファイルそのもの" : givenTests.length > 0 ? "渡したもの" : "import の指定子で集めたもの"}）:`,
 );
@@ -266,7 +237,7 @@ console.log(
   `届いていない分岐: ${uncoveredBranches.map((b) => `行${b.line} ${b.type} の${b.index + 1}つ目`).join("、") || "なし"}`,
 );
 
-if (values.ref || values.summary) process.exit(0);
+if (values.summary) process.exit(0);
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const reachedBy = whole.executed.map((test) => {

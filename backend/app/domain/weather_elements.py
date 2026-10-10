@@ -44,6 +44,22 @@ class FrameRule(NamedTuple):
 _NEAREST = FrameRule("nearest")
 
 
+def reach_text(minutes: int) -> str:
+    """予測が届く先（分）を、地図の説明の文で言う語（「60分」「15時間」）。1時間を超えて時間で割り切れれば時間で言う。"""
+    return f"{minutes // 60}時間" if minutes > 60 and minutes % 60 == 0 else f"{minutes}分"
+
+
+def forecast_reach(*element_ids: str) -> str:
+    """配信要素の予測が届く先を言う語（`reach_text`）。配信の宣言の値から作る。並べた要素の届く先がそろわなければ
+    落とす（1つの語で言えない）。"""
+    minutes = {JMA_ELEMENTS[element_id].forecast_minutes for element_id in element_ids}
+    if len(minutes) != 1 or None in minutes:
+        raise ValueError(f"予測が届く先がそろっていない: {element_ids} {minutes}")
+    (value,) = minutes
+    assert value is not None
+    return reach_text(value)
+
+
 class WeatherElement(NamedTuple):
     """動的気象で地図に描くもの1つ。**ここへ1件足すと要素が1つ増える**（画面は描き方だけを持つ）。"""
 
@@ -90,7 +106,7 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "線状降水帯予測",
         FrameRule("current", 3 * 60),
     ),
-    # 今まさに追跡中の線状降水帯の雨域（実況と30分先まで）。公式の既定の表示と同じく2つを同じ見た目で重ねる。
+    # 今まさに追跡中の線状降水帯の雨域（実況と予測）。公式の既定の表示と同じく2つを同じ見た目で重ねる。
     WeatherElement(
         "precipitationNowcast", "linearRainbandArea", "outline", ("slmcs_unify",), "線状降水帯の雨域", _NEAREST
     ),
@@ -142,7 +158,7 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "雷ナウキャスト",
         _NEAREST,
         level_scale="thunder_activity",
-        description="雷の激しさと雷が起こる可能性を、活動度の段階で示す気象庁の実況と1時間先までの予測。",
+        description=f"雷の激しさと雷が起こる可能性を、活動度の段階で示す気象庁の実況と{forecast_reach('thns')}先までの予測。",
     ),
     WeatherElement(
         "disaster",
@@ -152,7 +168,7 @@ WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
         "竜巻発生確度",
         _NEAREST,
         level_scale="tornado_potential",
-        description="竜巻などの激しい突風が起こりやすい所を、確度の段階で示す気象庁の実況と1時間先までの予測。",
+        description=f"竜巻などの激しい突風が起こりやすい所を、確度の段階で示す気象庁の実況と{forecast_reach('trns')}先までの予測。",
     ),
     WeatherElement(
         "disaster",

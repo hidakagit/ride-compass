@@ -9,3 +9,8 @@ from app.batch.source_adapters import gsi_dem_tile  # noqa: F401
 from app.batch.source_adapters import io_lulc_tile  # noqa: F401
 from app.batch.source_adapters import osm_pbf  # noqa: F401
 from app.batch.source_adapters import npa_honhyo  # noqa: F401
+from app.batch.source_adapters import overture_places  # noqa: F401
+from app.batch.source_adapters import bunka_heritages  # noqa: F401
+from app.batch.source_adapters import abr  # noqa: F401
+from app.batch.source_adapters import estat_small_area  # noqa: F401
+from app.batch.source_adapters import isj_block  # noqa: F401

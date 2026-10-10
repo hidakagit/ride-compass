@@ -34,7 +34,7 @@ export function useLocation(): UseLocationResult {
 
   const latestRequestId = useRef(0);
 
-  // 追い越された要求の結果は捨てるので、決着は自動取得か取り直しかによらず、最後の要求で立てる。
+  // 決着（locationReady）は、自動取得か取り直しかによらず、最後の要求で立てる。
   const requestPosition = useCallback((onSettled: (ok: boolean) => void) => {
     const requestId = ++latestRequestId.current;
     navigator.geolocation.getCurrentPosition(
@@ -94,7 +94,7 @@ export function useLocation(): UseLocationResult {
             id: "location",
             label: "現在地",
             effect:
-              "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、「ルート設定」の出発地の「地図で選ぶ」を押して地図をタップしてください。",
+              "現在地が分からないため、天候・警報を出していません。位置情報を許可するか、「ルート設定」の「出発地を地図で選ぶ」を押して地図をタップしてください。",
             onRetry: handleLocateMe,
           }
         : null,

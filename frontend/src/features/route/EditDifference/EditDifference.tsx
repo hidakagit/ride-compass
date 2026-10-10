@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useMemo } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
 import { cardVariants } from "@/components/ui/Card/Card";
+import { ShowOriginIcon } from "@/components/ui/icons/icons";
 import { textVariants } from "@/components/ui/Text/Text";
-import { editDifference, formatDelta, roundToDigits } from "@/features/route/routeEditDiff";
+import { DELTA_TONE_CLASS, deltaTone, editDifference, formatDelta } from "@/features/route/routeEditDiff";
 import { cn } from "@/lib/cn";
 import type { RouteCandidate } from "@/types/route";
 
@@ -23,7 +24,8 @@ interface EditDifferenceProps {
  * 変えた区間（元の何km〜何km）ごとの長さの差。差の色は編集面（`RouteSplicePanel`）と同じく、減ったら楽になった側の色。
  */
 export default function EditDifference({ originName, origin, edited, onShowOrigin }: EditDifferenceProps) {
-  const difference = editDifference(origin, edited);
+  // 2本の累積距離（数千点）とEdge id列の差を求めるので、ルートが変わったときだけ作り直す（グラフをなぞる間も描き直される）。
+  const difference = useMemo(() => editDifference(origin, edited), [origin, edited]);
 
   return (
     <section
@@ -32,8 +34,8 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
     >
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")}>元との違い</h3>
-        <Button size="xs" onClick={onShowOrigin} usage="元にしたルートへ切り替えます。">
-          元を見る
+        <Button size="panelIcon" aria-label="元を見る" onClick={onShowOrigin} usage="元にしたルートへ切り替えます。">
+          <ShowOriginIcon />
         </Button>
       </div>
       <p className={cn(textVariants({ variant: "hint" }), "m-0")}>
@@ -44,21 +46,14 @@ export default function EditDifference({ originName, origin, edited, onShowOrigi
         <span className="whitespace-nowrap">から{difference.stretches.length}区間</span>
       </p>
       <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5">
-        {difference.metrics.map((metric) => {
-          const shown = metric.delta === null ? null : roundToDigits(metric.delta, metric.digits);
-          return (
-            <Fragment key={metric.label}>
-              <dt className={textVariants({ variant: "note" })}>{metric.label}</dt>
-              <dd
-                className="m-0 text-right font-bold tabular-nums data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]"
-                data-worse={shown !== null && shown > 0}
-                data-better={shown !== null && shown < 0}
-              >
-                {metric.delta === null ? "—" : `${formatDelta(metric.delta, metric.digits)}${metric.unit}`}
-              </dd>
-            </Fragment>
-          );
-        })}
+        {difference.metrics.map((metric) => (
+          <Fragment key={metric.label}>
+            <dt className={textVariants({ variant: "note" })}>{metric.label}</dt>
+            <dd className={cn("m-0 text-right font-bold tabular-nums", DELTA_TONE_CLASS)} {...deltaTone(metric)}>
+              {metric.delta === null ? "—" : `${formatDelta(metric.delta, metric.digits)}${metric.unit}`}
+            </dd>
+          </Fragment>
+        ))}
       </dl>
       {difference.stretches.length > 0 && (
         <ul className={cn(textVariants({ variant: "hint" }), "m-0 flex list-none flex-col gap-0.5 p-0")}>

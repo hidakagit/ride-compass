@@ -44,10 +44,6 @@ export default function Disclosure({
   usage,
 }: DisclosureProps) {
   const handleValueChange = onOpenChange ? (value: string) => onOpenChange(value === ITEM_VALUE) : undefined;
-  const controlledProps =
-    open !== undefined
-      ? { value: open ? ITEM_VALUE : "", onValueChange: handleValueChange }
-      : { onValueChange: handleValueChange };
 
   const trigger = (
     <Accordion.Header className={cn("m-0 [font:inherit]", !trailing && headerClassName)}>
@@ -61,7 +57,14 @@ export default function Disclosure({
   );
 
   return (
-    <Accordion.Root id={id} type="single" collapsible className={className} {...controlledProps}>
+    <Accordion.Root
+      id={id}
+      type="single"
+      collapsible
+      className={className}
+      value={open === undefined ? undefined : open ? ITEM_VALUE : ""}
+      onValueChange={handleValueChange}
+    >
       <Accordion.Item value={ITEM_VALUE} className="contents">
         {/* trailingがあるときだけ、見出しの行を包むdivを足してそこへheaderClassNameを渡す（見出しの文言に
             trailingの文言を混ぜない）。 */}

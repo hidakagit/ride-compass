@@ -1,0 +1,101 @@
+"""ノードの種別（`node_kinds`）と、グラフの頂点の信号の有無・集まる道の最大階級（`node_turns`）を作る。
+
+**種別（`kind`）は取込ではなく、ここで付ける。**取込は外部が持っていたタグをそのまま
+入れるだけで、「これはPOIか」「どの種別か」という判断は派生の側の仕事である。判断が
+変わったら、生データを取り直さずに作り直せばよい（段のコードは段の入力なので、この段から後ろが流れる）。
+
+**処理はDB内で完結する。**タグを読むためだけに行を取り出さない。タグから種別への
+引き当ては`domain/traffic.py`が表と式で持ち、このバッチはそれをSQLへ渡すだけである。
+
+頂点と枝数（`road_nodes`）は`derive_topology.py`が先に作る。
+"""
+
+import logging
+import time
+
+import asyncpg
+
+from app.domain.geo import degrees_covering_m
+from app.infrastructure.source_models import NODES_SOURCE_SQL, WAYS_SOURCE_SQL
+from app.domain.traffic import (
+    HIGHWAY_RANK,
+    TRAFFIC_SIGNAL_SQL,
+    tag_kind_sql,
+)
+
+logger = logging.getLogger("ridecompass.derive_nodes")
+
+
+def _source_nodes(extra_columns: str = "") -> str:
+    """タグから種別・信号を判定する側が期待する形（`id`・`tags`）へ生データを写す。
+    タグの無いノード（形状の頂点）はどの規則にも当たらないので、先に落とす。"""
+    return (f"SELECT n.osm_node_id AS id, n.tags{extra_columns}"
+            f" FROM {NODES_SOURCE_SQL} n WHERE n.tags <> '{{}}'::jsonb")
+
+
+#: 種別は、信号の読み替えが読む近くの信号の有無と一緒に書く。
+_INSERT_KINDS = f"""
+INSERT INTO node_kinds (osm_node_id, kind, has_traffic_signals)
+SELECT k.id, k.kind, EXISTS (SELECT 1 FROM _near_signal s WHERE s.osm_node_id = k.id)
+FROM ({tag_kind_sql(_source_nodes())}) k
+"""
+
+_SIGNAL_NODES = f"""
+CREATE TEMP TABLE _signal_nodes ON COMMIT DROP AS
+SELECT s.id AS osm_node_id, s.geom FROM ({_source_nodes(", geom")}) s WHERE {TRAFFIC_SIGNAL_SQL}
+"""
+
+#: 信号の近くのノード。種別の付いた点と頂点の両方が読むので、1回だけ探す。
+#: 信号の側から近くのノードを探す——索引を引く回数が、全ノード数ではなく信号の数で決まる。
+#: 半径で探すのは、交差点そのものではなく流入路ごとに信号ノードが置かれ、`osm_node_id`の
+#: 一致では大半を取りこぼすため。
+#: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
+#: 使えなくするため。矩形で絞ってから正確な距離を測る。
+_NEAR_SIGNAL = f"""
+CREATE TEMP TABLE _near_signal ON COMMIT DROP AS
+SELECT DISTINCT near.osm_node_id
+FROM _signal_nodes sk
+JOIN {NODES_SOURCE_SQL} near
+  ON near.geom && ST_Expand(sk.geom, $2)
+ AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
+"""
+
+#: 頂点ごとに、信号の有無と、そこに集まる道の最大階級。階級の表に無い道しか集まらない頂点は0。
+_INSERT_TURNS_TEMPLATE = f"""
+WITH ranked AS (
+    SELECT e.from_node_id AS node_id, r.rank FROM road_edges e
+    JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
+    JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
+    UNION ALL
+    SELECT e.to_node_id, r.rank FROM road_edges e
+    JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
+    JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
+),
+best AS (SELECT node_id, max(rank) AS max_rank FROM ranked GROUP BY node_id)
+INSERT INTO node_turns (osm_node_id, has_traffic_signals, max_highway_rank)
+SELECT n.osm_node_id, EXISTS (SELECT 1 FROM _near_signal s WHERE s.osm_node_id = n.osm_node_id),
+       COALESCE(best.max_rank, 0)
+FROM road_nodes n LEFT JOIN best ON best.node_id = n.osm_node_id
+"""
+
+
+async def derive(conn: asyncpg.Connection, signal_radius_m: float) -> int:
+    """`signal_radius_m`は較正値`signal.match_radius_m`（交差点から何m以内の信号をその交差点のものとみなすか）。"""
+    started = time.perf_counter()
+
+    values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
+    async with conn.transaction():
+        await conn.execute("TRUNCATE node_kinds, node_turns")
+        await conn.execute(_SIGNAL_NODES)
+        signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
+        await conn.execute("ANALYZE _signal_nodes")
+        await conn.execute(_NEAR_SIGNAL, signal_radius_m, degrees_covering_m(signal_radius_m))
+        await conn.execute("ANALYZE _near_signal")
+        classified = int((await conn.execute(_INSERT_KINDS)).split()[-1])
+        await conn.execute(_INSERT_TURNS_TEMPLATE.format(values=values))
+        # 後ろの段（数）が読む。統計が無いまま読まれると実行計画が桁で外れる。
+        await conn.execute("ANALYZE node_kinds, node_turns")
+
+    logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点（半径 %.1fm） / %.1f秒",
+                classified, signals, signal_radius_m, time.perf_counter() - started)
+    return classified

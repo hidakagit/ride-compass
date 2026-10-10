@@ -2,7 +2,7 @@
  * `components/BottomSheet/BottomSheet.tsx`——スマホの下からせり上がるシートと、高さを範囲へ寄せる`clampSheetHeightVh`。
  *
  * 見るもの: 開いている間だけ見出しを名前に持つダイアログとして出すこと、閉じ方
- * （✕・Esc・下スワイプ）と閉じない操作（シートの外を押す・閉じないスワイプ）、高さを変える帯（いまの高さの表示・ドラッグ・矢印キー）で
+ * （✕・Esc・下スワイプ）と閉じない操作（シートの外を押す・閉じないスワイプ・シートの中から開いた窓の上のEsc）、高さを変える帯（いまの高さの表示・ドラッグ・矢印キー）で
  * 上がる高さ、開いたときに中身へ高さを合わせること（合わせ直す時機・合わせない指定・実寸が取れないとき）。
  *
  * ここで見ないもの: 高さを覚えて次に開いたときに使うこと → `app/page.tsx`（このシートは高さを受け取り、変えたい高さを
@@ -17,6 +17,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
 import BottomSheet, { clampSheetHeightVh } from "./BottomSheet";
 
 type Props = React.ComponentProps<typeof BottomSheet>;
@@ -124,6 +125,33 @@ describe("BottomSheet", () => {
       await userEvent.keyboard("{Escape}");
 
       expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("シートの中から開いた窓の上で押したEscは窓だけを閉じ、シートの閉じる操作は上がらない", async () => {
+      const onCancel = vi.fn();
+      const onClose = vi.fn();
+      render(
+        <BottomSheet
+          open
+          title="ルート結果"
+          titleId="sheet-title"
+          headerAction={null}
+          heightVh={50}
+          autoFitHeight={false}
+          onClose={onClose}
+          onHeightChange={vi.fn()}
+          onHeightCommit={vi.fn()}
+        >
+          <ConfirmDialog open title="候補をすべて消します" confirmLabel="消す" onConfirm={vi.fn()} onCancel={onCancel}>
+            消した候補は元に戻せません。
+          </ConfirmDialog>
+        </BottomSheet>,
+      );
+
+      await userEvent.keyboard("{Escape}");
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalled();
     });
 
     it("閉じたあとはEscで閉じる操作が上がらない", async () => {

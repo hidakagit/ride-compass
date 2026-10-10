@@ -28,16 +28,14 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     PriorityCondition,
 )
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
 from tests.axis_system_fixture import replaced_axis_definitions
 
 NAN = float("nan")
+ATTR_X, ATTR_Y = PRIMARY_ATTRIBUTES[:2]
 DYNAMIC = next(iter(axis_definitions.REQUEST_DYNAMIC_MATERIAL_IDS))
 
 pytestmark = pytest.mark.usefixtures("catalog")
-
-
-def attribute(attr_id: str) -> material_catalog.PrimaryAttributeSpec:
-    return material_catalog.PrimaryAttributeSpec(attr_id=attr_id, label=attr_id, geometry="line")
 
 
 def material(material_id: str, dtype="numeric", primary_attribute=None) -> material_catalog.MaterialSpec:
@@ -54,11 +52,10 @@ def material(material_id: str, dtype="numeric", primary_attribute=None) -> mater
 
 @pytest.fixture
 def catalog(monkeypatch):
-    attr_x, attr_y = attribute("attr_x"), attribute("attr_y")
     specs = {
-        "num_a": material("num_a", primary_attribute=attr_x),
-        "num_b": material("num_b", primary_attribute=attr_y),
-        "num_c": material("num_c", primary_attribute=attr_x),
+        "num_a": material("num_a", primary_attribute=ATTR_X),
+        "num_b": material("num_b", primary_attribute=ATTR_Y),
+        "num_c": material("num_c", primary_attribute=ATTR_X),
         "num_plain": material("num_plain"),
         "cat": material("cat", dtype="categorical"),
         DYNAMIC: material(DYNAMIC),
@@ -193,7 +190,7 @@ class TestPrimaryAttributes:
         definitions = axes(axis("outer", "num_b", "inner", "num_c"), axis("inner", "num_a", "num_plain", "unknown"))
 
         with replaced_axis_definitions(definitions):
-            assert axis_definitions.primary_attribute_ids_for(definitions["outer"]) == ["attr_y", "attr_x"]
+            assert axis_definitions.primary_attribute_ids_for(definitions["outer"]) == [ATTR_Y.attr_id, ATTR_X.attr_id]
 
 
 class TestWeights:

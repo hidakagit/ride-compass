@@ -1,6 +1,6 @@
 """`domain/weather_elements.py`——動的気象の要素の、タイルの仕様・配信の段・段をつないだ時系列の最初のコマ。
 
-入口は`weather_element_tile`・`weather_element_deliveries`・`stage_first_frames`。前半は要素を架空のもので作り、
+入口は`weather_element_tile`・`weather_element_deliveries`・`stage_first_frames`・`forecast_reach`。前半は要素を架空のもので作り、
 配信要素の宣言`JMA_ELEMENTS`（本番の正本を持つ宣言のデータ）へは架空の配信要素を足して与える。
 後半は差し替えず、本番の宣言`WEATHER_ELEMENTS`の全要素が画面で1つの意味に読めることを見る（型では守れない、
 要素どうしの組の不変条件）。
@@ -18,6 +18,7 @@ from app.domain.weather_elements import (
     FrameRule,
     WeatherDelivery,
     WeatherElement,
+    forecast_reach,
     stage_first_frames,
     weather_element_deliveries,
     weather_element_tile,
@@ -29,6 +30,9 @@ DECLARED = {
     "t_even12": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 12)),
     "t_vector": JmaElement("risk", ("targetTimes.json",), "latest", JmaTileSpec("even", 10, vector_layer="lines")),
     "t_points": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", data_delay_minutes=10),
+    "t_reach45": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", forecast_minutes=45),
+    "t_reach45b": JmaElement("nowc", ("targetTimes_N3.json",), "nowcast", forecast_minutes=45),
+    "t_reach120": JmaElement("rasrf", ("targetTimes.json",), "latestFullRun", forecast_minutes=120),
 }
 
 
@@ -166,3 +170,16 @@ def test_配信元から取る気象の要素はチップと名前付きソー�
     """画面のデータ層は（チップ, 名前付きソース）から配信要素idを引く。2件あるとどちらを取るか決まらない。"""
     keys = [(element.group, element.source) for element in WEATHER_ELEMENTS if element.jma_elements]
     assert len(keys) == len(set(keys))
+
+
+@pytest.mark.parametrize(("element_ids", "words"), [(("t_reach45", "t_reach45b"), "45分"), (("t_reach120",), "2時間")])
+def test_the_reach_of_the_forecast_is_told_from_the_declared_minutes(_declared, element_ids, words):
+    """地図の説明・凡例の「実況〜N分先」は配信の宣言の値から作る。宣言を変えて文が追従しないと、届かない先まで出ると書く。"""
+    assert forecast_reach(*element_ids) == words
+
+
+@pytest.mark.parametrize("element_ids", [("t_reach45", "t_reach120"), ("t_reach45", "t_points")], ids=["届く先が違う", "予測の無い要素"])
+def test_the_reach_is_refused_for_elements_that_do_not_reach_alike(_declared, element_ids):
+    """1つの語で言えない並びに、どちらかの届く先を書かない。"""
+    with pytest.raises(ValueError, match="そろっていない"):
+        forecast_reach(*element_ids)

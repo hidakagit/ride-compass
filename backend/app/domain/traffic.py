@@ -99,15 +99,15 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
 )
 
 # 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（_SupplyPoiKind）も同じ
-# `node_materials.kind`に入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
-# 自販機を誤算入する。停止要因を数える・まとめるSQLは必ずこの集合でフィルタする。
+# `node_kinds.kind`に入っているため、kindを絞らないCOUNTは停止密度へ自販機・
+# トイレを誤算入する。停止要因を数える・まとめるSQLは必ずこの集合でフィルタする。
 #
 # **型の宣言から導く。** 集合を別に並べると、型に無いkindを集合へ入れられてしまい、
 # その分だけ停止密度が静かに増える（引き当ての表と突き合わせる検査が要らなくなる）。
 STOP_POI_KINDS: frozenset[str] = frozenset(get_args(StopPoiKind))
 
 
-# 停止要因の集計キー（`edge_materials`・`way_materials`の件数列`poi_<キー>`）と、
+# 停止要因の集計キー（`edge_counts`・`way_counts`の件数列`poi_<キー>`）と、
 # その日本語ラベル。**キーの単一ソース**で、材料
 # （`domain/material_catalog.py`の`poi_*_per_km`）はこの一覧から生成する。
 #
@@ -164,6 +164,11 @@ if _UNDECLARED_STOP_KINDS:
         f"停止要因の較正値が`domain/tuning.py`に宣言されていない種別: {_UNDECLARED_STOP_KINDS}")
 
 
+def stop_seconds_subjects() -> dict[str, tuple[str, ...]]:
+    """停止の待ちの較正値のid → 数える種別の名前。管理画面が較正値の名前へ添える。"""
+    return {stop_seconds_parameter_id(kind): (label,) for kind, label in POI_COUNT_KINDS.items()}
+
+
 # 停止要因1回あたりの時間損失（秒）は**待ちの期待値＋減速と再加速のロス**の合計で、
 # 所要時間へそのまま足す量。信号の無い横断歩道が0なのは、自転車が止まらず通過できるため。
 def stop_seconds(kind: str) -> float:
@@ -175,7 +180,7 @@ def stop_seconds(kind: str) -> float:
 
 
 def poi_count_column(kind: str) -> str:
-    """停止要因の種別`kind`の件数を持つ列（`edge_materials`・`way_materials`）の名前。"""
+    """停止要因の種別`kind`の件数を持つ列（`edge_counts`・`way_counts`）の名前。"""
     return f"poi_{kind}"
 
 
@@ -213,11 +218,11 @@ def place_count_sql(inside_ends: str) -> str:
     return f"CASE {inside_ends} WHEN 0 THEN 1.0 WHEN 1 THEN {PLACE_SHARE_PER_END} ELSE 0 END"
 
 
-_SupplyPoiKind = Literal[
-    "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
-]
+# コンビニは OpenStreetMap からは取らない——補給の点のコンビニは Overture の地点（`domain/stop_place.py`の群
+# 「コンビニ」）から出し、1つの種類を2つの出どころから出さない。
+_SupplyPoiKind = Literal["vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"]
 
-#: `node_materials.kind`の語彙。`tag_kind_sql`が付けうる種別で、表の検査制約もここから作る。
+#: `node_kinds.kind`の語彙。`tag_kind_sql`が付けうる種別で、表の検査制約もここから作る。
 NODE_KINDS: frozenset[str] = STOP_POI_KINDS | frozenset(get_args(_SupplyPoiKind))
 
 _AMENITY_SUPPLY_KINDS: dict[str, _SupplyPoiKind] = {
@@ -286,7 +291,6 @@ _TAG_KIND_GROUPS: tuple[tuple[str, dict[str, str]], ...] = (
     ("highway", dict(_HIGHWAY_STOP_KINDS)),
     ("barrier", {value: "barrier" for value in sorted(_BARRIER_STOP_VALUES)}),
     ("traffic_calming", {v: "traffic_calming" for v in sorted(_TRAFFIC_CALMING_VALUES)}),
-    ("shop", {"convenience": "convenience"}),
     ("amenity", dict(_AMENITY_SUPPLY_KINDS)),
 )
 
@@ -349,7 +353,7 @@ DIRECTION_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
 #: どの規則にも当たらない道は両方向。
 DIRECTION_DEFAULT = "both"
 
-#: `way_materials.direction`の語彙。表の検査制約もここから作る。
+#: `way_directions.direction`の語彙。表の検査制約もここから作る。
 DIRECTIONS: frozenset[str] = frozenset(
     direction for _key, _value, direction, _priority in DIRECTION_RULES) | {DIRECTION_DEFAULT}
 
@@ -377,7 +381,7 @@ _Kind = TypeVar("_Kind", bound=str)
 
 
 def stop_kind_sql(alias: str) -> str:
-    """`node_materials`の別名`alias`の行の種別を、信号の読み替えを済ませて返すSQL式。
+    """`node_kinds`の別名`alias`の行の種別を、信号の読み替えを済ませて返すSQL式。
 
     地図へ出す種別も数える種別もこの式から導く——別々に書くと、見えている点の数と
     評価の停止回数が合わなくなる。
@@ -385,6 +389,11 @@ def stop_kind_sql(alias: str) -> str:
     read = ", ".join(_quote(kind) for kind in _SIGNAL_READ_KINDS)
     return (f"(CASE WHEN {alias}.has_traffic_signals AND {alias}.kind IN ({read})"
             f" THEN {_quote(_SIGNAL_KIND)} ELSE {alias}.kind END)")
+
+
+def kinds_shown_as(kind: str) -> tuple[str, ...]:
+    """地図へ`kind`として出る取込時の種別（`stop_kind_sql`の信号の読み替えで`kind`になるものを含む）。"""
+    return _SIGNAL_READ_KINDS if kind == _SIGNAL_KIND else (kind,)
 
 
 def kind_map_sql(kind_sql: str, mapping: Mapping[_Kind, str], *, otherwise: str = "NULL") -> str:
@@ -395,7 +404,7 @@ def kind_map_sql(kind_sql: str, mapping: Mapping[_Kind, str], *, otherwise: str 
 
 
 def count_kind_sql(alias: str) -> str:
-    """`node_materials`の別名`alias`の行を、数える種別（`POI_COUNT_KINDS`のキー）へ畳むSQL式。
+    """`node_kinds`の別名`alias`の行を、数える種別（`POI_COUNT_KINDS`のキー）へ畳むSQL式。
 
     停止要因でない行（補給休憩・ただの交差点）はNULL。
     """

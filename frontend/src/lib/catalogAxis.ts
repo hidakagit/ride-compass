@@ -5,11 +5,11 @@ import type { MapValueKind } from "@/lib/mapDisplay/valueScale";
 import type { AxisCatalogEntry } from "@/types/route";
 
 /** 生値の単位が定まらない軸の内訳1件（材料と、軸の生値に占める割合。正規化重みの降順）。 */
-interface AxisMaterialBreakdown {
+export interface AxisMaterialBreakdown {
   materialId: string;
   label: string;
-  /** `numeric`＝距離加重平均＋単位、`boolean`＝該当区間の延長割合。 */
-  dtype: string;
+  /** `numeric`＝距離加重平均＋単位、`boolean`＝該当区間の延長割合、`categorical`＝値ごとの延長割合。 */
+  dtype: AxisCatalogEntry["material_breakdown"][number]["dtype"];
   /** numeric材料の単位。真偽値材料は空文字。 */
   unit: string;
   share: number;
@@ -60,8 +60,8 @@ export function catalogAxisFromEntry(axis: AxisCatalogEntry): CatalogAxis {
     iconId: axis.icon_id ?? undefined,
     mapValueKind: axis.map_paint.value.kind,
     mapValueUnit: axis.map_paint.unit,
-    rawValueUnit: axis.raw_value_unit,
-    rawValueTotalUnit: axis.raw_value_total_unit,
+    rawValueUnit: axis.raw_value_units.unit,
+    rawValueTotalUnit: axis.raw_value_units.total_unit,
     materialBreakdown: axis.material_breakdown.map((entry) => ({
       materialId: entry.material_id,
       label: entry.label,

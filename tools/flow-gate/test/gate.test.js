@@ -1,13 +1,14 @@
-// 約束 1〜11（ゲート・回答フォーム・問いの形）を、ゲートの入口（gate.js: handleEvent）と回答フォームの入口（form.js: answerForm）で
+// 約束 1〜12（ゲート・回答フォーム・問いの形）を、ゲートの入口（gate.js: handleEvent）と回答フォームの入口（form.js: answerForm）で
 // 確かめる。設定は架空のもの（fake-github.js: config）を渡し、差し替えるのは GitHub（網）だけ。確かめるのは約束の結果（ステータス・
 // 担当者・開き閉じ・本文・書いたかどうか）。
 // ここで見ないもの: 文言・画面の並びと見た目（合意したモックと実物で見比べる）・出来事の署名（GitHub が受け手に求める標準の手順で、
 // 約束ではない）・道具（bin）の起動（静的な誤りは CI の静的な検査が持つ）。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { before, test } from "node:test";
 import { answerForm } from "../src/form.js";
-import { Gate, handleEvent } from "../src/gate.js";
-import { parseQuestion } from "../src/rules.js";
+import { handleEvent } from "../src/gate.js";
+import { checkQuestion, parseQuestion } from "../src/rules.js";
 import { config, fakeGitHub } from "./fake-github.js";
 
 const env = { APP_ID: "1", FORM_TOKEN: "form-token" };
@@ -53,27 +54,28 @@ test("3 担当者はステータスの番で、手で変えても戻る", async 
   }
 });
 
-test("4 入口: ユーザーの起票と段階は未着手、Claude の起票は回答待ちで採否の問いをコメントに置く。段階でないものの優先度は書かず、段階は親の値", async () => {
-  let gh = fakeGitHub({ issue: { number: 1, status: "中" } });
-  await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", undefined]);
-  gh = fakeGitHub({ issue: { number: 3, author: "c" }, parent: { number: 1, fields: { 重さ: "上" } } });
+test("4 入口: ユーザーの起票と Claude の改善は未着手、それ以外（種類なしを含む）の Claude の起票は保留で入る。段階は優先度の欄が空なら親の値を継ぎ、ほかの欄は書かない", async () => {
+  for (const [issue, want] of [[{ type: "要" }, "前"], [{ author: "c", type: "保" }, "前"], [{ author: "c", type: "要" }, "置き"], [{ author: "c" }, "置き"]]) {
+    const gh = fakeGitHub({ issue: { number: 2, status: "中", ...issue } });
+    await deliver("projects_v2_item", item({ action: "created" }));
+    assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], [want, undefined], JSON.stringify(issue));
+  }
+  let gh = fakeGitHub({ issue: { number: 3, author: "c", type: "要" }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));
   assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "上"]);
-  gh = fakeGitHub({ issue: { number: 2, author: "c", fields: { 重さ: "下" } } });
+  gh = fakeGitHub({ issue: { number: 3, author: "c", fields: { 重さ: "下" } }, parent: { number: 1, fields: { 重さ: "上" } } });
   await deliver("projects_v2_item", item({ action: "created" }));
-  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ, said(gh).length, Boolean(parseQuestion(said(gh)[0]))], ["答え待ち", "下", 1, true]);
+  assert.deepEqual([gh.issue.status, gh.issue.fields.重さ], ["前", "下"]);
 });
 
-test("5 本文の先頭には、回答待ちの間だけ回答フォームへのボタンがある。印の間にゲートが書かないものがあれば、消さずに印の外へ出して知らせる", async () => {
-  let gh = fakeGitHub({ issue: { number: 2, author: "c" } });
-  await deliver("projects_v2_item", item({ action: "created" }));
-  assert.notEqual(gh.issue.body, "本文");
+// 形（fake-github.js: config.questionTemplate）に合う問い。
+const Q = "## 問い\nどうする？\n\n### 案\n- A\n- B\n\n<details><summary>判断材料</summary>\n\n**約束**: 約束\n**案ごと**: A なら…\n**推奨**: A\n</details>";
+test("5 本文の先頭には、回答待ちの間だけ回答フォームへのボタンがある", async () => {
+  const gh = fakeGitHub({ issue: { number: 2, status: "答え待ち", comments: [{ author: "c", body: Q }] } });
+  await move("置き", "答え待ち");
+  assert.deepEqual([gh.issue.body.includes(`](${config.urls.form}/answer?issue=2)`), gh.issue.body.endsWith("\n本文")], [true, true]);
   await move("答え待ち", "置き");
   assert.equal(gh.issue.body, "本文");
-  gh = fakeGitHub({ issue: { number: 2, status: "置き", body: "<!-- flow-gate -->\n## 問い\n印の間の問い\n<!-- /flow-gate -->\n\n本文" } });
-  await move("答え待ち", "置き");
-  assert.deepEqual([gh.issue.body, said(gh).length], ["## 問い\n印の間の問い\n\n本文", 1]);
 });
 
 const pr = (action, extra) => deliver("pull_request", { repository: { full_name: config.code.repository }, action, pull_request: { number: 3, title: "題名", head: { ref: `${config.code.branchPrefix}8` }, html_url: "u", merged: false, ...extra } });
@@ -86,14 +88,6 @@ test("6 Pull Request: 開くと進行中は検証中へ。閉じたら検証中�
     await pr("closed", extra);
     assert.equal(gh.issue.status, want, `${status} ${JSON.stringify(extra)}`);
   }
-});
-
-test("7 公開の直後の揃え: 開いた issue を今の規則の姿へ揃え、揃っていれば書かない", async () => {
-  const gh = fakeGitHub({ issue: { number: 3, status: "答え待ち", assignees: ["c"] } });
-  const gate = await Gate.open({ GITHUB_TOKEN: "bot-token" }, config);
-  assert.deepEqual(await gate.refreshAll(), [3]);
-  assert.deepEqual([gh.issue.assignees, gh.issue.body === "本文"], [["u"], false]);
-  assert.deepEqual(await gate.refreshAll(), []);
 });
 
 // 回答フォームで答える（問いは Claude のコメント）。次のステータスは、画面に出た選択肢の何番目か、完成なら完成の印の付いたもので選ぶ。
@@ -127,7 +121,25 @@ test("9 回答フォームの完成は、残りの完了の条件を全部チェ
   assert.deepEqual([gh.issue.status, gh.issue.state, /- \[x\] マージのあとの操作/.test(gh.issue.body)], ["済", "CLOSED", true]);
 });
 
-test("11 問いは「## 問い」・問いの文・「### 案」と1行1案・判断材料だけで、ほかの行があれば形に合わない", () => {
+test("12 回答待ちへは、最新の問いか答えが形に合う答えていない問いのときだけ入る。合わなければ前へ戻して理由を書き、ゲートは問いを置かない", async () => {
+  const q = { author: "c", body: Q };
+  const a = { author: "u", body: "## 回答\n**どうする？**\n\n次のステータス: 置き" };
+  for (const [comments, want] of [[[q], 0], [[], 1], [[q, a], 1], [[{ author: "c", body: "## 問い\nどうする？" }], 1]]) {
+    const gh = fakeGitHub({ issue: { number: 4, status: "答え待ち", comments } });
+    await move("置き", "答え待ち");
+    assert.deepEqual([gh.issue.status, said(gh).length], [want ? "置き" : "答え待ち", want], JSON.stringify(comments));
+  }
+});
+
+// 判断材料の節の照らし（順・空・テンプレートのまま）は Pull Request の本文と同じ部品で、tools.test.js の 31 が見る。
+test("11 問いは「## 問い」・問いの文・「### 案」と1行1案・判断材料だけで、判断材料が形の節を持つときだけ通る", () => {
   assert.deepEqual(parseQuestion("## 問い\nどうする？\n\n### 案\n- A\n- B\n\n<details><summary>判断材料</summary>\n### 見出し\n</details>"), { text: "どうする？", plans: ["A", "B"], material: "### 見出し" });
-  for (const bad of ["## 問い\n\n### 案\n- A", "## 問い\nどうする？\n補足の行", "## 問い\nどうする？\n\n### 案\n", "## 問い\nどうする？\n\n### 案\n- A\nB"]) assert.equal(parseQuestion(bad), null, bad);
+  for (const bad of [Q.replace("**案ごと**: A なら…\n", ""), "## 問い\n\n### 案\n- A", "## 問い\nどうする？\n補足の行", "## 問い\nどうする？\n\n### 案\n", "## 問い\nどうする？\n\n### 案\n- A\nB"])
+    assert.notDeepEqual(checkQuestion(config.questionTemplate, bad), [], bad);
+});
+
+test("11 本物の形（tools/flow-gate/question_template.md）は、書き込む所を埋めれば通り、そのままでは通らない", () => {
+  const template = readFileSync(new URL("../question_template.md", import.meta.url), "utf8");
+  assert.deepEqual(checkQuestion(template, template.replace(/<(?![a-z/])[^<>]+>/g, "埋めた")), []);
+  assert.notDeepEqual(checkQuestion(template, template), []);
 });

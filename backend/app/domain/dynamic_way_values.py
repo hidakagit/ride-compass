@@ -19,10 +19,21 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeVar
 
 from app.domain.axis_definitions import AxisDefinition, evaluate_axis_values
+from app.domain.geo import bearing_sector
 from app.domain.map_paint import SignedMaterialMapValue, map_paint
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
+
+#: 向きに依る値を、この幅（度）のバケットの中心の向きで計算した値で代える粒度。キャッシュは
+#: バケットごとに1つの値を持ち、バケットの中の別の向きの要求にも同じ値を返す。
+BEARING_BUCKET_DEG = 5
+
+
+def bearing_bucket(bearing_deg: float) -> int:
+    """向き（度、範囲外は正規化）をバケット番号へ丸める。360度は0度と同じバケットになる。"""
+    return bearing_sector(bearing_deg, 360 // BEARING_BUCKET_DEG)
+
 
 #: 専用配信の要求が運ぶ条件の名前。`WayValueQuery`の欄の名前で、配信のクエリパラメータの名前でもある。
 WayValueConditionName = Literal["at", "bearing_deg", "speed_kmh"]

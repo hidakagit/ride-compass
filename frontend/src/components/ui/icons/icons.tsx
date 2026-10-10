@@ -5,23 +5,33 @@
 import type { ReactElement } from "react";
 import {
   ArrowUp,
+  Bike,
   CircleQuestionMark,
   Clock,
   Cloud,
   Copy,
+  CornerUpLeft,
   Download,
   Droplet,
   EllipsisVertical,
   Gauge,
+  GitCommitHorizontal,
+  Import,
   Info,
   Layers,
+  ListChecks,
   MapPin,
+  MapPinned,
+  MapPinX,
   Moon,
   Play,
+  RotateCcw,
   RotateCw,
+  Save,
   Shield,
   SlidersHorizontal,
   Snowflake,
+  Star,
   Sun,
   Target,
   Thermometer,
@@ -32,14 +42,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-// サイズは呼び出し側のCSSで決まる（デフォルトは16px）ため、ここでは形だけを定義する。
-
 interface IconProps {
   size?: number;
 }
 
-/** このファイルのアイコン1つぶん。軸カタログ（axisIconPalette.tsx）とレイヤー
- * カタログ（mapLayers.ts）のどちらもこの型で持つ。 */
+/** このファイルのアイコン1つぶん。 */
 export type MapIconComponent = (props: IconProps) => ReactElement;
 
 const VIEWBOX_SIZE = 20;
@@ -142,11 +149,7 @@ export function SurfaceQualityAxisIcon({ size = 16 }: IconProps) {
 export function NightAxisIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M17.5 10.66A7.5 7.5 0 1 1 9.34 2.5 5.83 5.83 0 0 0 17.5 10.66Z"
-
-        strokeLinejoin="round"
-      />
+      <path d="M17.5 10.66A7.5 7.5 0 1 1 9.34 2.5 5.83 5.83 0 0 0 17.5 10.66Z" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -216,11 +219,7 @@ export function TrackGradeIcon({ size = 16 }: IconProps) {
 export function TunnelIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M3 17V9a7 7 0 0 1 14 0v8"
-
-        strokeLinejoin="round"
-      />
+      <path d="M3 17V9a7 7 0 0 1 14 0v8" strokeLinejoin="round" />
       <path d="M3 17h14" />
     </svg>
   );
@@ -231,12 +230,7 @@ export function OnewayIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
       <path d="M3 10h13" />
-      <path
-        d="M12 5.5 17 10l-5 4.5"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <path d="M12 5.5 17 10l-5 4.5" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -270,12 +264,22 @@ export function SupplyPoiIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M5 7h10l-1 10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 7Z"
-
         strokeWidth="1.5"
         strokeLinejoin="round"
         strokeLinecap="butt"
       />
       <path d="M7.5 7V5a2.5 2.5 0 0 1 5 0v2" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** 立ち寄り先: 旗を立てた地点 */
+export function StopPlaceIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M6 18V3" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M6 4h8l-1.5 3L14 10H6" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M3 18h6" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -367,10 +371,8 @@ export function RouteDiffIcon({ size = 16 }: IconProps) {
       <path d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8" strokeWidth="1.4" />
       <path
         d="M4.4 5.4 2.2 10.2h4.4zM15.6 5.4 13.4 10.2h4.4z"
-
         strokeWidth="1.3"
         strokeLinejoin="round"
-        fill="none"
         strokeLinecap="butt"
       />
     </svg>
@@ -394,17 +396,8 @@ export function NewRouteIcon({ size = 16 }: IconProps) {
 export function UndoIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M4.2 8.4h6.6a4.2 4.2 0 0 1 0 8.4H6.4"
-
-        fill="none"
-      />
-      <path
-        d="M7.4 4.6 3.6 8.4l3.8 3.8"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <path d="M4.2 8.4h6.6a4.2 4.2 0 0 1 0 8.4H6.4" />
+      <path d="M7.4 4.6 3.6 8.4l3.8 3.8" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -413,24 +406,15 @@ export function UndoIcon({ size = 16 }: IconProps) {
 export function UndoAllIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M6.6 8.4h5.2a4.2 4.2 0 0 1 0 8.4H8"
-
-        fill="none"
-      />
-      <path
-        d="M9.4 4.6 5.8 8.4l3.6 3.8"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <path d="M6.6 8.4h5.2a4.2 4.2 0 0 1 0 8.4H8" />
+      <path d="M9.4 4.6 5.8 8.4l3.6 3.8" strokeLinejoin="round" />
       <path d="M3.2 3.6v9.6" strokeWidth="1.8" />
     </svg>
   );
 }
 
 /** 全レイヤー一括OFF: 重なり（レイヤー）＋バツ。
- * 地図下部の一括操作行には「戻す」操作が複数並ぶため、バツは「消す」の意味だけに使い、
+ * 「表示」の一覧の末尾には「戻す」操作が複数並ぶため、バツは「消す」の意味だけに使い、
  * 何を消すのかは対象の形（重なり／漏斗）で示す——バツ単体だと対象を表せない。 */
 export function ClearAllLayersIcon({ size = 16 }: IconProps) {
   return (
@@ -447,18 +431,13 @@ export function ClearAllLayersIcon({ size = 16 }: IconProps) {
 export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M1.8 3.4h11.4L8.9 8.3v4.4L6.1 14V8.3L1.8 3.4Z"
-
-        strokeLinejoin="round"
-        strokeLinecap="butt"
-      />
+      <path d="M1.8 3.4h11.4L8.9 8.3v4.4L6.1 14V8.3L1.8 3.4Z" strokeLinejoin="round" strokeLinecap="butt" />
       <path d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6" />
     </svg>
   );
 }
 
-/** 表示する項目を選ぶ: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
+/** 地図に出す情報を選ぶ（「表示」のボタン）: 中抜きのつまみが付いた横線2本。RouteSettingsIcon（短い縦線のつまみが3つ）とは、つまみの形と本数で見分ける。 */
 export function DisplayItemsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -492,6 +471,7 @@ function fromLucide(Icon: LucideIcon, defaultSize = 16): MapIconComponent {
 
 export const WarningTriangleIcon = fromLucide(TriangleAlert);
 export const WindIcon = fromLucide(Wind);
+export const BicycleIcon = fromLucide(Bike);
 /** 呼び出し側が風向・走行方位のぶん回転させて使うため、上向きのまっすぐな矢印にしてある。 */
 export const WindDirectionArrowIcon = fromLucide(ArrowUp);
 export const ThermometerIcon = fromLucide(Thermometer);
@@ -503,9 +483,23 @@ export const SnowflakeIcon = fromLucide(Snowflake);
 export const GenerateRoutesIcon = fromLucide(Play);
 /** 生成した候補を捨てる。バツ印にしない——パネルを閉じる✕の隣に並び、同じ形だと見分けられない。 */
 export const ClearRoutesIcon = fromLucide(Trash);
+/** 保存した設定を消す。 */
+export const DeleteSavedIcon = fromLucide(Trash);
+/** 保存した設定を各タブへ呼び出す（取り込む）。 */
+export const RecallSavedIcon = fromLucide(Import);
+/** いまの設定を名前を付けて保存する。 */
+export const SaveConditionsIcon = fromLucide(Save);
+/** 地点を保存する（まだ保存していない地点）。 */
+export const SavePlaceIcon = fromLucide(Star);
+/** 保存した地点（塗った星。保存していない地点の`SavePlaceIcon`と対で、保存したかを形で見分ける）。 */
+export function SavedPlaceIcon({ size = 16 }: IconProps) {
+  return <Star size={size} strokeWidth={LUCIDE_STROKE_WIDTH} fill="currentColor" />;
+}
 export const InfoIcon = fromLucide(Info, 14);
 export const CopyIcon = fromLucide(Copy);
 export const RedrawMapIcon = fromLucide(RotateCw);
+/** 群の中で一覧に並べる項目を選ぶ。 */
+export const ChooseItemsIcon = fromLucide(ListChecks);
 export const RouteSettingsIcon = fromLucide(SlidersHorizontal);
 export const ShieldIcon = fromLucide(Shield);
 export const TargetIcon = fromLucide(Target);
@@ -517,5 +511,19 @@ export const MenuIcon = fromLucide(EllipsisVertical);
 export const DownloadIcon = fromLucide(Download);
 export const SpeedGaugeIcon = fromLucide(Gauge);
 export const HelpIcon = fromLucide(CircleQuestionMark);
+/** 動いている版（コミット）。 */
+export const VersionIcon = fromLucide(GitCommitHorizontal);
 /** 地図で選んでいる区間の地点。 */
 export const SelectedSpotIcon = fromLucide(MapPin);
+/** 置いた経由地と目的地を一度に消す。ClearAllLayersIconと同じく、消す対象の形（地点のピン）にバツを添える。 */
+export const ClearPointsIcon = fromLucide(MapPinX);
+/** 地点を地図で置く（地図で選ぶ・地図で追加・地図で置き直す。押している間は地図のタップがその地点を置く）。 */
+export const PlaceOnMapIcon = fromLucide(MapPinned);
+/** 置いた地点を1つ消す。保存したものを消す`DeleteSavedIcon`と同じく、消す操作はごみ箱の形にそろえる。 */
+export const RemovePointIcon = fromLucide(Trash);
+/** 変えた値を既定値に戻す。 */
+export const ResetDefaultsIcon = fromLucide(RotateCcw);
+/** 取れなかったものを取り直す。 */
+export const RetryIcon = fromLucide(RotateCw);
+/** 編集で作ったルートの元にしたルートを見る。 */
+export const ShowOriginIcon = fromLucide(CornerUpLeft);

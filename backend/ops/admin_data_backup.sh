@@ -1,7 +1,7 @@
 #!/bin/bash
 # 取り直せない管理データの表をpg_dumpで書き出し、Object Storageの非公開バケットへ置く。
 # 本番VMのsystemd（ridecompass-admin-data-backup.service）がrootで毎日打つ。登録と戻し方は
-# docs/conventions/deployment-sync.md「管理データのバックアップ」。
+# .claude/skills/production-data/SKILL.md「管理データのバックアップ」。
 #
 # 環境変数（/etc/ridecompass/admin-data-backup.env）: OCI_NAMESPACE・BACKUP_BUCKET
 set -euo pipefail
@@ -34,7 +34,7 @@ docker --config "$anon_config" run --rm --network=host -v "$work_dir:/backup:ro"
   --name "$name" --file /backup/backup.dump --force > /dev/null
 
 # 置けた時刻を、backendのコンテナが`data/`として見るディレクトリへ書く。止まっても知らせが来ないため、
-# `/health`が経過時間を返し、見回りが読んで気づく（名前は`app/infrastructure/admin_data_backup.py: MARKER_PATH`と揃える）。
+# `/health`が経過時間を返し、それを読んで気づく（名前は`app/infrastructure/admin_data_backup.py: MARKER_PATH`と揃える）。
 marker=/home/ubuntu/ridecompass-cache-data/admin_data_backup_at
 date -u +%Y-%m-%dT%H:%M:%S+00:00 > "$marker.tmp"
 mv "$marker.tmp" "$marker"

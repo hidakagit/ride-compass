@@ -32,7 +32,7 @@ class TuningEffect(Enum):
     値は出るが「何をすれば効くのか」だけが失われる、という形で壊れる。メンバーは値と
     見出しの2つを必ず書くので、書き忘れはこのクラスの定義時に落ちる。
 
-    宣言の順がそのまま画面の並び順になる（`api/routers/tuning_admin.py`）。
+    宣言の順がそのまま画面の並び順になる（`tuning_parameters_by_effect`）。
     """
 
     def __new__(cls, value: str, title: str) -> "TuningEffect":
@@ -50,7 +50,7 @@ class TuningEffect(Enum):
     IMMEDIATE = ("immediate", "次のルート生成から効く")
     #: 探索木のプロセス内キャッシュが値で鍵を持つため、作り直しは自動で起きる。
     TURN_STRUCTURE = ("turn_structure", "次のルート生成から効く（1回だけ遅い）")
-    #: `node_materials`を埋める派生の段（`batch/derive_cli.py: nodes`）から作り直さないと効かない。
+    #: 派生の作り直し（`batch/derive_cli.py`）をやり直さないと効かない。較正値は段の入力なので、読む段（`nodes`）から後ろが流れる。
     #: 派生バッチは作り直しを始めるときに上書きを読み、段の関数へ値で渡す。
     NODE_ATTRIBUTE_BATCH = ("node_attribute_batch", "交差点の事前計算をやり直すまで効かない")
     #: 画面を読み込み直すと効く（フロントが起動時のカタログ取得で受け取る値）。
@@ -62,7 +62,9 @@ class TuningParameter:
     """較正値1つぶんの宣言（**この宣言に載っている＝管理画面から変えられる**）。"""
 
     id: str
-    #: 管理画面の表示名。
+    #: 管理画面の表示名。値を使う側の宣言が対象を持つもの（路面の見込みの転がり抵抗・停止要因の待ち）は、
+    #: 対象の名前を管理APIがそこから添える（`api/routers/tuning_admin.py`）——ここはその宣言を読めない（循環する）ため、
+    #: 対象の名前を写すと、対象の名前を変えたときに古くなる。
     label: str
     #: 単位（管理画面が値の右に出す）。無次元の比率等は空。
     unit: str
@@ -95,11 +97,11 @@ def stop_seconds_parameter_id(kind: str) -> str:
     return f"stop.{kind}_seconds"
 
 
-def _stop_parameter(kind: str, label: str, default: float, description: str) -> TuningParameter:
+def _stop_parameter(kind: str, default: float, description: str) -> TuningParameter:
     """停止要因1種別ぶんの宣言。idは種別の綴りから導く（`POI_COUNT_KINDS`と1対1）。"""
     return TuningParameter(
         id=stop_seconds_parameter_id(kind),
-        label=f"{label}の待ち",
+        label="停止の待ち",
         unit="秒",
         default=default,
         minimum=0.0,
@@ -149,19 +151,19 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "信号の無い交差点で、上位の階級の道へ右左折で入るときに足す。",
     ),
     # --- 停止要因の待ち（種別はPOI_COUNT_KINDSが正本） ---
-    _stop_parameter("signal", "信号", 21.0,
+    _stop_parameter("signal", 21.0,
                     "一般的な信号サイクルからの見積もり。赤で待つ時間、すなわち渡れるように"
                     "なるまでの待ちそのものを表すため、信号のある交差点では"
                     "turn.major_crossing_secondsを足さない。"),
-    _stop_parameter("crossing", "信号なし横断歩道", 0.0,
+    _stop_parameter("crossing", 0.0,
                     "自転車が止まる前提を置いていないため既定は0秒。"),
-    _stop_parameter("stop", "一時停止・徐行", 8.0,
+    _stop_parameter("stop", 8.0,
                     "標識・標示で減速して止まるぶん。交通ルール上、車が来ていなくても止まる"
                     "ため相手の交通と無関係に発生する。相手の流れが途切れるのを待つぶんは"
                     "含まず、そちらはturn.major_crossing_secondsが上位の道を渡るときだけ"
                     "足す。"),
-    _stop_parameter("level_crossing", "踏切", 25.0, "遮断機の待ちを含む見積もり。"),
-    _stop_parameter("barrier", "車止め・減速構造", 8.0, "ボラード等で減速するぶん。"),
+    _stop_parameter("level_crossing", 25.0, "遮断機の待ちを含む見積もり。"),
+    _stop_parameter("barrier", 8.0, "ボラード等で減速するぶん。"),
     # --- 交差点の信号判定 ---
     TuningParameter(
         "signal.match_radius_m",
@@ -179,35 +181,34 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
     ),
     TuningParameter(
         "speed.crr",
-        "転がり抵抗（舗装路）", "", 0.005, 0.001, 0.05, TuningEffect.IMMEDIATE,
-        "舗装路の23〜28mmタイヤの標準値。路面の分からない一般の道（農道・林道以外）もこの値で見積もる。",
+        "転がり抵抗", "", 0.005, 0.001, 0.05, TuningEffect.IMMEDIATE,
+        "舗装路の23〜28mmタイヤの標準値。",
     ),
-    # 路面の区分ごとの転がり抵抗。どの区分がどの値を使うかは`domain/road.py`の区分の宣言が持つ。
+    # 路面の区分ごとの転がり抵抗。どの区分がどの値を使うかは`domain/road.py`の路面の見込みの宣言が持つ。
     TuningParameter(
         "speed.crr_compacted",
-        "転がり抵抗（締め固め・細砂利）", "", 0.010, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "転がり抵抗", "", 0.010, 0.001, 0.1, TuningEffect.IMMEDIATE,
         "締め固めた路面の計測値が見当たらないため、舗装（speed.crr）と砂利（speed.crr_gravel）の中間に置く。",
     ),
     TuningParameter(
         "speed.crr_gravel",
-        "転がり抵抗（砂利・未舗装）", "", 0.015, 0.001, 0.1, TuningEffect.IMMEDIATE,
-        "未舗装の値域（0.012〜0.020）の中ほどで、舗装の約3倍（惰行試験で砂利は舗装の約3倍）。"
-        "平地・無風で巡航20km/hの人が約14km/hになる。",
+        "転がり抵抗", "", 0.015, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "未舗装の値域（0.012〜0.020）の中ほどで、舗装の約3倍（惰行試験で砂利は舗装の約3倍）。",
     ),
     TuningParameter(
         "speed.crr_soil",
-        "転がり抵抗（土・草・泥・砂）", "", 0.018, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "転がり抵抗", "", 0.018, 0.001, 0.1, TuningEffect.IMMEDIATE,
         "草は舗装の約3.5倍（惰行試験）。砂はさらに大きいが、区分の中では土・草が多いため未舗装の値域の上寄りに置く。",
     ),
     TuningParameter(
         "speed.crr_cobblestone",
-        "転がり抵抗（石畳）", "", 0.008, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "転がり抵抗", "", 0.008, 0.001, 0.1, TuningEffect.IMMEDIATE,
         "模擬石畳の試験台で空気圧を最適にしたロードバイクのタイヤが約0.0055。実際の玉石は凹凸が大きく"
         "空気圧も合わせないため、それより上で、舗装と締め固めの間に置く。",
     ),
     TuningParameter(
         "speed.crr_unknown",
-        "転がり抵抗（路面不明の農道・林道）", "", 0.010, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "転がり抵抗", "", 0.010, 0.001, 0.1, TuningEffect.IMMEDIATE,
         "舗装の道も未舗装の道も多いため、舗装（speed.crr）と砂利（speed.crr_gravel）の中間に置く。",
     ),
     TuningParameter(
@@ -229,12 +230,13 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "登りでこれ以下になったら押して歩くとみなす。",
         shown_to_users=True,
     ),
+    # 既定は、巡航20km/hの人が勾配5%で時速10km前後になるという実感に合わせた。
     TuningParameter(
         "speed.climb_power_per_grade",
         "登りの出力の増え方", "W/%", 15.0, 0.0, 200.0,
         TuningEffect.IMMEDIATE,
-        "勾配1%あたり何W余分に踏むか。巡航速度によらず同じWを足す。巡航20km/hの人が勾配5%で時速10km前後"
-        "という実感に合わせた暫定値で、根拠は薄い。",
+        "勾配1%あたり何W余分に踏むか。巡航速度によらず同じWを足す。坂での速度の実感に合わせた暫定値で、"
+        "根拠は薄い。",
     ),
     TuningParameter(
         "speed.max_climb_power_ratio",
@@ -283,6 +285,13 @@ def tuning_value(param_id: str) -> float:
         raise KeyError(f"較正値の宣言に無いid: {param_id}") from None
 
 
+def tuning_parameters_by_effect() -> list[TuningParameter]:
+    """較正値の宣言を効き方の順（`TuningEffect`の宣言順）に並べる。同じ効き方の中は宣言順のまま。
+    管理画面はこの順のまままとめるだけで、並び順の知識を持たない。"""
+    effects = list(TuningEffect)
+    return sorted(TUNING_PARAMETERS, key=lambda parameter: effects.index(parameter.effect))
+
+
 def client_tuning_values() -> dict[str, float]:
     """フロントへ配る較正値（id → いま効いている値）。
 
@@ -304,5 +313,6 @@ __all__ = [
     "TuningEffect",
     "TuningParameter",
     "stop_seconds_parameter_id",
+    "tuning_parameters_by_effect",
     "tuning_value",
 ]

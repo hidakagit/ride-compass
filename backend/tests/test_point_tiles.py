@@ -1,31 +1,30 @@
 """点のタイル（`infrastructure/point_tile_layers.py: POINT_TILE_LAYERS`）が焼く中身。
 
 レイヤーのSQLを読み出しの口（`RoadGraphRepository.get_tile_mvt`）で流し、タイルに出る点を見る。生データは取込の
-入口（`tests/source_ingest.py: ingest_records`）から入れ、POIの種別は派生の段（`derive_node_materials`）を本物のまま
+入口（`tests/source_ingest.py: ingest_records`）から入れ、POIの種別は派生の段（`derive_nodes`）を本物のまま
 流して付ける。
 
 ここで見ないもの:
 - 取り込んだ範囲の判定そのもの（どのrunの範囲か・範囲の境目） → `test_ingested_area.py`
-- タグから種別への引き当て・信号とみなす半径 → `test_derive_node_materials.py`
+- タグから種別への引き当て・信号とみなす半径 → `test_derive_nodes.py`
 - 宣言どうしの関係（一次属性の指す系統・世代・source-layer名の重なり） → `test_point_tile_layers.py`
 - 配信（キャッシュ・空タイル・DB障害・未知のレイヤー） → `test_region_service.py`・`test_region_routes.py`
 - 範囲の中で点の無いタイルを空のバイト列にすること → `test_road_graph_repository_contracts.py`
 - 自転車・死亡の判定の両側（自転車ではない軽車両・死者0） → `test_derive_counts.py`（同じ式で数える）
+- 立ち寄り先の群・絞り・まとめ → `test_stop_places.py`
 """
 
 from collections import Counter
 
-import asyncpg
 import mapbox_vector_tile
 import pytest
 
-from app.batch import derive_node_materials
-from app.batch.common import asyncpg_dsn
+from app.batch import derive_nodes, derive_stop_places
 from app.domain.region import BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from tests.conftest import postgis_database_url
+from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, point_record
 
 pytestmark = [
@@ -61,11 +60,8 @@ async def _ingest_pois(nodes: list[tuple[float, float, dict[str, str]]], road_ar
     """道の取込（範囲の宣言）とノードを取り込み、種別を付ける派生の段を流す。"""
     await ingest_records("osm_way", [], bbox=road_area)
     await ingest_records("osm_node", [point_record(i, lon, lat, tags) for i, (lon, lat, tags) in enumerate(nodes, 1)])
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await derive_node_materials.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
-    finally:
-        await conn.close()
+    async with raw_connection() as conn:
+        await derive_nodes.derive(conn, TUNING_PARAMETERS_BY_ID["signal.match_radius_m"].default)
 
 
 async def _tile(repository: RoadGraphRepository, name: str, x: int = X) -> bytes | None:
@@ -78,6 +74,20 @@ def _features(tile: bytes | None, name: str) -> list[dict]:
     decoded = mapbox_vector_tile.decode(tile)
     assert list(decoded) == [POINT_TILE_LAYERS[name].source_layer]
     return decoded[POINT_TILE_LAYERS[name].source_layer]["features"]
+
+
+def _overture_place(key: int, lon: float, name: str, hierarchy: tuple[str, ...] = ("food_and_drink", "cafe"),
+                    lat: float = LAT) -> object:
+    return point_record(key, lon, lat, {
+        "names": {"primary": name}, "confidence": 0.75,
+        "brand": {"names": {"primary": None}}, "taxonomy": {"hierarchy": list(hierarchy)}})
+
+
+async def _ingest_stop_places(places: list[object]) -> None:
+    """Overture の地点を取り込み、立ち寄り先の表を作る派生の段を流す。"""
+    await ingest_records("overture_place", places)
+    async with raw_connection() as conn:
+        await derive_stop_places.derive(conn)
 
 
 def _kinds(tile: bytes | None) -> Counter[str]:
@@ -140,6 +150,29 @@ async def test_supply_pois_are_never_merged(road_graph_repository):
     assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"toilets": 2})
 
 
+async def test_convenience_stores_come_from_the_stop_places_and_not_from_openstreetmap(road_graph_repository):
+    """補給の点のコンビニは立ち寄り先の群「コンビニ」の行から出し、OpenStreetMap の`shop=convenience`は出さない。
+    ほかの群の立ち寄り先は補給の点に出ない。"""
+    await _ingest_pois([(LON, LAT, {"shop": "convenience"}), (LON + FAR, LAT, TOILETS)])
+    await _ingest_stop_places([
+        _overture_place(1, LON - FAR, "ローソン 渋谷店", ("shopping", "convenience_store")),
+        _overture_place(2, LON, "店2", lat=LAT + FAR),
+    ])
+
+    assert _kinds(await _tile(road_graph_repository, "poi")) == Counter({"convenience": 1, "toilets": 1})
+
+
+async def test_only_a_convenience_store_carries_its_name(road_graph_repository):
+    """コンビニは押すと店の名前で外の地図を開けるように名前を持つ。OpenStreetMap の点は名前を焼かない。"""
+    await _ingest_pois([(LON + FAR, LAT, {**TOILETS, "name": "公園のトイレ"})])
+    await _ingest_stop_places([_overture_place(1, LON - FAR, "ローソン 渋谷店", ("shopping", "convenience_store"))])
+
+    names = {f["properties"]["kind"]: f["properties"].get("name") for f in _features(
+        await _tile(road_graph_repository, "poi"), "poi")}
+
+    assert names == {"convenience": "ローソン 渋谷店", "toilets": None}
+
+
 async def test_a_merged_point_on_a_tile_edge_is_drawn_once(road_graph_repository):
     """タイルの境目をまたぐ塊は、両側のタイルで別々の点にならず、真ん中が入るタイルにだけ1点出る。
     まとめない点は、それぞれ自分の入るタイルにだけ出る。"""
@@ -188,3 +221,20 @@ async def test_an_accident_point_carries_bicycle_fatal_and_year(road_graph_repos
     [feature] = _features(await _tile(road_graph_repository, "accident"), "accident")
 
     assert feature["properties"] == {**expected, "occurred_year": 2021}
+
+
+# --- 立ち寄り先 ----------------------------------------------------------------
+
+
+async def test_a_stop_place_point_carries_its_group_confidence_and_name(road_graph_repository):
+    """立ち寄り先は事故と同じく対象範囲を一括で取り込むので、道を取り込んでいない所でも出す。タイルの外の地点と、
+    補給の点に出す群「コンビニ」は出ない。"""
+    await _ingest_stop_places([
+        _overture_place(1, LON, "店1"),
+        _overture_place(2, LON + 10 * FAR, "店2"),
+        _overture_place(3, LON + FAR, "ローソン 渋谷店", ("shopping", "convenience_store")),
+    ])
+
+    [feature] = _features(await _tile(road_graph_repository, "stop_place"), "stop_place")
+
+    assert feature["properties"] == {"group": "eat_drink", "confidence": 0.75, "name": "店1"}

@@ -9,12 +9,13 @@ from collections.abc import Mapping
 
 from pydantic import Field, model_validator
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights
+from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights, published_axis_definitions
 from app.domain.strict_model import StrictModel
 
-#: 重みの配分を画面で調整するとき、1軸へ寄せられる上限。要求の検証には使わない——既定の重みや
+#: 重みの配分を画面で調整するとき、1軸へ寄せられる割合（有効な軸の重みの合計に対する比）の上限。重みの値ではなく
+#: 割合にかける——軸を入れ切りすると合計が1からずれるため。要求の検証には使わない——既定の重みや
 #: 保存された配分がこれを超えていても生成は受け付ける。
-MAX_AXIS_WEIGHT = 0.6
+MAX_AXIS_SHARE = 0.6
 #: 既定の重みが0の軸を画面で入れたときの重み（配分を調整する前の出発点）。
 ENABLED_AXIS_WEIGHT = 0.1
 
@@ -22,7 +23,7 @@ ENABLED_AXIS_WEIGHT = 0.1
 def published_axis_ids() -> set[str]:
     """重みを付けられる軸。内部軸（is_published=False、他の公開軸から参照される専用の推定軸）は
     重み付けの対象外で、3次合成も公開軸だけを回す。"""
-    return {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
+    return {definition.axis_id for definition in published_axis_definitions()}
 
 
 def check_axis_weights(weights: Mapping[str, float]) -> None:

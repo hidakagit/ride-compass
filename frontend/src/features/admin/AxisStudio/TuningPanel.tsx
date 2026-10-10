@@ -8,7 +8,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { listTuningParameters, updateTuningParameter, type TuningParameter } from "@/features/admin/adminApi";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { textVariants } from "@/components/ui/Text/Text";
-import { dotVariants } from "@/components/ui/Dot/Dot";
+import { Dot } from "@/components/ui/Dot/Dot";
 import { cn } from "@/lib/cn";
 import { getQueryClient } from "@/lib/queryClient";
 
@@ -32,10 +32,7 @@ function TuningRow({
 }) {
   return (
     <li className="flex items-center gap-2 border-b border-[var(--color-border)] py-1">
-      <span
-        className={parameter.overridden ? dotVariants({ tone: "accent" }) : dotVariants({ tone: "none" })}
-        aria-hidden="true"
-      />
+      <Dot tone={parameter.overridden ? "accent" : "none"} aria-hidden="true" />
       <InfoPopover
         triggerAriaLabel={`${parameter.label}の説明`}
         label={parameter.label}
@@ -85,12 +82,7 @@ export default function TuningPanel() {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const loadError = query.error
-    ? query.error instanceof Error
-      ? query.error.message
-      : "較正値の取得に失敗しました"
-    : null;
-  const error = saveError ?? loadError;
+  const error = saveError ?? query.error?.message ?? null;
 
   const rows = parameters ?? [];
   const draftOf = (parameter: TuningParameter) => drafts[parameter.id] ?? parameter.value;
@@ -111,7 +103,9 @@ export default function TuningPanel() {
         client.setQueryData<TuningParameter[]>(TUNING_QUERY_KEY, (prev) =>
           prev?.map((p) => (p.id === updated.id ? updated : p)),
         );
+        // 送った値のままの行だけ下書きを消す（保存を待つ間に打ち直した値は、次に保存するまで残す）。
         setDrafts((prev) => {
+          if (prev[updated.id] !== next) return prev;
           const rest = { ...prev };
           delete rest[updated.id];
           return rest;

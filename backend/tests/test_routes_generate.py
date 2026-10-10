@@ -32,8 +32,8 @@ from app.domain.geo import haversine_distance_km
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
 from app.domain.route_request import DEFAULT_DISTANCE_TOLERANCE_KM, DEFAULT_MAX_ROUTES, MAX_SPLICED_EDGES, MAX_WAYPOINTS
 from app.domain.tuning import TUNING_VALUES
-from app.domain.wind import ASSUMED_SPEED_KMH
-from app.infrastructure import rate_limiter, road_network_store
+from app.domain.route_request import ASSUMED_SPEED_KMH
+from app.infrastructure import rate_limiter
 from app.infrastructure.road_network_store import RoadNetworkUnavailableError
 from app.main import app
 from app.services.graph_service import GraphService
@@ -48,6 +48,7 @@ from tests.route_world import (
     at,
     avoid_axis_declared,
     grid_network,
+    serve_road_network,
 )
 
 #: ASGIの代役がHTTPの相手として名乗る番地（レート制限の鍵になる）。
@@ -105,7 +106,7 @@ def world(monkeypatch):
     async def open_setup(**options):
         yield assemble_route_generation_setup(GraphService(NetworkRepository(world.network)), world.weather, **options)
 
-    monkeypatch.setattr(road_network_store, "current", world.current)
+    serve_road_network(monkeypatch, world.current)
     monkeypatch.setitem(app.dependency_overrides, dependencies.get_route_generation_setup_opener, lambda: open_setup)
     with avoid_axis_declared():
         yield world
@@ -165,12 +166,12 @@ async def test_a_destination_route_ends_at_the_destination_with_up_to_the_reques
     assert all(_ends(route) == (_node(SOUTH_WEST), _node(NORTH_EAST)) for route in result["routes"])
 
 
-async def test_a_waypoint_route_is_a_single_route_whatever_count_is_asked_for(client):
-    """経由地があるとレグごとの代替案が組合せで増えるため、常に1件。使った件数もそう返す。"""
-    status = await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], max_routes=5)
+async def test_a_waypoint_route_returns_to_the_origin_with_up_to_the_requested_count(client):
+    result = (await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], max_routes=2))["result"]
 
-    assert len(status["result"]["routes"]) == 1
-    assert status["result"]["conditions"]["max_routes"] == 1
+    assert 1 <= len(result["routes"]) <= 2
+    assert result["conditions"]["max_routes"] == 2
+    assert all(_ends(route) == (_node(SOUTH_WEST), _node(SOUTH_WEST)) for route in result["routes"])
 
 
 async def test_a_spliced_route_is_evaluated_as_sent(client):
@@ -269,6 +270,7 @@ async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(clien
     {"hard_filters": {}},
     {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
     {"distance_km": None},                                           # 周回なのに目標距離が無い
+    {"assumed_speed_kmh": 0},                                        # 想定速度の型（`AssumedSpeedKmh`）
 ])
 async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
     response = await _post(client, **body)

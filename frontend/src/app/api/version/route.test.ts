@@ -5,16 +5,19 @@
  *
  * ここで見ないもの:
  * - 応答をビルド時に固めない指定（`dynamic`）→ Next.jsの規約の宣言で、振る舞いはフレームワークが持つ
- * - この口を読んで画面に出すこと → `features/admin/SystemStatusPanel/SystemStatusPanel.test.tsx`
+ * - この口を読んで画面に出すこと → `features/admin/SystemStatusPanel/SystemStatusPanel.test.tsx`・
+ *   `components/HeaderMenu/HeaderMenu.test.tsx`
  *
- * コミットの環境変数はこの口だけが読むので、`vi.stubEnv`で立てて入口を呼ぶ（docs/conventions/testing.md パターン7）。
+ * コミットの環境変数はこの口だけが読むので、`vi.stubEnv`で立てて入口を呼ぶ（.claude/rules/testing-frontend.md パターン7）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { FrontendVersion } from "@/services/versionApi";
 
 import { GET } from "./route";
 
 async function body() {
-  return (await (await GET()).json()) as { status: string; commit: string | null; started_at: string };
+  return (await (await GET()).json()) as FrontendVersion & { status: string };
 }
 
 describe("GET /api/version", () => {

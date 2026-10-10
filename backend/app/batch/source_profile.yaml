@@ -57,6 +57,46 @@ sources:
     rows:
       years: [2019, 2020, 2021, 2022, 2023, 2024]
 
+  # --- 地点 ---------------------------------------------------------------
+  # 立ち寄り先とコンビニ。取り込むのはどれかの群に当たりうる地点だけ（群の語は domain/stop_place.py）。
+  # 版を上げるときの手順は docs/architecture/data-sources.md「版を持つ配布物の入れ替え」。
+  - name: overture_place
+    adapter: overture_places
+    rows:
+      release: "2026-09-23.1"
+      # 確からしさは地点が実在する見込み（0〜1）。閉じた地点は0になる。
+      min_confidence: 0.5
+
+  # 寺社。国の指定・登録の文化財の建造物（文化遺産オンラインをジャパンサーチで）。取得は全国で、範囲は取込が絞る。
+  # 寺社かは所有者で派生が決める（domain/stop_place.py）。取り直しの手順は docs/architecture/data-sources.md「文化財の建造物」。
+  - name: bunka_heritage
+    adapter: bunka_heritages
+    rows:
+      snapshot: "2026-10-08"
+      designations: ["国宝", "重要文化財", "登録有形文化財(建造物)"]
+
+  # --- 住所 ---------------------------------------------------------------
+  # 住所の区画（地点の検索・施設の辺り）の元データ。都道府県・市区町村は全国、町字は範囲に掛かる都道府県のものを入れ、
+  # どの町字を区画にするかは派生が道路の取込の範囲で決める。取り直しの手順は docs/architecture/data-sources.md「住所の区画の元データ」。
+  # アドレス・ベース・レジストリ（デジタル庁）。配布元は版を持たず今の全件を置くので、取った日で置き場を分ける。
+  - name: abr
+    adapter: abr
+    rows:
+      snapshot: "2026-10-09"
+
+  # e-Stat の小地域の境界（令和2年国勢調査の町丁・字等）。施設と置いた位置の辺りを、点を含む境界の名前で決める。
+  - name: estat_small_area
+    adapter: estat_small_area
+    rows:
+      survey: "A002005212020"
+
+  # 国土交通省の街区レベル位置参照情報（地番ごとの代表点）。住居表示の区域でない所で、番地まで打った住所を地番の点まで寄せる。
+  # 版は配布元の置き場の名前（年に1度出る。https://nlftp.mlit.go.jp/isj/）。
+  - name: isj_block
+    adapter: isj_block
+    rows:
+      version: "24.0a"
+
   # --- ラスタ ---------------------------------------------------------------
   # ズームは元データの分解能から導く。UIの都合で決めない。
   # 標高は製品ごとに、配信元が公表する最大ズームで取る（https://maps.gsi.go.jp/development/hyokochi.html）。

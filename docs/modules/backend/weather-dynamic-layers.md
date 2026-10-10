@@ -33,9 +33,9 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名と降水の段の色で塗った画像か・配信の遅れを持つ（遅れは画面だけが読み、プリウォームの読み方は持たないので、タイルで配る要素には宣言できない）。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値、配信元が段の色を焼き込むなら塗る段（`weather_display.py`の段の名前。画面の凡例と説明文がこれでまとめる）も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（Terrain-RGBの刻みと原点。画面が標高を読み戻す係数として生成物へ出る）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。画面へは`scripts/export_openapi.py`の生成物で届き、本番プロセスは気象庁の降水のタイルの塗り替え（`jma_tile_recolor.py`）で降水の段と気象庁の色を読む）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
-| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`jma_tile_proxy_service.py`（タイルの中継の段取り。キャッシュ→補間と書き戻し→上流）・`jma_tile_interpolation_service.py`（配信元が持たないズームの補間の段取り）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
-| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_paths.py`（配信元のパスをテンプレートに当ててタイルとして読み戻す・404が確定した事実かを決める）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_tile_recolor.py`（気象庁の降水のタイルの色をアプリの降水の段の色へ塗り替える、後述）・`jma_amedas_client.py`・`jma_suikei_client.py`（推計気象分布（天気）の地点の天気の区分。時刻一覧とタイルのパス・地点を含むタイルと画素・凡例の色から区分への読み替えを持つ。地図に重ねる`JMA_ELEMENTS`のタイルとは画素数と座標の数え方が違うので、宣言に入れずに持つ。時刻一覧とタイルは`JmaTileClient`を通る）・`jma_amedas_store.py`（アメダスの観測値と1時間雨量の履歴のRedisの置き場。鍵・項目名・TTL・保存した形の検査を持ち、サービスとは値でやり取りする）・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（TTLキャッシュで持つクライアントが共有する定型文、後述）・`gsi_dem_png.py`（地理院の標高タイルをTerrain-RGBのPNGへ詰め直す、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの宣言`JMA_ELEMENTS`。要素1件がパスの系統・時刻一覧のファイルと読み方・タイルで配るならズームとベクタのレイヤー名と降水の段の色で塗った画像か・配信の遅れを持つ（遅れは画面だけが読み、プリウォームの読み方は持たないので、タイルで配る要素には宣言できない）。予測を持つ要素は予測が届く先（地図の説明の文と凡例が引く）も持つ。ほかに系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`と、配信元のパスの形——時刻一覧のパス・コマのパスのテンプレート`jma_url_template`・タイルのパスの組み立て`jma_tile_path`——も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値、配信元が段の色を焼き込むなら塗る段（`weather_display.py`の段の名前。画面の凡例と説明文がこれでまとめる）も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`と、配信要素の予測が届く先を説明の文の語にする`forecast_reach`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（Terrain-RGBの刻みと原点。画面が標高を読み戻す係数として生成物へ出る）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLは受ける層の`api/routers/gsi_tile.py`が上流のパスから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。画面へは`scripts/export_openapi.py`の生成物で届き、本番プロセスは気象庁の降水のタイルの塗り替え（`jma_tile_recolor.py`）で降水の段と気象庁の色を読む）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。呼び名はそれぞれの段階の宣言（`jma_warning.py`・`wbgt.py`・`flood_forecast.py`）から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
+| services | `weather_service.py`・`wind_grid_service.py`（風の格子の段取り。対象範囲を読む→格子点を作る→読む）・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`jma_tile_proxy_service.py`（タイルの中継の段取り。キャッシュ→補間と書き戻し→上流）・`jma_tile_interpolation_service.py`（配信元が持たないズームの補間の段取り）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_paths.py`（配信元のパスをテンプレートに当ててタイルとして読み戻す・404が確定した事実かを決める）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_tile_recolor.py`（気象庁の降水のタイルの色をアプリの降水の段の色へ塗り替える、後述）・`jma_amedas_client.py`・`jma_suikei_client.py`（推計気象分布（天気）の地点の天気の区分。時刻一覧とタイルのパス・地点を含むタイルと画素・凡例の色から区分への読み替えを持つ。地図に重ねる`JMA_ELEMENTS`のタイルとは画素数と座標の数え方が違うので、宣言に入れずに持つ。時刻一覧とタイルは`JmaTileClient`を通る）・`jma_amedas_store.py`（アメダスの観測値と1時間雨量の履歴のRedisの置き場。鍵・項目名・TTL・保存した形の検査を持ち、サービスとは値でやり取りする）・`jma_warning_client.py`（警報のコード→種別の名称の表（配信元のコード表の写し）と、状態の文字列→発表中か）・`wbgt_client.py`・`flood_client.py`（洪水予報のコード→段の表（配信元のコード表の写し））・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（TTLキャッシュで持つクライアントが共有する定型文、後述）・`gsi_dem_png.py`（地理院の標高タイルをTerrain-RGBのPNGへ詰め直す、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む。引いた区域を地域マスタで警報のエリアまで辿る段取りも持ち、警報と洪水予報が共有する、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
 | scripts | `fetch_jma_area_boundaries.py`（気象庁の区域の境界を取得し、`jma_area_boundaries.py`が読む形で置く。デプロイが呼ぶ） |
 
@@ -46,9 +46,9 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`。MSMの計算値）と「今日」のパネルの読み方（時系列の先頭と同じ暦日の時刻・日次の最大と範囲・一定間隔のコマ（間隔は応答にも載る））、アメダスの10分間の実測（降水量・気温）と推計気象分布の区分からWMO天気コードを導く`derive_observed_weather_code`（降っているかと雨・雪は観測所の実測が、降っていないときの晴れ・くもりは推計気象分布が決め、推計の雨・雪の区分はくもりに数える。日照時間は夜は空によらず0になるので使わない。「降っていない」の境`PRECIPITATION_MIN_MM`は、「今日」のパネルの降水量の「-」と地図の降水の塗りにも生成物で届く） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | 風の来る向き`WindDirection`（16方位コードからの読み替えは`jma_amedas_client.py`。静穏・欠測・範囲外のコードは方位なし。呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（観測所名と観測の時刻は観測所ごとに決まり、Redisに持つ。天気コード`weather_code`はリクエストの地点の推計気象分布で決まるため、日の出・日没と同じく応答のたびにサービスが入れ、Redisには持たない） | `jma_amedas_service.py` |
 | `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く。区域の名前は読まず、二次細分区域は親の府県予報区があれば解決する） | `warning_service.py`・`flood_service.py` |
-| `jma_warning.py` | JMA警報コード表（配信元のコード表の写し。発表中なのに表に無いコードは捨てる。写しが古くなった印のWARNINGは`jma_warning_client.py`が取得1回につき出す）・電文1件`WarningBulletin`と、区域の種別の引き方（区域の項目が無い電文だけを二次細分区域で引く）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
+| `jma_warning.py` | サイクリングで出さない種別（名称で持つ。既定は出す）・電文1件`WarningBulletin`と、区域の種別の引き方（区域の項目が無い電文だけを二次細分区域で引く）・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から。種別は名称と発表中かへ読み替え済みで届く）・警戒度の段と呼び名（`JMA_LEVEL_LABELS`。段は名称が含む呼び名から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py`・`warning_display.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`）・情報提供地点`WbgtPoint`と予測値`WbgtForecast`・今の予測の選び方（`current_forecast`） | `wbgt_service.py`・`warning_display.py` |
-| `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出（電文1件`FloodBulletin`から。電文の形は`flood_client.py`が解く）・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |
+| `flood_forecast.py` | アクティブ予報抽出（電文1件`FloodBulletin`から。電文の形とコード→段の読み替えは`flood_client.py`が持つ）・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |
 | `twilight.py` | 市民薄明による夜間判定（`night_mask`、時刻の配列をまとめて判定）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)のroad_graphエンジン（night軸の動的化） |
 
 `twilight.py`は外部APIに依存しないローカルの天文計算のみで、
@@ -89,7 +89,8 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 （`source_runs.profile`の`target.bbox`）から読む——ルート生成の「取込範囲か」（`RoadGraphRepository.is_covered`）と
 同じ行を読むので、取込範囲を広げれば風の格子・気象庁タイルのプリウォームも同じ範囲へ広がり、道路の無い所には敷かない。
 取込の宣言`batch/source_profile.yaml`を直接読まないのは、webの層が`app.batch`を読まない（`backend/.importlinter`）ため。
-範囲はリクエストごとにDBから読む（`source_runs`の1行を引くだけで、キャッシュは置いていない）。読めない（DB障害・道路を未取込）ときは
+範囲はリクエストごとにDBから読む（`source_runs`の1行を引くだけで、キャッシュは置いていない）。読むのは`WindGridService`で、
+地域サービスを開き方で受けて読む間だけ開く（格子を読む間にDBの接続を持たない）。読めない（DB障害・道路を未取込）ときは
 格子を組めないので502で、原因はWARNINGで残る。
 
 **詳細格子の座標と間隔**（`domain/wind_grid.py`）: 格子の点は、問い合わせ範囲の角からも対象範囲の角からも数えず、
@@ -291,7 +292,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 `READERS`・`weatherSources.ts: sourceTimeline`）とbackendは言語が違うため同じ手順を両方が持つ。両方が同じ答えを
 出すことは、場面（別の要素の行が混ざる・実況が無い・中間ランの単発の行・段が重なる・途中の段が空等）ごとの入力と
 backendの答え、タイルで配る要素ごとのタイルのパスを`scripts/cross_language_expectations.py: jma_expectations`が表に
-して配り（生成物`jma-expectations.json`）、画面のテストが全行を通して確かめる（[テスト規約](../../conventions/testing.md)
+して配り（生成物`jma-expectations.json`）、画面のテストが全行を通して確かめる（[テスト規約](../../../.claude/rules/testing-frontend.md)
 「パターン11」）。読み方の種類を足すときは両方と表の場面に足す（backendは`read_target_times`の`match`が`assert_never`で、
 足し忘れをmypyが止める）。
 
@@ -353,7 +354,8 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   失うと気象庁へ全本を取り直すことになるためRedisに置く。バッチは欠けている正時だけをその正時の地図JSON
   （`data/map/YYYYMMDDHH0000.json`）から取る——平常時は新しく来た正時の1本、起動時にRedisが空なら全本
   （過去の地図JSONは2026-09-26の実測で76時間前の正時まで取れた。保持期間の公式の記載は未確認）。取れなかった正時は欠けたまま
-  次のバッチで取り直す。**Redisから履歴を読めない（冷却中・読みの失敗。置き場の読みが「取れない」を返す）ときは取りに行かない**
+  次のバッチで取り直す。地図JSONが取れても1時間雨量の値を持つ観測所が1つも無い正時も、取れなかったとして同じく取り直す
+  （取れたとして残すと二度と取り直さず、その正時を含む窓が全国で値を持たないまま窓から外れるまで戻らない）。**Redisから履歴を読めない（冷却中・読みの失敗。置き場の読みが「取れない」を返す）ときは取りに行かない**
   （取り直しの判定が毎回「全本欠け」になり、10分ごとに全本を問い合わせ続けるため）。保存した形が今のコードで読めない履歴は、無いものとして扱う
   （WARNINGを出し、雨の材料は配らない）。値`[値, フラグ]`の値がnullのもの（欠測。フラグの公式の意味は
   未確認）は欠測として持ち、雨量の項目を持たない観測所（雨量計が無い）は載せない。
@@ -369,13 +371,15 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
 
 - **`WarningService`**: 気象庁警報・注意報XML/JSONを地域コード（`ResolvedArea`）で解決。
   地点→区域（下の「警報の区域の境界」）→JMA警報エリア（`jma_area.resolve_area`）→電文取得の
-  3段階すべてが失敗しうる箇所で、どこで失敗してもNone（ルーターが502）を返す。区域の境界を読めないこと
-  （`infrastructure/jma_area_boundaries.py: AreaBoundariesUnavailableError`）と地点が区域の外にあること（None）は別に返る。JMAは大雨・
+  3段階すべてが失敗しうる箇所で、どこで失敗してもNone（ルーターが502）を返す。前の2段は
+  `infrastructure/jma_area_boundaries.py: resolve_point_area`が持ち、区域が分からないこと（None）と地点が区域の外に
+  あること（`OUTSIDE_AREAS`。警報なしとして返る）を分けて返す。JMAは大雨・
   土砂災害・高潮・暴風/暴風雪・波浪・大雪・その他の注意報を別電文（VPWW55〜61）として
   発表するため、`domain/jma_warning.py: collect_active_warnings`は電文配列全件を走査してcode単位で重複排除する。
-  電文の形（`warning.class20Items`等）は`jma_warning_client.py`が`domain/jma_warning.py: WarningBulletin`（地域→種別）へ解く。
+  電文の形（`warning.class20Items`等）は`jma_warning_client.py`が`domain/jma_warning.py: WarningBulletin`（地域→種別）へ解き、
+  コードを種別の名称へ、状態を発表中かへ読み替える（警報の無い地域の「なし」はコードを持たず、種別0件になる）。
   形の合わない電文・項目・種別は飛ばして残りで答え（付加事項だけが壊れた種別は付加事項を空にして残す）、飛ばした数を
-  取得1回につき1行のWARNINGで出す。発表中なのにコード表（`domain/jma_warning.py: WARNING_KINDS`）に無いコードも、
+  取得1回につき1行のWARNINGで出す。表に無いコードは載せず、そのうち発表中のもの（`jma_warning_client.py: WARNING_KINDS`）は、
   画面へは出さずに、そのコードを取得1回につき1行のWARNINGで出す（表の写しが古くなった印）。
   区域の項目がある電文はその中身（「なし」でも）を使い、区域の項目が無い電文だけを二次細分区域で探す（`WarningBulletin.kinds_for`）。
 
@@ -397,8 +401,8 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
   取得の失敗（クライアントがWARNINGを出す）とは別に抑制付きのWARNINGを出す（空の予測は1時間キャッシュされ、その間の要求ごとに通る）。期間初日は最初の発表
   （配信元の記録では3時）までの数時間、検索窓に発表が無く「未取得」になる。
 
-- **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area.resolve_area`を
-  再利用して地点解決する。JMA洪水予報はstatus文字列ではなく`item.code`自体が発表/継続/
+- **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area_boundaries.py: resolve_point_area`で
+  地点解決する。JMA洪水予報はstatus文字列ではなく`item.code`自体が発表/継続/
   解除/引き下げを区別する。`status`が「通常」でない電文（訓練・試験）は`flood_client.py`が
   電文を解く時点で落とし、サービスへ渡さない。
 
@@ -423,7 +427,7 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
 更新が載ったら、`SOURCE_URL`を新しい版のzipへ書き換えてデプロイする。置き場の名前が変わるため
 デプロイが新しい版を取り直し、古い版のファイルは同じスクリプトが消す。区域の境界と地域マスタ
 （area.json、実行時に取得）は別々に配られるため、境界だけが古いと、境界が返したコードを地域マスタで
-辿れなくなる——このとき`warning_service.py`・`flood_service.py`が抑制付きのWARNING（「地域マスタ(area.json)で警報のエリアへ辿れない」）を出す
+辿れなくなる——このとき`jma_area_boundaries.py: resolve_point_area`が抑制付きのWARNING（「地域マスタ(area.json)で警報のエリアへ辿れない」）を出す
 （`jma_area.resolve_area`はdomainで、抑制の仕組み（infrastructure）を読めないため、Noneを返すだけにする）。
 配布ページは発表区域の変更の前に、変更後の版を「以降」の注記付きで先に置くことがある。版を
 選ぶときは注記の日付と、今の地域マスタのコードに合う版かを見る。
@@ -444,7 +448,7 @@ DI工場（`api/dependencies.py`）がプロセスに1つ持ってクライア�
 「`TTLCache`参照→ミス時のみfetch→エラー処理→キャッシュ書き戻し」という骨格を
 `cached_fetch(category, fetch, *, cache=..., key=..., catch=..., **log_fields)`が1箇所へ
 まとめている。呼び出し元は`fetch`（実際のhttpx呼び出し＋パース＋必要ならフォーマット
-検証）だけを渡す。フォーマット不正（配列であるべきなのにそうでない等）は
+検証）だけを渡す。JSONを取って最上位が配列か辞書かを確かめるところは`get_json`が持つ。フォーマット不正（配列であるべきなのにそうでない等）は
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、`catch`の指定に
 関わらず常にNoneへ倒れ、失敗として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `.json()`を呼ばないアメダスの最新時刻は`httpx.HTTPError`だけを
@@ -554,7 +558,7 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 
 **読めないときの振る舞い**: 同期が済んでいない・配信元の予報終端が現在時刻へ追いついた・置き場のファイルが
 読めない場合は`MsmUnavailableError`（サービスはこの1つだけを受ける）。`WeatherService.get_wind_grid`は全地点を1回で読むので、
-これを格子ごと読めない（None）へ変換し、ルーターが502を返す（`_require_grid`）。格子の欠損（NaN）は値ごとにNoneで返し、
+これを格子ごと読めない（None）へ変換し、`WindGridService`がそれを`WindGridUnavailable`にして、ルーターが502を返す。格子の欠損（NaN）は値ごとにNoneで返し、
 画面はその時刻の点を飛ばす。ルート評価の風
 （`get_wind_forecast_lattice`）はNoneを返し、呼び出し元は出発時点の値（`get_departure_wind`）へ倒すが、
 そちらも同じMSMを読むため同時に読めず、**所要時間は無風で計算される**。候補はそのことを`wind_unavailable`で持ち、画面が候補の中身で知らせる

@@ -13,13 +13,10 @@ export interface GenerationInput {
   /** 周回の目標距離。経由地・目的地を置いたときはnull（探索の範囲はbackendが置いた点から決める）。 */
   distanceKm: number | null;
   distanceToleranceKm: number;
-  /** 実際に使う候補数（経由地を伴う目的地ルートは決まった数、`fixedRouteCount`）。 */
   maxRoutes: number;
   assumedSpeedKmh: number;
   startTime: Date;
   hardFilters: HardFilterOverride;
-  /** レンズが軸を指している場合のみ。地図の見え方の選択で、候補の選定には影響しない。 */
-  lensAxisId: string | null;
   /** 重み上書きが有効なときのみ（無効ならbackendの既定値に委ねる）。 */
   routePreference: RoutePreferenceWeights | null;
   /** 目的地モードのときだけ値を持つ（周回モードでは常に空・null）。 */
@@ -44,24 +41,12 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
     max_routes: input.maxRoutes,
     assumed_speed_kmh: input.assumedSpeedKmh,
     start_time: input.startTime.toISOString(),
-    // レンズが軸を要求していれば、重み0でも区間表示のため風の時変化合成を行う（backend）。
-    ...(input.lensAxisId !== null ? { lens_axis_id: input.lensAxisId } : {}),
     ...(input.routePreference !== null ? { route_preference: input.routePreference } : {}),
     // 目的地モードのときだけ経由地・目的地を送る（backend側の分岐はapi/routers/routes.py）。
     ...(input.waypoints.length > 0 ? { waypoints: [...input.waypoints] } : {}),
     ...(input.destination !== null ? { destination: input.destination } : {}),
   };
 }
-
-/** 比較対象から外すpayloadフィールドと、その理由。
- *
- * ここに挙げた以外は**すべて**比較対象になる。payloadへフィールドを足したときに
- * 比較側へ足し忘れることが起きないよう、除外は明示的な列挙だけに限る。 */
-const IGNORED_WHEN_COMPARING = {
-  // レンズは地図の見え方の選択で、候補の選定（探索コスト）には影響しない。頻繁に
-  // 切り替えるため、変えるたびに「生成条件が変更されています」を出すと通知が意味を失う。
-  lens_axis_id: "地図の見え方の選択で、候補の選定には影響しない",
-} as const;
 
 /** キー順に依存しないJSON化。`hard_filters`・`route_preference`のように、同じ内容でも
  * 組み立て方（保存値からの復元・キー整合による補完）でプロパティの並びが変わりうる
@@ -80,9 +65,9 @@ function stableStringify(value: unknown): string {
 
 /**
  * `conditionsDirty`の比較キー。payloadと同じ入力から作るため、送る値の変更は
- * `IGNORED_WHEN_COMPARING`に挙げたもの以外すべてが差分として現れる。
+ * 下の出発時刻を除いてすべてが差分として現れる。
  *
- * `startTimePinned=false`（利用者が出発時刻を選んでいない）のときは`start_time`も外す
+ * `startTimePinned=false`（利用者が出発時刻を選んでいない）のときは`start_time`を外す
  * ——共有時刻は「今」へ5分刻みで追従するので、放置するだけで値が変わる。利用者が何も
  * していないのに「生成条件が変更されています」が点くと、印そのものが合図として機能しなくなる。
  */
@@ -90,7 +75,6 @@ export function generationConditionsKey(input: GenerationInput): string {
   const request = buildGenerateRequest(input) as Record<string, unknown>;
   const comparable: Record<string, unknown> = {};
   for (const key of Object.keys(request)) {
-    if (key in IGNORED_WHEN_COMPARING) continue;
     if (key === "start_time" && !input.startTimePinned) continue;
     comparable[key] = request[key];
   }

@@ -6,14 +6,13 @@ NULLの件数（参考）を返す。対象の表・列は宣言（ORM）から�
 
 `GET /api/admin/material-catalog/coverage`（材料の欠損割合）とは別の切り口——あちらは
 「材料として値が取れるか」を材料の宣言から見る。認可を要求する理由・DB例外の扱いは
-同じ（全表走査を伴うため認可なしに公開しない、DB例外は503へ変換し空レポートへ倒さない）。
+同じ（全表走査を伴うため認可なしに公開しない、DB例外は空レポートへ倒さず503（`api/admin_db_errors.py`）で返す）。
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_derived_data_freshness_service
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.services.derived_data_freshness_service import (
     DerivedDataFreshnessReport,
     DerivedDataFreshnessService,
@@ -30,10 +29,4 @@ async def get_derived_data_freshness(
     service: DerivedDataFreshnessService = Depends(get_derived_data_freshness_service),
 ) -> DerivedDataFreshnessReport:
     """ソースごとの鮮度と、派生データの表ごとの列の変化・値の列ごとのNULLの件数を返す。"""
-    try:
-        return await service.get_freshness_report()
-    except DB_UNAVAILABLE_ERRORS as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="派生データ鮮度台帳の集計に失敗しました（DB接続の状況を確認してください）",
-        ) from exc
+    return await service.get_freshness_report()

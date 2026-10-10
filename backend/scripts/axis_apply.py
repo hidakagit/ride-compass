@@ -34,8 +34,6 @@ from app.domain.axis_definitions import AxisDefinition  # noqa: E402
 
 ADMIN_PATH = "/api/admin/axis-definitions"
 CATALOG_PATH = "/api/axis-catalog"
-#: 軸カタログが定義の値をそのまま返さない項目。体感ラベルは地図の段へ引き直して配る。
-_CATALOG_RESHAPED = frozenset({"display_band_labels_override"})
 _ABSENT = object()
 
 Definition = dict[str, Any]
@@ -186,10 +184,7 @@ def verify(client: httpx.Client, axis_id: str, desired: Definition | None) -> No
     if published != (entry is not None):
         raise AxisApplyError(f"軸カタログに軸 {axis_id} が{'ありません' if published else '残っています'}")
     if entry is not None and desired is not None:
-        stale = sorted(
-            key for key in entry
-            if key in desired and key not in _CATALOG_RESHAPED and entry[key] != desired[key]
-        )
+        stale = sorted(key for key in entry if key in desired and entry[key] != desired[key])
         if stale:
             raise AxisApplyError(f"軸カタログの軸 {axis_id} の {stale} が書いた定義と一致しません")
 

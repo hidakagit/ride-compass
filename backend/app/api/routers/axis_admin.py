@@ -7,19 +7,14 @@
 （docs/modules/frontend/axis-studio.md参照）。
 """
 
-from typing import Awaitable, TypeVar
-
 from collections.abc import Mapping
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import Field, field_validator, model_validator
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import get_road_graph_repository
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.api.dependencies import get_axis_preview_service, get_axis_registry_admin_service
 from app.domain.value_distribution import ValueDistribution
-from app.services.axis_preview_service import axis_raw_value_distribution
-from app.api.dependencies import get_axis_registry_admin_service
+from app.services.axis_preview_service import AxisPreviewService
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     axis_error,
@@ -31,10 +26,9 @@ from app.domain.axis_definitions import (
     check_axis_definition,
     first_term_points,
     named_references,
-    referenced_materials,
+    weight_share_when_published,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
-from app.domain.difficulty import weight_share
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.dedicated_way_values import served_dedicated_way_value_material
@@ -43,8 +37,6 @@ from app.domain.strict_model import StrictModel
 router = APIRouter(
     prefix="/api/admin/axis-definitions", tags=["axis-admin"], dependencies=[Depends(require_admin_basic_auth)]
 )
-
-_T = TypeVar("_T")
 
 
 def _axis_not_found() -> HTTPException:
@@ -55,26 +47,9 @@ def _axis_not_found() -> HTTPException:
     )
 
 
-async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
-    """軸スタジオCRUDのDB例外を診断可能な503へ変換する。
-
-    軸スタジオ（本ルーター）のCRUDの編集対象は常にDBの実データそのものであるべきで、
-    DB障害時にフォールバック値を編集画面に出すと気付かないまま上書きしてしまう危険が
-    ある。ここでは代わりに、DB障害として扱う例外（`DB_UNAVAILABLE_ERRORS`。接続失敗・
-    タイムアウト・テーブルや列が作られていないなど）だけを捕捉し、未処理の素の500ではなく
-    原因の当たりが付くメッセージを返す（ValueError/KeyErrorは呼び出し元の既存except節が
-    そのまま扱うため対象外）。
-    """
-    try:
-        return await awaitable
-    except DB_UNAVAILABLE_ERRORS as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "軸定義DBへのアクセスに失敗しました"
-                "（DB接続と、テーブルが作られているかを確認してください）"
-            ),
-        ) from exc
+def _conflict(exc: ValueError) -> HTTPException:
+    """登録・更新・削除がほかの軸との不変条件で断られた。例外の文をそのまま返す。"""
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 class AxisDefinitionPayload(AxisDefinition):
@@ -107,7 +82,7 @@ class AxisDefinitionPayload(AxisDefinition):
         """
         if not self.dedicated_way_value_layer:
             return self
-        materials = referenced_materials(self.shape, self.priority_overrides)
+        materials = self.materials
         if served_dedicated_way_value_material(materials) is None:
             raise axis_error(
                 "専用配信の軸は、配信の実装がある材料をちょうど1つだけ指す必要があります"
@@ -143,15 +118,10 @@ class AxisDefinitionResponse(AxisDefinition):
 def _to_response(definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]) -> AxisDefinitionResponse:
     """`AxisDefinitionResponse`は`AxisDefinition`へ`display`と`weight_share_when_published`を足すだけなので、
     フィールドを手書き列挙せずmodel_dump()経由で展開する。`definitions`は割合の分母を作る全軸。"""
-    other_published = [
-        other.default_weight
-        for axis_id, other in definitions.items()
-        if other.is_published and axis_id != definition.axis_id
-    ]
     return AxisDefinitionResponse(
         **definition.model_dump(),
         display=axis_display_for(definition),
-        weight_share_when_published=weight_share(definition.default_weight, other_published),
+        weight_share_when_published=weight_share_when_published(definition, definitions),
     )
 
 
@@ -159,7 +129,7 @@ def _to_response(definition: AxisDefinition, definitions: Mapping[str, AxisDefin
 async def list_axis_definitions(
     service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service),
 ) -> list[AxisDefinitionResponse]:
-    definitions = await _guard_db_errors(service.list_all())
+    definitions = await service.list_all()
     return [_to_response(definition, definitions) for definition in definitions.values()]
 
 
@@ -167,7 +137,7 @@ async def list_axis_definitions(
 async def get_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
-    definitions = await _guard_db_errors(service.list_all())
+    definitions = await service.list_all()
     if axis_id not in definitions:
         raise _axis_not_found()
     return _to_response(definitions[axis_id], definitions)
@@ -179,9 +149,9 @@ async def create_axis_definition(
 ) -> AxisDefinitionResponse:
     definition = payload.to_definition()
     try:
-        definitions = await _guard_db_errors(service.create(definition))
+        definitions = await service.create(definition)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _conflict(exc) from exc
     return _to_response(definition, definitions)
 
 
@@ -197,13 +167,13 @@ async def update_axis_definition(
         )
     definition = payload.to_definition()
     try:
-        definitions = await _guard_db_errors(service.update(axis_id, definition))
+        definitions = await service.update(axis_id, definition)
     except KeyError as exc:
         raise _axis_not_found() from exc
     except ValueError as exc:
         # 公開済み軸の更新拒否（AxisPublishedImmutableError）と材料の
         # 排他チェック（AxisMaterialConflictError）の両方がここを通る。
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _conflict(exc) from exc
     return _to_response(definition, definitions)
 
 
@@ -212,11 +182,11 @@ async def delete_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> None:
     try:
-        await _guard_db_errors(service.delete(axis_id))
+        await service.delete(axis_id)
     except KeyError as exc:
         raise _axis_not_found() from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _conflict(exc) from exc
 
 
 @router.post("/{axis_id}/unpublish")
@@ -228,7 +198,7 @@ async def unpublish_axis_definition(
     フィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの
     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。"""
     try:
-        definitions = await _guard_db_errors(service.unpublish(axis_id))
+        definitions = await service.unpublish(axis_id)
     except KeyError as exc:
         raise _axis_not_found() from exc
     return _to_response(definitions[axis_id], definitions)
@@ -244,7 +214,7 @@ class AxisPreviewRequest(StrictModel):
 @router.post("/preview-distribution")
 async def preview_axis_distribution(
     payload: AxisPreviewRequest,
-    repository: RoadGraphRepository = Depends(get_road_graph_repository),
+    preview: AxisPreviewService = Depends(get_axis_preview_service),
 ) -> ValueDistribution:
     """編集中の`shape`で、実データの生値（折れ点を通す前）がどう分布するかを返す。
 
@@ -252,7 +222,7 @@ async def preview_axis_distribution(
     ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
     満点に張り付くか」が編集中に分かる。
     """
-    return await _guard_db_errors(axis_raw_value_distribution(repository, payload.shape))
+    return await preview.raw_value_distribution(payload.shape)
 
 
 class ScoresPreviewRequest(StrictModel):
@@ -280,14 +250,14 @@ async def preview_scores(payload: ScoresPreviewRequest) -> ScoresPreviewResponse
     画面で作り直すと、評価と画面で同じ折れ点に別の点数が付きうる（同じxの点が並ぶところ等）。
     """
     return ScoresPreviewResponse(
-        scores=[payload.shape.score_at(x) for x in payload.xs],
+        scores=payload.shape.scores_at(payload.xs),
         material_points=first_term_points(payload.shape, payload.material_values),
     )
 
 
 class DisplayThresholdsPreviewRequest(StrictModel):
     """段の境界の下書きの問い合わせ。段を決めるのに要る入力だけを受け取る
-    （`domain/axis_display.py: thresholds_the_map_drops`）。"""
+    （`domain/axis_display.py: bands_the_map_keeps`）。"""
 
     axis_id: str = Field(min_length=1)
     shape: AxisShape
@@ -314,8 +284,7 @@ async def preview_display_thresholds(payload: DisplayThresholdsPreviewRequest) -
 
     判定は保存後に地図が段を作るのと同じ関数で行い、軸スタジオは結果を印として出すだけにする。
     """
-    args = (payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds)
+    bands = bands_the_map_keeps(payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds)
     return DisplayThresholdsPreviewResponse(
-        dropped_on_map=thresholds_the_map_drops(*args),
-        bands_on_map=bands_the_map_keeps(*args),
+        dropped_on_map=thresholds_the_map_drops(payload.thresholds, bands), bands_on_map=bands
     )

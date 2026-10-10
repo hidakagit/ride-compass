@@ -1,8 +1,8 @@
 """`domain/material_catalog.py`——材料の宣言と、宣言から導く一覧・判定。
 
 入口は次のとおり。
-- `MaterialSpec`: dtypeと噛み合わない宣言を断る・表示用の名前・欠損を配列でどう持つか
-- カタログから導く一覧: `material_dtype`・`material_array_columns`（`material_array_group`・`material_value_sql`を通る）・
+- `MaterialSpec`: dtypeと噛み合わない宣言を断る・表示用の名前
+- カタログから導く一覧: `material_dtype`・`material_array_columns`（`material_value_sql`を通る）・
   `material_coverage_specs`・`material_coverage_exclusions`
 - `display_axis_missing_semantics`: 地図の表示の軸の値が欠けたときの意味
 - `tile_runtime_scales`: タイルの生値に掛ける、実行時に決まる係数
@@ -32,11 +32,10 @@ from app.domain.material_catalog import (
     WayMaterialCoverageSpec,
 )
 from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
-from app.domain.registry import PrimaryAttributeSpec
+from app.domain.stop_place import StopPlaceGroup
 from app.domain.traffic import NODE_KINDS, STOP_POI_KINDS
 
-ATTR_A = PrimaryAttributeSpec(attr_id="attr_a", label="属性A", geometry="line", tile_kind="road_surface")
-ATTR_B = PrimaryAttributeSpec(attr_id="attr_b", label="属性B", geometry="line", tile_kind="road_surface")
+ATTR_A, ATTR_B = PRIMARY_ATTRIBUTES[:2]
 
 WAY_UNKNOWN = WayMaterialCoverageSpec(missing_condition="w.x IS NULL", source="x", missing_semantics="unknown")
 WAY_DEFINITE = WayMaterialCoverageSpec(missing_condition="w.y IS NULL", source="y", missing_semantics="definite")
@@ -86,23 +85,17 @@ def test_a_declaration_that_does_not_fit_its_dtype_is_refused(fields):
         spec("x", **fields)
 
 
+def test_a_material_pointing_to_an_attribute_outside_the_table_is_refused():
+    """地図の表示の軸は材料を一次属性の宣言そのもので照らすので、同じ`attr_id`の写しを指す材料も表に無いものとして断る。"""
+    with pytest.raises(ValidationError):
+        spec("x", primary_attribute=ATTR_A.model_copy())
+
+
 def test_a_value_is_shown_with_its_label_when_the_table_has_one():
     material = spec("cat_a", "categorical", value_labels={"paved": "舗装"})
 
     assert material.value_label("paved") == "舗装 - paved"
     assert material.value_label("new_value") == "new_value"
-
-
-@pytest.mark.parametrize(
-    ("dtype", "coverage", "expected"),
-    [
-        ("boolean", WAY_UNKNOWN, "nan"),  # 不明を非該当と混同しない
-        ("boolean", WAY_DEFINITE, "false"),  # タグの不在は非該当
-        ("numeric", WAY_UNKNOWN, "false"),
-    ],
-)
-def test_a_missing_boolean_is_nan_only_when_missing_means_unknown(dtype, coverage, expected):
-    assert spec("x", dtype, coverage).bool_default == expected
 
 
 def test_materials_are_known_by_their_id(catalog):
@@ -111,10 +104,10 @@ def test_materials_are_known_by_their_id(catalog):
 
 
 def test_the_matrix_columns_are_the_materials_with_sql_sorted_by_id(catalog):
-    numeric, boolean, categorical = material_catalog.material_array_columns()
+    numeric, categorical = material_catalog.material_array_columns()
 
-    assert numeric == ("bool_unknown", "num_a", "num_b", "per_year_a")
-    assert boolean == ("bool_definite",)
+    # 真偽の材料も、タグの不在の意味によらず数値の行列に載る（欠損をNaNで持てる）。
+    assert numeric == ("bool_definite", "bool_unknown", "num_a", "num_b", "per_year_a")
     assert categorical == ("cat_a",)
 
 
@@ -268,7 +261,8 @@ def test_a_line_axis_knows_what_a_missing_value_means(attr):
 
 @pytest.mark.parametrize(
     ("attr_id", "kinds"),
-    [("stop_poi", STOP_POI_KINDS), ("supply_poi", NODE_KINDS - STOP_POI_KINDS)],
+    # 補給の点のコンビニは、ノードの種別でなく立ち寄り先の群「コンビニ」から足す（`point_tile_layers.py`の`poi`）。
+    [("stop_poi", STOP_POI_KINDS), ("supply_poi", NODE_KINDS - STOP_POI_KINDS | {StopPlaceGroup.CONVENIENCE})],
 )
 def test_the_rows_of_a_point_layer_cover_every_kind_it_draws(attr_id, kinds):
     """行に無い種別の点は地図から消え、凡例にも出ない。種別に無い行は何も塗らない。種別の分類は取込が持ち、

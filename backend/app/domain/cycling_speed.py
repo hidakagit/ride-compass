@@ -36,10 +36,14 @@ GRAVITY_M_S2 = 9.80665
 # `domain/tuning.py`が宣言し、ここでは読むだけにする。定数として持つと、宣言と二重に
 # なったうえ管理画面からの変更が効かない。
 
-# 速度を挟み込む二分法の反復回数。初期区間は押して歩く速度〜速度の上限（`top_speed_kmh`。
-# 巡航速度の上限60km/hでも約17m/s）で、12回で幅は0.004m/s（0.01km/h）まで縮む。粗くすると平地・無風で巡航速度に一致しなくなる
+# 速度を挟み込む二分法の反復回数。初期区間は押して歩く速度〜速度の上限（`top_speed_kmh`。巡航速度の上限は
+# `domain/route_request.py: MAX_ASSUMED_SPEED_KMH`）で、12回で幅は初期区間の4096分の1（巡航速度が上限でも0.01km/h程度）まで縮む。粗くすると平地・無風で巡航速度に一致しなくなる
 # 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
 SPEED_SOLVE_ITERATIONS = 12
+
+#: 区間ごとに速度を変える道と天気の条件の、画面で呼ぶ名前（走行方程式の重力・空気抵抗・転がり抵抗の順）。
+#: 画面の所要時間の説明はこの並びを差し込む。方程式に条件を足したら、ここにも足す。
+SEGMENT_SPEED_CONDITIONS: tuple[str, ...] = ("坂", "風", "路面")
 
 # 路面の見込みを持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
 # （`domain/traffic.py: stop_count_material_ids`と同じ理由）。
@@ -122,10 +126,8 @@ class SegmentSpeedModel:
             raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} crr={rolling_crr.shape}")
         self._shape = grade.shape
         self._power = climb_power_w(wheel_power_w(profile), grade).astype(np.float32)
-        self._constant_force = (
-            rolling_crr * np.float32(profile.mass_kg * GRAVITY_M_S2)
-            + np.float32(profile.mass_kg * GRAVITY_M_S2) * grade
-        )
+        weight_n = np.float32(profile.mass_kg * GRAVITY_M_S2)
+        self._constant_force = rolling_crr * weight_n + weight_n * grade
         self._drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
         self._lowest_ms = kmh_to_ms(tuning_value("speed.walking_kmh"))
         self._highest_ms = kmh_to_ms(top_speed_kmh(profile.cruise_speed_kmh))
@@ -176,7 +178,8 @@ class SegmentSpeedModel:
             # 必要な出力が持っている出力を超えるなら、その速度は出せない（上限を下げる）。
             np.greater(scratch, power, out=too_fast)
             np.copyto(high, middle, where=too_fast)
-            np.copyto(low, middle, where=~too_fast)
+            np.logical_not(too_fast, out=too_fast)
+            np.copyto(low, middle, where=too_fast)
         np.add(low, high, out=middle)
         np.multiply(middle, np.float32(0.5), out=middle)
         # 呼び出し側（コスト配列・所要時間）はfloat64で揃えてある。

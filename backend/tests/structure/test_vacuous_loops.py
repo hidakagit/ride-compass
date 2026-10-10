@@ -1,5 +1,5 @@
 """要素ごとに検査するテストが、空の母集団で何も確かめずに通らないことの検査
-（規約は docs/conventions/testing.md パターン6）。
+（規約は .claude/rules/testing-structure.md パターン6）。
 
 母集団が0件になると、要素ごとのアサーションは1回も走らずテストは緑になる。絞り込みの
 条件が実データ側の変化で当てはまらなくなっても、テストは落ちずに黙る。
@@ -225,7 +225,7 @@ def test_filtered_populations_are_checked_to_be_nonempty() -> None:
 
     assert violations == [], (
         "絞り込んだ母集団を要素ごとに検査するのに、空でないことを確かめていないテストがある"
-        "（docs/conventions/testing.md パターン6）:\n  " + "\n  ".join(violations)
+        "（.claude/rules/testing-structure.md パターン6）:\n  " + "\n  ".join(violations)
     )
 
 

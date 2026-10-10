@@ -19,14 +19,18 @@ import { getCurrentWeather, getWindGrid, getWindGridDetail } from "./weatherApi"
 
 const POINT = { latitude: 35.68, longitude: 139.76 };
 
-/** 時刻の列を1本だけ持つ、backendの風の格子の応答。 */
+const TIMES = ["2026-10-01T09:00:00+09:00", "2026-10-01T10:00:00+09:00"];
 const GRID = {
-  times: ["2026-10-01T09:00:00+09:00", "2026-10-01T10:00:00+09:00"],
+  times: TIMES,
   points: [
     { latitude: 35.5, longitude: 139.5, speeds: [1, 2], directions: [90, 180] },
     { latitude: 35.6, longitude: 139.7, speeds: [3, 4], directions: [0, 270] },
   ],
 };
+const POINTS_WITH_TIMES = [
+  { latitude: 35.5, longitude: 139.5, speeds: [1, 2], directions: [90, 180], times: TIMES },
+  { latitude: 35.6, longitude: 139.7, speeds: [3, 4], directions: [0, 270], times: TIMES },
+];
 
 describe("地点を問い合わせる口", () => {
   it("地点の緯度・経度をそれぞれの項目へ載せ、届いた本文を返す", async () => {
@@ -44,7 +48,7 @@ describe("風の格子", () => {
   it("対象範囲の格子は、応答に1本だけある時刻の列を各点へ持たせて返す", async () => {
     onBackend("GET", "/api/weather/wind-grid", () => Response.json(GRID));
 
-    expect(await getWindGrid()).toEqual(GRID.points.map((point) => ({ ...point, times: GRID.times })));
+    expect(await getWindGrid()).toEqual(POINTS_WITH_TIMES);
   });
 
   it("表示範囲の格子は、範囲の四辺と間隔を問い合わせへ載せ、時刻の列を各点へ持たせて返す", async () => {
@@ -52,7 +56,7 @@ describe("風の格子", () => {
 
     const points = await getWindGridDetail({ minLon: 139.1, minLat: 35.2, maxLon: 139.9, maxLat: 35.8 }, 0.05);
 
-    expect(points).toEqual(GRID.points.map((point) => ({ ...point, times: GRID.times })));
+    expect(points).toEqual(POINTS_WITH_TIMES);
     expect(sent.map(({ path, query }) => ({ path, query }))).toEqual([
       {
         path: "/api/weather/wind-grid-detail",

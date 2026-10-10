@@ -66,7 +66,10 @@ def _catch_up_command(repo: Path) -> str:
 
 def staleness(repo: Path = REPO_ROOT) -> str | None:
     """遅れていれば（確かめられなければ）その説明と追いつくコマンド。追いついていれば None。"""
-    behind = _behind(repo)
+    return _describe(repo, _behind(repo))
+
+
+def _describe(repo: Path, behind: int | str) -> str | None:
     if isinstance(behind, str):
         return f"{repo} が {UPSTREAM} に追いついているかを確かめられない（{behind}）"
     if not behind:
@@ -87,7 +90,8 @@ def require_current(repo: Path = REPO_ROOT) -> None:
     behind = _behind(repo)
     if isinstance(behind, int) and behind and _fast_forward(repo):
         print(f"{repo} を {UPSTREAM} へ {behind} コミット早送りした", file=sys.stderr)
-    message = staleness(repo)
+        behind = 0
+    message = _describe(repo, behind)
     if message:
         raise SystemExit(message)
 

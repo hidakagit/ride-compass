@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { Button } from "@/components/ui/Button/Button";
@@ -41,10 +41,8 @@ interface DynamicLayerTimeSliderProps {
 // 可変幅のコマ・ホイールの横スクロール・離した位置への吸着はEmblaが持ち、コマの中心を左端の目印へ合わせる。
 // キーボード操作とsliderのARIAはEmblaに無いので自前で持つ。
 const emblaOptions = {
-  axis: "x" as const,
   align: (viewSize: number, snapSize: number) => INDICATOR_OFFSET_PX - snapSize / 2,
   containScroll: false as const,
-  dragFree: false,
 };
 
 /** ドラッグ・横スクロールで時刻のコマを選ぶルーラー。時刻の計算は知らない（コマの並びは呼ぶ側が作る）。 */
@@ -75,20 +73,20 @@ export default function DynamicLayerTimeSlider({
 
   // 選んだコマが変わるたびに報告する。`settle`は速いドラッグの後に来ないことがあるので、コマをまたいだときだけ
   // 来る`select`を使う。
+  const reportSelected = useEffectEvent((next: number) => {
+    if (next !== syncedIndexRef.current) {
+      syncedIndexRef.current = next;
+      onIndexChange(next);
+    }
+  });
   useEffect(() => {
     if (!emblaApi) return;
-    const handleSelect = () => {
-      const next = emblaApi.selectedScrollSnap();
-      if (next !== syncedIndexRef.current) {
-        syncedIndexRef.current = next;
-        onIndexChange(next);
-      }
-    };
-    emblaApi.on("select", handleSelect);
+    const listener = () => reportSelected(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", listener);
     return () => {
-      emblaApi.off("select", handleSelect);
+      emblaApi.off("select", listener);
     };
-  }, [emblaApi, onIndexChange]);
+  }, [emblaApi]);
 
   // スクロールの追従は外からの変化としてuseEffectが受ける。
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {

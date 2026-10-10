@@ -4,6 +4,7 @@
 
 - 地図のフィーチャーの鍵から、区間とwayのどちらの単位で読むか
 - 逆向きに辿ったときの列の読み替え規則
+- 材料の式が読む列を持つ表だけを結び、宣言に無い列を読む式を断ること
 - 行から探索用グラフ・材料の行列を組む部分
 - 取込範囲の外（None）と、範囲内で0件（空）の区別
 - 路面タイルの材料の列を、どの材料についても値式から組むこと
@@ -34,13 +35,14 @@ from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import MATERIAL_CATALOG, material_array_columns, tile_column_sql
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
-from app.infrastructure.derived_models import EdgeMaterialRow
+from app.infrastructure.derived_models import EdgeCountsRow, EdgeElevationRow, EdgeLandcoverRow, WayCountsRow
 from app.domain.graph import edge_key, node_key
 from app.services.axis_preview_service import SAMPLE_LIMIT, SAMPLE_PERCENT
 from app.infrastructure.road_graph_repository import (
     ID_CHUNK_SIZE,
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
+    material_from_clause,
     reversed_material_expression,
     way_from_clause,
 )
@@ -118,7 +120,8 @@ def test_reversed_expression_swaps_paired_tokens_and_flips_grades(name, expressi
 
 def test_reversing_twice_returns_to_the_original_column():
     """対が壊れると、逆向きの枝の標高が別の列から来る。列の一覧は宣言から導く。"""
-    reversed_columns = {column.name: expression for column in EdgeMaterialRow.__table__.columns
+    reversed_columns = {column.name: expression
+                        for row in (EdgeCountsRow, EdgeElevationRow, EdgeLandcoverRow) for column in row.__table__.columns
                         if (expression := reversed_material_expression(column.name)) is not None}
     assert reversed_columns, "向きで変わる列が1つも無い"
     for name, expression in reversed_columns.items():
@@ -137,10 +140,22 @@ def test_material_array_columns_are_all_distinct():
     assert len(set(MATERIAL_ARRAY_COLUMN_ORDER)) == len(MATERIAL_ARRAY_COLUMN_ORDER)
 
 
-def test_way_from_clause_joins_only_what_the_expression_reads():
+def test_material_tables_are_joined_only_for_the_columns_the_expressions_read():
     """使わないJOINを足すと、材料1件を引くだけの値列挙まで道の全件へ広がる。"""
+    edge_column = next(column for column in EdgeCountsRow.__table__.columns if not column.primary_key)
+    clause = material_from_clause([f"em.{edge_column.name}"], "k.osm_way_id", "k.segment_index")
+
     assert "JOIN" not in way_from_clause(["w.tags"])
-    assert way_from_clause(["em.a"]).count("JOIN") == 1
+    assert EdgeCountsRow.__tablename__ in clause
+    assert EdgeElevationRow.__tablename__ not in clause
+    assert WayCountsRow.__tablename__ not in clause
+
+
+@pytest.mark.parametrize("alias", ["em", "wm"])
+def test_an_expression_reading_an_undeclared_column_is_refused(alias):
+    """SQLの実行まで気づかないと、その経路の読み出しが材料ぶん丸ごと落ちる。"""
+    with pytest.raises(ValueError, match=f"{alias}.column_a"):
+        material_from_clause([f"{alias}.column_a"], "k.osm_way_id", "k.segment_index")
 
 
 # --- ジオメトリ付きの取り直し -------------------------------------------------
@@ -186,23 +201,27 @@ def _arrays_row(count: int, values: dict[str, list] | None = None) -> _Row:
 
 
 async def test_material_values_land_in_the_matrix_of_their_dtype():
-    """真偽と分類を数値の行列へ混ぜられないため、dtypeで3つに分かれる。"""
-    numeric_ids, boolean_ids, categorical_ids = material_array_columns()
-    assert numeric_ids and boolean_ids and categorical_ids, "dtypeごとの材料が揃っていない"
-    numeric, boolean, categorical = numeric_ids[0], boolean_ids[0], categorical_ids[0]
-    repo, _ = _repo([_arrays_row(2, {numeric: [1.5, None], boolean: [True, None],
-                                     categorical: ["value_a", None]})])
+    """分類を数値の行列へ混ぜられないため、数値と分類の2つに分かれる。真偽は数値の行列に1.0/0.0で載る。"""
+    numeric_ids, categorical_ids = material_array_columns()
+    boolean = next(m for m in numeric_ids if MATERIAL_CATALOG[m].dtype == "boolean")
+    numeric = next(m for m in numeric_ids if MATERIAL_CATALOG[m].dtype == "numeric")
+    assert categorical_ids, "分類の材料が無い"
+    categorical = categorical_ids[0]
+    repo, _ = _repo([_arrays_row(3, {numeric: [1.5, None, None], boolean: [True, False, None],
+                                     categorical: ["value_a", None, None]})])
 
-    arrays = await repo.get_edge_material_arrays([1, 1], [0, 1], [True, True], 5)
+    arrays = await repo.get_edge_material_arrays([1, 1, 1], [0, 1, 2], [True, True, True], 5)
 
     assert arrays.columns()[numeric][0] == 1.5
     # 欠損は0ではなくNaN。0で埋めると「値が無い」が「一番良い値」として採点される。
     assert np.isnan(arrays.columns()[numeric][1])
-    assert arrays.columns()[boolean].tolist() == [True, False]
+    # 真偽の欠損（道の生データが無い区間）も、非該当（0.0）ではなく不明（NaN）。
+    assert arrays.columns()[boolean][:2].tolist() == [1.0, 0.0]
+    assert np.isnan(arrays.columns()[boolean][2])
     # 分類の材料は語彙への番号の列で、値へ戻すと行ごとの値（値なしはNone）になる。
     column = arrays.columns()[categorical]
     assert isinstance(column, CategoricalColumn)
-    assert [column.value_at(row) for row in range(len(column))] == ["value_a", None]
+    assert [column.value_at(row) for row in range(len(column))] == ["value_a", None, None]
 
 
 async def test_hard_filter_flags_are_named_by_their_filter():
@@ -342,10 +361,9 @@ async def test_landcover_is_read_at_the_unit_the_map_paints(feature_key, segment
     assert session.params[0].get("segment_index") == segment_index
 
 
-@pytest.mark.parametrize("row", [None, _landcover_row(valid_pixels=None)])
-async def test_incomplete_landcover_is_not_reported(row):
-    """行が無い・有効画素が足りなかった区間で0%と答えると、内訳が「すべて未分類」に見える。"""
-    repo, _ = _repo([] if row is None else [row])
+async def test_incomplete_landcover_is_not_reported():
+    """値が無い・有効画素が足りなかった区間で0%と答えると、内訳が「すべて未分類」に見える。"""
+    repo, _ = _repo([_landcover_row(valid_pixels=None)])
 
     assert await repo.get_feature_landcover(123, None) is None
 

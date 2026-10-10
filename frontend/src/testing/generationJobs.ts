@@ -2,7 +2,7 @@
 // ジョブを割り当て、状態の問い合わせには、テストが積んだ答えを生成の出された順に1つずつ使って返す。
 // 答えを積まずに出された生成は、代役が投げてテストを落とす（mswは投げた手引きを失敗として出す）。
 import { heldReplies, onBackend, type SentRequest } from "@/testing/backendServer";
-import type { GenerationConditions, RouteCandidate } from "@/types/route";
+import type { GenerationConditions, RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
 
 const GENERATE = "/api/routes/generate";
 
@@ -27,11 +27,11 @@ export function serveGenerationJobs() {
     /** 次の生成は、最初の問い合わせで終わって`routes`を返す。 */
     respond(routes: RouteCandidate[], conditions: GenerationConditions, noCandidatesReason?: string) {
       const result = { routes, conditions, no_candidates_reason: noCandidatesReason ?? null };
-      replies.push(() => Response.json({ status: "done", result }));
+      replies.push(() => Response.json({ status: "done", result } satisfies RouteGenerateJobStatusResponse));
     },
     /** 次の生成は、ジョブが`message`で失敗する。 */
     fail(message: string) {
-      replies.push(() => Response.json({ status: "failed", error: message }));
+      replies.push(() => Response.json({ status: "failed", error: message } satisfies RouteGenerateJobStatusResponse));
     },
     /**
      * 次の生成は、状態の問い合わせに答えないまま（実行中のまま）にする。テストの終わりにジョブの失敗で閉じる——網の失敗で

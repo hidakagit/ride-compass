@@ -13,15 +13,18 @@
 """
 
 import asyncio
+import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+import re
+from collections.abc import AsyncIterator, Iterable, Sequence
 
 import numpy as np
 import shapely
-from sqlalchemy import Row, TextClause, text
+from sqlalchemy import Column, Row, TextClause, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
+from app.domain.attributes import AVERAGE_GRADE_DECIMALS, CategoricalColumn, EdgeMaterialArrays
 from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
@@ -42,11 +45,11 @@ from app.infrastructure.source_models import (
     ways_lookup_sql,
     ways_source_sql,
 )
-from app.domain.region import BoundingBox
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, BoundingBox
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
-from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
-from app.infrastructure.orm_base import declared_metadata
+from app.infrastructure.derived_models import RoadEdgeRow
+from app.infrastructure.orm_base import DERIVED_KEY, declared_metadata
 from app.infrastructure.vector_tile import (
     ROAD_FEATURE_PROPERTIES,
     ROAD_SURFACE_LAYER_NAME,
@@ -93,7 +96,8 @@ async def create_tables(engine: AsyncEngine) -> None:
 #
 # 手元の道路データは、成功した最新の道路の取込のもの——取込はソースのパーティションを入れ替え、派生も
 # 最新のrunから作る。範囲はそのrunが記録した宣言（`profile.target.bbox`、(min_lat, min_lon, max_lat, max_lon)）。
-_INGESTED_BBOX_SQL = f"""
+# 住所の区画の派生の段（`batch/derive_addresses.py`）も、町字をこの範囲で選ぶ。道路を取り込んでいなければ0行。
+INGESTED_BBOX_SQL = f"""
     SELECT
         (profile->'target'->'bbox'->>0)::double precision AS min_lat,
         (profile->'target'->'bbox'->>1)::double precision AS min_lon,
@@ -106,7 +110,7 @@ _INGESTED_BBOX_SQL = f"""
 #: `point_tile_layers.py`）は`WITH coverage AS (...)`で読む。
 COVERAGE_SQL = f"""
     SELECT EXISTS (
-        SELECT 1 FROM ({_INGESTED_BBOX_SQL}) ingested
+        SELECT 1 FROM ({INGESTED_BBOX_SQL}) ingested
         WHERE ST_Intersects(
             ST_MakeEnvelope(ingested.min_lon, ingested.min_lat, ingested.max_lon, ingested.max_lat, 4326),
             ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
@@ -114,13 +118,173 @@ COVERAGE_SQL = f"""
 """
 
 
+# --- 材料の表の結び方 ---------------------------------------------------------
+#
+# 材料の式は、区間に付く値を別名`em`、道1本に付く値を別名`wm`の列として読む（`domain/material_sql.py`）。
+# その2つの別名を与えるFROM句は`material_from_clause`だけが組み立てる。どの列がどの表にあるかは宣言から
+# 導き、式が読む列を持つ表だけを主キーで結ぶ。区間の表か道の表かは主キーの列で決まる。
+
+_EDGE_KEY = ("osm_way_id", "segment_index")
+_WAY_KEY = ("osm_way_id",)
+
+
+def _material_columns(key: tuple[str, ...]) -> dict[str, Column]:
+    """主キーの列が`key`の派生の表（区間の形の`road_edges`を除く）の、鍵でない列。名前→列。
+
+    同じ名前の列を2つの表が持つと、別名の列がどちらの表から来るかが決まらないので送出する。
+    """
+    columns: dict[str, Column] = {}
+    for table in declared_metadata().sorted_tables:
+        if (not table.info.get(DERIVED_KEY) or table is RoadEdgeRow.__table__
+                or tuple(column.name for column in table.primary_key.columns) != key):
+            continue
+        for column in table.columns:
+            if column.primary_key:
+                continue
+            if column.name in columns:
+                raise RuntimeError(
+                    f"材料の表 {columns[column.name].table.name} と {table.name} が同じ列 {column.name} を持つ")
+            columns[column.name] = column
+    return columns
+
+
+_EDGE_MATERIAL_COLUMNS = _material_columns(_EDGE_KEY)
+_WAY_MATERIAL_COLUMNS = _material_columns(_WAY_KEY)
+
+#: 逆向きで入れ替わる語の対。列名がこの規則に従う限り、対応表を手で並べる必要がない。
+_REVERSING_TOKEN_PAIRS = (("start_", "end_"), ("_gain_", "_loss_"))
+
+
+def reversed_material_expression(name: str) -> str | None:
+    """逆向きの枝でこの列へ入る式（入れ替える相手の列を別名`m`で読む）。向きで変わらない列はNone。
+
+    対になる語を入れ替え、`_grade`で終わる量は符号を返す。標高は地形の物理量で進行方向に依存しないため、
+    この変換は厳密に正しい（形状点列を逆順に辿ると各区間の差分の符号がすべて反転する）。
+    """
+    swapped = name
+    for first, second in _REVERSING_TOKEN_PAIRS:
+        if first in swapped:
+            swapped = swapped.replace(first, second, 1)
+            break
+        if second in swapped:
+            swapped = swapped.replace(second, first, 1)
+            break
+    negated = name.endswith("_grade")
+    if swapped == name and not negated:
+        return None
+    return ("-" if negated else "") + "m." + swapped
+
+
+#: 区間の列→逆向きで読む相手の列と、符号を返すか。
+_REVERSED_EDGE_COLUMNS: dict[str, tuple[str, bool]] = {
+    name: (expression.lstrip("-").removeprefix("m."), expression.startswith("-"))
+    for name in _EDGE_MATERIAL_COLUMNS
+    if (expression := reversed_material_expression(name)) is not None
+}
+
+#: 入れ替え先の列が無ければSQLは実行時に落ちる。import時に気づけるようにする。
+_missing_partners = sorted(partner for partner, _ in _REVERSED_EDGE_COLUMNS.values()
+                           if partner not in _EDGE_MATERIAL_COLUMNS)
+if _missing_partners:
+    raise RuntimeError(f"逆向きの列が存在しない: {_missing_partners}")
+
+_MATERIAL_REFERENCE = re.compile(r"(?<![\w.])(em|wm)\.(\w+)")
+
+
+def material_from_clause(
+    expressions: Iterable[str], way_id: str, segment_index: str | None = None, *,
+    forward: str | None = None, way_when_no_segment: bool = False,
+) -> str:
+    """`expressions`が読む`em`・`wm`の列を与えるJOINの並び。読む列を持つ表だけを、主キーで`way_id`
+    （と`segment_index`）の式へ外部結合する。呼び出し側はFROM句の行の後ろへそのまま続ける。
+
+    `em`は、`segment_index`を渡せば区間の値、Noneなら道1本の値（区間の表と同じ名前の道の列。道に無い列はNULL）。
+    `way_when_no_segment`は、`segment_index`の式がNULLの行を道1本の値で読む（区間と道丸ごとが混ざるタイル）。区間の行か
+    道丸ごとの行のどちらかでしか読まない表は、その行のときだけ引く。
+    `forward`（真なら順方向）を渡すと、`em`の向きで変わる列を逆向きの行で入れ替え・符号反転する。
+
+    式が宣言に無い列を読めば送出する——SQLの実行まで気づかないと、その経路の読み出しが材料ぶん丸ごと落ちる。
+    """
+    names: dict[str, set[str]] = {"em": set(), "wm": set()}
+    for expression in expressions:
+        for alias, name in _MATERIAL_REFERENCE.findall(expression):
+            if name not in (_EDGE_MATERIAL_COLUMNS if alias == "em" else _WAY_MATERIAL_COLUMNS):
+                raise ValueError(f"材料の式が宣言に無い列を読む: {alias}.{name}")
+            names[alias].add(name)
+
+    # 表ごとの、読む行の種類（区間の行だけ・道丸ごとの行だけ・どちらも=None）。
+    tables: dict = {}
+
+    def read(column: Column, rows: str | None = None) -> str:
+        table = column.table
+        tables[table] = rows if tables.get(table, rows) == rows else None
+        return f"t_{table.name}.{column.name}"
+
+    edge_rows = "segment" if way_when_no_segment else None
+
+    def edge_value(name: str) -> str:
+        value = read(_EDGE_MATERIAL_COLUMNS[name], edge_rows)
+        if forward is None or name not in _REVERSED_EDGE_COLUMNS:
+            return value
+        partner, negated = _REVERSED_EDGE_COLUMNS[name]
+        reverse = ("-" if negated else "") + read(_EDGE_MATERIAL_COLUMNS[partner], edge_rows)
+        return f"CASE WHEN {forward} THEN {value} ELSE {reverse} END"
+
+    def way_value(name: str, rows: str | None = None) -> str | None:
+        column = _WAY_MATERIAL_COLUMNS.get(name)
+        return None if column is None else read(column, rows)
+
+    selects: dict[str, list[str]] = {"em": [], "wm": []}
+    for name in sorted(names["em"]):
+        if segment_index is None:
+            value = way_value(name) or (
+                f"CAST(NULL AS {_EDGE_MATERIAL_COLUMNS[name].type.compile(dialect=postgresql.dialect())})")
+        elif way_when_no_segment:
+            way = way_value(name, "way")
+            value = (f"CASE WHEN {segment_index} IS NOT NULL THEN {edge_value(name)}"
+                     + (f" ELSE {way}" if way is not None else "") + " END")
+        else:
+            value = edge_value(name)
+        selects["em"].append(f"{value} AS {name}")
+    for name in sorted(names["wm"]):
+        selects["wm"].append(f"{read(_WAY_MATERIAL_COLUMNS[name])} AS {name}")
+
+    lines = []
+    for table, rows in sorted(tables.items(), key=lambda item: item[0].name):
+        on = f"t_{table.name}.osm_way_id = {way_id}"
+        if tuple(column.name for column in table.primary_key.columns) == _EDGE_KEY:
+            on += f" AND t_{table.name}.segment_index = {segment_index}"
+        if rows is None:
+            lines.append(f"LEFT JOIN {table.name} t_{table.name} ON {on}")
+            continue
+        # 片方の種類の行でしか読まない表は、その行のときだけ引く。結合の条件に足すだけでは、もう片方の行でも
+        # 主キーを引きにいく。`OFFSET 0`は副問い合わせを外へ畳ませないためのもの——畳まれると同じことになる。
+        on = on.replace(f"t_{table.name}.", "x.")
+        when = f"{segment_index} IS {'NOT ' if rows == 'segment' else ''}NULL"
+        lines.append(f"LEFT JOIN LATERAL (SELECT * FROM {table.name} x WHERE {on} AND {when} OFFSET 0)"
+                     f" t_{table.name} ON true")
+    lines += [f"CROSS JOIN LATERAL (SELECT {', '.join(select)}) {alias}"
+              for alias, select in selects.items() if select]
+    return "".join(f"\n{line}" for line in lines) + "\n"
+
+
+def edge_material_table(expression: str) -> str:
+    """`expression`が読む区間の値（`em`）の列を持つ表の名前。区間1本にその表の行は0か1なので、表を別名`em`で
+    直に走査すれば、区間へ結ばずに値のある区間を数えられる。
+
+    `em`の列を1つの表からだけ読む式でなければ送出する（`wm`を読む・2つの表にまたがる・宣言に無い列を読む）。
+    """
+    tables = set()
+    for alias, name in _MATERIAL_REFERENCE.findall(expression):
+        if alias != "em" or name not in _EDGE_MATERIAL_COLUMNS:
+            raise ValueError(f"区間の値の表1つで読めない式: {alias}.{name}")
+        tables.add(_EDGE_MATERIAL_COLUMNS[name].table.name)
+    if len(tables) != 1:
+        raise ValueError(f"区間の値の表1つで読めない式: {expression}")
+    return tables.pop()
+
+
 # --- タイルが焼く単位 ---------------------------------------------------------
-
-#: 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間、それより引いた
-#: 表示ではway丸ごと**にする。区間で焼くとgzip後の費用はz14で1.48倍・z12で1.81倍へ増える
-#: 一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず塗り分けても読めない。
-EDGE_UNIT_MIN_ZOOM = 14
-
 
 #: どちらの単位も`feature_key`という同じ名前で出す。フロントは`promoteId`でこれを
 #: feature.idへ昇格させるだけでよく、中身がway_idか区間の鍵かを知らなくてよい。
@@ -162,44 +326,29 @@ _TILE_FEATURE_SOURCE_SQL = f"""
 """
 
 
-#: `em`をway粒度で作るときの列。`edge_materials`と`way_materials`で同じ名前の列はway側の
-#: 値を、way側に無い列（標高）はNULLを返す——列の一覧を書かず、宣言から導く。
-_WAY_EM_COLUMNS = [c.name for c in EdgeMaterialRow.__table__.columns
-                   if c.name not in ("osm_way_id", "segment_index")]
-_WAY_MATERIAL_COLUMNS = {c.name for c in WayMaterialRow.__table__.columns}
-
-#: タイルのフィーチャーの`em`。区間単位のフィーチャーは`edge_materials`の行、way丸ごとのフィーチャーは
-#: `way_materials`の同じ名前の列（無い列はNULL）——件数と長さ（`re`）は必ず同じ側から取る。片方だけ区間に
-#: すると、区間の件数をway全体の長さで割った無意味な値になる。
-_TILE_EM_SQL = ", ".join(
-    f"CASE WHEN src.segment_index IS NOT NULL THEN e.{name}"
-    + (f" ELSE wm.{name}" if name in _WAY_MATERIAL_COLUMNS else "")
-    + f" END AS {name}"
-    for name in _WAY_EM_COLUMNS
-)
-
-#: タイルが材料を引くためのJOIN。値式が読む別名（`w`・`wm`・`em`・`re`）をフィーチャーの単位で与え、
-#: 区間でもway丸ごとでも同じ値式を使う。`re`は長さだけを持ち、way丸ごとのフィーチャーはwayの長さ
-#: （0はNULL）にする。区間を持たない道は`way_materials`にも行が無いので、`wm`も外部結合にする。
-_TILE_MATERIAL_JOINS = f"""
-                    JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
-                    LEFT JOIN way_materials wm ON wm.osm_way_id = src.osm_way_id
-                    LEFT JOIN edge_materials e
-                           ON e.osm_way_id = src.osm_way_id
-                          AND e.segment_index = src.segment_index
-                    CROSS JOIN LATERAL (SELECT {_TILE_EM_SQL}) em
-                    CROSS JOIN LATERAL (
-                        SELECT CASE WHEN src.segment_index IS NOT NULL THEN src.length_m
-                                    ELSE NULLIF(ST_Length(w.geom::geography), 0) END AS distance_m
-                    ) re
-"""
-
 #: 材料の焼き込み列。`tile_property`を持つ全材料について、値式から組んだ式を並べる
 #: （`domain/material_catalog.py: material_tile_columns`）。列を手で書くと、地図と評価が別々の求め方になる。
 _MATERIAL_TILE_COLUMNS_SQL = ",\n".join(
     f"                    {expression} AS {tile_property}"
     for tile_property, expression in material_tile_columns().items()
 )
+
+#: タイルが材料を引くためのJOIN。値式が読む別名（`w`・`wm`・`em`・`re`）をフィーチャーの単位で与え、
+#: 区間でもway丸ごとでも同じ値式を使う。`em`は区間単位のフィーチャーなら区間の値、way丸ごとなら道1本の値で、
+#: 件数と長さ（`re`）は必ず同じ側から取る——片方だけ区間にすると、区間の件数をway全体の長さで割った
+#: 無意味な値になる。`re`は長さだけを持ち、way丸ごとのフィーチャーはwayの長さ（0はNULL）にする。
+_TILE_MATERIAL_JOINS = f"""
+                    JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
+                    {material_from_clause(material_tile_columns().values(), 'src.osm_way_id',
+                                          'src.segment_index', way_when_no_segment=True)}
+                    CROSS JOIN LATERAL (
+                        -- `OFFSET 0`は外へ畳ませないためのもの——畳まれると`re.distance_m`を読む
+                        -- 値式ごとに道の長さを測り直す。
+                        SELECT CASE WHEN src.segment_index IS NOT NULL THEN src.length_m
+                                    ELSE NULLIF(ST_Length(w.geom::geography), 0) END AS distance_m
+                        OFFSET 0
+                    ) re
+"""
 
 # 路面タイル（MVT）をPostGIS側で丸ごと生成する。転送は完成済みタイル1個（数十KB）で済み、
 # エンコードはPostGISのC実装が担う。bbox内の全way行をPythonへ転送してshapelyでdecode→
@@ -294,7 +443,7 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
             FROM (
                 SELECT
                     src.feature_key,
-                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, 2)
+                    round(({length_weighted_mean_sql(_GRADIENT_SQL)})::numeric, {AVERAGE_GRADE_DECIMALS})
                         ::double precision AS average_grade,
                     degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
@@ -304,11 +453,16 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                     SELECT ST_Azimuth(ST_StartPoint(src.geom)::geography,
                                       ST_EndPoint(src.geom)::geography) AS azimuth
                 ) ref
-                JOIN road_edges re
-                  ON re.osm_way_id = src.osm_way_id
-                 AND (src.segment_index IS NULL OR re.segment_index = src.segment_index)
-                JOIN edge_materials em
-                  ON em.osm_way_id = re.osm_way_id AND em.segment_index = re.segment_index
+                CROSS JOIN LATERAL (
+                    -- 区間を道ごとに主キーの索引で引く。`OFFSET 0`は副問い合わせを外の結合へ
+                    -- 畳ませないためのもの——畳まれると、道の単位と区間の単位を1つの条件で結ぶ
+                    -- `OR`のために、計画が区間の表を全件読んでハッシュを作る形を選びうる。
+                    SELECT * FROM road_edges r
+                    WHERE r.osm_way_id = src.osm_way_id
+                      AND (src.segment_index IS NULL OR r.segment_index = src.segment_index)
+                    OFFSET 0
+                ) re
+                {material_from_clause([_GRADIENT_SQL], 're.osm_way_id', 're.segment_index')}
                 WHERE ({_GRADIENT_SQL}) IS NOT NULL
                   AND ref.azimuth IS NOT NULL
                 GROUP BY src.feature_key, ref.azimuth
@@ -332,23 +486,11 @@ FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(_FEATURE_GRADIENT_INPUTS_IN_TILE_SQ
 #
 # 材料の式は区間向けの別名を前提にする。**way1本を指すときも同じ式を使う**——wayの行から
 # 同じ名前の別名を組み立てるだけで、式を2組持たない（区間インスペクタ・軸スタジオ）。
-# way粒度では区間そのものの値（長さ・標高）が無いため、`re`と`em`はway単位の値かNULLを
-# 返す1行にする。
+# way粒度では区間そのものの長さが無いため、`re`はwayの長さを返す1行にする。
 
-_WAY_ALIAS_EM_SQL = ", ".join(
-    (f"wm2.{name} AS {name}" if name in _WAY_MATERIAL_COLUMNS
-     else f"NULL::double precision AS {name}")
-    for name in _WAY_EM_COLUMNS
-)
-
-#: `w`は区間を持たない道も含み、その道は`way_materials`に行が無いので、`wm`と`em`は外部結合にする。
-_WAY_ALIAS_CLAUSES: dict[str, str] = {
-    "wm": "LEFT JOIN way_materials wm ON wm.osm_way_id = w.osm_way_id",
-    "re": ("CROSS JOIN LATERAL (SELECT ST_Length(w.geom::geography) AS distance_m,"
-           " NULL::double precision AS bearing_deg) re"),
-    "em": ("LEFT JOIN LATERAL (SELECT " + _WAY_ALIAS_EM_SQL
-           + " FROM way_materials wm2 WHERE wm2.osm_way_id = w.osm_way_id) em ON true"),
-}
+_WAY_RE_CLAUSE = ("CROSS JOIN LATERAL (SELECT ST_Length(w.geom::geography) AS distance_m,"
+                  " NULL::double precision AS bearing_deg) re")
+_READS_RE = re.compile(r"(?<![\w.])re\.")
 
 
 def way_from_clause(expressions: list[str], source: str | None = None) -> str:
@@ -358,10 +500,9 @@ def way_from_clause(expressions: list[str], source: str | None = None) -> str:
     `source`は`w`をどう引くか（全件の走査・抽選付きの走査・主キーでの1件）。呼び出し側が
     決める——1件を引くのに走査を使うと、道の全件に対する総当たりになる。
     """
-    needed = {alias for alias in _WAY_ALIAS_CLAUSES
-              if any(f"{alias}." in expression for expression in expressions)}
-    joined = "\n".join(_WAY_ALIAS_CLAUSES[name] for name in _WAY_ALIAS_CLAUSES if name in needed)
-    return f"\nFROM {source or ways_source_sql()} w\n{joined}"
+    reads_re = any(_READS_RE.search(expression) for expression in expressions)
+    return (f"\nFROM {source or ways_source_sql()} w\n{_WAY_RE_CLAUSE if reads_re else ''}"
+            + material_from_clause(expressions, "w.osm_way_id"))
 
 
 _WAY_MATERIAL_SELECT_SQL = ", ".join(
@@ -382,7 +523,7 @@ _WAY_MATERIAL_VALUES_SQL = text(
 #
 # 範囲を絞るときは抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
 # 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで落ちる。
-def _sample_way_materials_sql(sampling: str, area: str):
+def _sample_way_values_sql(sampling: str, area: str):
     return text(
         f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
         + way_from_clause(list(material_value_sql().values()),
@@ -391,12 +532,24 @@ def _sample_way_materials_sql(sampling: str, area: str):
     )
 
 
-_SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
+_SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_values_sql(
     "TABLESAMPLE SYSTEM (:sample_percent)", "")
-_SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
+_SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_values_sql(
     "", " WHERE w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
 
 _WAY_MATERIAL_COLUMN_PREFIX = "m_"
+
+#: 地図のフィーチャー1つぶんの土地被覆。区間を指す鍵なら区間の値、指さなければ（`:segment_index`がNULL）
+#: way1本の値——タイルと同じ切り替えで読む。
+_FEATURE_LANDCOVER_COLUMNS = ["em.lc_valid_pixels"] + [
+    f"em.lc_{landcover_key(field)}" for field in LandcoverPercentages.model_fields]
+_FEATURE_LANDCOVER_SQL = text(
+    f"SELECT {', '.join(_FEATURE_LANDCOVER_COLUMNS)}"
+    " FROM (SELECT CAST(:osm_way_id AS bigint) AS osm_way_id,"
+    " CAST(:segment_index AS smallint) AS segment_index) k"
+    + material_from_clause(_FEATURE_LANDCOVER_COLUMNS, "k.osm_way_id", "k.segment_index",
+                           way_when_no_segment=True)
+)
 
 
 def _material_values_from_row(row: Row) -> dict[str, object]:
@@ -410,59 +563,6 @@ def _material_values_from_row(row: Row) -> dict[str, object]:
 
 
 # --- 区間粒度の材料 -----------------------------------------------------------
-
-#: 逆向きに辿ったときに入れ替わる／符号が反転する列。標高は地形の物理量で進行方向に
-#: 依存しないため、この変換は厳密に正しい（形状点列を逆順に辿ると各区間の差分の符号が
-#: すべて反転する）。
-#: 逆向きで入れ替わる語の対。列名がこの規則に従う限り、対応表を手で並べる必要がない。
-_REVERSING_TOKEN_PAIRS = (("start_", "end_"), ("_gain_", "_loss_"))
-
-
-def reversed_material_expression(name: str) -> str | None:
-    """逆向きの枝でこの列へ入る式。向きで変わらない列はNone。
-
-    対になる語を入れ替え、`_grade`で終わる量は符号を返す。形状点列を逆順に辿ると各区間の
-    差分の符号がすべて反転する。
-    """
-    swapped = name
-    for first, second in _REVERSING_TOKEN_PAIRS:
-        if first in swapped:
-            swapped = swapped.replace(first, second, 1)
-            break
-        if second in swapped:
-            swapped = swapped.replace(second, first, 1)
-            break
-    negated = name.endswith("_grade")
-    if swapped == name and not negated:
-        return None
-    return ("-" if negated else "") + "m." + swapped
-
-
-_REVERSED_ELEVATION_COLUMNS: dict[str, str] = {
-    column.name: expression
-    for column in EdgeMaterialRow.__table__.columns
-    if (expression := reversed_material_expression(column.name)) is not None
-}
-
-#: 入れ替え先の列が無ければSQLは実行時に落ちる。import時に気づけるようにする。
-_material_columns = {c.name for c in EdgeMaterialRow.__table__.columns}
-_missing_partners = sorted(
-    expression.lstrip("-").removeprefix("m.")
-    for expression in _REVERSED_ELEVATION_COLUMNS.values()
-    if expression.lstrip("-").removeprefix("m.") not in _material_columns
-)
-if _missing_partners:
-    raise RuntimeError(f"逆向きの列が存在しない: {_missing_partners}")
-
-#: 向きを解いた`em`。材料の式は向きを知らずに済み、逆向きの区間でも正しい値を読む。
-_EDGE_MATERIALS_LATERAL = "LEFT JOIN LATERAL (SELECT " + ", ".join(
-    (f"CASE WHEN ids.forward THEN m.{name} ELSE {_REVERSED_ELEVATION_COLUMNS[name]} END AS {name}"
-     if name in _REVERSED_ELEVATION_COLUMNS else f"m.{name}")
-    for name in (c.name for c in EdgeMaterialRow.__table__.columns)
-) + """
-    FROM edge_materials m
-    WHERE m.osm_way_id = ids.osm_way_id AND m.segment_index = ids.segment_index
-) em ON true"""
 
 _HARD_FILTER_COLUMN_PREFIX = "hf_"
 
@@ -483,7 +583,7 @@ _EXTRA_MATERIAL_ARRAY_COLUMNS: dict[str, str] = {
 }
 
 #: 列の並びは渡した3つ組の位置で固定する。**road_edgesへLEFT JOINする**——行が無い区間で
-#: 配列が短くなると、以降の列と静かにずれる。
+#: 配列が短くなると、以降の列と静かにずれる。`em`は向きを解いた値で、材料の式は向きを知らずに済む。
 _EDGE_MATERIAL_ARRAYS_FROM = f"""
 FROM unnest(CAST(:way_ids AS bigint[]), CAST(:segment_indexes AS int[]),
             CAST(:forwards AS boolean[]))
@@ -491,8 +591,8 @@ FROM unnest(CAST(:way_ids AS bigint[]), CAST(:segment_indexes AS int[]),
 LEFT JOIN road_edges re
        ON re.osm_way_id = ids.osm_way_id AND re.segment_index = ids.segment_index
 LEFT JOIN LATERAL {ways_lookup_sql('ids.osm_way_id')} w ON true
-LEFT JOIN way_materials wm ON wm.osm_way_id = ids.osm_way_id
-{_EDGE_MATERIALS_LATERAL}
+{material_from_clause([*material_value_sql().values(), *_EXTRA_MATERIAL_ARRAY_COLUMNS.values()],
+                      'ids.osm_way_id', 'ids.segment_index', forward='ids.forward')}
 LEFT JOIN LATERAL {nodes_lookup_sql('re.from_node_id')} nf ON true
 LEFT JOIN LATERAL {nodes_lookup_sql('re.to_node_id')} nt ON true
 """
@@ -519,11 +619,11 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 # --- グラフの読み出し ---------------------------------------------------------
 #
 # 区間は向きを持たない1行で、**有向の枝は道路網全体の配列を作るとき**
-# （`infrastructure/road_network_store.py`）に作る。`way_materials.direction`が逆向きの枝を
+# （`infrastructure/road_network_store.py`）に作る。道の通行方向（`way_directions.direction`）が逆向きの枝を
 # 作ってよいかを決める。
 
-#: 取込範囲全体の区間（向きを持たない1行）。区間は道の値（`way_materials`）への外部キーを持つので、
-#: 道の値の内部結合で落ちる区間は無い。並びは`domain/road_network.py`の行順の前提。
+#: 取込範囲全体の区間（向きを持たない1行）。どの道も通行方向の行を持つ（通行方向の段が数を比べて守る）ので、
+#: どの区間も通行方向を持つ。並びは`domain/road_network.py`の行順の前提。
 _NETWORK_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        w.highway, wm.direction,
@@ -531,16 +631,16 @@ SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        ST_XMax(re.geom) AS max_lon, ST_YMax(re.geom) AS max_lat
 FROM road_edges re
 JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
-JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
+{material_from_clause(["wm.direction"], "re.osm_way_id")}
 ORDER BY re.osm_way_id, re.segment_index
 """)
 
-#: 区間の端点になりうるノード全件（`road_edges`の端点は`node_materials`に行を持つ）。
+#: 区間の端点全件（`road_edges`の端点は`road_nodes`に行を持ち、`road_nodes`の全行が`node_turns`に行を持つ）。
 #: 座標はノードの生データから読み、生データが無いノードは現れない。
 _NETWORK_NODES_SQL = text(f"""
 SELECT nm.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
        nm.has_traffic_signals, nm.max_highway_rank
-FROM node_materials nm
+FROM node_turns nm
 JOIN LATERAL {nodes_lookup_sql("nm.osm_node_id")} n ON true
 ORDER BY nm.osm_node_id
 """)
@@ -581,6 +681,16 @@ def _rows_to_directed_edges(rows, wanted: dict[tuple[int, int], list[bool]]) -> 
                 segment_index=row.segment_index, forward=forward,
             )
     return edges
+
+
+def _scanned_relations(plan: object) -> set[str]:
+    """`EXPLAIN (FORMAT JSON)`の計画の中で走査される表の名前。"""
+    if isinstance(plan, list):
+        return set().union(*map(_scanned_relations, plan))
+    if not isinstance(plan, dict):
+        return set()
+    found = {plan["Relation Name"]} if "Relation Name" in plan else set()
+    return found.union(*map(_scanned_relations, plan.values()))
 
 
 def _float_array(values: list) -> np.ndarray:
@@ -637,7 +747,7 @@ class RoadGraphRepository:
 
     async def get_ingested_area(self) -> BoundingBox | None:
         """取り込んだ範囲（`is_covered`が判定に使うのと同じ範囲）。道路をまだ取り込んでいなければNone。"""
-        row = (await self._session.execute(text(_INGESTED_BBOX_SQL))).mappings().one_or_none()
+        row = (await self._session.execute(text(INGESTED_BBOX_SQL))).mappings().one_or_none()
         if row is None:
             return None
         return BoundingBox(
@@ -658,6 +768,19 @@ class RoadGraphRepository:
         result = await self._session.stream(_NETWORK_NODES_SQL)
         async for chunk in result.partitions(chunk_size):
             yield chunk
+
+    async def network_relations(self) -> set[str]:
+        """道路網全体の配列の読み出し（`NETWORK_SQL_SOURCES`）が読む表の名前。
+
+        文を書き写して読まず、PostgreSQLの計画（`EXPLAIN`）が走査する表から読む——結び方を変えても漏れず、ソースの
+        パーティションは読むものだけが出る。パラメータはNULLで渡す（走査する表は値で変わらない）。
+        """
+        relations: set[str] = set()
+        for statement in NETWORK_SQL_SOURCES:
+            plan: object = (await self._session.execute(text(f"EXPLAIN (FORMAT JSON) {statement.text}"),
+                                                dict.fromkeys(statement.compile().params))).scalar_one()
+            relations |= _scanned_relations(json.loads(plan) if isinstance(plan, str) else plan)
+        return relations
 
     async def get_edges_with_geometry(self, edges: list[LeanEdge]) -> dict[str, LeanEdge]:
         """指定した枝ぶんだけ、実ジオメトリ込みの`LeanEdge`を取得する。
@@ -688,13 +811,13 @@ class RoadGraphRepository:
         self, way_ids: list[int], segment_indexes: list[int], forwards: list[bool], accident_years_covered: int
     ) -> EdgeMaterialArrays:
         """有向の区間（`(osm_way_id, segment_index, forward)`を位置で揃えた3本の列）の材料を、
-        **DB側で導出し、dtypeごとの行列として**受け取る。
+        **DB側で導出し、数値の行列と分類の列として**受け取る。
 
         区間数に比例するPythonの仕事を持たない。**すべての列が同じ並びを持つ**必要がある
         （1つでも違うと値が列の間で静かにずれ、エラーは出ない）。並びは渡した区間の位置
         （`WITH ORDINALITY`）で固定する。
         """
-        numeric_ids, boolean_ids, categorical_ids = material_array_columns()
+        numeric_ids, categorical_ids = material_array_columns()
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
         n = len(way_ids)
         for start in range(0, n, ID_CHUNK_SIZE):
@@ -714,13 +837,9 @@ class RoadGraphRepository:
         numeric_values = np.empty((n, len(numeric_ids)), dtype=np.float64)
         for i, material_id in enumerate(numeric_ids):
             numeric_values[:, i] = _float_array(raw[material_id])
-        boolean_values = np.empty((n, len(boolean_ids)), dtype=bool)
-        for i, material_id in enumerate(boolean_ids):
-            boolean_values[:, i] = [bool(v) for v in raw[material_id]]
 
         return EdgeMaterialArrays(
             numeric_ids=numeric_ids, numeric_values=numeric_values,
-            boolean_ids=boolean_ids, boolean_values=boolean_values,
             categorical_ids=categorical_ids,
             categorical_columns=tuple(CategoricalColumn.encode(raw[material_id]) for material_id in categorical_ids),
             hard_filter_ids=hard_filter_ids, hard_filter_flags=hard_filter_flags,
@@ -797,23 +916,16 @@ class RoadGraphRepository:
         できないときはway1本の値を使う——切り替えの規則はタイルと同じもので、揃えないと
         同じ場所で地図の色と内訳の数字が食い違う。
         """
-        fields = list(LandcoverPercentages.model_fields)
-        columns = ["lc_valid_pixels"] + [f"lc_{landcover_key(field)}" for field in fields]
         segment = parse_edge_feature_key(feature_key) if feature_key else None
-        if segment is not None and segment[0] == osm_way_id:
-            row = (await self._session.execute(
-                text(f"SELECT {', '.join(columns)} FROM edge_materials "
-                     "WHERE osm_way_id = :osm_way_id AND segment_index = :segment_index"),
-                {"osm_way_id": osm_way_id, "segment_index": segment[1]})).first()
-        else:
-            row = (await self._session.execute(
-                text(f"SELECT {', '.join(columns)} FROM way_materials WHERE osm_way_id = :osm_way_id"),
-                {"osm_way_id": osm_way_id})).first()
-        # 割合は有効画素が正の行だけが全部持つ（表の制約`landcover_shares_follow_valid_pixels`）。
-        if row is None or not row.lc_valid_pixels:
+        row = (await self._session.execute(_FEATURE_LANDCOVER_SQL, {
+            "osm_way_id": osm_way_id,
+            "segment_index": segment[1] if segment is not None and segment[0] == osm_way_id else None,
+        })).one()
+        # 割合は有効画素のある行だけが全部持つ（表の制約`landcover_shares_follow_valid_pixels`）。
+        if row.lc_valid_pixels is None:
             return None
-        values = {field: getattr(row, f"lc_{landcover_key(field)}") for field in fields}
-        return LandcoverPercentages(**values)
+        return LandcoverPercentages(**{field: getattr(row, f"lc_{landcover_key(field)}")
+                                       for field in LandcoverPercentages.model_fields})
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:
         """軸スタジオの値入力UX向け。highway/surface/smoothnessのようなオープンエンドな

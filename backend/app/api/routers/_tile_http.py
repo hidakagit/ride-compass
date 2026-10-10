@@ -1,40 +1,31 @@
-"""z/x/yで配るタイルのエンドポイントで共通のHTTP層。
+"""タイルを配るエンドポイントで共通のHTTP層。
 
-region.py（路面/点/土地被覆タイル）・gsi_tile.py（標高タイル）が、
-座標検証と応答の組み立てをそれぞれ個別に実装するのを避けるため共有する。レート制限は地域タイル系に限らず全router
-共通の`app.api.rate_limit.enforce_rate_limit`を使う（本モジュールの対象外）。
+タイルのrouterが、座標検証と応答の組み立てをそれぞれ個別に実装するのを避けるため共有する。レート制限は
+タイル系に限らず全router共通の`app.api.rate_limit.enforce_rate_limit`を使う（本モジュールの対象外）。
 """
 
 from fastapi import HTTPException, Response
+from fastapi.exceptions import RequestValidationError
+from pydantic_core import PydanticCustomError
 
-from app.api.cache_policy import NO_STORE
-from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
+from app.api.cache_policy import NO_STORE, CachePolicy
+from app.domain.region import check_tile_index
 from app.infrastructure.media_types import MVT_CONTENT_TYPE
 from app.infrastructure.region_tile_cache import TileResponse
 
 
-def validate_tile_coords(
-    z: int,
-    x: int,
-    y: int,
-    min_zoom: int = ROAD_TILE_MIN_ZOOM,
-    max_zoom: int = ROAD_TILE_MAX_ZOOM,
-) -> None:
-    """タイルで共通のズーム/座標範囲チェック。
+def validate_tile_coords(z: int, x: int, y: int) -> None:
+    """タイルで共通の座標の検査。ズームの範囲と列・行の下限は経路の引数の型（レイヤーのズームの型・
+    `domain/region.py: TileIndex`）が見るので、ここは列・行の上限（ズームに依る）だけを、型の検査と同じ422で断る。
 
-    既定は路面レイヤーのズーム範囲（点のタイルもこれに準拠する）。元データの分解能が
-    違うレイヤー（土地被覆ラスタ・標高タイル）は自分の範囲を渡す。
+    MapLibre側もsourceのminzoom/maxzoomと世界の範囲の外は要求しないが、直接APIを叩かれた場合の安全弁。
     """
-    # MapLibre側もsourceのminzoom/maxzoomでこの範囲外は要求しないが、
-    # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。
-    if z < min_zoom or z > max_zoom:
-        raise HTTPException(status_code=400, detail="対応していないズームレベルです。")
-    # x/yがそのズームレベルで存在しうる範囲（0 <= x,y < 2**z）を外れると、
-    # domain/region.pyのtile_bounds_lonlatがmath.sinhでOverflowErrorを送出しうるため、
-    # ここで先に弾く（例: 直接APIを叩かれてy=10**18のような極端な値が渡された場合）。
-    tile_index_max = 2**z
-    if not (0 <= x < tile_index_max) or not (0 <= y < tile_index_max):
-        raise HTTPException(status_code=400, detail="タイル座標が範囲外です。")
+    try:
+        check_tile_index(z, x, y)
+    except PydanticCustomError as error:
+        raise RequestValidationError(
+            [{"type": error.type, "loc": ("path",), "msg": error.message(), "input": {"z": z, "x": x, "y": y}}]
+        ) from None
 
 
 def tile_response(tile: TileResponse, media_type: str = MVT_CONTENT_TYPE) -> Response:
@@ -46,3 +37,10 @@ def tile_response(tile: TileResponse, media_type: str = MVT_CONTENT_TYPE) -> Res
     """
     headers = None if tile.cacheable else {"Cache-Control": NO_STORE.header()}
     return Response(content=tile.content, media_type=media_type, headers=headers)
+
+
+def tile_not_found(policy: CachePolicy) -> HTTPException:
+    """タイルが無いことを表す404。この404をブラウザに持たせる時間を`policy`で付ける。"""
+    return HTTPException(
+        status_code=404, detail="指定されたタイルは存在しません", headers={"Cache-Control": policy.header()}
+    )

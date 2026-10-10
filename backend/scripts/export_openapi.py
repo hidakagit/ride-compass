@@ -28,13 +28,15 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_SPACING_DEG,
 )
 from app.domain.route_request import (  # noqa: E402
+    ASSUMED_SPEED_KMH,
     DEFAULT_DISTANCE_TOLERANCE_KM,
     DEFAULT_MAX_ROUTES,
+    MAX_ASSUMED_SPEED_KMH,
     MAX_ROUTE_DISTANCE_KM,
     MAX_ROUTES,
     MAX_WAYPOINTS,
+    MIN_ASSUMED_SPEED_KMH,
     MIN_ROUTES,
-    ROUTES_WITH_WAYPOINTS,
 )
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
@@ -42,9 +44,16 @@ from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
 from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
 from app.main import app  # noqa: E402
-from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
+from app.domain.place_search import (  # noqa: E402
+    PLACE_KIND_LABELS,
+    PLACE_MATCH_LEVEL_LABELS,
+    PLACE_PREDICTION_DELAY_SECONDS,
+    PLACE_PREDICTION_MIN_LENGTH,
+    PlaceKind,
+    PlaceMatchLevel,
+)
 from cross_language_expectations import EXPECTATIONS  # noqa: E402
 from app.domain.weather_elements import (  # noqa: E402
     WEATHER_ELEMENTS,
@@ -53,7 +62,8 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_deliveries,
     weather_element_tile,
 )
-from app.domain.difficulty import DIFFICULTY_DECIMALS  # noqa: E402
+from app.domain.cycling_speed import SEGMENT_SPEED_CONDITIONS  # noqa: E402
+from app.domain.difficulty import DIFFICULTY_DECIMALS, OVERALL_DIFFICULTY_WORDING  # noqa: E402
 from app.domain.map_paint import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     ALWAYS_SHOWN_ATTRIBUTIONS,
@@ -130,7 +140,7 @@ from app.domain.landcover import (  # noqa: E402
     LANDCOVER_TILE_MIN_ZOOM,
 )
 from app.infrastructure.cache_identity import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
+from app.domain.jma_tile_specs import JMA_ELEMENTS, JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
@@ -142,7 +152,7 @@ from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E4
 from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.domain.region import MAX_MERCATOR_LATITUDE  # noqa: E402
-from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_WEIGHT  # noqa: E402
+from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_SHARE  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
 from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
@@ -250,6 +260,8 @@ def _weather_element_entry(element: WeatherElement) -> dict:
                 "reader": delivery.reader,
                 "refreshIntervalMs": delivery.refresh_interval_seconds * 1000,
                 "dataDelayMinutes": delivery.data_delay_minutes,
+                # 予測が届く先（分）。凡例が「実況〜N分先」と書く。
+                "forecastMinutes": JMA_ELEMENTS[delivery.element_id].forecast_minutes,
             }
             for delivery in weather_element_deliveries(element)
         ],
@@ -331,7 +343,7 @@ def main() -> None:
             "semantic": SEMANTIC_COLORS,
         },
     )
-    # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びがチップの並び順。
+    # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びが「表示」の一覧の並び順。
     # **JSONではなくTypeScriptで出す。** JSONのimportは型が`string`へ広がり、
     # 存在しない値を渡しても型検査が通ってしまう（実際に広げた実績あり）。`as const`で
     # 出すと、画面側の型は源泉の値そのものに狭まる。
@@ -348,15 +360,15 @@ def main() -> None:
             ],
             "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
             "layerKinds": list(MAP_LAYER_KINDS),
-            # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示）。
+            # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示・最初に隠す行）。
             "layers": [
                 {
                     "id": layer_id,
                     "label": map_layer_label(layer_id, spec),
                     **_map_layer_entry(spec),
-                    "chipLabel": spec.chip_label,
                     "description": _layer_text(spec.description),
                     "panelHint": _layer_text(spec.panel_hint) or None,
+                    "hideMissingRows": spec.hide_missing_rows,
                 }
                 for layer_id, spec in MAP_LAYERS
             ],
@@ -439,6 +451,11 @@ def main() -> None:
             ],
             # 取込のrunの状態の呼び名（DB状態の「最後の取込」）。宣言に無い状態は画面が生のまま出す。
             "sourceRunStatuses": [{"key": key, "label": label} for key, label in SOURCE_RUN_STATUS_LABELS.items()],
+            # 地点の検索の候補の種類と、当たった段（粗い→細かい）の呼び名。
+            "placeKinds": [{"key": key, "label": PLACE_KIND_LABELS[key]} for key in get_args(PlaceKind)],
+            "placeMatchLevels": [
+                {"key": key, "label": PLACE_MATCH_LEVEL_LABELS[key]} for key in get_args(PlaceMatchLevel)
+            ],
         },
     )
     # 気象の値を色へ写す段（domain/weather_display.py）。危険度・雷・竜巻は配信元が
@@ -527,7 +544,8 @@ def main() -> None:
         # その値を載せる材料の宣言から引く（地図の凡例が「不明」を出すかを決める）。
         [
             {
-                **attr.model_dump(exclude={"display_axes"}),
+                # 点の不透明度は地図の見た目の宣言として`mapDisplay`の`point.opacityByLayer`が配る。
+                **attr.model_dump(exclude={"display_axes", "point_opacity"}),
                 "display_axes": [
                     {**axis, "missing_semantics": display_axis_missing_semantics(attr, axis["property"])}
                     for axis in resolved_display_axes(attr)
@@ -567,12 +585,14 @@ def main() -> None:
             "min_routes": MIN_ROUTES,
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
-            "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             # 画面は経由地をこの数まで置け、超える点は置かない。
             "max_waypoints": MAX_WAYPOINTS,
-            "max_axis_weight": MAX_AXIS_WEIGHT,
+            # 住所の検索の欄が打ちかけで引き始める長さと、打つのが止まってから引くまでの間。口の回数制限はこの間から導く。
+            "place_prediction_min_length": PLACE_PREDICTION_MIN_LENGTH,
+            "place_prediction_delay_seconds": PLACE_PREDICTION_DELAY_SECONDS,
+            "max_axis_share": MAX_AXIS_SHARE,
             "enabled_axis_weight": ENABLED_AXIS_WEIGHT,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
@@ -584,6 +604,10 @@ def main() -> None:
             "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
             # 区間の風を引く時刻の刻み（時刻ビンの幅）。区間の詳細の説明が評価の刻みを数字で示す。
             "wind_time_bin_hours": TIME_BIN_HOURS,
+            # 区間ごとに速度を変える条件の名前（走行モデルの並び）。所要時間の説明が差し込む。
+            "segment_speed_conditions": list(SEGMENT_SPEED_CONDITIONS),
+            # ルート全体の難易度（平均・総量）の数え方の文。結果の難易度の説明が差し込む。
+            "overall_difficulty_wording": OVERALL_DIFFICULTY_WORDING,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。フロントはidの型にだけ使い、
             # 値は読まない——効いている値はGET /api/axis-catalogが返し、取れるまではその値を使う機能を出さない。
             "client_tuning": client_tuning_values(),

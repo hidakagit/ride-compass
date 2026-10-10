@@ -14,14 +14,20 @@ DB_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (SQLAlchemyError, OSError)
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
+def _new_session_factory(command_timeout: float) -> async_sessionmaker[AsyncSession]:
+    engine = create_async_engine(
+        settings.database_url, pool_pre_ping=True, connect_args={"command_timeout": command_timeout}
+    )
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     global _session_factory
     if _session_factory is None:
         # command_timeout: 路面タイルのバースト（短時間の連続パン/ズーム）でDB側が混雑すると
         # クエリが数分返らないことがあり、上限が無いとリクエストが無期限にハングする。
         # ここで出るTimeoutErrorはDB_UNAVAILABLE_ERRORSに入るため、タイル配信は空タイルへ劣化する。
-        engine = create_async_engine(settings.database_url, pool_pre_ping=True, connect_args={"command_timeout": 20})
-        _session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        _session_factory = _new_session_factory(20)
     return _session_factory
 
 
@@ -36,12 +42,7 @@ _route_generation_session_factory: async_sessionmaker[AsyncSession] | None = Non
 def get_route_generation_session_factory() -> async_sessionmaker[AsyncSession]:
     global _route_generation_session_factory
     if _route_generation_session_factory is None:
-        engine = create_async_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            connect_args={"command_timeout": ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS},
-        )
-        _route_generation_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        _route_generation_session_factory = _new_session_factory(ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS)
     return _route_generation_session_factory
 
 

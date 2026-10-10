@@ -5,6 +5,7 @@ import type {
   RouteGenerateRequest,
 } from "@/types/route";
 import { backendApi, getOptions, requestApi } from "@/lib/apiClient";
+import { errorMessage } from "@/lib/apiError";
 import { debugLog } from "@/lib/debugLog";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -62,7 +63,7 @@ export async function generateRoutes(
       category: "api:route",
       messages: {
         failure: "リクエストに失敗しました。時間をおいて再度お試しください",
-        parseFailure: "サーバーからの応答の解析に失敗しました",
+        parseFailure: "ルート生成の応答の解析に失敗しました",
       },
       requestMeta: { body: request },
     },
@@ -95,7 +96,7 @@ export async function generateRoutes(
       debugLog(
         "api:route",
         `ポーリング失敗、リトライします (${consecutivePollFailures}/${MAX_CONSECUTIVE_POLL_FAILURES})`,
-        { jobId, error: error instanceof Error ? error.message : String(error) },
+        { jobId, error: errorMessage(error) },
         "warn",
       );
       if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {

@@ -1,8 +1,7 @@
 import asyncio
 from datetime import datetime
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import model_validator
 
 from app.api.dependencies import (
     get_axis_inspector_service,
@@ -13,20 +12,16 @@ from app.api.rate_limit import enforce_rate_limit
 from app.api.routers._tile_http import tile_response, validate_tile_coords
 from app.api.routers.routes import RoutePreferenceWeights
 from app.config import settings
-from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.dynamic_way_values import (
-    MissingConditions,
-    WayValueQuery,
-    assemble_conditions,
-    transform_dedicated_way_values,
-)
+from app.domain.dynamic_way_values import MissingConditions, WayValueQuery
 from app.domain.axis_inspector import AxisInspectorResult
-from app.domain.route_preference import RoutePreference
-from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
+from app.domain.geo import BearingDeg
+from app.domain.route_request import AssumedSpeedKmh
+from app.domain.landcover import LandcoverTileZoom
+from app.domain.region import RoadTileZoom, TileIndex, check_tile_index
 from app.infrastructure.media_types import PNG_CONTENT_TYPE
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.services.landcover_tile_service import get_landcover_tile
-from app.services.dedicated_way_values import DedicatedWayValueService
+from app.services.dedicated_way_values import AxisWayValueLens
 from app.services.region_service import AxisInspectorService, RegionService
 from app.domain.strict_model import StrictModel
 
@@ -64,9 +59,9 @@ def _check_tile_rate_limit(request: Request, prefix: str) -> None:
 
 @router.get("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf")
 async def region_road_surface_tile(
-    z: int,
-    x: int,
-    y: int,
+    z: RoadTileZoom,
+    x: TileIndex,
+    y: TileIndex,
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
@@ -84,9 +79,9 @@ async def region_road_surface_tile(
 @router.get("/api/region/point-tiles/{layer}/{z}/{x}/{y}.pbf")
 async def region_point_tile(
     layer: str,
-    z: int,
-    x: int,
-    y: int,
+    z: RoadTileZoom,
+    x: TileIndex,
+    y: TileIndex,
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
@@ -104,14 +99,14 @@ async def region_point_tile(
 
 
 @router.get("/api/region/landcover-tiles/{z}/{x}/{y}.png")
-async def region_landcover_tile(z: int, x: int, y: int, request: Request) -> Response:
+async def region_landcover_tile(z: LandcoverTileZoom, x: TileIndex, y: TileIndex, request: Request) -> Response:
     """土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。
 
     DBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には
     乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。
     """
     _check_tile_rate_limit(request, "landcover-tile")
-    validate_tile_coords(z, x, y, LANDCOVER_TILE_MIN_ZOOM, LANDCOVER_TILE_MAX_ZOOM)
+    validate_tile_coords(z, x, y)
     async with _landcover_tile_semaphore:
         tile = await get_landcover_tile(z, x, y)
     if tile is None:
@@ -122,14 +117,14 @@ async def region_landcover_tile(z: int, x: int, y: int, request: Request) -> Res
 @router.get("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}")
 async def region_dedicated_way_values(
     axis_id: str,
-    z: int,
-    x: int,
-    y: int,
+    z: RoadTileZoom,
+    x: TileIndex,
+    y: TileIndex,
     request: Request,
-    bearing_deg: float | None = None,
+    bearing_deg: BearingDeg | None = None,
     at: datetime | None = None,
-    speed_kmh: float | None = None,
-    service: DedicatedWayValueService[Any] | None = Depends(get_dedicated_way_value_service),
+    speed_kmh: AssumedSpeedKmh | None = None,
+    lens: AxisWayValueLens | None = Depends(get_dedicated_way_value_service),
 ) -> dict[str, float | None]:
     """「評価軸」グループとしての動的材料（風・勾配・雨等）。指定タイル内のフィーチャーごとの
     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
@@ -140,9 +135,9 @@ async def region_dedicated_way_values(
     ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
     （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
 
-    パスパラメータは**軸id**（`axis_definitions.axis_id`）で、サービスが返す生値の材料id
-    （`wind_drag_ratio`等、下の`service.material_id`）とは別の名前空間である。サービスは
-    その軸が参照する材料から引く。専用配信を持たない・未知のaxis_idと、配信を実装した材料を
+    パスパラメータは**軸id**（`axis_definitions.axis_id`）で、配信サービスが返す生値の材料id
+    （`wind_drag_ratio`等）とは別の名前空間である。サービスはその軸が参照する材料から引き、
+    地図が塗る値（難易度か符号付き材料か）へ軸定義から変える（`services/dedicated_way_values.py: AxisWayValueLens`）。専用配信を持たない・未知のaxis_idと、配信を実装した材料を
     参照していない軸は404。クエリパラメータ（`bearing_deg`・`at`・`speed_kmh`）のうち何が要るかは
     材料のサービスが受け取る条件の型が決め（`domain/dynamic_way_values.py: assemble_conditions`）、
     要るものを省略すると422。要らないものは渡しても無視される（例: 勾配は時刻と速度に依らない。
@@ -158,21 +153,15 @@ async def region_dedicated_way_values(
     （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """
-    if service is None:
+    if lens is None:
         raise HTTPException(status_code=404, detail="未知のaxis_idです。")
-    conditions = assemble_conditions(
-        service.conditions_type, WayValueQuery(at=at, bearing_deg=bearing_deg, speed_kmh=speed_kmh)
-    )
-    if isinstance(conditions, MissingConditions):
-        raise HTTPException(status_code=422, detail=f"この軸には{'・'.join(conditions.names)}が必須です。")
     _check_tile_rate_limit(request, f"{axis_id}-way-values")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        values = await service.get_way_values(z, x, y, conditions)
-    # サービスは材料の生値を返しキャッシュも生値のまま持つ。地図が塗る値（難易度か符号付き
-    # 材料か）への変換は軸定義から都度行うため、軸スタジオでbreakpointsを変えても
-    # キャッシュを捨てずに即座に反映される。
-    return transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, values)
+        values = await lens.values(z, x, y, WayValueQuery(at=at, bearing_deg=bearing_deg, speed_kmh=speed_kmh))
+    if isinstance(values, MissingConditions):
+        raise HTTPException(status_code=422, detail=f"この軸には{'・'.join(values.names)}が必須です。")
+    return values
 
 
 class AxisInspectorRequest(StrictModel):
@@ -187,14 +176,19 @@ class AxisInspectorRequest(StrictModel):
     # （`/dynamic-way-values`へ送っているものと同じ）。時刻・速度を省くと、それを要る材料の軸は「データなし」。
     # `z`/`x`/`y`はクリックしたタイル——地図は既に知っており、way idから逆算するより
     # 確かで、同じタイルの値がキャッシュに載っていれば追加のDBアクセスも要らない。
-    z: int
-    x: int
-    y: int
-    bearing_deg: float
+    z: RoadTileZoom
+    x: TileIndex
+    y: TileIndex
+    bearing_deg: BearingDeg
     at: datetime | None = None
-    speed_kmh: float | None = None
+    speed_kmh: AssumedSpeedKmh | None = None
     # 合成に使う重み。利用者がいま設定している重み（ルート生成へ送るのと同じ形・同じ検証）を送る。省略すると既定の重み。
     route_preference: RoutePreferenceWeights | None = None
+
+    @model_validator(mode="after")
+    def _check_tile_index(self) -> "AxisInspectorRequest":
+        check_tile_index(self.z, self.x, self.y)
+        return self
 
 
 @router.post("/api/region/axis-inspector")
@@ -215,7 +209,7 @@ async def region_axis_inspector(
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    preference = None if body.route_preference is None else RoutePreference(weights=dict(body.route_preference.root))
+    preference = None if body.route_preference is None else body.route_preference.to_preference()
     return await axis_inspector.inspect(
         body.osm_way_id, body.feature_key, body.z, body.x, body.y,
         body.at, body.bearing_deg, body.speed_kmh, preference)

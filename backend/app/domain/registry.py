@@ -19,7 +19,7 @@ PrimaryAttributeGeometry = Literal["line", "point", "area"]
 
 #: DBから焼いて配るタイルの系統。配信のパス・世代の表（`services/tile_version_service.py: TILE_SHAPES`）・
 #: ディスクの鍵・点のレイヤーの名前（`infrastructure/point_tile_layers.py`）が、この名前でつながる。
-TileKind = Literal["road_surface", "poi", "accident"]
+TileKind = Literal["road_surface", "poi", "accident", "stop_place"]
 
 
 class DisplayCategorySpec(StrictModel):
@@ -55,6 +55,16 @@ class PointFactSpec(StrictModel):
     label: str = Field(min_length=1)
 
 
+class PointThinningSpec(StrictModel):
+    """重なった点の絵を間引くときに、どれを残すかの順。先に並ぶ行の点ほど先に残し、同じ行の中では
+    `ratio_property`の値の大きい点を先に残す。"""
+
+    #: 先頭の軸の行の鍵の全部を、残す順に並べたもの。
+    rows: tuple[str, ...]
+    #: 0〜1の値を持つタイルのプロパティ。
+    ratio_property: str
+
+
 class DisplayAxisSpec(StrictModel):
     """地図の1レイヤーが持つ絞り込みの軸。行の並びと、行を判定するタイルのプロパティ。
 
@@ -77,9 +87,9 @@ class DisplayAxisSpec(StrictModel):
     #: 色相環を等分して配る。**軸をまたいで重複させない**——同じ起点だと、1行しか持たない
     #: 軸どうし（トンネルと一方通行）が必ず同じ色になる。
     hue_slot: int | None = None
-    #: 順序を持たない列挙の明度の段（`None`は標準）。**同時に出る点のレイヤーどうしは段を変える**
+    #: 順序を持たない列挙の明度と彩度の段（`None`は標準）。**同時に出る点のレイヤーどうしは段を変える**
     #: ——色相の起点を変えても、行を色相環へ等分して配る以上、レイヤーをまたいで近い色相が残る。
-    tone: Literal["dark", "light"] | None = None
+    tone: Literal["dark", "light", "vivid"] | None = None
     categories: tuple[DisplayCategorySpec, ...]
 
 
@@ -108,6 +118,30 @@ class PrimaryAttributeSpec(StrictModel):
     #: 属性だけが持つ。**どのソースから読むかを画面が決めない**——決めさせると、系統を
     #: 1つ足したときに画面側の対応表も直すことになる。
     tile_kind: TileKind | None = None
+    #: 地図の点の不透明度。既定（`map_display.py: POINT_OPACITY`）と違う濃さで描く点の属性だけが持つ。
+    point_opacity: float | None = Field(default=None, gt=0, le=1)
+    #: 重なった点の絵を間引く点の属性だけが持つ。持たない点は、重なっても全部描く。
+    #: 絵記号で描く点にだけ付ける（丸い点は地図が間引けない）。
+    point_thinning: PointThinningSpec | None = None
+    #: 点の名前（店名等）を持つタイルのプロパティ。名前のある点を押すと、名前と、名前と位置で外の地図を開く導線を出す。
+    point_name_property: str | None = None
+
+    @model_validator(mode="after")
+    def _point_opacity_is_for_points(self) -> "PrimaryAttributeSpec":
+        if self.point_opacity is not None and self.geometry != "point":
+            raise ValueError(f"点でない一次属性'{self.attr_id}'に点の不透明度がある")
+        return self
+
+    @model_validator(mode="after")
+    def _point_thinning_ranks_every_glyph_row(self) -> "PrimaryAttributeSpec":
+        if self.point_thinning is None:
+            return self
+        categories = self.display_axes[0].categories if self.display_axes else ()
+        if not categories or any(category.glyph is None for category in categories):
+            raise ValueError(f"'{self.attr_id}'の間引きは、絵記号で描く点にだけ付けられる")
+        if sorted(self.point_thinning.rows) != sorted(category.key for category in categories):
+            raise ValueError(f"'{self.attr_id}'の間引きの順は、先頭の軸の行の鍵を1度ずつ全部並べる")
+        return self
 
 
 class TileInputSpec(StrictModel):
@@ -194,7 +228,7 @@ class AxisDisplaySpec(StrictModel):
       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
 
-    凡例に添える単位はここに持たず、軸カタログの`raw_value_unit`が持つ。
+    凡例に添える単位と目盛りはここに持たず、これを`tiles`に持つ`map_paint.py: MapPaint`が持つ。
     """
 
     kind: Literal["ramp", "none"]

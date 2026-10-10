@@ -1,8 +1,9 @@
 import type { FeatureIdentifier, FilterSpecification, LayerSpecification, SourceSpecification } from "maplibre-gl";
 
 import {
-  isTierUnderBasemapRoads,
+  basemapAnchorOf,
   orderedSceneLayers,
+  type BasemapAnchor,
   type MapScene,
   type MapSceneFeatureStateValue,
   type MapSceneFeatureStates,
@@ -33,11 +34,11 @@ type ApplyMapSceneOptions = {
    */
   readonly previous: MapScene;
   /**
-   * 面の段をこのレイヤーの直下へ差し込む。基礎地図のどこから道路網が始まるかは
-   * 呼び出し側が決め、この関数は地図を調べない。undefinedなら面も他の段と同じく
+   * 基礎地図へ潜る段を、それぞれこのレイヤーの直下へ差し込む（`roads` は道路網の始まり、`labels` は文字の始まり）。
+   * 基礎地図のどこが位置になるかは呼び出し側が決め、この関数は地図を調べない。undefinedならその段も他の段と同じく
    * 基礎地図の上へ載る（段どうしの前後だけは保たれる）。
    */
-  readonly areaLayerBeforeId: string | undefined;
+  readonly basemapAnchors: Readonly<Record<BasemapAnchor, string | undefined>>;
 };
 
 const NO_FEATURE_STATES: MapSceneFeatureStates = new Map();
@@ -47,7 +48,7 @@ const NO_FEATURE_STATES: MapSceneFeatureStates = new Map();
  * レイヤー・ソース（基礎地図など）には触れない。
  */
 export function applyMapScene(map: MapSceneTarget, options: ApplyMapSceneOptions): void {
-  const { scene, previous, areaLayerBeforeId } = options;
+  const { scene, previous, basemapAnchors } = options;
 
   const previousSources = new Map(previous.sources.map((s) => [s.id, s]));
   const nextSourceIds = new Set(scene.sources.map((s) => s.id));
@@ -94,7 +95,7 @@ export function applyMapScene(map: MapSceneTarget, options: ApplyMapSceneOptions
       updateLayer(map, layer, before);
       return;
     }
-    map.addLayer(layerSpecFor(layer), anchorFor(layer, ordered.slice(index + 1), present, areaLayerBeforeId));
+    map.addLayer(layerSpecFor(layer), anchorFor(layer, ordered.slice(index + 1), present, basemapAnchors));
     present.add(id);
   });
 
@@ -106,23 +107,25 @@ export function applyMapScene(map: MapSceneTarget, options: ApplyMapSceneOptions
 }
 
 /**
- * 1枚足すときの差し込み位置。段の順で自分より前面にあり、かつ既に地図へ載っている
- * 最初のレイヤーの直下へ入れる——これで、足す順に関わらず段の順が保たれる。
+ * 1枚足すときの差し込み位置。同じ基礎地図の位置へ潜る段のうち、段の順で自分より前面にあり、
+ * かつ既に地図へ載っている最初のレイヤーの直下へ入れる——これで、足す順に関わらず段の順が保たれる。
  */
 function anchorFor(
   layer: MapSceneLayer,
   laterLayers: readonly MapSceneLayer[],
   present: ReadonlySet<string>,
-  areaLayerBeforeId: string | undefined,
+  basemapAnchors: Readonly<Record<BasemapAnchor, string | undefined>>,
 ): string | undefined {
-  const goesUnder = (candidate: MapSceneLayer): boolean =>
-    areaLayerBeforeId !== undefined && isTierUnderBasemapRoads(candidate.tier);
-  const under = goesUnder(layer);
+  const basemapAnchorIdOf = (candidate: MapSceneLayer): string | undefined => {
+    const anchor = basemapAnchorOf(candidate.tier);
+    return anchor === null ? undefined : basemapAnchors[anchor];
+  };
+  const anchorId = basemapAnchorIdOf(layer);
   for (const later of laterLayers) {
-    if (goesUnder(later) !== under) continue;
+    if (basemapAnchorIdOf(later) !== anchorId) continue;
     if (present.has(later.spec.id)) return later.spec.id;
   }
-  return under ? areaLayerBeforeId : undefined;
+  return anchorId;
 }
 
 function sourceSpecFor(source: MapSceneSource): SourceSpecification {
@@ -175,6 +178,7 @@ function applyFeatureStates(
 
   for (const [key, previousValues] of previousStates) {
     const nextValues = nextStates.get(key);
+    if (nextValues === previousValues) continue;
     for (const featureId of previousValues.keys()) {
       if (nextValues?.has(featureId) === true) continue;
       map.removeFeatureState({ ...sourceTarget, id: featureId }, key);
@@ -184,6 +188,7 @@ function applyFeatureStates(
   const pending = new Map<string, Record<string, MapSceneFeatureStateValue>>();
   for (const [key, nextValues] of nextStates) {
     const previousValues = previousStates.get(key);
+    if (previousValues === nextValues) continue;
     for (const [featureId, value] of nextValues) {
       if (isSameValue(previousValues?.get(featureId), value)) continue;
       const state = pending.get(featureId) ?? {};

@@ -1,11 +1,14 @@
 """ルート生成の要求が受け付ける値の範囲と、その外れを知らせる文。
 
-範囲は要求の検証（`api/routers/routes.py: RouteGenerateRequest`）と、画面が操作を止める上限
-（生成物`route-generate-config.json`）の両方がここから読む。
+範囲は要求の検証（`api/routers/routes.py: RouteGenerateRequest`。想定速度は地図の入口も）と、画面が操作を
+止める上限（生成物`route-generate-config.json`）の両方がここから読む。
 """
 
+import math
 from dataclasses import dataclass
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_core import PydanticCustomError
 
 from app.domain.route import Coordinates
@@ -27,16 +30,15 @@ MAX_SPLICED_EDGES = 5000
 DEFAULT_MAX_ROUTES = 8
 MIN_ROUTES = 1
 MAX_ROUTES = 15
-# 経由地を伴う生成が返す候補の数。経由地があるとレグごとの代替が組合せで増えるため、候補数の
-# 指定を使わず単一経路にする。
-ROUTES_WITH_WAYPOINTS = 1
-
-
-def applied_max_routes(max_routes: int, *, has_waypoints: bool) -> int:
-    """その生成で実際に使う候補数の上限。画面も同じ値を生成物で受け取り、候補数の入力欄に出す。"""
-    return ROUTES_WITH_WAYPOINTS if has_waypoints else max_routes
-
-
+# 仮定巡航速度（km/h）の画面の既定値と、要求が受け付ける下限・上限。区間ごとの推定到達時刻と、風の追加負荷
+# （`domain/wind.py: wind_drag_ratio_array`の走行速度）の算出に使う。風・勾配に依存しない一律の定数として扱うことが
+# 前提——速度を風で可変にすると「時刻の算出に速度が要り、速度が風（時刻依存）に影響される」循環が生まれる。
+ASSUMED_SPEED_KMH = 20.0
+MIN_ASSUMED_SPEED_KMH = 5.0
+MAX_ASSUMED_SPEED_KMH = 60.0
+# 想定速度の値の範囲。速度を受けるどの入口（ルート生成・地図の配信・区間インスペクタ）もこの型で書く。範囲の検査は
+# NaN・無限大も断る。
+AssumedSpeedKmh = Annotated[float, Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH)]
 def request_error(message: str) -> PydanticCustomError:
     """要求の誤り。文は画面の結果欄へそのまま出るので、利用者が読める日本語で書く
     （`ValueError`は「Value error, 」の前置きが付いて返る）。"""
@@ -53,26 +55,39 @@ def check_spliced_edge_count(count: int) -> None:
         raise request_error("組み合わせたルートが長すぎるため評価できません。")
 
 
-def check_point_distance(farthest_km: float) -> None:
-    """経由地・目的地のうち出発地から最も遠い点までの距離（km）が上限の中か。"""
+def search_distance_km(farthest_km: float) -> int:
+    """経由地・目的地を置いたときの探索の範囲（km）。`farthest_km`は出発地から最も遠い点までの距離。
+
+    範囲は最も遠い点より長くする（ただし上限`MAX_ROUTE_DISTANCE_KM`を超えないので、最も遠い点が上限ちょうどなら
+    等しい）。上限より遠い点は要求の誤り。
+    """
     if farthest_km > MAX_ROUTE_DISTANCE_KM:
         raise request_error(f"経由地・目的地は出発地から{MAX_ROUTE_DISTANCE_KM}km以内に置いてください。")
+    return min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
 
 
 @dataclass(frozen=True)
-class LoopTarget:
-    """起点へ戻る周回候補を、目標距離で探す。"""
+class FixedPoints:
+    """出発地のあとに順に通る、置いた点の並び。経由地を置いた順に通り、目的地（無ければ出発地）で終わる。"""
 
-    distance_km: float
-
-
-@dataclass(frozen=True)
-class WaypointsTarget:
-    """経由地・目的地を通る1本を探す。`distance_km`は置いた点から決めた探索の範囲。"""
-
-    distance_km: float
     waypoints: list[Coordinates]
     destination: Coordinates | None
+
+
+@dataclass(frozen=True)
+class DistanceTarget:
+    """置いた点を順に通り、全長が目標に合う候補を探す（距離あり）。"""
+
+    distance_km: float
+    points: FixedPoints
+
+
+@dataclass(frozen=True)
+class NoDistanceTarget:
+    """置いた点を順に通り、終点へ良い道で向かう候補を探す（距離なし）。`distance_km`は置いた点から決めた探索の範囲。"""
+
+    distance_km: float
+    points: FixedPoints
 
 
 @dataclass(frozen=True)
@@ -84,5 +99,5 @@ class SplicedTarget:
     edge_ids: tuple[str, *tuple[str, ...]]
 
 
-# 検証を通った要求が何を生成するか。生成はこれだけを見て分岐する。
-RouteTarget = LoopTarget | WaypointsTarget | SplicedTarget
+# 検証を通った要求が何を生成するか。距離の有無（仕上げの戦略）は要求の検証がここで1回だけ選び、生成は型だけを見る。
+RouteTarget = DistanceTarget | NoDistanceTarget | SplicedTarget

@@ -13,12 +13,12 @@ from datetime import datetime
 
 import numpy as np
 
-from app.domain.rain import RAIN_MATERIAL_IDS, rain_material_columns
+from app.domain.rain import RAIN_MATERIAL_DECIMALS, RAIN_MATERIAL_IDS, rain_material_columns
 from app.domain.region import tile_bounds_lonlat
 from app.domain.time_zone import JST
-from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
-from app.infrastructure.debug_log import log_external_call, log_throttled_warning, mark_failed
+from app.infrastructure.debug_log import log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services.feature_midpoints import feature_midpoint_arrays
 from app.services.weather_service import WeatherService
 
 _CATEGORY = "region:rain-way-values"
@@ -57,19 +57,14 @@ class RainWayService:
                 fields["rain_history"] = "unavailable"
                 log_throttled_warning(_CATEGORY, "雨の材料配信の観測履歴が無いか古い z=%d x=%d y=%d", z, x, y)
                 return {}
-            try:
-                midpoints = await self._repository.get_feature_midpoints_in_tile(z, x, y, bbox)
-            except DB_UNAVAILABLE_ERRORS as exc:
-                mark_failed(fields, exc)
+            features = await feature_midpoint_arrays(self._repository, z, x, y, bbox, fields)
+            if features is None:
                 return {}
-            if not midpoints:
-                fields["postgis"] = "uncovered" if midpoints is None else "empty"
-                return {}
-            keys = list(midpoints)
-            latitudes = np.array([midpoints[key][0] for key in keys], dtype=float)
-            longitudes = np.array([midpoints[key][1] for key in keys], dtype=float)
+            keys, latitudes, longitudes = features
             values = rain_material_columns(stations, latitudes, longitudes)[self.material_id]
-            result = {key: round(float(value), 1) for key, value in zip(keys, values) if not np.isnan(value)}
-            fields["feature_count"] = len(keys)
+            result = {
+                key: round(float(value), RAIN_MATERIAL_DECIMALS)
+                for key, value in zip(keys, values) if not np.isnan(value)
+            }
             fields["computed"] = len(result)
             return result

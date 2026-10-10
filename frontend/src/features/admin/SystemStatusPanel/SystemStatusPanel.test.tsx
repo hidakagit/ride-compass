@@ -12,7 +12,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { FrontendVersion, getDebugStats } from "@/features/admin/adminApi";
+import type { getDebugStats } from "@/features/admin/adminApi";
+import type { FrontendVersion } from "@/services/versionApi";
 import { heldReplies, inTurn, onBackend, onSameOrigin } from "@/testing/backendServer";
 
 import SystemStatusPanel from "./SystemStatusPanel";
@@ -217,12 +218,11 @@ describe("SystemStatusPanel", () => {
     const failing = (await screen.findByText("failing")).closest("tr")!;
     expect(failing).toHaveAttribute("data-level", "error");
     const [, , errorsCell, lastErrorCell] = within(failing).getAllByRole("cell");
-    expect(errorsCell).toHaveAttribute("title", "TimeoutError:2 / HTTP429:1");
+    expect(Array.from(errorsCell.childNodes, (node) => node.textContent)).toEqual(["3", "TimeoutError:2", "HTTP429:1"]);
     expect(lastErrorCell.textContent).toMatch(/^TimeoutError \(.+\)$/);
 
     const healthy = screen.getByText("healthy").closest("tr")!;
     expect(healthy).not.toHaveAttribute("data-level");
-    expect(within(healthy).getAllByRole("cell")[2]).not.toHaveAttribute("title");
   });
 
   it("429で拒否した件数を、カテゴリごとに出す", async () => {

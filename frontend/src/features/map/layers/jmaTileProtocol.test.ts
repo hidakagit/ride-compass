@@ -3,30 +3,23 @@ import { inflateSync } from "node:zlib";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { addProtocol, debugLog } = vi.hoisted(() => ({ addProtocol: vi.fn(), debugLog: vi.fn() }));
-vi.mock("maplibre-gl", () => ({ addProtocol }));
-vi.mock("@/lib/debugLog", () => ({ debugLog }));
+vi.mock("maplibre-gl", () => import("@/testing/maplibre"));
 
-import { mapDisplay } from "@/types/generated/mapDisplay";
+import { jmaDeliveryOf, jmaTileUrlAt } from "@/testing/jmaDeliveries";
 
-import { jmaTilePayload, type JmaDelivery } from "./jmaDelivery";
+import { jmaTilePayload } from "./jmaDelivery";
 
 type Handler = (params: { url: string }, abort: AbortController) => Promise<{ data: ArrayBuffer | Uint8Array }>;
 
 const BASETIME = "20260924000000";
 const VALIDTIME = "20260924010000";
 const FRAME = { basetime: BASETIME, member: "none", validtime: VALIDTIME };
-const deliveryOf = (id: string) =>
-  mapDisplay.weatherElements
-    .flatMap((element): readonly JmaDelivery[] => element.jmaElements)
-    .find((delivery) => delivery.id === id)!;
 /** そのコマのタイルのテンプレート（描画ペイロードが持つもの）と、地図ライブラリが座標を埋めたURL。 */
-const TEMPLATE = jmaTilePayload("rasterTile", deliveryOf("inund"), FRAME).tileUrlTemplate;
-const at = (template: string, x: number, y: number) =>
-  template.replace("{z}", "5").replace("{x}", String(x)).replace("{y}", String(y));
+const TEMPLATE = jmaTilePayload("rasterTile", jmaDeliveryOf("inund"), FRAME).tileUrlTemplate;
+const at = (template: string, x: number, y: number) => jmaTileUrlAt(template, 5, x, y);
 const EMPTY_PNG_URL = at(TEMPLATE, 28, 12);
 const PRESENT_PNG_URL = at(TEMPLATE, 28, 13);
-const EMPTY_PBF_URL = at(jmaTilePayload("vectorTile", deliveryOf("flood"), FRAME).tileUrlTemplate, 28, 12);
+const EMPTY_PBF_URL = at(jmaTilePayload("vectorTile", jmaDeliveryOf("flood"), FRAME).tileUrlTemplate, 28, 12);
 const INDEX = {
   available: true,
   coverage: { min_longitude: 122, min_latitude: 24, max_longitude: 146, max_latitude: 46 },
@@ -36,23 +29,28 @@ const INDEX = {
   },
 };
 
-// 失敗の記録とインデックスはモジュールが持つため、テストごとに読み込み直す。
+// 失敗の記録とインデックスはモジュールが持つため、テストごとに読み込み直す（地図のライブラリの代役と調査用のログも、
+// 読み込み直したモジュールが使うものを読む）。
 async function load() {
   vi.resetModules();
-  addProtocol.mockClear();
+  const debug = await import("@/lib/debugLog");
+  debug.setDebugEnabled(true);
   const protocol = await import("./jmaTileProtocol");
   protocol.registerJmaTileProtocol();
-  const handler = addProtocol.mock.calls[0][1] as Handler;
+  const { protocolHandler } = (await import("maplibre-gl")) as unknown as typeof import("@/testing/maplibre");
+  const handler = protocolHandler(protocol.withJmaTileProtocol("").split("://")[0]) as Handler;
   const request = (url: string, abort = new AbortController()) =>
     handler({ url: protocol.withJmaTileProtocol(url) }, abort);
-  return { ...protocol, request };
+  const warnings = () => debug.getDebugLogEntries().filter((entry) => entry.level === "warn");
+  return { ...protocol, request, warnings };
 }
 
 const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
   fetchMock.mockReset();
-  debugLog.mockClear();
   vi.stubGlobal("fetch", fetchMock);
+  // 調査用のログは、記録と同時にコンソールへも出す。
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -95,7 +93,7 @@ describe("jmatile:// プロトコル", () => {
 
 describe("配信の失敗の記録", () => {
   it("5xxは空タイルで代替し、そのコマのタイルのテンプレートを失敗として記録して購読者へ知らせる", async () => {
-    const { request, jmaTileFailures, subscribeJmaTileFailures } = await load();
+    const { request, jmaTileFailures, subscribeJmaTileFailures, warnings } = await load();
     const listener = vi.fn();
     subscribeJmaTileFailures(listener);
     fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
@@ -104,7 +102,7 @@ describe("配信の失敗の記録", () => {
     expect(isFullyTransparentPng(data as Uint8Array)).toBe(true);
     expect(jmaTileFailures()).toEqual(new Map([["inund", TEMPLATE]]));
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(debugLog).toHaveBeenCalledWith("weather", expect.any(String), expect.anything(), "warn");
+    expect(warnings()).toEqual([expect.objectContaining({ category: "weather" })]);
   });
 
   it("同じ失敗が続く間は記録の参照を変えず、知らせもしない", async () => {
@@ -120,13 +118,13 @@ describe("配信の失敗の記録", () => {
   });
 
   it("配信元が応答すれば（404の空応答も含む）その要素の失敗を消す", async () => {
-    const { request, jmaTileFailures } = await load();
+    const { request, jmaTileFailures, warnings } = await load();
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 502 }));
     await request(PRESENT_PNG_URL);
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
     await request(PRESENT_PNG_URL);
     expect(jmaTileFailures().size).toBe(0);
-    expect(debugLog).toHaveBeenCalledTimes(1);
+    expect(warnings()).toHaveLength(1);
 
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 502 }));
     await request(PRESENT_PNG_URL);

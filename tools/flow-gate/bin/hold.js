@@ -1,31 +1,25 @@
-// 開発機の対話のセッションがタスクを触る前に、そのタスクの担当のワークフローのグループ（.github/workflows/claude-task.yml の
-// concurrency）を持つ。種類「開発機」の実行が動き始めたら実行の URL を出して 0 で終え、もう動いている種類「開発機」の実行が
-// あるか、持つ実行が動かずに終わったら 1 で終える（src/hold.js: hold）。触り終えたら --release で、その番号の種類「開発機」の
-// 終わっていない実行を取り消して手放す。
-// 開発機でログイン済みの gh（hidakagit）のトークンで打つ。
-import { execFileSync } from "node:child_process";
-import { GitHub } from "../src/github.js";
-import { hold, release } from "../src/hold.js";
-import { args, config, isNumber } from "./cli.js";
+// 開発機の対話のセッションがタスクを触る前に、そのタスクを持つ印を取る（src/hold.js: take）。持てたら手放す打ち方を出して 0、
+// 持てなければ今の持ち主を出して 1 で終える（自分の印は残さない）。触り終えたら --release <合言葉> で手放す（src/hold.js: release）。
+// 何度打っても同じ結果で、印が無ければ手放したとして 0、ほかの者の印なら消さずに 1 で終える。Actions の実行は起こさない。
+import { devHolder, release, take } from "../src/hold.js";
+import { args, config, holds, isNumber } from "./cli.js";
 
-const { rest: [number, off] } = args("node tools/flow-gate/bin/hold.js <issue の番号> [--release]",
-  (a) => isNumber(a[0]) && (a.length === 1 || (a.length === 2 && a[1] === "--release")));
-const gh = new GitHub(execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim());
+const { rest: [number, off, word] } = args("node tools/flow-gate/bin/hold.js <issue の番号> [--release <合言葉>]",
+  (a) => isNumber(a[0]) && (a.length === 1 || (a.length === 3 && a[1] === "--release" && /^\S+$/.test(a[2]))));
+const remote = holds();
 
 if (off) {
-  await release(gh, config, number);
-  console.log(`#${number} を手放した`);
+  const r = await release(remote, config, number, devHolder(word)).catch((e) => ({ error: e.message }));
+  if (r.released) console.log(`#${number} を手放した（印はもう無い）`);
+  else console.log(r.error ? `#${number} を手放せなかった（${r.error}）。打ち直す` : `#${number} は「${r.by}」が持っているので手放さない`);
+  process.exit(r.released ? 0 : 1);
+}
+const who = devHolder();
+const r = await take(remote, config, number, who).catch((e) => ({ held: false, error: e.message }));
+if (r.held) {
+  console.log(`#${number} を持った（手放すときは node tools/flow-gate/bin/hold.js ${number} --release ${who.split(" ")[1]}）`);
   process.exit(0);
 }
-// 動いている実行があれば、列に並ばずに終える（並ぶと、その実行が手放されるまで最大6時間待つ）。
-const { held, mine } = await hold(gh, config, number, () => new Promise((r) => setTimeout(r, 10e3)));
-if (held) {
-  console.log(`#${number} はもう種類「開発機」の実行が持っている: ${held.html_url}（自分が持ったものなら、持ち直さずに続ける。別のセッションのものなら、手放されてから打ち直す）`);
-  process.exit(1);
-}
-if (mine.status === "in_progress") {
-  console.log(`#${number} を持った: ${mine.html_url}`);
-  process.exit(0);
-}
-console.log(`#${number} を持てなかった（実行が ${mine.conclusion} で終わった）: ${mine.html_url}`);
+console.log(r.error ? `#${number} を持てなかった（${r.error}）`
+  : `#${number} を持てなかった（持ち主: ${r.by ?? "読み直せなかった"}）${r.left ? `。自分の印 ${r.left} を消しきれなかったので、node tools/flow-gate/bin/hold.js ${number} --release ${who.split(" ")[1]} を打ち直す` : ""}`);
 process.exit(1);

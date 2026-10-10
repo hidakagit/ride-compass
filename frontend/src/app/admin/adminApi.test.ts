@@ -15,14 +15,17 @@
  * - 骨格（失敗時の文言・204・ログ） → `lib/apiClient.ts`
  * - 判断の無い詰め替え（応答の項目名・問い合わせの絞り込み） → 使う側（`useMapBandsOfThresholds.test.ts`・`BackendLogsPanel.test.tsx`）が網の層で見る
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as adminApi from "@/features/admin/adminApi";
 import * as adminRoute from "@/app/admin/api/[...path]/route";
 import { ADMIN_PROXY_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { inTurn, onBackend } from "@/testing/backendServer";
+import { openApi } from "@/testing/openApi";
 
 vi.mock("@/lib/adminBasicAuth", () => ({
   adminBasicAuthCredentials: () => ({ username: "admin", password: "secret" }),
@@ -33,13 +36,9 @@ const SRC = join(__dirname, "../..");
 interface Operation {
   requestBody?: { content: Record<string, { schema: { $ref?: string } }> };
 }
-const openApi: {
-  paths: Record<string, Record<string, Operation>>;
-  components: { schemas: Record<string, { properties?: Record<string, unknown> }> };
-} = JSON.parse(readFileSync(join(SRC, "types/generated/openapi.json"), "utf-8"));
 
 function backendOperation(pathname: string, method: string): Operation | undefined {
-  for (const [template, operations] of Object.entries(openApi.paths)) {
+  for (const [template, operations] of Object.entries(openApi.paths as Record<string, Record<string, Operation>>)) {
     if (new RegExp(`^${template.replace(/\{[^}]+\}/g, "[^/]+")}$`).test(pathname)) {
       const operation = operations[method.toLowerCase()];
       if (operation) return operation;
@@ -71,27 +70,27 @@ async function dispatch(input: Request | string, init?: RequestInit): Promise<Re
   return Response.json({});
 }
 
-beforeEach(() => {
-  recorded = [];
-  lastTimeoutMs = undefined;
-  vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
-    lastTimeoutMs = ms;
-    return new AbortController().signal;
-  });
-  vi.stubGlobal("fetch", vi.fn(dispatch));
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
-
 const functions = Object.entries(adminApi).filter(([, value]) => typeof value === "function") as [
   string,
   (...args: unknown[]) => Promise<unknown>,
 ][];
 
 describe("叩く先", () => {
+  beforeEach(() => {
+    recorded = [];
+    lastTimeoutMs = undefined;
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      lastTimeoutMs = ms;
+      return new AbortController().signal;
+    });
+    vi.stubGlobal("fetch", vi.fn(dispatch));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("関数が1つ以上ある", () => {
     expect(functions.length).toBeGreaterThan(0);
   });
@@ -129,25 +128,15 @@ describe("叩く先", () => {
   });
 });
 
-function answer(body: unknown) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => Response.json(body)),
-  );
-}
-
 describe("checkBackendHealth", () => {
   it("backendが status: ok を返したときだけ真で、ほかの応答も通信の失敗も偽（例外にしない）", async () => {
-    answer({ status: "ok" });
-    await expect(adminApi.checkBackendHealth()).resolves.toBe(true);
-    answer({ status: "degraded" });
-    await expect(adminApi.checkBackendHealth()).resolves.toBe(false);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("fetch failed");
-      }),
+    onBackend(
+      "GET",
+      "/health",
+      inTurn(Response.json({ status: "ok" }), Response.json({ status: "degraded" }), HttpResponse.error()),
     );
+    await expect(adminApi.checkBackendHealth()).resolves.toBe(true);
+    await expect(adminApi.checkBackendHealth()).resolves.toBe(false);
     await expect(adminApi.checkBackendHealth()).resolves.toBe(false);
   });
 });

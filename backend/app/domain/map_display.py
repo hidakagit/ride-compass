@@ -6,11 +6,14 @@
 
 from typing import Literal, NamedTuple
 
+from app.domain.display_palette import ORDERED_END_COLOR_NAMES
 from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
 from app.domain.landcover import LANDCOVER_CLASSES, LANDCOVER_RING_OUTER_M, LANDCOVER_TILE_MIN_ZOOM
-from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
+from app.domain.place_search import ADDRESS_AREA_ATTRIBUTIONS
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES, PRIMARY_ATTRIBUTES_BY_ID
+from app.domain.registry import DisplayAxisSpec
 from app.domain.region import ROAD_TILE_MIN_ZOOM
-from app.domain.weather_elements import WEATHER_ELEMENTS, WEATHER_LAYER_GROUPS, FrameRuleKind
+from app.domain.weather_elements import WEATHER_ELEMENTS, WEATHER_LAYER_GROUPS, FrameRuleKind, forecast_reach
 
 
 class OverlayGroup(NamedTuple):
@@ -24,7 +27,7 @@ class LayerCategory(NamedTuple):
     group: str
 
 
-#: 並びがそのままチップの並び順になる。
+#: 並びがそのまま「表示」の一覧の群の並び順になる。
 MAP_OVERLAY_GROUPS: tuple[OverlayGroup, ...] = (
     OverlayGroup("road", "道路"),
     OverlayGroup("environment", "環境"),
@@ -51,8 +54,7 @@ LEGEND_SHARED_ROWS: dict[str, LegendSharedRow] = {
     ),
     "noData": LegendSharedRow(
         "データなし",
-        "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からないことを"
-        "破線で示す。",
+        "元にする地図のデータに値が無く、どの行にも分けられない道。道が無いのではなく、値が分からない。",
     ),
     "undetermined": LegendSharedRow(
         "向きで決まらない",
@@ -75,7 +77,7 @@ _TILE_KINDS: tuple[str, ...] = tuple(
 
 #: レイヤーの絵がどこから来るか。取得状態（読み込み中・空・失敗）の判定はここから導く。
 #: 最小ズームは配信の性質なので情報源の側で持つ——レイヤーごとに書くと、同じタイルを
-#: 読むレイヤーの1つだけ書き忘れても型が通り、そのチップだけ案内が出ない。
+#: 読むレイヤーの1つだけ書き忘れても型が通り、その行だけ案内が出ない。
 MAP_LAYER_DATA_SOURCES: tuple[MapLayerDataSource, ...] = (
     *(MapLayerDataSource(kind, ROAD_TILE_MIN_ZOOM) for kind in _TILE_KINDS),
     MapLayerDataSource("gsiRelief"),
@@ -85,7 +87,7 @@ MAP_LAYER_DATA_SOURCES: tuple[MapLayerDataSource, ...] = (
 )
 
 #: 値の性質。生データか、計算した推定か、時刻で中身が変わるか。
-#: 評価軸は"composite"で、地図チップには出さない。
+#: 評価軸は"composite"で、「表示」の一覧には出さない。
 MAP_LAYER_DATA_NATURES: tuple[str, ...] = ("raw", "composite", "dynamic")
 
 #: レイヤーの種別と、属するグループ。**種別を1つ足すときは必ず所属も決まる**。
@@ -114,8 +116,8 @@ HILLSHADE_LAYER_ID = "hillshade"
 #: 出典も消える）。公共データ利用規約（PDL1.0）とCC BY 4.0は出典とは別に加工した旨を求め、標高からは勾配を、事故の点から
 #: は区間ごとの件数を、アメダスの観測からは雨の材料を、アメダスと推計気象分布からは天気を、区域の境界は簡略化して、配信タイルは欠けたズームを隣の
 #: ズームから補い降水の色を塗り替えて、MSMの格子は地点・時刻へ補間して使っている。気象レイヤーの出典もここが持つ（気象庁のデータは常設の表示
-#: で常に使うため）。基礎地図は配信元のTileJSONが出典を持つので入れない（入れると2回並ぶ）。データ源を足したら、
-#: 利用条件（docs/architecture/data-sources.md）と合わせてここも見る。
+#: で常に使うため）。住所の区画は地点の検索で常に使う。立ち寄り先は出典を1か所にまとめるためここに置く。基礎地図は配信元のTileJSONが出典を持つので
+#: 入れない（入れると2回並ぶ）。データ源を足したら、利用条件（docs/architecture/data-sources.md）と合わせてここも見る。
 ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">'
     "OpenStreetMap contributors</a>",
@@ -132,6 +134,22 @@ ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
     '暑さ指数: 出典 <a href="https://www.wbgt.env.go.jp/" target="_blank" rel="noreferrer">環境省熱中症予防情報サイト</a>',
     '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
     "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
+    *ADDRESS_AREA_ATTRIBUTIONS,
+    # Overture の地点は出どころごとに表示が要る（公式の文書 https://docs.overturemaps.org/attribution/ ）。
+    # Foursquare の行は Apache 2.0 で、ライセンスの写し・変えた旨・NOTICE の全文を渡す（frontend/public/licenses/）。
+    '立ち寄り先: <a href="https://overturemaps.org/" target="_blank" rel="noreferrer">Overture Maps Foundation</a>'
+    "の地点を、種類を選び近くの同じ店をまとめて加工。"
+    "Data from Meta, Microsoft, PinMeTo, DAC "
+    '(<a href="https://cdla.dev/permissive-2-0/" target="_blank" rel="noreferrer">CDLA Permissive 2.0</a>), '
+    "AllThePlaces "
+    '(<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0 1.0</a>), '
+    "Foursquare (Copyright 2024 Foursquare Labs, Inc. All rights reserved. Available under "
+    '<a href="/licenses/apache-2.0.txt" target="_blank" rel="noreferrer">Apache 2.0</a>. '
+    "Foursquare data was transformed to the Overture schema. "
+    '<a href="/licenses/foursquare-places-NOTICE.txt" target="_blank" rel="noreferrer">NOTICE</a>)',
+    # ジャパンサーチのサイトポリシーの出典の記載例（編集・加工して使う場合）の形。
+    '寺社: ジャパンサーチ「<a href="https://jpsearch.go.jp/database/bunka" target="_blank" rel="noreferrer">'
+    "文化遺産オンライン（文化庁・国立情報学研究所）</a>」のメタデータを改変して利用（所有者で寺社ごとにまとめた）",
 )
 
 
@@ -152,8 +170,8 @@ LayerTextSlotName = Literal["axes", "accidentYears", "routeLenses"]
 
 
 class LayerTextSlot(NamedTuple):
-    """説明の文の差し込み口。値が空なら、前後の文（`before`・`after`）ごと出さない——評価が1つも無いのに
-    「評価の材料です」と書かない、収録年が届く前に空の[]を出さない。"""
+    """説明の文の差し込み口。値が空なら、前後の文（`before`・`after`）ごと出さない——評価軸が1つも無いのに
+    「評価軸の材料です」と書かない、収録年が届く前に空の[]を出さない。"""
 
     name: LayerTextSlotName
     before: str = ""
@@ -177,13 +195,14 @@ class MapLayerSpec(NamedTuple):
     default_on: bool = False
     #: 名前。一次属性を描くレイヤーは書かない——属性の名前をそのまま使う（`map_layer_label`）。
     label: str | None = None
-    #: チップの下の短い名前（チップの幅は文字数で決まるので、長い名前はここで縮める）。無ければ名前。
-    chip_label: str | None = None
-    #: ONにすると何が出るかの短い説明（チップのtitle）。地図に載るものは必ず持つ（`MAP_LAYERS`）。
+    #: ONにすると何が出るかの短い説明（一覧の行のtitle）。地図に載るものは必ず持つ（`MAP_LAYERS`）。
     #: 軸スタジオ由来の軸の説明は軸から作る。
     description: LayerText = ()
-    #: 表示の設定パネルで項目の(i)が出す、descriptionより詳しい説明。
+    #: 一覧の行のⓘが出す、descriptionより詳しい説明。
     panel_hint: LayerText = ()
+    #: 値の無い道の行（データなし・該当なし）を、最初は凡例で隠しておくか。値のある道が少なく、無い道の線が
+    #: 地図を覆う道の線の層だけが持つ（利用者は凡例のチェックで出せる）。
+    hide_missing_rows: bool = False
 
 
 def _tile_layer(
@@ -192,20 +211,62 @@ def _tile_layer(
     *,
     description: LayerText,
     panel_hint: LayerText,
-    chip_label: str | None = None,
+    label: str | None = None,
+    hide_missing_rows: bool = False,
 ) -> MapLayerSpec:
     """タイルで配る一次属性のレイヤー。情報源は属性自身が宣言するタイルの系統。"""
-    tile_kind = next(attr.tile_kind for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
+    tile_kind = PRIMARY_ATTRIBUTES_BY_ID[attr_id].tile_kind
     assert tile_kind is not None, attr_id
     return MapLayerSpec(
-        tile_kind, category, chip_label=chip_label, description=description, panel_hint=panel_hint
+        tile_kind,
+        category,
+        label=label,
+        description=description,
+        panel_hint=panel_hint,
+        hide_missing_rows=hide_missing_rows,
     )
+
+
+def _first_axis(attr_id: str) -> DisplayAxisSpec:
+    """一次属性の先頭の見方（色を決める軸）。"""
+    return PRIMARY_ATTRIBUTES_BY_ID[attr_id].display_axes[0]
 
 
 def _point_kind_list(attr_id: str) -> str:
     """説明へ差し込む点の種別名の並び（凡例と同じ、先頭の軸の行）。区切りが読点なのは、名前が中黒を含むため。"""
-    attribute = next(attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
-    return "、".join(category.label for category in attribute.display_axes[0].categories)
+    return "、".join(category.label for category in _first_axis(attr_id).categories)
+
+
+def _row_label(attr_id: str, key: str) -> str:
+    """説明へ差し込む凡例の行の名前（先頭の軸の行）。"""
+    return next(category.label for category in _first_axis(attr_id).categories if category.key == key)
+
+
+def ordered_ends_text(axis: DisplayAxisSpec) -> str:
+    """順序のある分類の色の向きの文。並びの先頭の行ほど濃く、末尾の行ほど明るく塗る（`display_palette.py: ordered_colors`）
+    ので、両端の行の名前と色の呼び名から組む。"""
+    if axis.palette != "ordered":
+        raise ValueError(f"{axis.key}は順序のある分類ではない")
+    dark, light = ORDERED_END_COLOR_NAMES
+    return f"「{axis.categories[0].label}」ほど{dark}、「{axis.categories[-1].label}」ほど{light}"
+
+
+def size_text(attr_id: str) -> str:
+    """大きさで示す見方の文。半径を宣言した軸の、半径の最も大きい行の名前から組む。"""
+    attribute = PRIMARY_ATTRIBUTES_BY_ID[attr_id]
+    axis = next(
+        axis for axis in attribute.display_axes if all(category.radius_px is not None for category in axis.categories)
+    )
+    return size_sentence(axis)
+
+
+def size_sentence(axis: DisplayAxisSpec) -> str:
+    """半径を宣言した軸の、半径の最も大きい行を名指す文。どの行も同じ半径なら、大きさで示していないので落とす。"""
+    radii = {category.radius_px for category in axis.categories}
+    if None in radii or len(radii) < 2:
+        raise ValueError(f"{axis.key}は行ごとに違う半径を宣言していない")
+    largest = max(axis.categories, key=lambda category: category.radius_px or 0)
+    return f"{largest.label}は円を大きく表示します。"
 
 
 #: 面で塗らない土地被覆の分類（区間インスペクタの割合には出る）。
@@ -223,6 +284,16 @@ def _window_hours(source: str) -> str:
 _LINEAR_RAINBAND_HOURS = _window_hours("linearRainband")
 
 
+def _source_jma_elements(source: str) -> tuple[str, ...]:
+    """名前付きソースが段に並べる配信要素（同じソースを名乗る要素をすべて合わせる）。"""
+    return tuple(e for element in WEATHER_ELEMENTS if element.source == source for e in element.jma_elements)
+
+
+#: 降水の段の境目（配信の宣言の、予測が届く先）。降水は近い段から高解像度降水ナウキャスト・降水短時間予報と継ぐ。
+_NOWCAST_REACH, _SHORT_RANGE_REACH = (forecast_reach(e) for e in _source_jma_elements("main"))
+_RAINBAND_AREA_REACH = forecast_reach(*_source_jma_elements("linearRainbandAreaForecast"))
+
+
 def _label_list(labels: list[str]) -> str:
     """名前の並び。同じ名前を名乗る要素（描き方違いの同じ名前付きソース）は1つにする。"""
     return "・".join(dict.fromkeys(labels))
@@ -230,7 +301,7 @@ def _label_list(labels: list[str]) -> str:
 
 #: 災害の要素を、描くコマの規則ごとに言う語（短い説明・長い説明）。並びが説明の並びになる。
 _DISASTER_FRAME_RULE_WORDING: dict[FrameRuleKind, tuple[str, str]] = {
-    "nearest": ("時刻に連動", "は時刻スライダーに連動し、実況[直近]から60分先までを切り替えて確認できます。"),
+    "nearest": ("時刻に連動", "は時刻スライダーに連動し、実況[直近]から{reach}先までを切り替えて確認できます。"),
     "latestObservation": ("直近の観測", "は観測だけのため、最新の観測より先の時刻には出ません。"),
     "current": (
         "現在の危険度のみ",
@@ -238,19 +309,24 @@ _DISASTER_FRAME_RULE_WORDING: dict[FrameRuleKind, tuple[str, str]] = {
     ),
 }
 
-#: 災害の要素の名前を、描くコマの規則ごとにまとめた並び（要素の無い規則は出さない）。
-_DISASTER_BY_FRAME_RULE: list[tuple[str, str, str]] = [
-    (labels, brief, detail)
-    for kind, (brief, detail) in _DISASTER_FRAME_RULE_WORDING.items()
-    if (
-        labels := _label_list(
-            [element.label for element in WEATHER_ELEMENTS if element.group == "disaster" and element.frame_rule.kind == kind]
-        )
-    )
-]
+def _disaster_by_frame_rule() -> list[tuple[str, str, str]]:
+    """災害の要素の名前を、描くコマの規則ごとにまとめた並び（要素の無い規則は出さない）。長い説明の`{reach}`には、
+    その規則の要素の予測が届く先を入れる。"""
+    rows = []
+    for kind, (brief, detail) in _DISASTER_FRAME_RULE_WORDING.items():
+        elements = [element for element in WEATHER_ELEMENTS if element.group == "disaster" and element.frame_rule.kind == kind]
+        if not elements:
+            continue
+        if "{reach}" in detail:
+            detail = detail.format(reach=forecast_reach(*(e for element in elements for e in element.jma_elements)))
+        rows.append((_label_list([element.label for element in elements]), brief, detail))
+    return rows
 
 
-#: `_MAP_LAYER_IDS`の1つずつの宣言。並びがチップの並び（種別の中の順）になる。**過不足は生成の時点で落ちる**（`MAP_LAYERS`）。
+_DISASTER_BY_FRAME_RULE = _disaster_by_frame_rule()
+
+
+#: `_MAP_LAYER_IDS`の1つずつの宣言。並びが一覧の行の並び（種別の中の順）になる。**過不足は生成の時点で落ちる**（`MAP_LAYERS`）。
 _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "elevation": MapLayerSpec(
         "gsiRelief",
@@ -276,7 +352,7 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             f"評価軸が使う「道路の周囲{LANDCOVER_RING_OUTER_M:g}mの割合」とは違い、混ざらずそのまま見えます。"
             + (
                 f"{_UNPAINTED_LANDCOVER}は塗りません——広い範囲を単色で覆い、基礎地図を隠すだけになるためです。"
-                f"区間インスペクタの内訳には{_UNPAINTED_LANDCOVER}も出ます。"
+                f"地図の道を押して開く内訳には{_UNPAINTED_LANDCOVER}も出ます。"
                 if _UNPAINTED_LANDCOVER
                 else ""
             ),
@@ -285,38 +361,41 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "highway": _tile_layer(
         "highway",
         "roadCondition",
-        chip_label="道路種別",
-        description=("道路の種類を色で表示[幹線道路ほど濃い紫・農道や林道ほど明るい水色]",),
+        description=(f"道路の種類を色で表示[{ordered_ends_text(_first_axis('highway'))}]",),
         panel_hint=(
-            "OSMのhighwayタグを区分にまとめて色分けしています。幹線道路が最も濃く、下位の道ほど明るい色です。"
-            "「路面」「トンネル」等と一緒に表示すると、同じ道に線を横へ並べて描きます。",
+            "OSMのhighwayタグを区分にまとめて色分けしています。"
+            f"「{_first_axis('highway').categories[0].label}」が最も濃く、下位の道ほど明るい色です。"
+            "ほかの道路のレイヤーと一緒に表示すると、同じ道に線を横へ並べて描きます。",
         ),
     ),
     "surface": _tile_layer(
         "surface",
         "roadCondition",
-        chip_label="路面",
         description=("路面の材質を色で表示[舗装・砂利・土など]",),
         panel_hint=(
-            "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道は「データなし」[灰色の薄い破線]、"
-            "区分に当てはまらない値の道は「その他」[灰色]で出します[データなしは未舗装という意味ではありません]。",
+            "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。"
+            f"区分に当てはまらない値の道は「{LEGEND_SHARED_ROWS["other"].label}」で出します。"
+            f"タグの無い道[{LEGEND_SHARED_ROWS["noData"].label}]は郊外ではほとんどの道に当たり、値のある道を埋もれさせるため、"
+            "最初は隠してあり、凡例のチェックで出せます"
+            f"[{LEGEND_SHARED_ROWS["noData"].label}は未舗装という意味ではありません]。",
         ),
+        hide_missing_rows=True,
     ),
     "tracktype": _tile_layer(
         "tracktype",
         "roadCondition",
-        chip_label="等級",
-        description=("農道・林道の路面の等級を色で表示[1=固く締まった路面ほど濃く、5=柔らかい土・草ほど明るい色]",),
+        description=(f"農道・林道の路面の等級を色で表示[{ordered_ends_text(_first_axis('tracktype'))}]",),
         panel_hint=(
             "OSMのtracktypeタグ[農道・林道の路面の固さの等級]を色分けしています。路面の材質[surfaceタグ]とは別のタグで、"
-            "材質のタグが無い農道・林道にも付いていることがあります。タグの無い道は「データなし」[灰色の薄い破線]です。",
+            "材質のタグが無い農道・林道にも付いていることがあります。"
+            f"タグの無い道は「{LEGEND_SHARED_ROWS["noData"].label}」です。",
         ),
     ),
     "tunnel": _tile_layer(
         "tunnel",
         "roadCondition",
         description=("トンネル区間[OSMのtunnelタグ]を色分け表示",),
-        panel_hint=("OSMのtunnelタグが該当する区間です。", LayerTextSlot("axes", "評価", "の材料の1つです。")),
+        panel_hint=("OSMのtunnelタグが該当する区間です。", LayerTextSlot("axes", "評価軸", "の材料の1つです。")),
     ),
     "oneway": _tile_layer(
         "oneway",
@@ -328,34 +407,53 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             "生成されません]、このレイヤーは表示のみで評価には影響しません。",
         ),
     ),
+    # 当てはまらない道（大多数）を描くと地図が灰色の線で覆われるので、最初は隠す。
+    "cycleway": _tile_layer(
+        "cycleway",
+        "roadCondition",
+        label="自転車レーン",
+        description=(f"自転車の走る場所を色で表示[{'・'.join(c.label for c in _first_axis('cycleway').categories)}]",),
+        panel_hint=(
+            "OSMの自転車のためのタグ[cycleway・highway=cycleway・bicycle]から、自転車の走る場所を区分にまとめて色分けしています。"
+            "1本の道が複数に当たれば、車道から分けられた方で出します。当てはまらない道は最初は隠してあり、凡例のチェックで出せます。",
+            LayerTextSlot("axes", "評価軸", "の材料の1つです。"),
+        ),
+        hide_missing_rows=True,
+    ),
     "stop_poi": _tile_layer(
         "stop_poi",
         "trafficSafety",
         description=(f"{_point_kind_list('stop_poi')}の位置を種別ごとに色分け表示",),
         panel_hint=(
             f"{_point_kind_list('stop_poi')}の位置です。",
-            LayerTextSlot("axes", "評価", "が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。"),
+            LayerTextSlot("axes", "評価軸", "が近傍のこれらを数えて算出しているものを、種別ごとの色分けで直接確認できます。"),
         ),
     ),
     # 種別ごとの鮮度の差を書く根拠は docs/modules/frontend/static-map-layers.md「点で示すもの」。
     "supply_poi": _tile_layer(
         "supply_poi",
         "amenity",
-        chip_label="補給休憩",
         description=(f"{_point_kind_list('supply_poi')}の位置を種別ごとに色分け表示",),
         panel_hint=(
             f"{_point_kind_list('supply_poi')}の位置です。自販機は飲み物が買えると分かって"
-            "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の"
-            "「自販機(中身不明)」として区別します[たばこ・切符の機械は出しません]。"
-            "コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・"
-            "給水・駐輪場は閉店・撤去にデータが追いついていないことがあります。現地の状況と"
-            "異なる場合があることをご留意ください。",
+            f"いるものだけを「{_row_label('supply_poi', 'vending_drinks')}」として出し、売っているものが分からないものは"
+            f"「{_row_label('supply_poi', 'vending_unknown')}」として区別します[たばこ・切符の機械は出しません]。"
+            f"{_row_label('supply_poi', 'convenience')}はOverture Mapsの地点のうちチェーンの店を、ほかはOSMのデータを出します。"
+            "どれも閉店・撤去にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
+        ),
+    ),
+    "stop_place": _tile_layer(
+        "stop_place",
+        "amenity",
+        description=(f"{_point_kind_list('stop_place')}の位置を群ごとに色分け表示",),
+        panel_hint=(
+            f"{_point_kind_list('stop_place')}の位置です。寺社は国の文化財の建造物を持つものを、ほかはOverture Mapsの地点を出します。"
+            "閉店にデータが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
         ),
     ),
     "accident_point": _tile_layer(
         "accident_point",
         "trafficSafety",
-        chip_label="事故",
         description=(
             "警察庁交通事故統計オープンデータ",
             LayerTextSlot("accidentYears", "[", "]"),
@@ -364,38 +462,38 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         panel_hint=(
             "警察庁が公開する交通事故統計オープンデータ[本票",
             LayerTextSlot("accidentYears", "、"),
-            "]の発生地点です。死亡事故[事故後24時間以内]は円を大きく表示します。",
+            f"]の発生地点です。{size_text('accident_point')}",
         ),
     ),
-    # 15時間より先は数値予報モデル（MSM）の計算値なので「予報」と呼ばない
+    # 降水短時間予報より先は数値予報モデル（MSM）の計算値なので「予報」と呼ばない
     # （docs/architecture/data-sources.md「気象業務法の予報業務許可」節）。
     "precipitationNowcast": MapLayerSpec(
         "ownFetch",
         "weather",
         data_nature="dynamic",
         label="降水ナウキャスト",
-        chip_label="降水",
         description=(
             "気象庁の降水ナウキャスト・降水短時間予報・線状降水帯予測マップ・線状降水帯の雨域と、数値予報モデルが計算した降水量を重ねて表示"
-            "[実況〜60分先は5分刻み、60分〜15時間先は気象庁の降水短時間予報、以降は気象庁の数値予報モデルMSMの"
-            f"計算値を1時間刻みで、予報ではなく誤差を含みうる。線状降水帯予測マップは現在〜{_LINEAR_RAINBAND_HOURS}時間先、線状降水帯の雨域は"
-            "実況〜30分先の間だけ追加で重畳]",
+            f"[実況〜{_NOWCAST_REACH}先は5分刻み、{_NOWCAST_REACH}〜{_SHORT_RANGE_REACH}先は気象庁の降水短時間予報、"
+            "以降は気象庁の数値予報モデルMSMの計算値を1時間刻みで、予報ではなく誤差を含みうる。"
+            f"線状降水帯予測マップは現在〜{_LINEAR_RAINBAND_HOURS}時間先、線状降水帯の雨域は"
+            f"実況〜{_RAINBAND_AREA_REACH}先の間だけ追加で重畳]",
         ),
         panel_hint=(
             "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、"
-            "実況[直近]から60分先までの雨雲の分布を切り替えて確認できます。60分より先は、"
-            "同じ気象庁の降水短時間予報へ自動的に切り替わり、15時間先まで"
+            f"実況[直近]から{_NOWCAST_REACH}先までの雨雲の分布を切り替えて確認できます。{_NOWCAST_REACH}より先は、"
+            f"同じ気象庁の降水短時間予報へ自動的に切り替わり、{_SHORT_RANGE_REACH}先まで"
             "確認できます——こちらは実況の外挿ではなく数値予報モデルによる予測のため、先に"
-            "なるほど不確実性が増します。15時間より先は、風と同じ仕組み[気象庁の数値予報モデルMSMが"
+            f"なるほど不確実性が増します。{_SHORT_RANGE_REACH}より先は、風と同じ仕組み[気象庁の数値予報モデルMSMが"
             "格子点ごとに計算した降水量]で、格子を降水強度に応じた色で塗る表示へさらに切り替わり、"
             "1〜3日先まで確認できます[降水短時間予報よりも粗い5kmメッシュのモデルの計算値で、予報ではなく"
             f"誤差を含みえます]。加えて、現在〜{_LINEAR_RAINBAND_HOURS}時間先の"
             f"間だけ、気象庁の線状降水帯予測マップを重ねて表示します[今後{_LINEAR_RAINBAND_HOURS}時間以内に大雨の"
             "おそれがある領域を赤で示すもので、予測は格子単位のため矩形に見えます。"
             "今まさに発生している線状降水帯の雨域を示すものではありません]。"
-            "今まさに発生している線状降水帯は、実況から30分先までの間、その雨域を赤い輪郭線で重ねます"
+            f"今まさに発生している線状降水帯は、実況から{_RAINBAND_AREA_REACH}先までの間、その雨域を赤い輪郭線で重ねます"
             "[気象庁が線状降水帯を解析しているときだけ出ます]。"
-            "非公式の内部APIを利用している実況・60分先までの"
+            f"非公式の内部APIを利用している実況・{_NOWCAST_REACH}先までの"
             "部分・線状降水帯予測マップ・線状降水帯の雨域は、取得に失敗することがあります。",
         ),
     ),
@@ -405,7 +503,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         "weather",
         data_nature="dynamic",
         label="風[矢印]",
-        chip_label="風",
         description=("気象庁の数値予報モデルMSMが計算した風向・風速を矢印で表示[1〜3日先まで。予報ではなく誤差を含みうる]",),
         panel_hint=(
             "気象庁MSM[メソ数値予報モデル、5kmメッシュ]が計算した風向・風速を格子点で矢印表示します。"
@@ -415,15 +512,15 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
             "[先まで見られる範囲は配信中の計算値の長さによって1〜3日の間で変わります]。",
             LayerTextSlot(
                 "axes",
-                "走行方位に対する向かい風/追い風の強さは、地図上部中央の「地図の色分け」で評価",
-                "を選ぶと、道路の色分けとして別途確認できます。",
+                "走行方位に対する向かい風/追い風の強さは、道路の色分けで評価軸",
+                "を選ぶと別途確認できます。",
             ),
         ),
     ),
     # 予兆が出てからONにするのでは手遅れになるため既定ONにする。危険度が出ている間は広い範囲が
     # 塗られ、他の面レイヤー（緑と水・標高図）も基礎地図の色も覆われるが、危険度ゼロの領域は
     # 配信元のタイルが透明なので、影響が出るのは警戒度が上がっている間だけ。そのときは防災の
-    # 情報を優先する（利用者はチップをOFFにすれば戻せる）。回避するしかない危険なので、評価軸には入れず表示だけにする。
+    # 情報を優先する（利用者は一覧でOFFにすれば戻せる）。回避するしかない危険なので、評価軸には入れず表示だけにする。
     # 要素の名前と、時刻に対する振る舞いは要素の宣言から組み立てる。段の数と名前は凡例に並ぶので文に書かない。
     "disaster": MapLayerSpec(
         "ownFetch",
@@ -431,7 +528,6 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
         data_nature="dynamic",
         default_on=True,
         label="災害",
-        chip_label="災害",
         description=(
             f"気象庁の{'・'.join(labels for labels, _, _ in _DISASTER_BY_FRAME_RULE)}をまとめて表示"
             f"[{'、'.join(f'{labels}は{brief}' for labels, brief, _ in _DISASTER_BY_FRAME_RULE)}]",
@@ -459,7 +555,7 @@ def map_layer_label(layer_id: str, spec: MapLayerSpec) -> str:
     """レイヤーの名前。一次属性を描くレイヤーは属性の名前で、どちらも無ければ生成の時点で落とす。"""
     if spec.label is not None:
         return spec.label
-    attribute = next((attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == layer_id), None)
+    attribute = PRIMARY_ATTRIBUTES_BY_ID.get(layer_id)
     if attribute is None:
         raise ValueError(f"地図レイヤー'{layer_id}'に名前が無い（一次属性でもない）")
     return attribute.label
@@ -581,20 +677,15 @@ POINT_STROKE_WIDTH_PX = 1
 #: 絵記号で描く点（行が`glyph`を持つ軸）の一辺。丸い点より大きくし、中の絵を読める大きさにする。
 POINT_ICON_SIZE_PX = 20
 POINT_OPACITY = 0.9
-#: 点の一次属性ごとの、既定と違う不透明度。事故は面的に多く、同じ濃さだと停止要因の点が埋もれる。
-_POINT_OPACITY_OVERRIDES: dict[str, float] = {"accident_point": 0.75}
 
 
 def _point_opacities() -> dict[str, float]:
-    """地図に点で出す一次属性（点の幾何・行の定義・タイルの系統を持つもの）ごとの不透明度。"""
-    shown = [
-        attr.attr_id
+    """地図に点で出す一次属性（点の幾何・行の定義・タイルの系統を持つもの）ごとの不透明度。行が宣言しなければ既定。"""
+    return {
+        attr.attr_id: POINT_OPACITY if attr.point_opacity is None else attr.point_opacity
         for attr in PRIMARY_ATTRIBUTES
         if attr.geometry == "point" and attr.display_axes and attr.tile_kind is not None
-    ]
-    unknown = set(_POINT_OPACITY_OVERRIDES) - set(shown)
-    assert not unknown, f"点で出さない一次属性に不透明度がある: {sorted(unknown)}"
-    return {attr_id: _POINT_OPACITY_OVERRIDES.get(attr_id, POINT_OPACITY) for attr_id in shown}
+    }
 
 
 #: 一次属性 → 点の不透明度。画面は点のレイヤーごとに自分の名前で引く。

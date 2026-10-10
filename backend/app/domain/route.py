@@ -1,23 +1,34 @@
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 
-from typing import Annotated, Any, Callable, Iterable, Literal, Mapping, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Iterable, Literal, Mapping, TypeVar
 
-from pydantic import Field, WithJsonSchema
+from pydantic import Field, PrivateAttr, WithJsonSchema
 
 from app.domain.difficulty import (
     OverallDifficulty,
-    distance_weighted_difficulty,
     round_difficulty,
     weighted_mean_by_distance,
 )
+from app.domain.attributes import ElevationAttribute
 from app.domain.geo import Latitude, Longitude
+from app.domain.graph import LeanEdge
 from app.domain.strict_model import StrictModel
+
+if TYPE_CHECKING:
+    # 軸の定義は材料の宣言を経てこのモジュールを読み込むので、実行時には読み込まない（循環する）。
+    from app.domain.axis_definitions import BreakpointLinearShape
+
+#: 応答の距離（km）の桁。区間・ビン・候補の距離をこの桁へ丸める。
+DISTANCE_KM_DECIMALS = 2
+#: 応答の獲得標高（m）の桁。
+ELEVATION_GAIN_DECIMALS = 1
 
 
 # GeoJSONのLineString（座標は[経度, 緯度]）。契約には形を載せるが、検証はしない——数千点の座標を
 # 組み立てのたびにたどることになる。形は組み立てる側（`_concat_segment_geometries`・
-# `services/road_graph_engine.py: concat_edge_geometries`等）が決める。
+# `concat_edge_geometries`）が決める。
 LineStringGeometry = Annotated[
     dict[str, Any],
     WithJsonSchema(
@@ -52,6 +63,29 @@ class SegmentWind(StrictModel):
     extended: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class DensityScoreInput:
+    """密度の軸（`evaluation.py: averages_density`）の、区間をまたいで平均する値。
+
+    区間（Edge）ではその区間の値、ビンと候補では中の区間の距離平均を持つ。ビンと候補の得点は、
+    区間の得点の平均ではなく、この横軸の値の平均を折れ線に通して作る（`merge_axis_difficulties`）。
+    """
+
+    # 折れ点を通す前の重み付き和（1kmあたりの量）。
+    value: float
+    # 平均の重みにする距離（km）。応答の`distance_km`は10m単位に丸めてあり、信号の脇の数mの区間が0になって
+    # 回数ごと消えるため、丸めない距離を持つ。
+    distance_km: float
+    # 重み ÷ データのある軸の重みの和（`difficulty.py: axis_weight_shares_at_row`）。得点に掛けると寄与度になる。
+    # 合成に入らない区間（重みの和が0）だけを持つ範囲はNone。
+    weight_share: float | None
+    shape: "BreakpointLinearShape"
+
+    @property
+    def score(self) -> float:
+        return self.shape.score_at(self.value)
+
+
 class RouteSegmentDetail(StrictModel):
     """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
 
@@ -83,11 +117,18 @@ class RouteSegmentDetail(StrictModel):
     difficulty: float | None = None
     # この区間の評価に使った風（到達予想の時刻に通るとして引いた予報）。風を持たない生成ではNone。
     wind: SegmentWind | None = None
+    # 密度の軸のid→区間をまたいで平均する値。応答には出さない（ビンと候補の値を作るための内部の値）。
+    # 区間はエンジンが載せ（`with_density_inputs`）、ビンは`_merge_segment_bin`が中の区間から作る。
+    _density_inputs: dict[str, DensityScoreInput] = PrivateAttr(default_factory=dict)
+
+    def with_density_inputs(self, density_inputs: dict[str, DensityScoreInput]) -> "RouteSegmentDetail":
+        self._density_inputs = density_inputs
+        return self
 
 
-#: 候補の種類。周回（方位を持つ）・経由地（指定した経由地を順に通る1本。目的地の有無を問わない）・
-#: 目的地（経由地の無い目的地への互いに異なる経路）・合成（区間を乗り換えて組み立てた経路）。
-RouteKind = Literal["loop", "waypoints", "destination", "spliced"]
+#: 候補の種類。周回（出発地へ戻る経路。経由地の有無を問わない）・目的地（目的地で終わる経路。経由地の有無を問わない）・
+#: 合成（区間を乗り換えて組み立てた経路）。
+RouteKind = Literal["loop", "destination", "spliced"]
 
 
 class RouteCandidate(StrictModel):
@@ -99,10 +140,13 @@ class RouteCandidate(StrictModel):
     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
     """
 
-    # 応答の中で一意のid・種類・名前・最速の印は、`services/route_generator.py: _label`だけが付ける。エンジンが
+    # 応答の中で一意のid・種類・名前・最速の印・乗り換えの可否は、`services/route_generator.py: _label`だけが付ける。エンジンが
     # 組み立てる時点では並びも種類も決まっておらず、idと種類は既定のまま、名前は周回の方位だけを持つ。
     id: str = ""
     kind: RouteKind = "loop"
+    # この候補を元に区間を乗り換えられるか（目的地を持つ生成の候補だけ。合成の要求は目的地を要る:
+    # `api/routers/routes.py: RouteGenerateRequest._resolve_target`）。画面は生成の入力から決め直さずにこれを読む。
+    spliceable: bool = False
     direction_label: str
     # 所要時間だけで探した1本（基準線）。経由地の無い目的地の生成で、比べる相手があるときだけ1本に付く。
     # 画面はこの1本を一覧の「最速」に置き、時間の列の基準にする。
@@ -112,7 +156,7 @@ class RouteCandidate(StrictModel):
     elevation_gain_m: float | None = None
     segments: list[RouteSegmentDetail] = Field(default_factory=list)
     overall_difficulty: OverallDifficulty | None = None
-    # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
+    # 所要時間の見積もり（秒）。区間の走行時間（`domain/cycling_speed.py`の走行モデルが巡航速度と区間の条件から求めた
     # 速度）＋停止の待ち＋ターンの待ち。経路の選び方には使っておらず、表示のためだけに持つ。
     estimated_duration_seconds: float | None = None
     # 所要時間の見積もりで風を使えなかった（風の予報が読めず、無風として計算した）。画面が利用者へ知らせる。
@@ -126,7 +170,7 @@ class RouteCandidate(StrictModel):
     axis_contributions: dict[str, float] = Field(default_factory=dict)
     # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ。得点（0-100）は目盛りの
     # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
-    # 単位は`GET /api/axis-catalog`の`raw_value_unit`が持ち、「◯◯/km」なら走行距離を
+    # 単位は`GET /api/axis-catalog`の`raw_value_units.unit`が持ち、`total_unit`のある軸は走行距離を
     # 掛けて経路全体の実数（例: 止まる回数）にできる。区間の値は持たない（`route_axis_raw_values`）。
     axis_raw_values: dict[str, float] = Field(default_factory=dict)
     material_values: dict[str, float] = Field(default_factory=dict)
@@ -189,15 +233,18 @@ def _split_into_bins(items: list[_T], distance_km: Callable[[_T], float]) -> lis
     return bins
 
 
+def _append_continuing(coordinates: list[list[float]], points: list[list[float]]) -> None:
+    """`points`を`coordinates`へ継ぐ。先頭の点が前の終点と同じなら重ねない。"""
+    if coordinates and points and coordinates[-1] == points[0]:
+        points = points[1:]
+    coordinates.extend(points)
+
+
 def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | None:
     coordinates: list[list[float]] = []
     for segment in segments:
-        if segment.geometry is None:
-            continue
-        points = segment.geometry["coordinates"]
-        if coordinates and points and coordinates[-1] == points[0]:
-            points = points[1:]
-        coordinates.extend(points)
+        if segment.geometry is not None:
+            _append_continuing(coordinates, segment.geometry["coordinates"])
     if len(coordinates) < 2:
         return None
     return {"type": "LineString", "coordinates": coordinates}
@@ -248,13 +295,43 @@ def _merge_weighted_dicts(
     return merged
 
 
+def _merge_density_inputs(segments: list[RouteSegmentDetail]) -> dict[str, DensityScoreInput]:
+    """区間の`DensityScoreInput`を、軸ごとに（丸めない）距離で加重平均へ畳む。値を持たない区間はその軸の平均に入れない。"""
+    merged: dict[str, DensityScoreInput] = {}
+    for axis_id in {axis_id for s in segments for axis_id in s._density_inputs}:
+        present = [s._density_inputs[axis_id] for s in segments if axis_id in s._density_inputs]
+        value = weighted_mean_by_distance([(density.value, density.distance_km) for density in present])
+        if value is None:
+            continue
+        merged[axis_id] = DensityScoreInput(
+            value=value,
+            distance_km=sum(density.distance_km for density in present),
+            weight_share=weighted_mean_by_distance([(density.weight_share, density.distance_km) for density in present]),
+            shape=present[0].shape,
+        )
+    return merged
+
+
+def _density_contributions(density_inputs: dict[str, DensityScoreInput]) -> dict[str, float]:
+    """密度の軸の寄与度（丸めない）。横軸の値の平均から作った得点 × 重みの割合の平均。"""
+    return {
+        axis_id: density.score * density.weight_share
+        for axis_id, density in density_inputs.items()
+        if density.weight_share is not None
+    }
+
+
 def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.axis_difficulties`をaxis_idごとに距離加重平均へ集約する。
-    `_merge_segment_bin`がビン単位（500m）の集約に使うほか、
-    `RouteCandidate.axis_difficulties`はこの関数を候補の全区間へ1回
-    適用するだけで得られる（新しい計算式は不要、`route_generator.py`参照）。
+    """`RouteSegmentDetail.axis_difficulties`をaxis_idごとに畳む。`_merge_segment_bin`がビン単位（500m）の集約に、
+    `route_generator.py: SEGMENT_AGGREGATES`が候補の全区間（ビン）の集約に使う。
+
+    密度の軸は、区間の得点の平均ではなく、横軸の値（1kmあたりの量）の距離平均を折れ線に通した得点にする
+    ——短い区間に回数が集まる道では、得点の平均が回数どおりの得点よりずっと低く出るため。
+    ほかの軸は得点の距離加重平均。
     """
-    return _merge_axis_value_dict(segments, lambda s: s.axis_difficulties)
+    merged = _merge_axis_value_dict(segments, lambda s: s.axis_difficulties)
+    merged.update({axis_id: density.score for axis_id, density in _merge_density_inputs(segments).items()})
+    return merged
 
 
 def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dict[str, float]:
@@ -267,7 +344,7 @@ def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dic
     bins = _split_into_bins(edges, lambda edge: edge[0])
     return _merge_weighted_dicts(
         [
-            (round(sum(distance for distance, _ in bin_edges), 2), _merge_weighted_dicts(bin_edges, _round_significant))
+            (round(sum(distance for distance, _ in bin_edges), DISTANCE_KM_DECIMALS), _merge_weighted_dicts(bin_edges, _round_significant))
             for bin_edges in bins
         ],
         _round_significant,
@@ -275,18 +352,52 @@ def route_axis_raw_values(edges: list[tuple[float, Mapping[str, float]]]) -> dic
 
 
 def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.axis_contributions`（「重み付き寄与度」）を
-    axis_idごとに距離加重平均へ集約する。`merge_axis_difficulties`と同じ集約方法
-    （`_merge_axis_value_dict`共有実装）。`_merge_segment_bin`のビン単位集約、
-    `RouteCandidate.axis_contributions`（`route_generator.py`の候補全体の集約）の両方が使う。
+    """`RouteSegmentDetail.axis_contributions`（「重み付き寄与度」）をaxis_idごとに畳む。
+    `_merge_segment_bin`のビン単位集約、`RouteCandidate.axis_contributions`（`route_generator.py`の候補全体の集約）の両方が使う。
+
+    密度の軸は、`merge_axis_difficulties`が作り直した得点に重みの割合の平均を掛けた値。ほかの軸は距離加重平均。
     """
-    return _merge_axis_value_dict(segments, lambda s: s.axis_contributions)
+    merged = _merge_axis_value_dict(segments, lambda s: s.axis_contributions)
+    merged.update({
+        axis_id: round_difficulty(contribution)
+        for axis_id, contribution in _density_contributions(_merge_density_inputs(segments)).items()
+    })
+    return merged
+
+
+def merge_difficulty(segments: list[RouteSegmentDetail]) -> float | None:
+    """`RouteSegmentDetail.difficulty`（合成の難しさ）を畳む。値のある区間が無ければNone。
+
+    区間の合成の難しさの距離加重平均は、軸ごとの寄与度の平均に「その軸の寄与度を持つ区間の距離 ÷ 合成の難しさを
+    持つ区間の距離」を掛けて足したものに等しい。密度の軸の寄与度を`merge_axis_contributions`が作り直すので、
+    その軸の項だけを作り直した寄与度へ差し替える（寄与度の和と合成の難しさの関係を保つ）。
+    """
+    mean = weighted_mean_by_distance([(s.difficulty, s.distance_km) for s in segments])
+    if mean is None:
+        return None
+    difficulty_distance = sum(s.distance_km for s in segments if s.difficulty is not None)
+    for axis_id, contribution in _density_contributions(_merge_density_inputs(segments)).items():
+        present = [(s.axis_contributions[axis_id], s.distance_km) for s in segments if axis_id in s.axis_contributions]
+        averaged = weighted_mean_by_distance(present)
+        if averaged is not None:
+            mean += (contribution - averaged) * sum(distance for _, distance in present) / difficulty_distance
+    return round_difficulty(mean)
+
+
+def merge_overall_difficulty(segments: list[RouteSegmentDetail]) -> OverallDifficulty | None:
+    """候補の`overall_difficulty`（`difficulty.py: OverallDifficulty`）。値のある区間が無ければNone。
+
+    平均は`merge_difficulty`。総量は丸めた平均（応答の`average`）に全区間の距離合計を掛ける——値の無い区間を
+    飛ばして積むと「データが無い区間が多いほど総量が小さい」ことになり、欠損の多いルートが有利に見える。
+    """
+    average = merge_difficulty(segments)
+    if average is None:
+        return None
+    return OverallDifficulty(average=average, load=round(average * sum(s.distance_km for s in segments), 1))
 
 
 def merge_material_values(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.material_values`を材料idごとに距離加重平均へ集約する。
-    `merge_axis_difficulties`と同じ集約方法（`_merge_axis_value_dict`共有実装）。
-    """
+    """`RouteSegmentDetail.material_values`を材料idごとに距離加重平均へ集約する。"""
     return _merge_axis_value_dict(segments, lambda s: s.material_values, _round_significant)
 
 
@@ -334,11 +445,11 @@ BIN_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], object]] = {
     "end_latitude": lambda segments: segments[-1].end_latitude,
     "end_longitude": lambda segments: segments[-1].end_longitude,
     "cumulative_distance_km": lambda segments: segments[0].cumulative_distance_km,
-    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), 2),
+    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), DISTANCE_KM_DECIMALS),
     "estimated_arrival_time": lambda segments: segments[0].estimated_arrival_time,
     # 到達予想と同じく、ビンに入った先頭の区間の値（ビンの中で予報の時刻が変わっても、入るときの風を出す）。
     "wind": lambda segments: segments[0].wind,
-    "difficulty": lambda segments: distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
+    "difficulty": merge_difficulty,
     **BIN_DICT_FIELD_MERGERS,
 }
 
@@ -348,13 +459,62 @@ def _undeclared_fields() -> list[str]:
     return sorted(set(RouteSegmentDetail.model_fields) - set(BIN_FIELD_MERGERS))
 
 
-if _undeclared_fields():
+if undeclared := _undeclared_fields():
     # 宣言し忘れたフィールドはビンで既定値になるだけで、型でも例外でも現れない
     # （区間インスペクタから値が消える）。読み込みの時点で止める。
     raise RuntimeError(
-        f"RouteSegmentDetail のフィールド {_undeclared_fields()} は、BIN_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
+        f"RouteSegmentDetail のフィールド {undeclared} は、BIN_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
     )
 
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
-    return RouteSegmentDetail.model_validate({name: merge(segments) for name, merge in BIN_FIELD_MERGERS.items()})
+    merged = RouteSegmentDetail.model_validate({name: merge(segments) for name, merge in BIN_FIELD_MERGERS.items()})
+    # 候補の値はビンからもう一度畳むので、ビンにも中の区間の平均を載せる。
+    return merged.with_density_inputs(_merge_density_inputs(segments))
+
+
+def concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
+    """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
+
+    隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
+    からはどこがEdgeの境目か復元できない**。Edge単位で決めた区間を地図へ帯として描く
+    ために境界の位置を併せて返す。
+
+    2つ目の戻り値は`len(edges) + 1`件で、`coordinates[offsets[i]:offsets[j] + 1]`が
+    Edge i〜j-1のひとつながりの形状になる。**同じ関数が両方を作る**——別々に組み立てると
+    ずれても型でも例外でも現れず、地図上で帯だけが1点ずれる。
+    """
+    coordinates: list[list[float]] = []
+    offsets: list[int] = []
+    for edge in edges:
+        offsets.append(max(len(coordinates) - 1, 0))
+        _append_continuing(coordinates, [[lon, lat] for lat, lon in edge.geometry])
+    offsets.append(max(len(coordinates) - 1, 0))
+    return {"type": "LineString", "coordinates": coordinates}, offsets
+
+
+def reverse_elevation_by_edge(
+    edges_in_path: list[LeanEdge],
+    reverse_edges: list[LeanEdge],
+    elevation_by_edge: dict[str, ElevationAttribute],
+) -> dict[str, ElevationAttribute]:
+    """逆方向Edge列ぶんの`ElevationAttribute`を、順方向の値から代数的に導出する。
+
+    順方向で標高が取れなかったEdgeは逆方向側にもキーを持たせない（欠損をそのまま伝える）。
+    """
+    result: dict[str, ElevationAttribute] = {}
+    for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
+        forward_attribute = elevation_by_edge.get(forward_edge.edge_id)
+        if forward_attribute is not None:
+            result[reverse_edge.edge_id] = forward_attribute.reversed_as(reverse_edge.edge_id)
+    return result
+
+
+def route_elevation_gain(edges: list[LeanEdge], elevation_by_edge: dict) -> float | None:
+    """経路の獲得標高（m、`ELEVATION_GAIN_DECIMALS`の桁）。値が1つも無ければNone（0mと「標高が取れなかった」を分ける）。"""
+    gains = [
+        attribute.elevation_gain_m
+        for edge in edges
+        if (attribute := elevation_by_edge.get(edge.edge_id)) is not None
+    ]
+    return round(sum(gains), ELEVATION_GAIN_DECIMALS) if gains else None

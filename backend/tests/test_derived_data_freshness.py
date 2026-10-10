@@ -6,12 +6,10 @@
 ソースごとの鮮度と表ごとの列の記録との比べ（DBで）、作り直した直後に値や行の無い道・区間があっても作り直しを求めないこと。
 """
 
-import asyncpg
 import pytest
 
 from app.batch import derive_cli
-from app.batch.common import asyncpg_dsn
-from app.infrastructure import derived_data_meta, derived_models, road_network_store
+from app.infrastructure import derived_data_meta, derived_models
 from app.infrastructure.derived_data_freshness import (
     ColumnsChange,
     DerivedDataFreshnessQuery,
@@ -22,8 +20,8 @@ from app.infrastructure.derived_data_freshness import (
 from app.infrastructure.orm_base import Base
 from app.infrastructure.source_models import Source
 from app.services.derived_data_freshness_service import build_freshness_report
-from tests.conftest import postgis_database_url
-from tests.source_ingest import ingest_records, point_record, way_record
+from tests.conftest import postgis_database_url, raw_connection
+from tests.source_ingest import abr_prefecture_record, ingest_records, point_record, way_record
 
 from datetime import datetime, timezone
 
@@ -69,11 +67,8 @@ async def test_作り直しに使った取込が成功した最新の取込で�
     """取り直したソース・まだ作り直しに使っていないソース・取込が1度も成功していないソースが、作り直しが要る側に出る。"""
     way_run = await ingest_records(Source.OSM_WAY, [])
     accident_run = await ingest_records(Source.ACCIDENT, [])
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derived_data_meta.replace_source_runs(conn, {Source.OSM_WAY: way_run, Source.ACCIDENT: accident_run})
-    finally:
-        await conn.close()
     reingested_accident_run = await ingest_records(Source.ACCIDENT, [])
     node_run = await ingest_records(Source.OSM_NODE, [])
     with pytest.raises(OSError):
@@ -103,15 +98,12 @@ async def test_作り直した後に列を足した表と消した表と列の�
     added, removed, same, *unrecorded = DERIVED
     declared = declared_columns()
     dropped = value_columns(added)[0]
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
+    async with raw_connection() as conn:
         await derived_data_meta.replace_columns(conn, {
             added.name: declared[added.name] - {dropped},
             removed.name: declared[removed.name] | {"removed_column"},
             same.name: declared[same.name],
         })
-    finally:
-        await conn.close()
 
     report = await _report(road_graph_session)
 
@@ -125,22 +117,22 @@ async def test_作り直した後に列を足した表と消した表と列の�
 
 
 @on_postgis
-async def test_作り直した直後は値や行の無い道と区間があっても作り直しを求めない(road_graph_session, monkeypatch, tmp_path):
+async def test_作り直した直後は値や行の無い道と区間があっても作り直しを求めない(road_graph_session, road_network_root):
     """区間に切れない道（同じ位置に点が重なる）は派生の表に行を持たず、標高と土地被覆のタイルが無い区間は値を持たない。
     どちらも作り直した結果なので、作り直しても消えない「作り直しが必要」を出さない。"""
-    monkeypatch.setattr(road_network_store, "ROOT", tmp_path / "road_network")
     points = {1: (139.700, 35.680), 2: (139.701, 35.681), 3: (139.702, 35.680), 4: (139.702, 35.680)}
     await ingest_records(Source.OSM_NODE, [point_record(n, *point) for n, point in points.items()])
     await ingest_records(Source.OSM_WAY, [
         way_record(way_id, [points[n] for n in nodes], nodes) for way_id, nodes in ((100, [1, 2]), (200, [3, 4]))])
-    assert await derive_cli.run(postgis_database_url(), None) == 0
+    await ingest_records(Source.ABR, [abr_prefecture_record("130001", "東京都", *points[1])])
+    assert await derive_cli.run(postgis_database_url()) == 0
 
     report = await _report(road_graph_session)
 
     tables = {table.table_name: table for table in report.tables}
-    nulls = {column.column: column.null_count for column in tables[derived_models.EdgeMaterialRow.__tablename__].columns}
-    # 前提: 道200は道1本の表に行が無く、道100の区間は標高も土地被覆も持たない。
-    assert tables[derived_models.WayMaterialRow.__tablename__].row_count == 1
-    assert (nulls["start_elevation_m"], nulls["lc_valid_pixels"]) == (1, 1)
+    # 前提: 道200は道の表に行が無く、道100の区間は標高も土地被覆も持たない。
+    assert tables[derived_models.RoadWayRow.__tablename__].row_count == 1
+    assert (tables[derived_models.EdgeElevationRow.__tablename__].row_count,
+            tables[derived_models.EdgeLandcoverRow.__tablename__].row_count) == (0, 0)
     assert [source.source for source in report.sources if source.needs_rebuild] == []
     assert [table.table_name for table in report.tables if table.needs_rebuild] == []

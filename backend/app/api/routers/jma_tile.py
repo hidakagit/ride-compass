@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app.api.cache_policy import IMMUTABLE_TILE, JMA_NOT_YET_DELIVERED, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
 from app.api.dependencies import get_jma_tile_client
 from app.api.rate_limit import enforce_rate_limit
+from app.api.routers._tile_http import tile_not_found
 from app.config import settings
 from app.infrastructure.jma_tile_client import (
     EmptyTile,
@@ -24,11 +25,6 @@ router = APIRouter()
 # 同じURLのまま更新される時刻一覧・恒久404・配信前の地物の404）を返すため、`cache_policy.py`の対応表では
 # `HANDLER_MANAGED`とし、どのポリシーを使うかだけをここで選ぶ。キャッシュ時間そのものは
 # `cache_policy.py`が持つ。
-
-
-def _cache_control(path: str) -> str:
-    policy = JMA_TARGET_TIMES if is_target_times_path(path) else IMMUTABLE_TILE
-    return policy.header()
 
 
 class JmaTileIndexAvailable(JmaTileIndex):
@@ -81,24 +77,14 @@ async def jma_tile_proxy(
     except JmaTileNotFoundError:
         # 疎な格子状タイル（降水・浸水想定区域等）では特定のz/x/yに対応するタイルが
         # 存在しないことは珍しくない正常系のため、502（上流障害）ではなく404を返す。
-        policy = JMA_TILE_NOT_FOUND if is_final_absence(path) else JMA_NOT_YET_DELIVERED
-        raise HTTPException(
-            status_code=404,
-            detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": policy.header()},
-        ) from None
+        raise tile_not_found(JMA_TILE_NOT_FOUND if is_final_absence(path) else JMA_NOT_YET_DELIVERED) from None
     if isinstance(tile, EmptyTile):
         # 描くものが無いと確認済みのため、上流へ問い合わせ直さず即座に404を返す
         # （上流が404で返すか空タイルで返すかに関わらず、クライアントから見れば同じ）。
-        raise HTTPException(
-            status_code=404,
-            detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": JMA_TILE_NOT_FOUND.header()},
-        )
+        raise tile_not_found(JMA_TILE_NOT_FOUND)
     if tile is None:
         # 上流障害は一時的なため、キャッシュさせず次のリクエストで取り直させる。
         raise HTTPException(status_code=502, detail="気象庁データの取得に失敗しました")
     content, content_type = tile
-    return Response(
-        content=content, media_type=content_type, headers={"Cache-Control": _cache_control(path)}
-    )
+    policy = JMA_TARGET_TIMES if is_target_times_path(path) else IMMUTABLE_TILE
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": policy.header()})

@@ -1,6 +1,6 @@
 """道路網の形の導出（`batch/derive_topology.py`）が、意図した形の派生を作ること。
 
-見るのは、切る位置・閉じた区間の切り直し・枝数・値の器・区間の形と、長さと方位の測り方。
+見るのは、切る位置・閉じた区間の切り直し・枝数・区間の形と、長さと方位の測り方。
 長さと方位は値そのものではなく性質を見る——長さは形状の測地線長であること、方位は始点→終点の
 方位であること。
 
@@ -10,16 +10,13 @@
   落とす分岐を通さない
 """
 
-import asyncpg
 import pytest
 import pytest_asyncio
 
 from app.batch import derive_topology
-from app.batch.common import asyncpg_dsn
-from tests.conftest import postgis_database_url
 from tests.source_ingest import ingest_records, way_record
 
-# road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -39,33 +36,22 @@ WAYS: tuple[tuple[int, list[int]], ...] = (
     (300, [10, 11, 12, 10]),
 )
 
+
 #: ノードidから座標を作る。閉じる道の終端だけ始点と同じ位置へ戻す。
 def _point(node_id: int, ordinal: int) -> tuple[float, float]:
     index = 0 if node_id == 10 and ordinal == 3 else node_id
     return (BASE_LON + STEP * index, BASE_LAT + STEP * (index % 3))
 
 
-TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
-          "source_features", "source_runs")
-
-
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def topology_conn(road_graph_engine):
-    """`road_graph_engine`に依存するのは接続のためではなく、**スキーマを作らせるため**。
-    このファイルは生のasyncpgで繋ぐので、テーブルを作る経路をどこかで通さないと、
-    まっさらなDB（CI）では最初の文から落ちる。
-    """
-    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
-    try:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await ingest_records("osm_way", [
-            way_record(way_id, [_point(n, i) for i, n in enumerate(node_ids)], node_ids)
-            for way_id, node_ids in WAYS], conn=conn)
-        await derive_topology.derive(conn)
-        yield conn
-    finally:
-        await conn.execute("TRUNCATE " + ", ".join(TABLES) + " CASCADE")
-        await conn.close()
+async def topology_conn(derive_conn):
+    """道を取り込み、区間まで作った状態。"""
+    conn = derive_conn
+    await ingest_records("osm_way", [
+        way_record(way_id, [_point(n, i) for i, n in enumerate(node_ids)], node_ids)
+        for way_id, node_ids in WAYS], conn=conn)
+    await derive_topology.derive(conn)
+    return conn
 
 
 async def test_splits_where_two_ways_pass_the_same_node(topology_conn):
@@ -93,7 +79,7 @@ async def test_closed_segment_is_split_again_so_no_self_loop_remains(topology_co
 async def test_branch_count_is_the_number_of_segment_ends_at_the_node(topology_conn):
     """枝数は「そこに集まる道の本数」＝区間の端点としての出現回数。"""
     rows = await topology_conn.fetch(
-        "SELECT osm_node_id, branch_count FROM node_materials ORDER BY osm_node_id")
+        "SELECT osm_node_id, branch_count FROM road_nodes ORDER BY osm_node_id")
     assert {r["osm_node_id"]: r["branch_count"] for r in rows} == {
         1: 1,   # 道100の始端
         3: 3,   # 道100の2区間が接し、道200が出る
@@ -103,18 +89,6 @@ async def test_branch_count_is_the_number_of_segment_ends_at_the_node(topology_c
         11: 2,  # 切り直しで生まれた端点
         # ノード2・12は区間の端にならないので行が無い。
     }
-
-
-async def test_edge_materials_has_one_empty_row_per_segment(topology_conn):
-    """値を出すバッチが埋める器を、区間と同時に作る。未計算はNULLで表す。"""
-    counts = await topology_conn.fetchrow(
-        "SELECT (SELECT count(*) FROM road_edges) AS edges,"
-        " (SELECT count(*) FROM edge_materials) AS materials,"
-        " (SELECT count(*) FROM edge_materials"
-        "  WHERE accident_count IS NOT NULL OR intersection_count IS NOT NULL) AS filled")
-    # 道100が2区間・道200が1区間・道300が切り直して2区間。
-    assert counts["edges"] == counts["materials"] == 5
-    assert counts["filled"] == 0
 
 
 async def test_distance_is_the_geodesic_length_of_the_geometry(topology_conn):

@@ -18,6 +18,7 @@ from app.domain.tuning import TUNING_PARAMETERS_BY_ID, TUNING_VALUES
 from app.infrastructure.tuning_overrides import (
     clear_override,
     load_tuning_values,
+    merge_overrides,
     read_overrides,
     set_override,
 )
@@ -26,7 +27,7 @@ logger = logging.getLogger("ridecompass.tuning")
 
 
 def _apply_tuning_values(values: dict[str, float]) -> None:
-    """`load_tuning_values`が作った値を、プロセス内の`TUNING_VALUES`へ反映する。
+    """上書きを宣言の既定へ重ねた値（`merge_overrides`の結果）を、プロセス内の`TUNING_VALUES`へ反映する。
 
     **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
     指したままになる）。読み出しも検算も済んだ値を受け取るだけなので失敗しない。
@@ -45,31 +46,38 @@ async def refresh_tuning_values(session: AsyncSession) -> None:
     _apply_tuning_values(await load_tuning_values(session))
 
 
-async def overridden_parameter_ids(session: AsyncSession) -> set[str]:
-    """既定から動かしてある較正値のid。"""
-    return set(await read_overrides(session))
+class TuningService:
+    """管理画面の較正値の読み書き。`session`はタイル配信と同じ工場のもの（`api/dependencies.py: get_tuning_service`）。"""
 
+    def __init__(self, session: AsyncSession):
+        self._session = session
 
-async def save_override(session: AsyncSession, param_id: str, value: float | None) -> set[str]:
-    """1件を上書きし（`value`が`None`なら既定へ戻す）、書いた後に既定から動かしてある較正値のidを返す。
+    async def overridden_parameter_ids(self) -> set[str]:
+        """既定から動かしてある較正値のid。"""
+        return set(await read_overrides(self._session))
 
-    値の検算は`infrastructure`側（宣言の範囲・数値であること）が行い、ここは**取引の
-    区切りと、書いた値をプロセスへ反映するところまで**を持つ。失敗したら書き込みごと
-    巻き戻す——半分だけ書けた状態で反映すると、DBと動いている値が食い違う。
+    async def save_override(self, param_id: str, value: float | None) -> set[str]:
+        """1件を上書きし（`value`が`None`なら既定へ戻す）、書いた後に既定から動かしてある較正値のidを返す。
 
-    反映する値は**確定の前に**作り、確定の後は差し替えだけにする（理由は
-    docs/modules/backend/routing-engine.md「較正値」）。
-    """
-    try:
-        if value is None:
-            await clear_override(session, param_id)
-        else:
-            await set_override(session, param_id, value)
-        values = await load_tuning_values(session)
-        overridden = set(await read_overrides(session))
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
-    _apply_tuning_values(values)
-    return overridden
+        値の検算は`infrastructure`側（宣言の範囲・数値であること）が行い、ここは**取引の
+        区切りと、書いた値をプロセスへ反映するところまで**を持つ。失敗したら書き込みごと
+        巻き戻す——半分だけ書けた状態で反映すると、DBと動いている値が食い違う。
+
+        反映する値は**確定の前に**作り、確定の後は差し替えだけにする（理由は
+        docs/modules/backend/routing-engine.md「較正値」）。
+        """
+        session = self._session
+        try:
+            if value is None:
+                await clear_override(session, param_id)
+            else:
+                await set_override(session, param_id, value)
+            overrides = await read_overrides(session)
+            values = merge_overrides(overrides)
+            overridden = set(overrides)
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        _apply_tuning_values(values)
+        return overridden

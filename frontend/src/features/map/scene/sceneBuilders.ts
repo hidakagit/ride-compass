@@ -85,6 +85,11 @@ export function tilesContent(tiles: readonly string[]): MapSceneSourceContent {
   };
 }
 
+/** 値がどれかに入るかの式。 */
+export function valueInExpression(value: unknown, values: readonly unknown[]): unknown[] {
+  return ["in", value, ["literal", [...values]]];
+}
+
 /** 値が無い線を破線にする式。`missing`が真の地物だけが破線で、偽なら実線のまま。**線種が運ぶのは操作の状態と
  * 値が無いことだけ**——分類は色が運ぶ。値が無いことはどの属性・軸でも同じ意味なので、線を重ねても混ざらない。 */
 export function noDataDashExpression(missing: unknown): unknown[] {

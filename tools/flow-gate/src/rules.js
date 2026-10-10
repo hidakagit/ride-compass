@@ -7,32 +7,81 @@ export const SCAN = 30; // 今の問いを探すために読むコメントの�
 // 誰の番かはステータスだけで決まる（flow.config.json: owner）。閉じたものは誰の番でもない。
 export const ownerOf = (config, issue) => (issue.state === "OPEN" ? (config.owner[issue.status] ?? null) : null);
 
-// 今日（日本時間）の日付と、着手可能日が今日より先ならその日（無ければ null）。
-export const today = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
-export const waitsUntil = (date, now = new Date()) => (date && date > today(now) ? date : null);
+// 今日（日本時間）の日付（YYYY-MM-DD）。
+const today = (now) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
+
+// 担当へ振り出さず・引き受けずに待つ理由（無ければ null）: 持つ印（held。持ち主）・ラベル coordinator.devLabel は作る・確かめるの両方、
+// 開いた前提・今日より先の着手可能日は作るだけ（検証中は status で見分ける）。見回り（src/dispatch.js: ready）・引き受け
+// （src/hold.js: claim）・後始末（src/after.js: settle）が同じ見分けを使う。
+export const waitsFor = (config, { status, held, blocked, labels, startOn }, now = new Date()) =>
+  held ? `持つ印（${held}）` : labels.includes(config.coordinator.devLabel) ? `ラベル「${config.coordinator.devLabel}」`
+    : status === config.review ? null
+    : blocked ? "開いた前提（blocked by）" : startOn && startOn > today(now) ? `着手可能日 ${startOn}` : null;
 
 // 本文の先頭の、ゲートの印の間（回答待ちの間だけ、回答フォームへのボタンを置く）。印の間だけを足し替える。
-const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)<!-- \/flow-gate -->\n*/;
-const BUTTON = /^\[!\[回答する\]\([^)]*\)\]\([^)]*\)$/;
+const BLOCK = /^<!-- flow-gate -->\n[\s\S]*?<!-- \/flow-gate -->\n*/;
 export const bodyRest = (body) => normalize(body).replace(BLOCK, "");
-// 印の間のうち、ゲートが書かない行（ボタンでない行）。印の間を足し替えると消えるので、ゲートが拾って印の外へ出す。
-export const strayInBlock = (body) => (BLOCK.exec(normalize(body))?.[1] ?? "").split("\n").filter((l) => l.trim() && !BUTTON.test(l.trim())).join("\n");
 export const withButton = (rest, url, image) => `<!-- flow-gate -->\n[![回答する](${image})](${url})\n<!-- /flow-gate -->\n\n${rest}`;
+
+// 問いか答えのコメントか（最新のものが、答えていない問いか、もう答えた問いかを決める）。
+export const isExchange = (body) => /^## (問い|回答)\n/.test(normalize(body));
 
 // 完了の条件のうちチェックの無いもの（本文のチェックは完了の条件にだけ使う）と、それを全部チェックした本文。
 export const remaining = (body) => [...bodyRest(body).matchAll(/^\s*- \[ \] (.+)$/gm)].map((m) => m[1]);
 export const checkAll = (body) => normalize(body).replace(/^(\s*- )\[ \] /gm, "$1[x] ");
 
+// 作業の状態（進行中・検証中）か。
+export const isWorking = (config, status) => [config.working, config.review].includes(status);
+
 // from から to への遷移を照らす。誰が・どの経路で動かしても、ここだけで決める。表（transitions）に無ければ断る。
-// 表のほかのルールは1つだけで、完了へ完成（close が COMPLETED）で入るとき、body に完了の条件の残りがあれば断る。
-export function judge(config, from, to, { close, body } = {}) {
+// 表のほかのルールは2つ: 完了へ完成（close が COMPLETED）で入るとき、body に完了の条件の残りがあれば断る。回答待ちへ入るとき、
+// comments（古い順の本文。同じ要求で書くコメントも含める）の最新の問いか答えが、形に合う問いでなければ断る。
+export function judge(config, from, to, { close, body, comments = [] } = {}) {
   if (!(config.transitions[from] ?? []).includes(to)) return { ok: false, reason: `「${from ?? "（無し）"}」から「${to}」へは動かせません（遷移の表に無い）。` };
   const left = to === config.done && close === "COMPLETED" ? remaining(body) : [];
   if (left.length) return { ok: false, reason: `完成にするには次が残っています。\n\n${left.map((l) => `- ${l}`).join("\n")}\n\n` };
-  return { ok: true };
+  const asked = to === config.waiting ? checkQuestion(config.questionTemplate, comments.findLast(isExchange)) : [];
+  return asked.length ? { ok: false, reason: `回答待ちには、答えていない問いが形（tools/flow-gate/question_template.md）のとおりに要ります: ${asked.join("・")}。` } : { ok: true };
 }
 
-// 問い（docs/conventions/flow.md「問い」）: 「## 問い」の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の
+// 節の形（Pull Request の本文・問いの判断材料）: 節は、行の頭の「<名前>:」（「**<名前>**:」も）から次の節の頭の前まで。名前は
+// テンプレートの節の頭の行から取り、ほかの「名前: 」の行は節の中身とする。
+const HEAD = /^(?:\*\*)?([^\s:*<>`]+)(?:\*\*)?:(.*)$/;
+const split = (text, names) => {
+  const out = [];
+  for (const line of normalize(text).split("\n")) {
+    const m = HEAD.exec(line);
+    if (m && (!names || names.includes(m[1]))) out.push({ name: m[1], lines: [m[2]] });
+    else if (out.length) out.at(-1).lines.push(line);
+    else if (line.trim()) out.push({ name: null, lines: [line] });
+  }
+  return out.map(({ name, lines }) => ({ name, text: lines.join("\n").trim() }));
+};
+
+// 本文の形の誤りを1件1行で返す（無ければ空）: テンプレートの節を、この順に1つずつ、埋めて持つ。
+export function checkBody(template, body) {
+  const want = split(template).filter((s) => s.name);
+  const names = want.map((s) => s.name);
+  const got = split(body, names);
+  const problems = [];
+  if (got[0]?.name === null) problems.push(`最初の節「${names[0]}:」より前に行がある: ${got[0].text.split("\n")[0]}`);
+  const named = got.filter((s) => s.name);
+  const order = named.map((s) => s.name);
+  if (order.join("・") !== names.join("・")) problems.push(`節は「${names.join("・")}」をこの順に1つずつ置く（本文の節: 「${order.join("・")}」）`);
+  for (const s of named) {
+    if (!s.text) problems.push(`節「${s.name}:」が空`);
+    else if (s.text === want.find((w) => w.name === s.name).text) problems.push(`節「${s.name}:」がテンプレートのまま`);
+  }
+  return problems;
+}
+
+// 問いの誤り（無ければ空）: 行の並びは parseQuestion、判断材料は形（tools/flow-gate/question_template.md。設定の questionTemplate）の節。
+export function checkQuestion(template, text) {
+  const question = parseQuestion(text);
+  return question ? checkBody(parseQuestion(template).material, question.material) : ["「## 問い」・問いの文（1行）・「### 案」と1行1案・<details> の判断材料のほかに行がある（か、問いでない）"];
+}
+
+// 問い（.claude/skills/ask/SKILL.md「問い」）: 「## 問い」の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の
 // 判断材料だけ。ほかの行があれば形に合わないので null。
 export function parseQuestion(text) {
   const all = normalize(text);
@@ -46,8 +95,8 @@ export function parseQuestion(text) {
   return { text: question, plans: plans.map((l) => l.slice(2).trim()), material };
 }
 
-// ステータスを動かすときに issue へ残すコメント。書く側（道具・ゲート）はここで作り、見回りの作業時間（src/dispatch.js: workload）は
-// 同じ形を worksAfter で読む。形を変えるときは、作る側と読む側をここで一緒に変える。
+// ステータスを動かすときに issue へ残すコメント。見回りの作業時間（src/dispatch.js: workload）は同じ形を worksAfter で読むので、
+// 形を変えるときは worksAfter も一緒に変える。
 export const notes = {
   start: (kind, url) => `### ${kind}担当の着手\n\n実行: ${url}`,
   reason: (to, why) => `${to}にする理由: ${why}`,
@@ -63,7 +112,7 @@ export function worksAfter(config, body) {
   if (parseQuestion(text) || /^Pull Request \[#\d+ /.test(text)) return false;
   if (/^### \S+?担当の着手\n/.test(text)) return true;
   const to = /^(\S+?)にする理由: /.exec(text)?.[1] ?? /「([^」]+)」へ戻しました。$/.exec(text)?.[1];
-  return config.statuses.includes(to) ? [config.working, config.review].includes(to) : null;
+  return config.statuses.includes(to) ? isWorking(config, to) : null;
 }
 
 // 回答フォームの次のステータス: 表で今のステータスから行ける先。完了は完成と見送りに分ける。最初のものが既定。

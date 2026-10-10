@@ -19,7 +19,7 @@ from app.domain import cycling_speed
 from app.domain.attributes import CategoricalColumn
 from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
 from app.domain.tuning import TUNING_VALUES
-from app.domain.wind import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
+from app.domain.route_request import MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 
 # 二分法が詰める幅（下限〜上限を12回半分にした幅）より広く、速度の違いとして意味のある差より狭い許容。
 SOLVE_TOLERANCE_MS = 0.005
@@ -80,7 +80,7 @@ def test_on_the_flat_without_wind_the_rider_rides_at_the_cruise_speed(profile):
 @given(profile=profiles, grade=grades, headwind=winds, crosswind=winds)
 def test_the_speed_stays_between_walking_and_the_top_speed(profile, grade, headwind, crosswind):
     """急な登りや強い向かい風でも押して歩く速度より遅くならず、急な下りでも上限を超えない（所要時間が発散しない）。
-    探索の所要時間の下界（`services/road_graph_engine.py: _heuristic_seconds`）も、この上限で割る。"""
+    探索の所要時間の下界（`domain/route_search.py: heuristic_seconds`）も、この上限で割る。"""
     speed = _speed(profile, grade, headwind, crosswind)
     top_ms = cycling_speed.top_speed_kmh(profile.cruise_speed_kmh) / 3.6
 
