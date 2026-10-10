@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
-import { ROAD_TRACKS, roadLineGroup, roadTrackAxis } from "./roadLines";
+import { ROAD_TRACKS, roadLineGroup, roadTrackAxis, roadTrackHasMissing } from "./roadLines";
 
 const SOLID = [1, 0];
 
@@ -34,10 +34,8 @@ function roadsOf(track: Track) {
 }
 
 const TRACKS = ROAD_TRACKS.map((track) => [track.attr_id, track] as const);
-/** 源泉の宣言で、値の無い道がタイルに現れうる属性か（その値を載せる材料の欠け方）。 */
-const declaresMissing = (track: Track) => roadTrackAxis(track).missing_semantics === "unknown";
-const WITH_MISSING = TRACKS.filter(([, track]) => declaresMissing(track));
-const WITHOUT_MISSING = TRACKS.filter(([, track]) => !declaresMissing(track));
+const WITH_MISSING = TRACKS.filter(([, track]) => roadTrackHasMissing(track));
+const WITHOUT_MISSING = TRACKS.filter(([, track]) => !roadTrackHasMissing(track));
 
 describe.each(TRACKS)("道の線（%s）", (_id, track) => {
   it("分類に入る道だけを濃く、分類の外の値の道は薄く描く", () => {

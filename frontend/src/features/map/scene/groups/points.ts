@@ -20,7 +20,7 @@
  */
 import type { BasemapPoiKinds } from "@/features/map/layers/mapStyleOps";
 import type { PointTileLayer } from "@/features/map/regionApi";
-import { sceneLayerId, sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
+import { sceneLayerId, sceneSourceId, valueInExpression, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
@@ -77,8 +77,8 @@ export type PointAxis = PointLayer["display_axes"][number];
 function baseFilter(layer: PointLayer): FilterSpecification | undefined {
   if (POINT_LAYERS.filter((other) => other.tile_kind === layer.tile_kind).length < 2) return undefined;
   const axis = layer.display_axes[0];
-  const values: (string | boolean)[] = axis.categories.flatMap((category) => [...category.values]);
-  return ["in", ["get", axis.property], ["literal", values]] as unknown as FilterSpecification;
+  const values = axis.categories.flatMap((category) => [...category.values]);
+  return valueInExpression(valueOf(axis), values) as unknown as FilterSpecification;
 }
 
 export type PointState = {
@@ -124,7 +124,7 @@ const BASEMAP_POIS_BY_ROW: {
 function basemapPoisHiddenBy(layer: PointLayer, hiddenKeys: PointState["hiddenKeys"]): BasemapPoiKinds | undefined {
   const byRow: Readonly<Record<string, BasemapPoiKinds | undefined>> | undefined = BASEMAP_POIS_BY_ROW[layer.attr_id];
   const axis = layer.display_axes[0];
-  if (byRow === undefined || axis === undefined) return undefined;
+  if (byRow === undefined) return undefined;
   const hidden = hiddenKeys[pointAxisKey(layer, axis)] ?? [];
   const shown = axis.categories.filter((c) => !hidden.includes(c.key)).flatMap((c) => byRow[c.key] ?? []);
   return {
@@ -148,14 +148,12 @@ function valueOf(axis: PointAxis): unknown {
 
 /** 点の値がその行に入るか。 */
 function categoryMatch(axis: PointAxis, category: PointAxis["categories"][number]): unknown {
-  return ["in", valueOf(axis), ["literal", [...category.values]]];
+  return valueInExpression(valueOf(axis), category.values);
 }
 
 /** 分類ごとの色。隠した行も含めて作る——隠しても残った分類の色が動かないようにする。 */
 function colorExpression(layer: PointLayer): unknown {
   const axis = layer.display_axes[0];
-  // 行が1つも無いときに`case`を出すと、対を持たない式になって地図が受け付けない。
-  if (axis === undefined) return palette.semantic.no_data;
   const cases = axis.categories.flatMap((category) => [categoryMatch(axis, category), category.color]);
   return ["case", ...cases, palette.semantic.no_data];
 }
@@ -170,7 +168,7 @@ function layerFilter(layer: PointLayer, hiddenKeys: PointState["hiddenKeys"]): F
     if (hidden.length === 0) continue;
     const values = axis.categories.filter((c) => hidden.includes(c.key)).flatMap((c) => [...c.values]);
     if (values.length === 0) continue;
-    clauses.push(["!", ["in", valueOf(axis), ["literal", values]]]);
+    clauses.push(["!", valueInExpression(valueOf(axis), values)]);
   }
   if (clauses.length === 0) return undefined;
   if (clauses.length === 1) return clauses[0] as FilterSpecification;
@@ -181,7 +179,7 @@ type GlyphCategory = Extract<PointAxis["categories"][number], { glyph: string; c
 
 /** 絵記号で描くレイヤーの行。源泉は先頭の軸の行の全部に付けるか、どれにも付けない。 */
 function glyphCategories(layer: PointLayer): readonly GlyphCategory[] {
-  const categories: readonly PointAxis["categories"][number][] = layer.display_axes[0]?.categories ?? [];
+  const categories: readonly PointAxis["categories"][number][] = layer.display_axes[0].categories;
   return categories.filter((category): category is GlyphCategory => "glyph" in category && "color" in category);
 }
 
@@ -286,8 +284,8 @@ export const pointGroup = declareGroup<PointState>((state) => {
           }),
       visible: state.visible[layer.attr_id] === true,
       hitTargets: [POINT_HIT_TARGET],
-      ...(filter === undefined ? {} : { filter }),
-      ...(hidesBasemapPois === undefined ? {} : { hidesBasemapPois }),
+      filter,
+      hidesBasemapPois,
     };
   });
 

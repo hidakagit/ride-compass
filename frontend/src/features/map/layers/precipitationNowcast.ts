@@ -1,9 +1,4 @@
 // 降水の色の段・凡例と、自前の格子から描く降水の塗り（gridFill）。
-//
-// 「降水」チップの時系列は、気象庁ナウキャスト（実況の外挿、60分先まで）→気象庁 降水短時間予報
-// （数値予報モデル、15時間先まで）→風と共有の格子点マップが相乗りで返す降水量（気象庁MSM、1〜3日先）
-// の3段を1本につないだもの（精度が高い方から）。段の並び・時刻一覧の読み方は源泉の宣言が持ち、
-// つなぎ方は`weatherSources.ts`が持つ。ここは格子の段の描き方だけを持つ。
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import { buildRangeLegendBands, type MapColorLegendBand } from "@/lib/mapDisplay/mapColorLegend";
@@ -16,14 +11,12 @@ import { timeIndexOf } from "@/features/map/layers/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 // 降水強度→色の段（帯の下限）と段の呼び名。値・色・呼び名は源泉（backend
-// `domain/weather_display.py`）が持ち、格子の塗り（`features/map/scene/groups/weather.ts`）と
-// 地図チップの凡例の両方がこの並びを使う。気象庁の降水のタイルも中継がこの段の色へ塗り替えて配るため、
+// `domain/weather_display.py`）が持つ。気象庁の降水のタイルも中継がこの段の色へ塗り替えて配るため、
 // 時系列のどの段の地図の色も凡例の行と一致する。
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string; name: string }[] =
   weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color, name: stop.name }));
 
-// 格子の塗り（gridFill）でこの値未満は「降っていない」として塗らない。境はbackendの宣言が持ち、
-// 天気コードの雨の判定・「今日」のパネルの降水量の「-」と同じ値。
+// 格子の塗り（gridFill）でこの値未満は「降っていない」として塗らない。境はbackendの宣言が持つ。
 export const PRECIPITATION_NONE_THRESHOLD_MM = weatherScales.precipitation_none_below_mm;
 
 /** 降水強度の凡例（地図チップ）。色の段1つにつき1行。 */
