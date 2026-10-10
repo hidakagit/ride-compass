@@ -76,7 +76,7 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
     gh run download <id> -R hidakagit/ride-compass -n mutation-review -D <作業ツリーの外の使い捨ての場所>
 
 - `summary.md`: 実行の要約と同じ表（観点ごとのテスト関数の数と行数・効きの変異スコア・判断できずに残したテストの理由）。
-- `review.json`: `measured`（測った版）・`previous`（比べた前回の版。無ければ null）・`complete`・`candidates`（今回の重なりの候補。
+- `review.json` には次の欄がある。`measured`（測った版）・`previous`（比べた前回の版。無ければ null）・`complete`・`candidates`（今回の重なりの候補。
   テスト関数ごとに `hash`・`lines`・`height`・消したあとの確かめに使う `mutant` と、それを見つける残すテスト `kept_test`）・
   `delete`（消す一覧）・`writing.zero`・`writing.broad_only`（書き方の候補）・`isolation`（隔離の候補）。
 - `analyze.txt`: 層ごとの変異スコアと、テストの区分ごとの数。前の回の `analyze.txt` と比べると、効きの動きが分かる。
@@ -100,7 +100,7 @@ issue へ前後関係を張らず、本文に「<記録する issue> の見直�
 - テストのファイルの並びで、1段階あたりテスト関数の行（`lines` の和）が約600行までに分ける。
 - 段階の本文のやることに、消すテスト関数の表（テスト関数・行数・高さ・`mutant`・`kept_test`）と、次の確かめを書く。
   1. 表のテスト関数を消す。
-  2. 表の `mutant` を1行ずつ `backend/scripts/mutation/only.txt` に書いて作業ブランチへ push し、
+  2. 表の `mutant` を1行ずつ `only.txt`（置き場は `backend/scripts/mutation/`）に書いて作業ブランチへ push し、
      `gh workflow run mutation.yml -R hidakagit/ride-compass --ref <作業ブランチ> -f ref=<作業ブランチ>` で回す（一覧だけを回し、
      当て直しと review は走らない）。成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の
      `kept_test` があることを見る。
