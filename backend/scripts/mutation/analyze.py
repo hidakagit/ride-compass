@@ -11,14 +11,16 @@
 （落ちたテストが全部それなら、その変異は生き残り）。集める時点の失敗はテストの名前でなくファイルで記録されるので、そのファイルの
 中でその関数を通るテストが見つけたとする。
 """
-import ast
 import collections
 import glob
+import heapq
 import json
 import math
 import os
 import sys
-from pathlib import Path
+
+from _shared import def_lines, read_kills
+from _shared import fn_of as mutated_fn
 
 ART = sys.argv[1]
 RECHECK_ART = sys.argv[2] if len(sys.argv) > 2 else None
@@ -37,13 +39,12 @@ for d in shard_dirs:
         for line in open(path, encoding="utf-8"):
             r = json.loads(line)
             results[r["mutant"]] = r
-    for f in glob.glob(os.path.join(d, "kills", "*.tsv")):
-        for line in open(f, encoding="utf-8"):
-            m, t, _when = line.rstrip("\n").split("\t")
-            kills[m].add(t)
+    read_kills(d, kills)
+
 
 def fn_of(m):
-    return m.partition(":")[2] or m.partition("__mutmut_")[0]
+    """変異か基準（BASE1:<関数> 等）の名前から、その関数の名前。"""
+    return m.partition(":")[2] or mutated_fn(m)
 
 
 def expand(tests, fn):
@@ -71,11 +72,7 @@ def status(m):
     s = results[m]["status"]
     if s == "killed" and failed[m] and not credited[m]:
         return "survived"  # 落ちたのが基準でも落ちるテストだけ
-    if s in ("killed", "survived", "timeout"):
-        return s
-    if s in ("exit 2", "exit 3", "exit 4"):
-        return "collect"
-    return s
+    return "collect" if s in ("exit 2", "exit 3", "exit 4") else s
 
 
 def layer(m):
@@ -131,7 +128,7 @@ print("\n落ちたが失敗の記録が無い", sum(1 for m in killed if not fai
 
 covering: dict[str, int] = collections.defaultdict(int)
 for m in done:
-    for t in tbf.get(m.partition("__mutmut_")[0], ()):
+    for t in tbf.get(mutated_fn(m), ()):
         covering[t] += 1
 found = collections.defaultdict(set)
 for m in done:
@@ -139,38 +136,16 @@ for m in done:
         for t in credited[m]:
             found[t].add(m)
 
-fn_lines: dict[tuple[str, str], int] = {}
-
-
 def func_of(nodeid):
     path, _, rest = nodeid.partition("::")
     return path, rest.split("[")[0]
 
 
-def lines_of(path, name):
-    key = (path, name)
-    if key not in fn_lines:
-        tree = ast.parse(Path(path).read_text(encoding="utf-8"))
-        n = 0
-        body = tree.body
-        parts = name.split("::")
-        for i, p in enumerate(parts):
-            for node in body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == p:
-                    if i == len(parts) - 1:
-                        start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-                        n = (node.end_lineno or node.lineno) - start + 1
-                    body = node.body
-                    break
-        fn_lines[key] = n
-    return fn_lines[key]
-
-
 def total_lines(tests):
-    return sum(lines_of(*k) for k in {func_of(t) for t in tests})
+    return sum(len(def_lines(*k) or ()) for k in {func_of(t) for t in tests})
 
 
-no_cover_any = {t for t in all_tests if not any(t in v for v in tbf.values())}
+no_cover_any = all_tests - set().union(*tbf.values())
 covered = {t for t in all_tests if covering[t] > 0}
 zero = {t for t in covered if not found.get(t)}
 finders: collections.Counter[str] = collections.Counter()
@@ -182,8 +157,17 @@ redundant = set(found) - unique
 broad_only = {t for t in found if all(finders[m] >= 100 for m in found[t])}
 remaining = set(finders)
 chosen = set()
+# 足す変異の多い順（同じなら名前の大きい順）に選ぶ。足す数は選ぶたびに減るだけなので、取り出したときに数え直して、
+# 減っていなければそれが一番多い。
+order = {t: i for i, t in enumerate(sorted(found))}
+heap = [(-len(found[t]), -order[t], t) for t in found]
+heapq.heapify(heap)
 while remaining:
-    t = max(found, key=lambda x: (len(found[x] & remaining), x))
+    neg, rank, t = heapq.heappop(heap)
+    gain = len(found[t] & remaining)
+    if gain < -neg:
+        heapq.heappush(heap, (-gain, rank, t))
+        continue
     chosen.add(t)
     remaining -= found[t]
 
@@ -193,13 +177,15 @@ groups = [("全体（収集した）", all_tests), ("どの変異の関数も通
           ("全部の発見を保つ最小の組（貪欲法）", chosen), ("100本以上が一緒に落ちる書き換えだけで落ちた", broad_only)]
 print("\n| 区分 | テスト | テスト関数 | 行数 |")
 for name, s in groups:
-    summary["tests:" + name] = {"tests": len(s), "functions": len({func_of(t) for t in s}), "lines": total_lines(s)}
-    print(f"| {name} | {len(s)} | {len({func_of(t) for t in s})} | {total_lines(s)} |")
+    row = summary["tests:" + name] = {"tests": len(s), "functions": len({func_of(t) for t in s}), "lines": total_lines(s)}
+    print(f"| {name} | {row['tests']} | {row['functions']} | {row['lines']} |")
 print("1本だけが見つけた変異", sum(1 for v in finders.values() if v == 1), "／ 見つけたテストの本数の中央",
       sorted(finders.values())[len(finders) // 2] if finders else 0)
 
 per_file: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
+tests_of_file = collections.defaultdict(list)
 for t in all_tests:
+    tests_of_file[func_of(t)[0]].append(t)
     r = per_file[func_of(t)[0]]
     r["テスト"] += 1
     r["通らない"] += t in no_cover_any
@@ -207,7 +193,7 @@ for t in all_tests:
     r["ほかに無い"] += t in unique
     r["最小の組"] += t in chosen
     r["広くだけ"] += t in broad_only
-flines = {f: total_lines([t for t in all_tests if func_of(t)[0] == f]) for f in per_file}
+flines = {f: total_lines(tests_of_file[f]) for f in per_file}
 print("\n| ファイル | テスト | 行数 | 関数を通らない | 通るのに見つけない | ほかに無い発見 | 最小の組 | 広くだけ |")
 for f, r in sorted(per_file.items(), key=lambda x: -flines[x[0]])[:40]:
     print(f"| {f} | {r['テスト']} | {flines[f]} | {r['通らない']} | {r['見つけない']} | {r['ほかに無い']} | {r['最小の組']} | {r['広くだけ']} |")

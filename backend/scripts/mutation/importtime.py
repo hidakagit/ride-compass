@@ -12,25 +12,25 @@ import json
 import sys
 
 
-def _visit(node, in_func, called):
+def _visit(node, called):
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
         if not isinstance(node, ast.Lambda):
             for d in node.decorator_list + node.args.defaults + node.args.kw_defaults:
                 if d is not None:
-                    _visit(d, in_func, called)
+                    _visit(d, called)
         return  # 本体は呼ばれたときに走るので見ない
-    if isinstance(node, ast.Call) and not in_func:
+    if isinstance(node, ast.Call):
         f = node.func
         called.add(f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None))
     for child in ast.iter_child_nodes(node):
-        _visit(child, in_func, called)
+        _visit(child, called)
 
 
 def called_at_import():
     """app の関数の外（読み込みのときに走る所）で呼ばれる名前。"""
     called: set[str | None] = set()
     for path in glob.glob("app/**/*.py", recursive=True):
-        _visit(ast.parse(open(path, encoding="utf-8").read()), False, called)
+        _visit(ast.parse(open(path, encoding="utf-8").read()), called)
     return called
 
 

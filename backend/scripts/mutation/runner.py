@@ -18,6 +18,8 @@ import sys
 import threading
 import time
 
+from _shared import fn_of
+
 OUT = os.environ["MUT_OUT"]
 DB_PREFIX = os.environ["MUT_DB_PREFIX"]
 STOP_AFTER = float(os.environ.get("MUT_STOP_AFTER") or "inf")
@@ -89,6 +91,8 @@ def run_child(cmd, env, limit, err_path, cwd=None):
                 if pid:
                     code = os.waitstatus_to_exitcode(wstatus)
                     maxrss = round(usage.ru_maxrss / 1024)
+                    # wait4 で回収したことを Popen に知らせる（None のままだと、捨てるときに ResourceWarning を出して
+                    # 回収済みの pid を待ちの一覧へ残す）。
                     proc.returncode = code
                     break
                 if time.time() > deadline:
@@ -121,7 +125,7 @@ def work(slot):
             # ORIG は元の版）。基準で落ちるテストは、変異の回で落ちても見つけたとは言えない。
             tests = sorted(tbf.get(base_func, []))
         else:
-            tests = sorted(tbf.get(name.partition("__mutmut_")[0], []))
+            tests = sorted(tbf.get(fn_of(name), []))
         if name in RECHECK:
             tests = FULL_SELECTION
             extra = XDIST
