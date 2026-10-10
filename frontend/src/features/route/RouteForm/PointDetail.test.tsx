@@ -299,10 +299,10 @@ describe("PointDetail 保存した地点", () => {
     expect(screen.getByRole("button", { name: "地点を保存" })).toBeInTheDocument();
   });
 
-  it("置いていない地点は保存できない", () => {
+  it("置いていない地点は、保存の操作を押せなくしておく", () => {
     renderDetail();
 
-    expect(screen.queryByRole("button", { name: "地点を保存" })).toBeNull();
+    expect(screen.getByRole("button", { name: "地点を保存" })).toBeDisabled();
   });
 });
 

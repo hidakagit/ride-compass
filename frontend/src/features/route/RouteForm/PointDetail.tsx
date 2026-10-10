@@ -41,7 +41,8 @@ interface PointDetailProps {
   placed: boolean;
   /** 地図で置く操作の名前（地図で選ぶ／地図で追加／地図で置き直す）。 */
   armLabel: string;
-  /** 地図で置く操作の右に並べる別の操作（消す・現在地に戻す。どれもアイコンだけの形）。 */
+  /** 地図で置く操作の右に並べる別の操作（消す・現在地に戻す。どれもアイコンだけの形）。要らない間も出し入れせず、押せない形で
+   * 渡す（押した直後に並びが動くと、続けて押したときに別の操作に当たる）。 */
   extra?: React.ReactNode;
   /** 地図で置く状態の間に、打つ欄の中に出す文言。置いた数を隠さないため、経由地を足す間は件数を添える。 */
   armedHint?: string;
@@ -269,33 +270,33 @@ export default function PointDetail({
               <PlaceOnMapIcon />
             </Toggle>
             {extra}
-            {at !== null &&
-              (savedHere !== null ? (
-                <Button
-                  size="panelIcon"
-                  className="ml-auto flex-none"
-                  aria-label={`「${savedHere.name}」の保存をやめる`}
-                  onClick={() => savedPlaces.remove(savedHere)}
-                  usage="保存した地点から外します。置いた地点はそのまま残ります。"
-                >
-                  <SavedPlaceIcon />
-                </Button>
-              ) : (
-                <Button
-                  size="panelIcon"
-                  className="ml-auto flex-none"
-                  aria-label="地点を保存"
-                  aria-haspopup="dialog"
-                  aria-expanded={naming}
-                  onClick={() => {
-                    setPlaceNameDraft(null);
-                    setNaming(true);
-                  }}
-                  usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
-                >
-                  <SavePlaceIcon />
-                </Button>
-              ))}
+            {savedHere !== null ? (
+              <Button
+                size="panelIcon"
+                className="ml-auto flex-none"
+                aria-label={`「${savedHere.name}」の保存をやめる`}
+                onClick={() => savedPlaces.remove(savedHere)}
+                usage="保存した地点から外します。置いた地点はそのまま残ります。"
+              >
+                <SavedPlaceIcon />
+              </Button>
+            ) : (
+              <Button
+                size="panelIcon"
+                className="ml-auto flex-none"
+                aria-label="地点を保存"
+                disabled={at === null}
+                aria-haspopup="dialog"
+                aria-expanded={naming}
+                onClick={() => {
+                  setPlaceNameDraft(null);
+                  setNaming(true);
+                }}
+                usage="この地点に名前を付けてこの端末に保存します。保存した地点は、地点の打つ欄を押すと候補に出ます。"
+              >
+                <SavePlaceIcon />
+              </Button>
+            )}
           </div>
         </div>
 
