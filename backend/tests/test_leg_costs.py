@@ -173,8 +173,10 @@ def test_the_travel_time_is_marked_when_no_wind_was_available(departure_wind, se
 
 
 def test_without_weights_the_cost_is_the_travel_time():
-    """好みの重みをすべて0にすると素の所要時間になり、最速の基準線と同じ物差しになる。"""
-    leg = _snapshot(_matrix(2, axes={"axis_a": [100.0, 0.0]}), weights={"axis_a": 0.0}, penalty=0.7)
+    """好みの重みをすべて0にすると素の所要時間になり、最速の基準線と同じ物差しになる。重みの表に無い密度の軸も何も足さない。"""
+    matrix = _matrix(2, axes={"axis_a": [100.0, 0.0]}, signals_per_km=[2.0, 0.0])
+
+    leg = _snapshot(matrix, weights={"axis_a": 0.0}, penalty=0.7)
 
     assert leg.cost_lazy.tolist() == leg.travel_seconds_lazy.tolist()
 
@@ -194,13 +196,18 @@ def test_the_cost_is_the_travel_time_raised_by_the_weighted_difficulty(wind_axis
     assert leg.cost_lazy == pytest.approx(leg.travel_seconds_lazy * (1 + 0.5 * difficulty / 100))
 
 
-def test_a_segment_without_data_on_the_weighted_axes_is_raised_by_the_mean_difficulty_around_it():
+@pytest.mark.parametrize(
+    ("matrix", "axis"),
+    [(_matrix(2, axes={"axis_a": [40.0, np.nan]}), "axis_a"), (_matrix(2, signals_per_km=[2.0, np.nan]), STOP_AXIS)],
+    ids=["点数の軸", "密度の軸"],
+)
+def test_a_segment_without_data_on_the_weighted_axes_is_raised_by_the_mean_difficulty_around_it(matrix, axis):
     """重みのある軸がどれも欠損の区間は、探索の範囲の距離平均のdifficultyで割増す（割増なしだとデータの無い道ほど
-    安く見えて選ばれる）。表示のdifficultyは欠損のまま。"""
-    leg = _snapshot(_matrix(2, axes={"axis_a": [40.0, np.nan]}), weights={"axis_a": 1.0}, penalty=0.5)
+    安く見えて選ばれる）。表示のdifficultyは欠損のまま。密度の軸も、回数の無い区間は足す秒を持たずに割増だけを受ける。"""
+    leg = _snapshot(matrix, weights={axis: 1.0}, penalty=0.5)
 
     assert np.isnan(leg.difficulty_array[1])
-    assert leg.cost_lazy[1] == pytest.approx(leg.travel_seconds_lazy[1] * (1 + 0.5 * 40.0 / 100))
+    assert leg.cost_lazy[1] == pytest.approx(leg.travel_seconds_lazy[1] * (1 + 0.5 * leg.difficulty_array[0] / 100))
 
 
 def test_a_density_axis_adds_seconds_in_proportion_to_the_count_and_its_share_of_the_weights():
