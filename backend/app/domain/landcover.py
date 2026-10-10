@@ -1,4 +1,4 @@
-"""土地被覆クラス別割合（`edge_materials.lc_*`・`way_materials.lc_*`）の算出。
+"""土地被覆クラス別割合（`edge_landcover.lc_*`・`way_landcover.lc_*`）の算出。
 
 Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラム（バッチが
 道路centerline周囲のリングから集計したクラス別画素数）を、クラスごとの割合(%)へ

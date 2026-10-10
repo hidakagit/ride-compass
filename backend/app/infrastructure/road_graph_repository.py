@@ -198,7 +198,8 @@ def material_from_clause(
     （と`segment_index`）の式へ外部結合する。呼び出し側はFROM句の行の後ろへそのまま続ける。
 
     `em`は、`segment_index`を渡せば区間の値、Noneなら道1本の値（区間の表と同じ名前の道の列。道に無い列はNULL）。
-    `way_when_no_segment`は、`segment_index`の式がNULLの行を道1本の値で読む（区間と道丸ごとが混ざるタイル）。
+    `way_when_no_segment`は、`segment_index`の式がNULLの行を道1本の値で読む（区間と道丸ごとが混ざるタイル）。区間の行か
+    道丸ごとの行のどちらかでしか読まない表は、その行のときだけ引く。
     `forward`（真なら順方向）を渡すと、`em`の向きで変わる列を逆向きの行で入れ替え・符号反転する。
 
     式が宣言に無い列を読めば送出する——SQLの実行まで気づかないと、その経路の読み出しが材料ぶん丸ごと落ちる。
@@ -210,23 +211,27 @@ def material_from_clause(
                 raise ValueError(f"材料の式が宣言に無い列を読む: {alias}.{name}")
             names[alias].add(name)
 
-    tables: set = set()
+    # 表ごとの、読む行の種類（区間の行だけ・道丸ごとの行だけ・どちらも=None）。
+    tables: dict = {}
 
-    def read(column: Column) -> str:
-        tables.add(column.table)
-        return f"t_{column.table.name}.{column.name}"
+    def read(column: Column, rows: str | None = None) -> str:
+        table = column.table
+        tables[table] = rows if tables.get(table, rows) == rows else None
+        return f"t_{table.name}.{column.name}"
+
+    edge_rows = "segment" if way_when_no_segment else None
 
     def edge_value(name: str) -> str:
-        value = read(_EDGE_MATERIAL_COLUMNS[name])
+        value = read(_EDGE_MATERIAL_COLUMNS[name], edge_rows)
         if forward is None or name not in _REVERSED_EDGE_COLUMNS:
             return value
         partner, negated = _REVERSED_EDGE_COLUMNS[name]
-        reverse = ("-" if negated else "") + read(_EDGE_MATERIAL_COLUMNS[partner])
+        reverse = ("-" if negated else "") + read(_EDGE_MATERIAL_COLUMNS[partner], edge_rows)
         return f"CASE WHEN {forward} THEN {value} ELSE {reverse} END"
 
-    def way_value(name: str) -> str | None:
+    def way_value(name: str, rows: str | None = None) -> str | None:
         column = _WAY_MATERIAL_COLUMNS.get(name)
-        return None if column is None else read(column)
+        return None if column is None else read(column, rows)
 
     selects: dict[str, list[str]] = {"em": [], "wm": []}
     for name in sorted(names["em"]):
@@ -234,7 +239,7 @@ def material_from_clause(
             value = way_value(name) or (
                 f"CAST(NULL AS {_EDGE_MATERIAL_COLUMNS[name].type.compile(dialect=postgresql.dialect())})")
         elif way_when_no_segment:
-            way = way_value(name)
+            way = way_value(name, "way")
             value = (f"CASE WHEN {segment_index} IS NOT NULL THEN {edge_value(name)}"
                      + (f" ELSE {way}" if way is not None else "") + " END")
         else:
@@ -244,11 +249,19 @@ def material_from_clause(
         selects["wm"].append(f"{read(_WAY_MATERIAL_COLUMNS[name])} AS {name}")
 
     lines = []
-    for table in sorted(tables, key=lambda table: table.name):
+    for table, rows in sorted(tables.items(), key=lambda item: item[0].name):
         on = f"t_{table.name}.osm_way_id = {way_id}"
         if tuple(column.name for column in table.primary_key.columns) == _EDGE_KEY:
             on += f" AND t_{table.name}.segment_index = {segment_index}"
-        lines.append(f"LEFT JOIN {table.name} t_{table.name} ON {on}")
+        if rows is None:
+            lines.append(f"LEFT JOIN {table.name} t_{table.name} ON {on}")
+            continue
+        # 片方の種類の行でしか読まない表は、その行のときだけ引く。結合の条件に足すだけでは、もう片方の行でも
+        # 主キーを引きにいく。`OFFSET 0`は副問い合わせを外へ畳ませないためのもの——畳まれると同じことになる。
+        on = on.replace(f"t_{table.name}.", "x.")
+        when = f"{segment_index} IS {'NOT ' if rows == 'segment' else ''}NULL"
+        lines.append(f"LEFT JOIN LATERAL (SELECT * FROM {table.name} x WHERE {on} AND {when} OFFSET 0)"
+                     f" t_{table.name} ON true")
     lines += [f"CROSS JOIN LATERAL (SELECT {', '.join(select)}) {alias}"
               for alias, select in selects.items() if select]
     return "".join(f"\n{line}" for line in lines) + "\n"
@@ -509,7 +522,7 @@ _WAY_MATERIAL_VALUES_SQL = text(
 #
 # 範囲を絞るときは抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
 # 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで落ちる。
-def _sample_way_materials_sql(sampling: str, area: str):
+def _sample_way_values_sql(sampling: str, area: str):
     return text(
         f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
         + way_from_clause(list(material_value_sql().values()),
@@ -518,9 +531,9 @@ def _sample_way_materials_sql(sampling: str, area: str):
     )
 
 
-_SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
+_SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_values_sql(
     "TABLESAMPLE SYSTEM (:sample_percent)", "")
-_SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
+_SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_values_sql(
     "", " WHERE w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)")
 
 _WAY_MATERIAL_COLUMN_PREFIX = "m_"
@@ -605,11 +618,11 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 # --- グラフの読み出し ---------------------------------------------------------
 #
 # 区間は向きを持たない1行で、**有向の枝は道路網全体の配列を作るとき**
-# （`infrastructure/road_network_store.py`）に作る。`way_materials.direction`が逆向きの枝を
+# （`infrastructure/road_network_store.py`）に作る。道の通行方向（`way_directions.direction`）が逆向きの枝を
 # 作ってよいかを決める。
 
-#: 取込範囲全体の区間（向きを持たない1行）。区間は道の値の表への外部キーを持ち、通行方向は空を許さない
-#: 列なので、どの区間も通行方向を持つ。並びは`domain/road_network.py`の行順の前提。
+#: 取込範囲全体の区間（向きを持たない1行）。どの道も通行方向の行を持つ（通行方向の段が数を比べて守る）ので、
+#: どの区間も通行方向を持つ。並びは`domain/road_network.py`の行順の前提。
 _NETWORK_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        w.highway, wm.direction,
@@ -621,12 +634,12 @@ JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
 ORDER BY re.osm_way_id, re.segment_index
 """)
 
-#: 区間の端点になりうるノード全件（`road_edges`の端点は`node_materials`に行を持つ）。
+#: 区間の端点全件（`road_edges`の端点は`road_nodes`に行を持ち、`road_nodes`の全行が`node_turns`に行を持つ）。
 #: 座標はノードの生データから読み、生データが無いノードは現れない。
 _NETWORK_NODES_SQL = text(f"""
 SELECT nm.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
        nm.has_traffic_signals, nm.max_highway_rank
-FROM node_materials nm
+FROM node_turns nm
 JOIN LATERAL {nodes_lookup_sql("nm.osm_node_id")} n ON true
 ORDER BY nm.osm_node_id
 """)

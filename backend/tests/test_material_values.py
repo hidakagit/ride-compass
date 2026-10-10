@@ -6,7 +6,7 @@ SQLの中の条件はPythonのカバレッジに現れないので、式をテ�
 入力の作り方:
 - 道（別名`w`）: 道を取込の入口（`tests/source_ingest.py`）から入れ、読み手と同じ副問い合わせ
   （`infrastructure/source_models.py: WAYS_SOURCE_SQL`）で読む。
-- 区間（`re`）・区間の値（`em`）: 派生の段が書く表の行の型（`road_edges`・`edge_materials`）で値を与える。
+- 区間（`re`）・区間の値（`em`）: 派生の段が書く表の行の型（`road_edges`と、区間の値の表を並べたもの）で値を与える。
   値そのものの出し方（件数を数える等）は派生の段の責務なので、ここでは作らない。
 
 部品の節は架空のタグ・路面の区分で、タイルへの載せ方の節は架空の材料で確かめる。カタログの節は、カタログに直に書かれた式（部品を使わないもの）を
@@ -68,13 +68,15 @@ async def _way_values(session, expression: str, tags_by_way: dict[int, dict[str,
 
 
 async def _edge_value(session, expression: str, *, distance_m: float, accident_years: int = 1,
-                      **edge_materials: float | None) -> object:
+                      **edge_values: float | None) -> object:
     """区間の長さと区間の値を与えて、式を1区間ぶん評価する。"""
     row = await session.execute(
         text(f"SELECT ({expression})"
              " FROM json_populate_record(NULL::road_edges, CAST(:re AS json)) re,"
-             " json_populate_record(NULL::edge_materials, CAST(:em AS json)) em"),
-        {"re": json.dumps({"distance_m": distance_m}), "em": json.dumps(edge_materials),
+             " (SELECT * FROM json_populate_record(NULL::edge_counts, CAST(:em AS json)) c,"
+             "  json_populate_record(NULL::edge_elevation, CAST(:em AS json)) e,"
+             "  json_populate_record(NULL::edge_landcover, CAST(:em AS json)) l) em"),
+        {"re": json.dumps({"distance_m": distance_m}), "em": json.dumps(edge_values),
          "accident_years": accident_years})
     return row.scalar_one()
 
@@ -245,20 +247,20 @@ _DENSITY = _material("unknown", dtype="numeric", value_sql="em.accident_count / 
 _HAS_ANY = _material("definite", dtype="boolean", value_sql="em.accident_count > 0")
 
 
-@pytest.mark.parametrize(("material", "edge_materials", "expected_type", "expected"), [
+@pytest.mark.parametrize(("material", "edge_values", "expected_type", "expected"), [
     (_DENSITY, {"accident_count": 5.0}, "double precision", 1.3),  # ST_AsMVTはnumericを文字列で載せる。地図は数として読めない
     (_DENSITY, {"accident_count": 0.1}, "double precision", None),  # 丸めて0になる値はキーごと省く（地図は欠損を0として読む）
     (_HAS_ANY, {"accident_count": 0.0}, "boolean", None),  # 非該当はキーごと省く（地図は欠損を非該当として読む）
     (MATERIAL_CATALOG["built_percent"], {"lc_built": 0.0}, "double precision", 0.0),  # 土地被覆の割合は0も載る
 ], ids=["rounded", "zero", "definite-false", "landcover-zero"])
-async def test_a_value_goes_on_the_tile_in_the_form_the_map_reads(road_graph_session, material, edge_materials,
+async def test_a_value_goes_on_the_tile_in_the_form_the_map_reads(road_graph_session, material, edge_values,
                                                                   expected_type, expected):
     """焼く式（`tile_column_sql`）と、画面へ配る期待値の表がタイルの値を作る関数（`tile_property_value`）の両方。"""
     column = tile_column_sql(material)
 
     baked_type, baked = await _edge_value(road_graph_session, f"ARRAY[pg_typeof({column})::text, ({column})::text]",
-                                          distance_m=4000.0, **edge_materials)
-    value = await _edge_value(road_graph_session, material.value_sql, distance_m=4000.0, **edge_materials)
+                                          distance_m=4000.0, **edge_values)
+    value = await _edge_value(road_graph_session, material.value_sql, distance_m=4000.0, **edge_values)
 
     assert (baked_type, None if baked is None else float(baked)) == (expected_type, expected)
     assert tile_property_value(material, value) == expected

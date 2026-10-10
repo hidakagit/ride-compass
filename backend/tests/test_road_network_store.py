@@ -9,7 +9,7 @@ DBから組むテストは、道とノードを取込の入口から入れ、派
 
 ここで見ないもの:
 - 区間の切り方・通行方向・信号の導出（派生の段） → `test_derive_topology.py`・`test_resolve_direction.py`・
-  `test_derive_node_materials.py`
+  `test_derive_nodes.py`
 - 材料の値そのもの → `test_material_values.py`
 - 置いた道路網から探索範囲を切り出すこと → `test_road_network.py`
 - 形の署名の組み立て → `test_cache_identity.py`

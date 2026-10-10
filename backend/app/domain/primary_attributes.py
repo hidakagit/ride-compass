@@ -455,7 +455,7 @@ if _REPEATED_ATTR_IDS:
 
 
 def stop_poi_map_group_sql(alias: str) -> str:
-    """地図の停止要因の点を近いものどうしまとめる単位を返すSQL式（`node_materials`の別名`alias`）。
+    """地図の停止要因の点を近いものどうしまとめる単位を返すSQL式（`node_kinds`の別名`alias`）。
 
     単位は凡例の行で、数える種別（`COUNT_KIND_OF`）ではない。地図の点は「そこに何があるか」を
     示すため、凡例で分けて見せている種別（例: 車止めとハンプ・狭さく）は近くても別の点のまま

@@ -1,4 +1,4 @@
-"""ノードに付く値（`batch/derive_node_materials.py`）の信号の近接判定と、流し直したときの値。
+"""ノードの種別と頂点の値（`batch/derive_nodes.py`）の信号の近接判定と、流し直したときの値。
 
 見ないもの: タグから種別・信号への読み替えの両側 → `test_tag_classification.py`。管理画面で変えた半径が
 この段へ渡ること → `test_derive_cli.py`。
@@ -8,7 +8,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from app.batch import derive_node_materials, derive_topology
+from app.batch import derive_nodes, derive_topology
 from app.domain.traffic import HIGHWAY_RANK
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import empty_ingested_tables
@@ -55,7 +55,8 @@ async def _ingest(conn: asyncpg.Connection, *, way_tags: dict[int, dict[str, str
 
 
 async def _signals(conn: asyncpg.Connection) -> dict[int, bool]:
-    rows = await conn.fetch("SELECT osm_node_id, has_traffic_signals FROM node_materials")
+    rows = await conn.fetch("SELECT osm_node_id, has_traffic_signals FROM node_turns"
+                            " UNION SELECT osm_node_id, has_traffic_signals FROM node_kinds")
     return {r["osm_node_id"]: r["has_traffic_signals"] for r in rows}
 
 
@@ -66,7 +67,7 @@ async def node_conn(derive_conn):
     await empty_ingested_tables(conn)
     await _ingest(conn)
     await derive_topology.derive(conn)
-    await derive_node_materials.derive(conn, RADIUS_M)
+    await derive_nodes.derive(conn, RADIUS_M)
     return conn
 
 
@@ -78,7 +79,9 @@ async def test_node_near_a_signal_is_flagged_and_far_one_is_not(node_conn):
 async def _values(conn: asyncpg.Connection) -> dict[int, tuple[bool, bool, int]]:
     """ノードごとの (種別が付いているか, 信号付きか, 最大階級)。"""
     rows = await conn.fetch(
-        "SELECT osm_node_id, kind, has_traffic_signals, max_highway_rank FROM node_materials")
+        "SELECT osm_node_id, k.kind, coalesce(t.has_traffic_signals, k.has_traffic_signals) AS has_traffic_signals,"
+        " coalesce(t.max_highway_rank, 0) AS max_highway_rank"
+        " FROM node_turns t FULL JOIN node_kinds k USING (osm_node_id)")
     return {r["osm_node_id"]: (r["kind"] is not None, r["has_traffic_signals"],
                                r["max_highway_rank"]) for r in rows}
 
@@ -89,10 +92,10 @@ async def test_rerun_on_changed_input_keeps_no_value_the_input_no_longer_support
     種別のためだけにあった行（どの道にも属さないノード）は行ごと消える。"""
     primary = HIGHWAY_RANK["primary"]
     await _ingest(node_conn, way_tags={100: {"highway": "primary"}})
-    await derive_node_materials.derive(node_conn, RADIUS_M)
+    await derive_nodes.derive(node_conn, RADIUS_M)
     before = await _values(node_conn)
     await _ingest(node_conn, node_tags={3: {}, 9: {}})
-    await derive_node_materials.derive(node_conn, RADIUS_M)
+    await derive_nodes.derive(node_conn, RADIUS_M)
     after = await _values(node_conn)
 
     # 前提: 1回目は値が出ている。

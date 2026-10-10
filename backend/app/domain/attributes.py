@@ -11,7 +11,7 @@ class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
     average_gradeは符号付き（登り=正、下り=負）で、値が取れなかった区間はNone。
-    獲得・喪失標高は揃って入る（表の制約`edge_materials_elevation_all_or_none`が区間の標高の4列を揃える）。
+    獲得・喪失標高は揃って入る（区間の標高の表`edge_elevation`は4列とも空を許さない）。
     """
 
     edge_id: str
@@ -150,7 +150,7 @@ def elevation_values_sql(vertices: str) -> str:
     中間の点は桁や坑道ではなく下の地形を指す。谷を渡る平らな橋で、谷底の起伏がそのまま
     獲得標高へ積まれてしまう。橋台・坑口は道が地面と接する位置なので、両端の標高は使える。
 
-    値が出せない区間（有効な標高が2点未満）は返らない。
+    値が出せない区間（有効な標高が2点未満）は返らない。値と一緒に、値が依った`on_structure`も返す。
     """
     return f"""
 WITH v AS ({vertices}),
@@ -196,6 +196,7 @@ SELECT osm_way_id, segment_index,
                    ELSE gain END)::numeric, 1)  AS elevation_gain_m,
        round((CASE WHEN on_structure THEN greatest(start_e - end_e, 0)
                    ELSE loss END)::numeric, 1)  AS elevation_loss_m,
-       round(avg_g::numeric, {AVERAGE_GRADE_DECIMALS}) AS average_grade
+       round(avg_g::numeric, {AVERAGE_GRADE_DECIMALS}) AS average_grade,
+       on_structure
 FROM raw
 """

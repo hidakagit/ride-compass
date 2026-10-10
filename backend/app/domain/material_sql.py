@@ -106,7 +106,7 @@ _CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))
 
 def tag_absent_is_false_sql(condition: str) -> str:
     """タグが無ければ非該当（false）。`w`の行が無ければ不明（NULL）——行が無い区間はありうる。
-    `road_edges.osm_way_id`の外部キーは`way_materials`へ向き、道の生データへは向かないため、取込で消えた道を、
+    `road_edges.osm_way_id`の外部キーは`road_ways`へ向き、道の生データへは向かないため、取込で消えた道を、
     派生を作り直すまでの区間が指し続ける。"""
     return f"CASE WHEN w.osm_way_id IS NOT NULL THEN COALESCE({condition}, false) END"
 
