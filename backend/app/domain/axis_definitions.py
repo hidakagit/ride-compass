@@ -652,6 +652,50 @@ def check_axis_definition(definition: AxisDefinition, axes: Mapping[str, AxisDef
     """
     _check_dynamic_and_static_materials_are_not_mixed(definition)
     _check_references(definition, axes)
+    _check_density_axis_is_a_line(definition)
+
+
+def averages_density(definition: AxisDefinition) -> bool:
+    """1kmあたりの量（密度）の重み付き和を折れ線に通す軸（密度の軸）か。
+
+    密度の軸は、区間をまたいだ値（ビン・候補）を横軸の値の距離平均（回数÷距離）から点数にし、探索の費用では
+    区間の回数に比例する足し算として持つ（`evaluation.py: compose_costs_from_axis_matrix`）。どちらも回数だけで
+    決まり、道の切り方に依らない。そのため折れ線は(0, 0)から始まる直線に限る（`_check_density_axis_is_a_line`）。
+
+    - 足せる材料（`MaterialSpec.additive`。どれも1kmあたりの密度）だけを項に持つ。他の軸を項に持つ軸は、
+      中の軸の点数が密度でないため外す。勾配（%）のような密度でない材料も、短い急坂を平均でならすと
+      坂のつらさが消えるため外す。
+    - 前処理が無い（`abs`は平均と絶対値の順を入れ替えると値が変わる）。
+    """
+    shape = definition.shape
+    if not isinstance(shape, BreakpointLinearShape) or shape.preprocess != "identity":
+        return False
+    terms = [term for term in shape.terms if term.weight != 0]
+    return bool(terms) and all(
+        (spec := material_catalog.MATERIAL_CATALOG.get(term.material)) is not None and spec.additive for term in terms
+    )
+
+
+def density_slope(shape: BreakpointLinearShape) -> float:
+    """密度の軸の折れ線の傾き（横軸の値1あたりの点数）。折れ線は(0, 0)と、点数が頭打ちになるもう1点の2つ。"""
+    x, y = shape.breakpoints[-1]
+    return y / x
+
+
+def _check_density_axis_is_a_line(definition: AxisDefinition) -> None:
+    """密度の軸（`averages_density`）の折れ線は、(0, 0)ともう1点の2つの折れ点に限る。
+
+    折れ線が上に凸だと、信号のように短い区間に回数が集まる道では、区間ごとの点数の和が回数どおりより低く出て、差が
+    道の切り方で決まる。探索の費用は回数×傾きで足すので、傾きが1つに決まらない折れ線では探索とルートの値が食い違う。
+    """
+    if not averages_density(definition):
+        return
+    breakpoints = cast(BreakpointLinearShape, definition.shape).breakpoints
+    if len(breakpoints) != 2 or tuple(breakpoints[0]) != (0.0, 0.0):
+        raise axis_error(
+            "1kmあたりの回数・件数の材料だけを組み合わせる軸は、折れ点を「0のとき0点」ともう1点の2つにしてください"
+            f"（点数を回数に比例させ、もう1点より先はその点数で止めるため）。いまの折れ点: {[tuple(p) for p in breakpoints]}"
+        )
 
 
 def _check_dynamic_and_static_materials_are_not_mixed(definition: AxisDefinition) -> None:

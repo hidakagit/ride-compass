@@ -34,8 +34,10 @@ from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dyn
 from app.domain.evaluation import (
     AxisComposition,
     DensityAxisColumn,
+    DensityCost,
     StaticEdgeScoreMatrix,
     compose_costs_from_axis_matrix,
+    density_costs,
 )
 from app.domain.route import Coordinates, SegmentWind
 from app.domain.traffic import POI_COUNT_KINDS, stop_count_material_ids, stop_seconds
@@ -223,6 +225,11 @@ class LegCostComposer:
         )
         self._weights = weights
         self._penalty_strength = penalty_strength
+        # 密度の軸の、探索の費用で回数の足し算として持つ分（重みのある軸だけ。重み0の軸は何も足さない）。
+        self._density_costs = density_costs(
+            {a: c for a, c in score_matrix.density_axes.items() if weights.get(a, 0.0) > 0},
+            self._static_axis_scores, score_matrix.distance_m, speed_kmh,
+        )
         self._hard_filter_excluded = hard_filter_excluded
         self._departure_wind = departure_wind
         self._wind_series = wind_series
@@ -413,16 +420,20 @@ class LegCostComposer:
 
     @property
     def _time_invariant_composition(self) -> AxisComposition:
-        """時刻で変わる軸に重みが無いときの、全区間ぶんの合成。下地を1にして合成するので`cost`は割増の
-        倍率そのもので、ビンごとのコストは所要時間にこれを掛けるだけになる。"""
+        """時刻で変わる軸に重みが無いときの、全区間ぶんの合成。所要時間に依らないので、ビンごとのコストは
+        ビンの所要時間を渡すだけになる。"""
         if self._time_invariant_composition_cache is None:
-            distance_m = self._score_matrix.distance_m
             self._time_invariant_composition_cache = compose_costs_from_axis_matrix(
-                distance_m,
+                self._score_matrix.distance_m,
                 {axis_id: self._static_axis_scores[axis_id] for axis_id in self._fixed_axis_ids},
-                self._weights, self._penalty_strength, base=np.ones(len(distance_m)),
+                self._weights, self._penalty_strength, density=self._density_costs,
             )
         return self._time_invariant_composition_cache
+
+    def _density_costs_at(self, rows: np.ndarray | None) -> dict[str, DensityCost]:
+        if rows is None:
+            return self._density_costs
+        return {a: DensityCost(c.scores[rows], c.score_seconds[rows]) for a, c in self._density_costs.items()}
 
     def to_full_row_order(self, lazy_values: np.ndarray) -> np.ndarray:
         """lazy行順（探索が使う並び）の配列を切り出した区間の順へ戻す。
@@ -492,13 +503,12 @@ class LegCostComposer:
         # （合成の時間は軸数にほぼ比例する）。表示が読む`axis_arrays`は全軸を持たせる。
         published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
         if rows is None and self._composition_is_time_invariant:
-            invariant = self._time_invariant_composition
-            composed = AxisComposition(travel * invariant.cost, invariant.difficulty, invariant.weight_sums)
+            composed = self._time_invariant_composition
         else:
             time_varying = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
             composed = compose_costs_from_axis_matrix(
                 take(self._score_matrix.distance_m), time_varying, weights, self._penalty_strength,
-                base=travel, static_sums=self._fixed_axis_sums(rows),
+                static_sums=self._fixed_axis_sums(rows), density=self._density_costs_at(rows),
             )
         return _Evaluated(
             published=published, material_arrays=material_arrays, travel=travel, composed=composed, weights=weights,
@@ -596,7 +606,7 @@ class LegCostComposer:
         """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
         evaluated = self._evaluate(passage)
         composed, travel = evaluated.composed, evaluated.travel
-        cost_array = np.where(self._hard_filter_excluded, np.inf, composed.cost)
+        cost_array = np.where(self._hard_filter_excluded, np.inf, composed.cost(travel))
         lazy_cost = cost_array[self._lazy_row_index]
         lazy_travel = travel[self._lazy_row_index]
         return LegCostArrays(
