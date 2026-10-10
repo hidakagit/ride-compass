@@ -581,9 +581,10 @@ class RoadGraphEngine:
             end_node = context.origin_node
             end_point = context.origin
         else:
-            end_node = _snap_destination(context, destination)
-            if end_node is None:
+            snapped = _snap_destination(context, destination)
+            if snapped is None:
                 return []
+            end_node = snapped
             end_point = context.destination_correction or destination
         # 往路レグを、見込み所要時間（残りの距離の半分÷巡航速度）ぶんの時刻ビンで組み直す。
         # 木は出発からの経過時間を持ち回れるため、風を推定ではなく実際の経過時間で引ける。
