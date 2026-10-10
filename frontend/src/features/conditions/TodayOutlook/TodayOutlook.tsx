@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { ClockIcon, RaindropIcon, ThermometerIcon, WindIcon } from "@/components/ui/icons/icons";
 import { formatJstHourMinute } from "@/lib/time";
@@ -45,6 +46,42 @@ function formatPrecipitation(mm: number): string {
   return mm < weatherScales.precipitation_none_below_mm ? "-" : `${mm.toFixed(1)}mm`;
 }
 
+function DailyStat({
+  icon,
+  term,
+  className,
+  children,
+}: {
+  icon: ReactNode;
+  term: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={cn("flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0", className)}>
+      {icon}
+      <span>
+        <span className={cn(textVariants({ variant: "note" }), "block")}>{term}</span>
+        <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
+          {children}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function Unit({ children }: { children: ReactNode }) {
+  return <span className="text-[0.75em] font-normal text-[var(--color-muted)]">{children}</span>;
+}
+
+const PANEL_PROPS = {
+  layer: "header",
+  className: "w-76 max-w-[calc(100vw-2*var(--space-3))]",
+  side: "bottom",
+  align: "start",
+} as const;
+const MODEL_HEADING = "今日のモデルの計算値";
+
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
   return (
     <div className="flex w-10 flex-shrink-0 flex-col items-center gap-1 text-[var(--color-accent)]">
@@ -78,14 +115,9 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
             今日
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          layer="header"
-          className="w-76 max-w-[calc(100vw-2*var(--space-3))]"
-          side="bottom"
-          align="start"
-        >
+        <PopoverContent {...PANEL_PROPS}>
           <p className={cn(textVariants({ variant: "note" }), "mb-2 font-bold tracking-wide uppercase")}>
-            今日のモデルの計算値
+            {MODEL_HEADING}
           </p>
           <p>取得に失敗しました: {error}</p>
         </PopoverContent>
@@ -98,9 +130,32 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   if (loading || !weather) return null;
 
   const hasFlow = weather.today_periods.length > 0;
-  const { twilight, temperature_range: temperatureRange } = weather;
-  const hasModelValue =
-    weather.precipitation_max_mm != null || weather.wind_speed_max_ms != null || temperatureRange !== null || hasFlow;
+  const {
+    twilight,
+    precipitation_max_mm: precipitationMax,
+    wind_speed_max_ms: windSpeedMax,
+    temperature_range: temperatureRange,
+  } = weather;
+  const stats = [
+    precipitationMax != null && (
+      <DailyStat key="precipitation" icon={<RaindropIcon size={15} />} term="降水量[最大]">
+        {precipitationMax.toFixed(1)}
+        <Unit>mm/h</Unit>
+      </DailyStat>
+    ),
+    windSpeedMax != null && (
+      <DailyStat key="wind" icon={<WindIcon size={15} />} term="風[最大]">
+        {windSpeedMax.toFixed(1)}
+        <Unit>m/s</Unit>
+      </DailyStat>
+    ),
+    temperatureRange !== null && (
+      <DailyStat key="temperature" icon={<ThermometerIcon size={15} />} term="気温">
+        {`${Math.round(temperatureRange.min_c)}℃〜${Math.round(temperatureRange.max_c)}℃`}
+      </DailyStat>
+    ),
+  ].filter(Boolean);
+  const hasModelValue = stats.length > 0 || hasFlow;
   // キャッシュ欠落等でdaily側が丸ごと無い場合は、トグル自体を出さない
   // （空のパネルを開けるだけの無意味なボタンを残さない）。
   if (!hasModelValue && twilight === null) return null;
@@ -118,72 +173,29 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
           今日
         </Button>
       </PopoverTrigger>
-      <PopoverContent layer="header" className="w-76 max-w-[calc(100vw-2*var(--space-3))]" side="bottom" align="start">
+      <PopoverContent {...PANEL_PROPS}>
         {twilight !== null && (
-          <div
-            className={cn(
-              "flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0",
-              hasModelValue && "mb-2 border-b border-[var(--color-border)] pb-2",
-            )}
+          <DailyStat
+            icon={<ClockIcon size={15} />}
+            term="日の出・日没"
+            className={hasModelValue ? "mb-2 border-b border-[var(--color-border)] pb-2" : undefined}
           >
-            <ClockIcon size={15} />
-            <span>
-              <span className={cn(textVariants({ variant: "note" }), "block")}>日の出・日没</span>
-              <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
-                {formatClockTime(twilight.sunrise)}
-                <span className="text-[0.75em] font-normal text-[var(--color-muted)]">〜</span>
-                {formatClockTime(twilight.sunset)}
-              </span>
-            </span>
-          </div>
+            {formatClockTime(twilight.sunrise)}
+            <Unit>〜</Unit>
+            {formatClockTime(twilight.sunset)}
+          </DailyStat>
         )}
         {hasModelValue && (
           <>
             <p className={cn(textVariants({ variant: "note" }), "font-bold tracking-wide uppercase")}>
-              今日のモデルの計算値
+              {MODEL_HEADING}
             </p>
             <p className={cn(textVariants({ variant: "note" }), "mb-2")}>
               気象庁の数値予報モデルMSMの計算値です。予報ではなく、誤差を含みえます。
             </p>
           </>
         )}
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-          {weather.precipitation_max_mm != null && (
-            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
-              <RaindropIcon size={15} />
-              <span>
-                <span className={cn(textVariants({ variant: "note" }), "block")}>降水量[最大]</span>
-                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
-                  {weather.precipitation_max_mm.toFixed(1)}
-                  <span className="text-[0.75em] font-normal text-[var(--color-muted)]">mm/h</span>
-                </span>
-              </span>
-            </div>
-          )}
-          {weather.wind_speed_max_ms != null && (
-            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
-              <WindIcon size={15} />
-              <span>
-                <span className={cn(textVariants({ variant: "note" }), "block")}>風[最大]</span>
-                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
-                  {weather.wind_speed_max_ms.toFixed(1)}
-                  <span className="text-[0.75em] font-normal text-[var(--color-muted)]">m/s</span>
-                </span>
-              </span>
-            </div>
-          )}
-          {temperatureRange !== null && (
-            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
-              <ThermometerIcon size={15} />
-              <span>
-                <span className={cn(textVariants({ variant: "note" }), "block")}>気温</span>
-                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
-                  {`${Math.round(temperatureRange.min_c)}℃〜${Math.round(temperatureRange.max_c)}℃`}
-                </span>
-              </span>
-            </div>
-          )}
-        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">{stats}</div>
         {hasFlow && (
           <div className="mt-2 border-t border-[var(--color-border)] pt-2">
             <p

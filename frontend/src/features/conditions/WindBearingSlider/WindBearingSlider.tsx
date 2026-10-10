@@ -89,6 +89,7 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
   }
 
   const roundedValue = Math.round(value);
+  const cardinal = cardinalLabel(value);
   return (
     <div className="pointer-events-none">
       <div
@@ -106,7 +107,7 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
           aria-valuemin={0}
           aria-valuemax={360}
           aria-valuenow={roundedValue}
-          aria-valuetext={`${roundedValue}度（${cardinalLabel(value)}）`}
+          aria-valuetext={`${roundedValue}度（${cardinal}）`}
           tabIndex={0}
           onPointerDown={startDrag}
           onKeyDown={handleKeyDown}
@@ -120,7 +121,7 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
           </span>
         </div>
         <p className={cn(textVariants({ variant: "hint" }), "whitespace-nowrap tabular-nums")}>
-          {roundedValue}° {cardinalLabel(value)}
+          {roundedValue}° {cardinal}
         </p>
       </div>
     </div>
