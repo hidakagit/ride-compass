@@ -1,8 +1,6 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import { cn } from "@/lib/cn";
 
-// 汎用チェックボックス。Radix Checkbox（Disclosure等と同じ既存のRadix採用
-// パターンを踏襲）はindeterminate状態をネイティブのinputより表現しやすいため採用する。
 interface CheckboxProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
@@ -16,13 +14,8 @@ export function Checkbox({ checked, onCheckedChange, ...props }: CheckboxProps) 
       checked={checked}
       onCheckedChange={(state) => onCheckedChange(state === true)}
       className={cn(
-        // p-0/min-h-0: globals.cssの@layer baseにあるbuttonの既定paddingはTailwindの
-        // utilitiesレイヤーより弱い(層として負ける)ため通常は無視できるが、padding自体は
-        // このコンポーネントが明示的に上書きしていないと「未指定」のまま素通しされる
-        // （層の勝敗はプロパティ単位ではなく宣言単位で決まるため）。Checkbox自身がここで
-        // 明示することで、グローバル側の個別パッチ（モバイル限定の[role=checkbox]上書き等）に
-        // 頼らず単体で正しいサイズになるようにする。
-        // 押す所は24px四方（`Button`と同じ）で、見た目の四角はその中に小さく描く。
+        // p-0・min-h-0とsize-6は、docs/modules/frontend/frontend-design-system.mdの「`components/ui/`コンポーネント
+        // 自身の自己防衛」「タップ領域（44px）は、主要な導線だけが自前で持つ」。見た目の四角は24px四方の中に小さく描く。
         "group flex size-6 min-h-0 shrink-0 items-center justify-center border-0 bg-transparent p-0 disabled:opacity-40",
       )}
       {...props}

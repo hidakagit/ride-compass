@@ -20,7 +20,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/AxisComposer.tsx` | 1画面フォームの本体。draftの状態・保存前の検証・保存と、節の組み立てだけを持つ |
 | `features/admin/AxisStudio/AxisScoringSection.tsx` | 「点数の決め方」の節。材料の選択と、その材料の型に応じた点数入力（0点/100点・効き方、はい/いいえ、値ごと、他軸の係数）。折れ点の直接編集は畳んだ詳細設定の中 |
 | `features/admin/AxisStudio/AxisMapDisplaySection.tsx` | 「地図表示・公開」の節。色分けしきい値のまとめ入力と段階プレビュー・アイコン・公開チェック |
-| `features/admin/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`SectionLabel`・`SliderNumberField`） |
+| `features/admin/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`RequiredCheckbox`・`SectionLabel`・`SliderNumberField`） |
 | `features/admin/AxisStudio/axisDraft.ts` | Draft（フォームの内部状態）とbackendのpayloadの相互変換。`buildShape`・`draftFromExisting`・`pickPassthroughFields`・`PASSTHROUGH_PAYLOAD_KEYS`。変更理由はbackendのpayloadスキーマで、フォームUIの増減とは独立している |
 | `features/admin/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
 | `features/admin/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
@@ -151,11 +151,11 @@ listAxisDefinitions() ──→ definitions（全軸）
 **選んだ材料に応じて入力欄を出し分ける**だけで表せる。スマホで開いたときに、開いてすぐ
 色分けまで一続きに見えることを優先する。
 
-| 節 | 見出し | 出る条件 |
+| 節の見出し | 描く部品 | 出る条件 |
 |---|---|---|
-| `basic` | （見出しなし。表示名・説明・既定重み） | 下書き軸のみ |
-| `shape_params` | 点数の決め方（`AxisScoringSection`） | 下書き軸のみ |
-| `display_publish` | 地図表示・公開（`AxisMapDisplaySection`） | 常に |
+| （見出しなし。表示名・説明・既定重み） | `renderBasicFields` | 下書き軸のみ |
+| 点数の決め方 | `AxisScoringSection` | 下書き軸のみ |
+| 地図表示・公開 | `AxisMapDisplaySection` | 常に |
 
 既定重みの下には、公開したときに公開軸の重みの合計に占める割合を参考に出す。割合はbackendが総合難易度と同じ分母で
 返す値（`weight_share_when_published`）で、画面は計算し直さない——保存した重みで計算するため、編集中の値は保存して
@@ -423,7 +423,7 @@ backend `POST /api/admin/basemap/refresh`を呼び、
   2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型`_PayloadKeyCoverage`が
   静的に検査するため、backend側へフィールドが増えたときはどちらかへ追加しないとtscが
   通らない。`display_thresholds_override`/`display_band_labels_override`は
-  専用の編集UI（`display_publish`の節）を持つため、このリストには含まない。
+  専用の編集UI（地図表示・公開の節）を持つため、このリストには含まない。
   `display_band_labels_override`の編集欄は`display_thresholds_override`が有効（null以外）の
   間だけ現れ、段階数（`displayThresholdsOverride.length+1`）と要素数を常に一致させる
   （`resizeBandLabels`）——しきい値の上書きを解除する（自動計算に戻す）とラベルの上書きも

@@ -1,4 +1,4 @@
-import type { AxisInspectorResult } from "@/types/traffic";
+import type { components } from "@/types/generated/api";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
@@ -81,6 +81,8 @@ export interface AxisInspectorConditions extends RideConditions {
   x: number;
   y: number;
 }
+
+export type AxisInspectorResult = components["schemas"]["AxisInspectorResult"];
 
 /** 地図で押した道（`osm_way_id`）の一次属性・全軸・合成を取る。 */
 export async function fetchAxisInspector(

@@ -2,18 +2,11 @@
 
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/Button/Button";
+import { cardVariants } from "@/components/ui/Card/Card";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
-// 汎用モーダルダイアログ。FloatingPanel(react-rndでドラッグ移動)・BottomSheet
-// (自前pointerイベントで高さドラッグ)はドラッグ/リサイズという専用の振る舞いを持つため
-// Radix Dialogを使わない自前実装のままにしてある(docs/modules/frontend/frontend-design-system.md参照)。
-// このDialogは新規の単純なモーダル要求(ドラッグ不要な確認ダイアログ等)向けの土台。
-//
-// titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosureと
-// 同じ既存方針)。
-// 重なり順はglobals.cssのスケール（--z-floating-panel）。BottomSheetより上、
-// 情報ポップオーバー（--z-top-popover、Dialogの中から開く）より下。
+// ドラッグしない単純なモーダル。titleを必須にして、アクセシブルな名前を型で強いる。
 
 export const DialogRoot = RadixDialog.Root;
 
@@ -30,8 +23,8 @@ export function DialogContent({ title, children, className }: DialogContentProps
       <RadixDialog.Content
         className={cn(
           "fixed left-1/2 top-1/2 z-[var(--z-floating-panel)] w-[min(90vw,28rem)] -translate-x-1/2 -translate-y-1/2",
-          "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-float)]",
-          "text-[var(--foreground)]",
+          cardVariants({ variant: "float" }),
+          "p-4 text-[var(--foreground)]",
           className,
         )}
       >

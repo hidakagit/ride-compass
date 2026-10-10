@@ -282,12 +282,13 @@ def _latest_hour(now: datetime) -> datetime:
 
 
 class RainMaps:
-    """正時ごとの地図JSON。東京（44132）だけが雨量計を持ち、`rain_by_back`（何時間前の正時→mm）の雨を返す。"""
+    """正時ごとの地図JSON。東京（44132）だけが雨量計を持ち、`rain_by_back`（何時間前の正時→mm）の雨を返す。
+    `broken_by_back`（何時間前の正時→応答）の正時は、雨の代わりにその応答を返す（Noneは取れない）。"""
 
-    def __init__(self, latest_hour: datetime, rain_by_back: dict[int, float], failing_backs: set[int] = frozenset()):
+    def __init__(self, latest_hour: datetime, rain_by_back: dict[int, float], broken_by_back: dict[int, dict | None] = {}):
         self.latest_hour = latest_hour
         self.rain_by_back = rain_by_back
-        self.failing_backs = set(failing_backs)
+        self.broken_by_back = broken_by_back
         self.requested_hours: list[int] = []
 
     def observation_map(self, timestamp):
@@ -296,8 +297,8 @@ class RainMaps:
             return OBSERVATION_MAP
         back = int((self.latest_hour - at) / timedelta(hours=1))
         self.requested_hours.append(back)
-        if back in self.failing_backs:
-            return None
+        if back in self.broken_by_back:
+            return self.broken_by_back[back]
         rain = self.rain_by_back.get(back, 0.0)
         return {**OBSERVATION_MAP, "44132": {**OBSERVATION_MAP["44132"], "precipitation1h": [rain, 0]}}
 
@@ -337,10 +338,21 @@ async def test_rain_history_fetches_only_hours_it_does_not_have():
     assert materials.values[rain_window_material_id(1)][0] == 1.5
 
 
-async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windows_empty_meanwhile():
+@pytest.mark.parametrize(
+    "broken",
+    [
+        None,
+        OBSERVATION_MAP,
+        {**OBSERVATION_MAP, "44132": {**OBSERVATION_MAP["44132"], "precipitation1h": [None, 1]}},
+    ],
+    ids=["not fetched", "no rain gauge reports", "every rain gauge is missing"],
+)
+async def test_an_hour_that_could_not_be_fetched_is_retried_and_leaves_its_windows_empty_meanwhile(broken):
+    """取れても1時間雨量の値が1つも無い正時を取れたとして残すと、二度と取り直さず、その正時を含む窓が全国で
+    値を持たないまま、窓から外れるまで戻らない。"""
     now = datetime.now(JST)
     latest_hour = _latest_hour(now)
-    failing = RainMaps(latest_hour, rain_by_back={}, failing_backs={5})
+    failing = RainMaps(latest_hour, rain_by_back={}, broken_by_back={5: broken})
     await _rain_service(failing).refresh_all_stations()
     materials = await load_station_rain_materials(now, new_rain_materials_cache())
 

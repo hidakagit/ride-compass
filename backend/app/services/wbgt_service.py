@@ -23,7 +23,6 @@ from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
 from app.domain.strict_model import StrictModel
 
 
-
 class WbgtReading(StrictModel):
     level: WarningBadgeLevel
     label: str
@@ -33,10 +32,6 @@ class WbgtReading(StrictModel):
 class WbgtStatus(StrictModel):
     #: 警告として出す段の値。提供期間の外で値が得られないときと、警告として意味を持たない低いレベルのときはNone。
     reading: WbgtReading | None
-
-
-def _empty_status() -> WbgtStatus:
-    return WbgtStatus(reading=None)
 
 
 class WbgtService:
@@ -55,11 +50,11 @@ class WbgtService:
         forecast = await self._current_forecast(point, now)
         if forecast is None or forecast.wbgt is None:
             # 提供期間の外は値が無いのが常で、失敗と出すと提供していない時期に「取得できませんでした」が出る。
-            return None if is_within_provision_period(now) else _empty_status()
+            return None if is_within_provision_period(now) else WbgtStatus(reading=None)
 
         level_info = wbgt_level(forecast.wbgt)
         if level_info is None:
-            return _empty_status()
+            return WbgtStatus(reading=None)
         level, label = level_info
         return WbgtStatus(reading=WbgtReading(level=level, label=label, value=forecast.wbgt))
 

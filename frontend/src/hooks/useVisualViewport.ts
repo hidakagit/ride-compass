@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 /** いま見えている範囲の、fixed の要素の基準（layout viewport）の上端からの位置と高さ。 */
-export interface VisibleArea {
+interface VisibleArea {
   top: number;
   height: number;
 }
@@ -19,7 +19,13 @@ export function useVisualViewport(active: boolean): VisibleArea | null {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!active || !viewport) return;
-    const update = () => setArea({ top: viewport.offsetTop, height: viewport.height });
+    // 値が変わらないイベント（幅だけのresize・横へのscroll）では同じ参照を返し、描き直さない。
+    const update = () =>
+      setArea((prev) => {
+        const top = viewport.offsetTop;
+        const height = viewport.height;
+        return prev && prev.top === top && prev.height === height ? prev : { top, height };
+      });
     update();
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);

@@ -70,16 +70,18 @@ export default function BottomSheet({
   fitKey,
 }: BottomSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   // 開いたときの中身に合う高さへ合わせる（高すぎると空白で地図を隠す）。開いている間は合わせ直さない（候補や区間を
   // 押すたびに地図の見える範囲が動かないように）。実寸が取れない環境では何もしない。
   useLayoutEffect(() => {
     if (!open || !autoFitHeight) return;
     const sheet = sheetRef.current;
-    const body = bodyRef.current;
-    if (!sheet || !body) return;
+    if (!sheet) return;
     const viewportHeight = window.innerHeight;
     const needed = naturalHeightOf(sheet);
     if (viewportHeight <= 0 || sheet.clientHeight <= 0 || needed <= 0) return;
@@ -92,11 +94,11 @@ export default function BottomSheet({
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
       // シートの中から開いた窓（Radix）は、捕捉の段で受けたEscで自分を閉じて既定の動きを止める。そのEscでシートまで閉じない。
-      if (e.key === "Escape" && !e.defaultPrevented) onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) onCloseRef.current();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -202,7 +204,6 @@ export default function BottomSheet({
       {headerNote && <div className="flex-shrink-0 px-3 pt-2">{headerNote}</div>}
       {/* 本文のスクロールが下スワイプの判定まで届かないようにする（届くとスクロールしただけで閉じる）。 */}
       <div
-        ref={bodyRef}
         className="flex flex-col gap-2 overflow-y-auto px-3 pt-2 pb-3"
         onTouchStart={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}

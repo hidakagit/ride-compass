@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { formatJstDateTime } from "@/lib/time";
+import { errorMessage } from "@/lib/apiError";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { getDebugStats } from "@/features/admin/adminApi";
 import { getFrontendVersion } from "@/services/versionApi";
@@ -15,11 +16,6 @@ import { cn } from "@/lib/cn";
 interface SystemStatusPanelProps {
   open: boolean;
   onClose: () => void;
-}
-
-function errorText(error: unknown): string | null {
-  if (error === null) return null;
-  return error instanceof Error ? error.message : String(error);
 }
 
 function formatStartedAt(iso: string): string {
@@ -44,8 +40,8 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
   );
   const backend = backendQuery.data ?? null;
   const frontend = frontendQuery.data ?? null;
-  const backendError = errorText(backendQuery.error);
-  const frontendError = errorText(frontendQuery.error);
+  const backendError = backendQuery.error && errorMessage(backendQuery.error);
+  const frontendError = frontendQuery.error && errorMessage(frontendQuery.error);
   // 「更新」は両方が届くまで押せない（速い方が先に届いた時点で押せると、遅い方の取得中に重ねて取りに行く）。
   const loading = backendQuery.isFetching || frontendQuery.isFetching;
   const fetchAll = () => {

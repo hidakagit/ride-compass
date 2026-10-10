@@ -16,8 +16,9 @@ from app.services import tuning_service
 from tests.bound_fake import bound
 
 _PARAM = "speed.crr"
-#: 書いた後の上書きを読んで検算した結果（`load_tuning_values`の代役が返す）。宣言の既定から1つだけ動かした値。
-LOADED = {**{parameter.id: parameter.default for parameter in TUNING_PARAMETERS}, _PARAM: 0.006}
+#: 書いた後の上書きの行（`read_overrides`の代役が返す）と、それを宣言の既定へ重ねた値。宣言の既定から1つだけ動かした値。
+OVERRIDES = {_PARAM: 0.006}
+LOADED = {**{parameter.id: parameter.default for parameter in TUNING_PARAMETERS}, **OVERRIDES}
 
 
 class Session:
@@ -59,8 +60,7 @@ def events(monkeypatch):
 
     stub("set_override")
     stub("clear_override")
-    stub("load_tuning_values", LOADED)
-    stub("read_overrides", {_PARAM: LOADED[_PARAM]})
+    stub("read_overrides", OVERRIDES)
     return recorded, failing
 
 
@@ -82,7 +82,7 @@ async def test_saving_loads_the_values_before_commit_and_only_swaps_them_in_afte
 
     # 読んで検算するのは確定の前（失敗すれば書き込みごと取り消せる）。確定の後は、その値への
     # 差し替えだけ——DBを読み直さず、DBに無い値がプロセスだけで効くこともない
-    assert recorded == [write, ("load_tuning_values",), ("read_overrides",), ("commit", before)]
+    assert recorded == [write, ("read_overrides",), ("commit", before)]
     assert TUNING_VALUES == LOADED
 
 
@@ -90,7 +90,7 @@ async def test_saving_loads_the_values_before_commit_and_only_swaps_them_in_afte
     ("value", "failing_step"),
     [
         # 書いた後の上書きの読み出し・検算の失敗（例: 別の行が宣言の範囲の外）は、書き込みごと取り消す
-        (0.006, "load_tuning_values"),
+        (0.006, "read_overrides"),
         (0.006, "commit"),
     ],
 )

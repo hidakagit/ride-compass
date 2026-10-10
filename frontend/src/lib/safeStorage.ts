@@ -1,11 +1,7 @@
-// localStorageの読み書きのうち、失敗を呼び出し側で握りつぶせない場所のための薄いラッパ。
+// localStorageの読み書きの失敗を、呼び出し側へ投げない薄いラッパ。
 //
 // サイトデータを全面的にブロックしている環境では`window.localStorage`のゲッター自体が
-// SecurityErrorを投げる。モジュール評価時（importの連鎖の途中）の読み出しがこれを浴びると
-// 例外を受け止める場所が無く、そのモジュールを読むページ全体が描画されない。
-//
-// コンポーネント内の永続化はhooks/useStoredState.tsが同じ失敗を状態のフォールバックとして
-// 扱う。こちらはReactの外（モジュール評価時に初期値を決めるシングルトン）向け。
+// SecurityErrorを投げるので、`getItem`/`setItem`だけでなくゲッターも囲む。
 
 /** localStorageの値を読む。使えない環境ではnullを返す（未保存と同じ扱い）。 */
 export function readStoredValue(key: string): string | null {

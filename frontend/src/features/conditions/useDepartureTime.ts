@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-// 「今」を進める刻み。出発時刻として選べる値そのものが5分刻みのため
-// （RideConditionBar/departureTimeline.ts）、これより細かく進めてもどの気象レイヤーが選ぶ
+import { DEPARTURE_STEP_MS } from "@/features/conditions/rideConditions";
+
+// 「今」は出発時刻として選べる値の刻みで進める。これより細かく進めてもどの気象レイヤーが選ぶ
 // フレームも変わらないまま、時刻をキーに持つ取得（useDedicatedWayValues）だけが無効化される。
-const NOW_STEP_MS = 5 * 60 * 1000;
 // 刻みの境界を跨いだかを見に行く間隔。刻みそのものより短くないと境界を跨ぎ越す。
 const NOW_POLL_INTERVAL_MS = 30 * 1000;
 
 function steppedNow(): Date {
-  return new Date(Math.floor(Date.now() / NOW_STEP_MS) * NOW_STEP_MS);
+  return new Date(Math.floor(Date.now() / DEPARTURE_STEP_MS) * DEPARTURE_STEP_MS);
 }
 
 interface DepartureTime {

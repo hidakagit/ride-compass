@@ -11,10 +11,11 @@ import { vocabulary } from "@/types/generated/vocabulary";
 import { Select } from "@/components/ui/Input/Input";
 import { LogLine } from "@/components/ui/LogLine/LogLine";
 import { textVariants } from "@/components/ui/Text/Text";
+import { errorMessage } from "@/lib/apiError";
 
 const DEFAULT_LIMIT = 200;
-// 選択肢は軽い順に並べる。キーの過不足はbackendの契約から引いた型が検査する。
-/** 選べるレベル（軽い順）。**backendの宣言の並びそのもの**（生成物`vocabulary.ts: logLevels`）。 */
+/** 選べるレベル（軽い順）。**backendの宣言の並びそのもの**（生成物`vocabulary.ts: logLevels`）。キーの過不足は
+ * backendの契約から引いた型が検査する。 */
 const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = vocabulary.logLevels;
 
 // フロントのDebugConsole（lib/debugLog.ts、entry.level="info"/"warn"/"error"）と同じ
@@ -55,7 +56,7 @@ export default function BackendLogsPanel() {
       limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined,
     })
       .then((result) => setLines(result))
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err) => setError(errorMessage(err)))
       .finally(() => setLoading(false));
   };
 
@@ -116,11 +117,14 @@ export default function BackendLogsPanel() {
           {/* ログ取得の失敗（error）とは原因も対処も別なので、同じ行へ混ぜない。 */}
           {copyError && <p className={textVariants({ variant: "error" })}>{copyError}</p>}
           <div className="max-h-96 overflow-auto rounded-sm border border-[var(--color-border-muted)] bg-[var(--color-surface)] p-2">
-            {lines.map((line, i) => (
-              <LogLine key={i} tone={logTone(parseLogLevel(line))} data-level={parseLogLevel(line)}>
-                {line}
-              </LogLine>
-            ))}
+            {lines.map((line, i) => {
+              const level = parseLogLevel(line);
+              return (
+                <LogLine key={i} tone={logTone(level)} data-level={level}>
+                  {line}
+                </LogLine>
+              );
+            })}
           </div>
         </>
       )}

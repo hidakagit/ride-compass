@@ -43,6 +43,13 @@ function levelDisplay(item: WarningBadgeItem): { label: string; color: string } 
   return vocabulary.warningBadge[item.source].find((entry) => entry.level === item.level)!;
 }
 
+const DETAIL_PANEL_PROPS = {
+  layer: "header",
+  className: "max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto",
+  side: "bottom",
+  align: "end",
+} as const;
+
 // 複数件のitemsのうち最も警戒度が高いitemを1つ返す（LEVEL_ORDERの並び=警戒度の昇順）。
 // サマリーボタンの語彙は出所（source）によって変わるため、レベルだけでなくitem自体を返す。
 function highestLevelItem(items: readonly WarningBadgeItem[]): WarningBadgeItem {
@@ -86,12 +93,7 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
           <span>未取得</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        layer="header"
-        className="max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto"
-        side="bottom"
-        align="end"
-      >
+      <PopoverContent {...DETAIL_PANEL_PROPS}>
         <p className={cn(textVariants({ variant: "heading" }), "mb-1 text-[length:var(--font-size-sm)]")}>
           {labels}を取得できていません
         </p>
@@ -123,9 +125,8 @@ function WarningFetchFailureMark({ failures }: { failures: readonly FetchFailure
 }
 
 function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
-  const topItem = highestLevelItem(items);
-  const topLabel = levelDisplay(topItem).label;
-  const summaryLabel = items.length > 1 ? `${topLabel}${items.length}件` : topLabel;
+  const top = levelDisplay(highestLevelItem(items));
+  const summaryLabel = items.length > 1 ? `${top.label}${items.length}件` : top.label;
 
   return (
     <Popover>
@@ -134,19 +135,14 @@ function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
           size="xs"
           shape="pill"
           className="border-0 font-bold text-white data-[state=open]:text-white"
-          style={{ backgroundColor: levelDisplay(topItem).color }}
+          style={{ backgroundColor: top.color }}
           aria-label={`気象警報・注意報あり: ${summaryLabel}。押すと詳細を表示`}
           usage="いまいる場所に出ている気象警報・注意報の詳細を開きます。"
         >
           {summaryLabel}
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        layer="header"
-        className="max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto"
-        side="bottom"
-        align="end"
-      >
+      <PopoverContent {...DETAIL_PANEL_PROPS}>
         <div role="list" aria-label="気象警報・注意報の詳細" className="flex flex-col gap-2">
           {items.map((item) => (
             <div key={item.id} role="listitem" className="flex flex-col gap-1">

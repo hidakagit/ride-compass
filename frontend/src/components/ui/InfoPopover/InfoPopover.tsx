@@ -19,21 +19,16 @@ interface InfoPopoverProps {
    * 押させたい呼び出し側が差し替える（アクセシブル名は`triggerAriaLabel`が担うため
    * 中身を変えても読み上げは変わらない）。 */
   triggerContent?: ReactNode;
-  side?: "top" | "right" | "bottom" | "left";
   children: ReactNode;
 }
 
-// 見出し脇の(i)アイコン→ポップオーバーという構造（開閉state＋Popover.Root/Trigger/
-// Portal/Content＋開閉に追随するアクセシブル名）の共通部品。軸チップの説明文・重み配分/
-// 地図の色分けの凡例一覧・軸スタジオの材料説明・フォーム項目のラベル脇で共用する。
-// 外枠だけを担い、中身は呼び出し側がchildrenで渡す。
+/** 見出し脇の(i)を押すと、言葉・数値の意味を短い説明で開く。 */
 export default function InfoPopover({
   triggerClassName,
   triggerAriaLabel,
   label,
   labelClassName,
   triggerContent,
-  side = "bottom",
   children,
 }: InfoPopoverProps) {
   const [open, setOpen] = useState(false);
@@ -60,7 +55,7 @@ export default function InfoPopover({
           {trigger}
         </span>
       )}
-      <PopoverContent tone="note" side={side} align="start">
+      <PopoverContent tone="note" side="bottom" align="start">
         {children}
       </PopoverContent>
     </Popover>

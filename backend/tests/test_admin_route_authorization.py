@@ -20,10 +20,9 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.api.admin_auth import require_admin_basic_auth
+from app.api.admin_db_errors import ADMIN_PATH_PREFIX
 from app.main import app
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
-
-ADMIN_PATH_PREFIX = "/api/admin/"
 
 client = TestClient(app)
 
@@ -57,8 +56,10 @@ def test_every_admin_route_requires_basic_auth():
         ((ADMIN_USERNAME, ADMIN_PASSWORD), {}),
         ((ADMIN_USERNAME, ADMIN_PASSWORD), {"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")}),
         (("", ""), AUTH_HEADERS),
+        # パスワードだけ未設定でも、空のパスワードを送れば通る状態にしない
+        ((ADMIN_USERNAME, ""), {"Authorization": basic_auth_header(ADMIN_USERNAME, "")}),
     ],
-    ids=["missing", "wrong", "unset"],
+    ids=["missing", "wrong", "unset", "password-unset"],
     indirect=["admin_credentials"],
 )
 def test_the_dependency_rejects_with_a_basic_auth_challenge(admin_credentials, headers):

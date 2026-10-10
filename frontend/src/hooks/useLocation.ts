@@ -34,7 +34,7 @@ export function useLocation(): UseLocationResult {
 
   const latestRequestId = useRef(0);
 
-  // 追い越された要求の結果は捨てるので、決着は自動取得か取り直しかによらず、最後の要求で立てる。
+  // 決着（locationReady）は、自動取得か取り直しかによらず、最後の要求で立てる。
   const requestPosition = useCallback((onSettled: (ok: boolean) => void) => {
     const requestId = ++latestRequestId.current;
     navigator.geolocation.getCurrentPosition(

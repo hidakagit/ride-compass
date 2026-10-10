@@ -180,9 +180,14 @@ def _archives(rows: AbrRows, profile: SourceProfile
     return paths, town_positions, blocks
 
 
+def _archive_files(paths: dict[str, Path], town_positions: dict[str, Path], blocks: list[tuple[Path, Path]]
+                   ) -> tuple[Path, ...]:
+    """`_archives`の読む配布を1列に並べる。"""
+    return (*paths.values(), *town_positions.values(), *(path for pair in blocks for path in pair))
+
+
 def abr_inputs(spec: SourceSpec, profile: SourceProfile) -> AdapterInputs:
-    paths, town_positions, blocks = _archives(spec.rows, profile)
-    return AdapterInputs(files=(*paths.values(), *town_positions.values(), *(path for pair in blocks for path in pair)))
+    return AdapterInputs(files=_archive_files(*_archives(spec.rows, profile)))
 
 
 @register_adapter("abr", rows=AbrRows, inputs=abr_inputs)
@@ -191,8 +196,7 @@ async def read_abr(spec: SourceSpec, profile: SourceProfile, origin: dict[str, A
     paths, town_positions, blocks = _archives(rows, profile)
     prefectures = list(town_positions)
     origin.update({"snapshot": rows.snapshot, "prefectures": prefectures,
-                   "files": [file_origin(path) for path in [*paths.values(), *town_positions.values(),
-                                                            *(path for pair in blocks for path in pair)]]})
+                   "files": [file_origin(path) for path in _archive_files(paths, town_positions, blocks)]})
 
     for record in _with_positions(read_rows(paths["mt_pref_all"]), paths["mt_pref_pos_all"]):
         yield record

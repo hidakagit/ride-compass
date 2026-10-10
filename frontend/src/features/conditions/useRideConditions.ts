@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { useStoredState } from "@/hooks/useStoredState";
 import { useDepartureTime } from "@/features/conditions/useDepartureTime";
+import { clampSpeedKmh } from "@/features/conditions/rideConditions";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 // 走行条件のうち想定速度だけを保つ（出発時刻・走行方位は行くたびに変わる）。
@@ -24,11 +25,7 @@ export function useRideConditions() {
       // 保存値は画面の範囲内の整数だけを受け入れる（範囲が縮んだ後でも、範囲外の速度が復元されて送られない）。
       deserialize: (raw) => {
         const parsed = Number(raw);
-        return Number.isInteger(parsed) &&
-          parsed >= routeGenerateConfig.min_assumed_speed_kmh &&
-          parsed <= routeGenerateConfig.max_assumed_speed_kmh
-          ? parsed
-          : null;
+        return clampSpeedKmh(parsed) === parsed ? parsed : null;
       },
     },
   );

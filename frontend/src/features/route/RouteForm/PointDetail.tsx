@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge/Badge";
 import { Button, buttonVariants } from "@/components/ui/Button/Button";
@@ -65,6 +65,9 @@ interface PointDetailProps {
   savedPlaces: SavedPlacesState;
 }
 
+/** 上側へせり上がる動きの長さ。 */
+const RISE_MS = 200;
+
 /** 打つ欄を、いちばん近い縦にスクロールする祖先の上端（欄の`scroll-margin-top`を空ける）へ送る。`scrollIntoView`は祖先を
  * 全部送るので、ページまで送って地図の上側を切る。 */
 function scrollToScrollerTop(element: HTMLElement) {
@@ -80,7 +83,7 @@ function scrollToScrollerTop(element: HTMLElement) {
  * 押した地点の詳しく: どの地点か・どうやって置いたか・名前・辺り（探した施設は候補の辺り、地図で選んだ地点・現在地・辺りの
  * 無い施設は位置から引いた辺り。探した住所は名前が住所なので出さない）と、住所・施設の名前を打って置き直す欄（候補は欄のすぐ下。
  * 欄を押すと、保存した地点のうち打った文字を名前に含むものを住所・施設の候補の上に出す。狭い画面では、欄を押してから選ぶ・閉じる
- * までは欄と候補を見えている範囲の上側に出す）、地図で置く操作と、消す・現在地に戻す・置いた地点の保存（保存した地点なら保存をやめる）。
+ * までは、欄のあった位置からせり上がって、欄と候補を見えている範囲の上側に出す）、地図で置く操作と、消す・現在地に戻す・置いた地点の保存（保存した地点なら保存をやめる）。
  */
 export default function PointDetail({
   role,
@@ -119,6 +122,21 @@ export default function PointDetail({
   const isMobile = useIsMobile();
   const raised = isMobile && browsing;
   const visible = useVisualViewport(raised);
+  // 上側へは、欄のあった位置からせり上がって開く。欄を押したときの欄の上端を覚えておき、上側に出した枠を、欄がその位置に
+  // 来るずれから動かし始める。
+  const frameRef = useRef<HTMLDivElement>(null);
+  const riseFrom = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const from = riseFrom.current;
+    riseFrom.current = null;
+    if (!raised || from === null || frameRef.current === null || formRef.current === null) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const offset = from - formRef.current.getBoundingClientRect().top;
+    frameRef.current.animate?.([{ transform: `translateY(${offset}px)` }, { transform: "none" }], {
+      duration: RISE_MS,
+      easing: "ease-out",
+    });
+  }, [raised]);
   // 広い画面では、候補が出たら打つ欄をパネルの上端へ送り、下の候補をパネルの高さいっぱいに見せる。一覧は自分では高さを限らず、
   // パネルのスクロールだけで読む（二重のスクロールにしない）。候補が届いて一覧が伸びたときにも送り直す（引いている間の短い一覧
   // では、パネルの下端まで送り切れない）。
@@ -152,6 +170,20 @@ export default function PointDetail({
     lookup.close({ clearText: true });
     setBrowsing(false);
   }
+
+  // 上側に出している間は見出しの行の右、シートの中では候補の一覧の右上に置く。
+  const closeButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={closeList}
+      aria-label={`${title}の候補を閉じる`}
+      className="size-6 flex-none text-[var(--foreground)]"
+      usage="候補の一覧を閉じて、打った文字を消します。"
+    >
+      ✕
+    </Button>
+  );
 
   function choose(candidate: PlaceCandidate) {
     onChoose(candidate);
@@ -216,13 +248,19 @@ export default function PointDetail({
       </div>
 
       <div
+        ref={frameRef}
         className={cn(
           "flex flex-col gap-1",
           raised && "fixed inset-x-0 top-0 bottom-0 z-10 bg-[var(--background)] p-2 shadow-[0_2px_8px_rgba(0,0,0,0.2)]",
         )}
         style={raised && visible !== null ? { top: visible.top, bottom: "auto", height: visible.height } : undefined}
       >
-        {raised && <p className={textVariants({ variant: "heading" })}>{title}を探す</p>}
+        {raised && (
+          <div className="flex items-center justify-between gap-2">
+            <p className={textVariants({ variant: "heading" })}>{title}を探す</p>
+            {closeButton}
+          </div>
+        )}
         {/* 打つ欄と地図で置く操作・消す等を1行に並べ、入らなければ操作を次の行へ送る。上側に出している間は欄だけにする。 */}
         <div className="flex flex-wrap items-center gap-1">
           <form
@@ -247,7 +285,10 @@ export default function PointDetail({
                 "focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]",
               )}
               {...inputProps}
-              onFocus={() => setBrowsing(true)}
+              onFocus={() => {
+                if (isMobile && !browsing) riseFrom.current = formRef.current?.getBoundingClientRect().top ?? null;
+                setBrowsing(true);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Escape") closeList();
               }}
@@ -301,23 +342,14 @@ export default function PointDetail({
           </div>
         </div>
 
-        {(listOpen || raised) && (
+        {listOpen && (
           <div
             className={cn(
-              "relative flex rounded-sm border border-[var(--color-border)] p-1 pr-8",
-              raised && "min-h-0 flex-auto",
+              "relative flex rounded-sm border border-[var(--color-border)] p-1",
+              raised ? "min-h-0 flex-auto" : "pr-8",
             )}
           >
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={closeList}
-              aria-label={`${title}の候補を閉じる`}
-              className="absolute top-1 right-1 size-6 text-[var(--foreground)]"
-              usage="候補の一覧を閉じて、打った文字を消します。"
-            >
-              ✕
-            </Button>
+            {!raised && <div className="absolute top-1 right-1">{closeButton}</div>}
             <div className={cn("flex min-w-0 flex-auto flex-col gap-1", raised && "overflow-y-auto")}>
               {savedMatches.length > 0 && (
                 <ul aria-label="保存した地点" className="flex flex-col gap-0.5">
@@ -357,11 +389,6 @@ export default function PointDetail({
                     </Button>
                   )}
                 />
-              )}
-              {!listOpen && (
-                <p className={textVariants({ variant: "hint" })}>
-                  住所か施設の名前を打つと、候補が出ます（変換中は確定すると出ます）。
-                </p>
               )}
             </div>
           </div>
