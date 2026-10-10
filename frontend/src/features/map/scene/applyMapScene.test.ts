@@ -2,7 +2,7 @@
 import type { FilterSpecification } from "maplibre-gl";
 import { describe, expect, it } from "vitest";
 
-import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
+import { createRecordingMap, type RecordingMap } from "@/testing/mapTrace/recordingMap";
 
 import { applyMapScene, type MapSceneTarget } from "./applyMapScene";
 import {
@@ -17,15 +17,13 @@ import {
   type MapSceneTier,
 } from "./mapScene";
 
-type RecordingMapHandle = ReturnType<typeof createRecordingMap>["handle"];
-
 /** 地物の状態。本物の `getFeatureState` と同じく、置かれていなければ空として読む。 */
-function roadStateOf(handle: RecordingMapHandle, featureId: string): Record<string, unknown> {
+function roadStateOf(handle: RecordingMap, featureId: string): Record<string, unknown> {
   return { ...handle.featureState("roads", featureId) };
 }
 
 /** 地図に載っているレイヤー（並び・塗り・配置・絞り込み）とソース（宣言・流し込んだ中身）。 */
-function snapshot(handle: RecordingMapHandle): unknown {
+function snapshot(handle: RecordingMap): unknown {
   return {
     layers: handle.layerOrder().map((id) => handle.layer(id)),
     sources: handle

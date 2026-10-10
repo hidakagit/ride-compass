@@ -1,11 +1,10 @@
 // @vitest-environment node
 /** 凡例の見本が、地図に実際に描かれるものだけを示すこと。 */
-import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import { POINT_ICONS, POINT_LAYERS, pointAxisKey, pointGroup } from "@/features/map/scene/groups/points";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
-import { evaluateExpression as evaluate } from "@/testing/mapExpressions";
+import { evaluateExpression as evaluate, matchesFilter } from "@/testing/mapExpressions";
 
 import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis, roadTrackHasMissing } from "./groups/roadLines";
 import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "./legends";
@@ -122,16 +121,9 @@ describe("道の線の凡例の受け皿", () => {
   );
 });
 
-/** 絞り込みがその地物を通すか（MapLibreと同じ評価器で評価する）。絞り込みが無ければ全部通る。 */
+/** 絞り込みがその点の地物を通すか。絞り込みが無ければ全部通る。 */
 function passes(filter: unknown, properties: Record<string, unknown>): boolean {
-  if (filter === undefined) return true;
-  return featureFilter(filter as FilterSpecification, "filter").filter(
-    { zoom: 14 } as never,
-    {
-      type: 1,
-      properties,
-    } as never,
-  );
+  return filter === undefined || matchesFilter(filter, properties, 1);
 }
 
 type LegendAxis = ReturnType<typeof roadLegendAxes>[number];

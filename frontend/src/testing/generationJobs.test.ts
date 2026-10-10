@@ -21,7 +21,7 @@ describe("serveGenerationJobs", () => {
   it("積んだ答えを生成の出された順に使い、出した要求を積む", async () => {
     const jobs = serveGenerationJobs();
     const route = makeRouteCandidate({ id: "r1" });
-    jobs.respond([route], CONDITIONS, undefined);
+    jobs.respond([route], CONDITIONS);
     jobs.fail("混雑しています");
 
     await expect(generateRoutes(REQUEST)).resolves.toMatchObject({ routes: [route], conditions: CONDITIONS });

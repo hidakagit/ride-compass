@@ -14,7 +14,7 @@
  */
 import type { Coordinates } from "@/types/route";
 
-import { createRecordingMap, type StyleLayer } from "./mapTrace/recordingMap";
+import { createRecordingMap, type RecordingMap, type StyleLayer } from "./mapTrace/recordingMap";
 
 type Handler = (event: Record<string, unknown>) => void;
 type Listener = { readonly type: string; readonly layerId?: string; readonly handler: Handler; readonly once: boolean };
@@ -177,7 +177,7 @@ class StandInMap extends Evented {
   readonly markers = new Set<Marker>();
   readonly fits: unknown[] = [];
   readonly styles: string[];
-  readonly content: ReturnType<typeof createRecordingMap>["handle"];
+  readonly content: RecordingMap;
   private readonly container: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly zoom: number;
@@ -185,7 +185,7 @@ class StandInMap extends Evented {
 
   constructor(options: { container: HTMLElement; style: string; zoom: number }) {
     super();
-    const { map, handle } = createRecordingMap({ styleReady: false });
+    const { map, handle } = createRecordingMap();
     Object.assign(this, Object.fromEntries(STYLE_OPERATIONS.map((name) => [name, map[name]])));
     this.content = handle;
     this.container = options.container;
@@ -313,18 +313,6 @@ export interface MapOnScreen {
   readonly styles: readonly string[];
 }
 
-/** ソースへ最後に渡された中身（作ったときの宣言の `data` か、そのあとの `setData`）。消えていれば undefined。 */
-function lastData(trace: StandInMap["content"]["trace"], sourceId: string): unknown {
-  for (const { call, args } of [...trace].reverse()) {
-    if (call === "__styleReplaced") return undefined;
-    if (args[0] !== sourceId) continue;
-    if (call === "setData") return args[1];
-    if (call === "addSource") return (args[1] as { data?: unknown }).data;
-    if (call === "removeSource") return undefined;
-  }
-  return undefined;
-}
-
 export function mapOnScreen(): MapOnScreen {
   const map = drawn.at(-1);
   if (map === undefined) throw new Error("地図が描かれていない");
@@ -334,7 +322,7 @@ export function mapOnScreen(): MapOnScreen {
     click: (lngLat, features = []) => map.click(lngLat, features),
     visibleLayerIds: () => map.content.layerOrder().filter((id) => map.content.layer(id)?.visibility !== "none"),
     sourceFeatures: (sourceId) =>
-      (lastData(map.content.trace, sourceId) as GeoJSON.FeatureCollection | undefined)?.features ?? [],
+      (map.content.sourceContent(sourceId)?.data as GeoJSON.FeatureCollection | undefined)?.features ?? [],
     markers: () =>
       [...map.markers].map((marker) => ({
         coordinates: { latitude: marker.getLngLat().lat, longitude: marker.getLngLat().lng },
