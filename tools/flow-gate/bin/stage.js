@@ -1,19 +1,15 @@
-// Claude がタスクを段階に分ける。段階は親の子（GitHub の sub-issue）として、親と同じ種類で作る（Project へは「Auto-add sub-issues to project」が
-// 入れ、ゲートが入口で未着手にして、優先度の欄が空なら親の値を継ぐ）。前の段階は段階の前提（blocked by）に、段階は親の前提に張り、親が進行中なら
-// 未着手へ戻す（段階が全部閉じるまで、親は前提待ちで振り出されない）。
+// Claude がタスクを段階に分ける（src/github.js: createStage）。段階は親の子として親と同じ種類で作り、--dialog なら対話作業の種類で作る
+// （開発機が要る作業を、開発機の対話のセッションへ渡す）。ボードへ入れて入口を通すのは、作られた出来事を受けたゲート。前の段階は段階の
+// 前提に、段階は親の前提に張る（段階が全部閉じるまで、親は前提待ちで振り出されない）。
 import { readFileSync } from "node:fs";
-import { readTask } from "../src/github.js";
-import { moveTask } from "../src/move.js";
-import { notes } from "../src/rules.js";
+import { createStage, readTask } from "../src/github.js";
 import { args, bot, config, isNumber } from "./cli.js";
 
-const { rest: [parent, title, file, ...before] } = args("node tools/flow-gate/bin/stage.js <親の番号> <題名> <本文のファイル> [前の段階の番号...]",
-  (a) => a.length >= 3 && isNumber(a[0]) && a.slice(3).every(isNumber));
+const { rest } = args("node tools/flow-gate/bin/stage.js [--dialog] <親の番号> <題名> <本文のファイル> [前の段階の番号...]",
+  (a) => { const r = a.filter((x) => x !== "--dialog"); return r.length >= 3 && isNumber(r[0]) && r.slice(3).every(isNumber); });
+const dialog = rest.includes("--dialog");
+const [parent, title, file, ...before] = rest.filter((x) => x !== "--dialog");
 const gh = bot();
 const [top, ...earlier] = await Promise.all([parent, ...before].map(async (k) => (await readTask(gh, config, { number: Number(k) })).issue));
-const stage = (await gh.gql(`mutation C($i: CreateIssueInput!) { createIssue(input: $i) { issue { id number url } } }`,
-  { i: { repositoryId: top.repository.id, parentIssueId: top.id, issueTypeId: top.issueType?.id, title, body: readFileSync(file, "utf8") } })).createIssue.issue;
-await gh.write([...earlier.map((b) => ["addBlockedBy", { issueId: stage.id, blockingIssueId: b.id }]), ["addBlockedBy", { issueId: top.id, blockingIssueId: stage.id }]]);
-console.log(`段階 #${stage.number} ${stage.url}`);
-if ((await readTask(gh, config, { number: Number(parent) })).issue.status === config.working)
-  console.log(await moveTask(gh, config, Number(parent), config.todo, { comment: notes.reason(config.todo, `段階 #${stage.number} に分けた。段階が全部閉じるまで、段階に blocked by されて待つ`) }));
+const stage = await createStage(gh, config, top, { title, body: readFileSync(file, "utf8"), before: earlier, dialog });
+console.log(`${dialog ? "対話作業の" : ""}段階 #${stage.number} ${stage.url}`);

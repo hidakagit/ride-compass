@@ -3,7 +3,8 @@
 # 担当は .claude/skills/task-work/SKILL.md の「作る担当」「確かめる担当」の手順を進める。
 # このリポジトリは公開で、Actions の記録は誰でも読める。担当の出力の全文（show_full_output）と報告（display_report）は出さない。
 name: Claude Task
-# 振り出しは、この名前から動いている担当の issue の番号を読む（tools/flow-gate/src/dispatch.js: runOf）。
+# ゲートと見回りは、この名前から担当が持つ issue の番号と種類を読む（tools/flow-gate/src/rules.js: runOf）。実行が起きる・終わる出来事
+# （workflow_run）を受けたゲートがステータスを決め、担当はステータスを書かない（docs/conventions/flow.md「ステータスと割り当て」）。
 run-name: "#${{ inputs.issue }} ${{ inputs.kind }}"
 
 on:
@@ -21,9 +22,7 @@ on:
 permissions:
   contents: read
 
-# 同じ issue の実行は1本ずつ動き、あとから来たものは取り消されずに順に待つ（queue: max）。1つのタスクを触るのが1者だけなのは、
-# 最初の段が取る持つ印が守る（tools/flow-gate/src/hold.js）。待っていた担当は、前の実行が終わってから最初の段で照らされ、行き先が
-# 無ければ何もせず終わる。
+# 1つのタスクを触る担当は1人: 同じ issue の実行は1本ずつ動き、あとから来たものは取り消されずに順に待つ（queue: max）。
 concurrency:
   group: claude-task-${{ inputs.issue }}
   queue: max
@@ -58,44 +57,31 @@ jobs:
           node-version-file: frontend/package.json
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      # 持つ印を取り、作るなら未着手 → 進行中が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
-      - name: 引き受ける
-        id: claim
-        run: |
-          if node tools/flow-gate/bin/claim.js "$ISSUE" "$KIND" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; then echo "go=true" >> "$GITHUB_OUTPUT"; fi
       # ci.yml の backend と同じ PostgreSQL + PostGIS。
-      - if: steps.claim.outputs.go == 'true'
-        uses: ./.github/actions/postgis
+      - uses: ./.github/actions/postgis
       # Read が PDF をページで読むときに使う pdftoppm。apt の一覧は上の段の apt.postgresql.org.sh が更新してある。
       - name: poppler-utils（PDF のページの読み込み）
-        if: steps.claim.outputs.go == 'true'
         run: sudo apt-get install -y --no-install-recommends poppler-utils
       - uses: actions/setup-python@v6
-        if: steps.claim.outputs.go == 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             backend/requirements-batch.txt
             backend/requirements-dev.txt
-      - if: steps.claim.outputs.go == 'true'
-        run: pip install -r requirements-batch.txt -r requirements-dev.txt
+      - run: pip install -r requirements-batch.txt -r requirements-dev.txt
         working-directory: backend
-      - if: steps.claim.outputs.go == 'true'
-        run: npm ci
+      - run: npm ci
         working-directory: frontend
       # e2e を手元で回すための Playwright の Chromium（ci.yml の e2e と同じ入れ方）。
-      - if: steps.claim.outputs.go == 'true'
-        run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - name: git の名義
-        if: steps.claim.outputs.go == 'true'
         run: |
           git config --global user.name hidakagit
           git config --global user.email 6731891+hidakagit@users.noreply.github.com
       - uses: anthropics/claude-code-action@v1
         id: claude
-        if: steps.claim.outputs.go == 'true'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
@@ -109,7 +95,7 @@ jobs:
             まず CLAUDE.md と docs/conventions/flow.md の「担当」、.claude/skills/task-work/SKILL.md の全文（「${{ inputs.kind }}担当」の手順を進める）、.claude/skills/ask/SKILL.md の「問い」、.claude/skills/file-issue/SKILL.md の「issue の形」を読み、その手順のとおりに進めてください。
       # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
       - name: 残った変更
-        if: always() && steps.claim.outputs.go == 'true' && inputs.kind == '作る'
+        if: always() && inputs.kind == '作る'
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
@@ -121,9 +107,8 @@ jobs:
             git push -q origin "HEAD:refs/heads/${wip}"
             echo "GitHub に無い変更を ${wip} へ残した"
           fi
-      # 作る担当のタスクが進行中のままなら終わり方で未着手か保留へ動かし、利用の上限・認証なら振り出しをしばらく止める
-      # （tools/flow-gate/bin/after.js）。手番の記録（実行のファイル）は非公開の置き場のリリースへ置く。
-      # issue へ終わり（担当の最後の発言を含む）を書いて、持つ印を手放す。発言は非公開の置き場にだけ書き、この記録には出さない。
+      # 利用の上限・認証なら振り出しをしばらく止める（tools/flow-gate/bin/after.js）。手番の記録（実行のファイル）は非公開の置き場の
+      # リリースへ置き、issue へ終わり（担当の最後の発言を含む）を書く。発言は非公開の置き場にだけ書き、この記録には出さない。
       - name: 後始末
-        if: always() && steps.claim.outputs.go == 'true'
+        if: always()
         run: node tools/flow-gate/bin/after.js "$ISSUE" "$KIND" "${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" "${{ job.status }}"

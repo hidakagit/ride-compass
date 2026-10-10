@@ -1,6 +1,6 @@
-// Claude がユーザーに問う。形（tools/flow-gate/question_template.md）を照らして、src/move.js: askTask で書く。
+// 担当がユーザーに問う（判断）。形（tools/flow-gate/question_template.md）を照らして、src/ask.js: askTask で書く。
 import { readFileSync } from "node:fs";
-import { askTask } from "../src/move.js";
+import { askTask } from "../src/ask.js";
 import { normalize } from "../src/rules.js";
 import { args, bot, config, isNumber } from "./cli.js";
 

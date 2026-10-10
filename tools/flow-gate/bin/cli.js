@@ -6,7 +6,6 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import base from "../flow.config.json" with { type: "json" };
 import { GitHub } from "../src/github.js";
-import { holdRemote } from "../src/hold.js";
 
 export const config = { ...base, questionTemplate: readFileSync(new URL("../question_template.md", import.meta.url), "utf8") };
 
@@ -54,7 +53,6 @@ function userEnv(name) {
 }
 export const bot = () => new GitHub(userEnv("FLOW_BOT_TOKEN")); // 置き場へ書くのは hidakagit-bot だけ
 export const code = () => new GitHub(userEnv("GH_TOKEN")); // コードのリポジトリ（hidakagit のもの）を読み、担当を起こす
-export const holds = () => holdRemote(`https://github.com/${config.repository}.git`, userEnv("FLOW_BOT_TOKEN")); // 持つ印も置き場に置く
 
 // 引数を読む。usage は使い方の1行で、試しを持つ道具は `[--dry-run]` を書く。ok は引数（--dry-run を除いたもの）が正しいか。
 // 正しくなければ使い方を出して 2 で終える。試しを持たない道具に --dry-run が付いていれば、本当に書かないよう何もせずに 1 で終える

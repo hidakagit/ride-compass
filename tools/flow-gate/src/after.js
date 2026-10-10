@@ -1,29 +1,12 @@
-// 担当のワークフローの後始末の判断。messages は連携（anthropics/claude-code-action）が書き出す実行のファイル（Agent SDK の
-// メッセージの並び）。無ければ null（Claude が起きる前に落ちた）。
+// 担当のワークフローの後始末の部品。messages は連携（anthropics/claude-code-action）が書き出す実行のファイル（Agent SDK の
+// メッセージの並び）。無ければ null（Claude が起きる前に落ちた）。ステータスは書かない（実行の終わりを受けたゲートが決める）。
 
 const QUOTA = ["rate_limit", "billing_error", "authentication_failed", "oauth_org_not_allowed", "account_on_hold"];
-const TRANSIENT = ["overloaded", "server_error"];
 
-// 担当の終わり方の見分け（{ to, reason, pause }）。to と reason は、作る担当のタスクが進行中のまま終わったときの行き先と理由。
-// 担当の仕事の外の失敗（利用の上限・認証・一時の失敗・Claude が起きる前の落ち）、作業ブランチの開いた Pull Request（pullRequest。
-// { number, html_url } か null。ゲートが開いた出来事を受け損ねた）、振り出しを待つ理由（waits。rules.js: waitsFor）のどれかなら
-// 未着手へ戻す。それ以外（Pull Request も問いも出さずに終わった・持ち時間を超えた・Cancel された）は落ちたとして保留にする。
-// 持ち時間を超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので、担当の仕事の外の失敗に数えない。
-// 利用の上限・認証は、続けて起こしても同じく止まるので、どちらの担当でも振り出しを止める（pause）。
-export function settle(config, { messages, waits, pullRequest, url, jobStatus }) {
-  const cancelled = jobStatus === "cancelled";
-  const errors = cancelled ? [] : (messages ?? []).filter((m) => m?.type === "assistant" && m.error).map((m) => m.error);
-  const quota = errors.find((e) => QUOTA.includes(e));
-  const transient = errors.find((e) => TRANSIENT.includes(e));
-  const why = quota ? `Claude の利用の上限か認証で止まった（${quota}）`
-    : !messages && !cancelled ? "担当が動けなかった（実行のファイルが無い）"
-    : transient ? `Claude のサーバーの一時の失敗で止まった（${transient}）`
-    : pullRequest ? `Pull Request [#${pullRequest.number}](${pullRequest.html_url}) を出したが、検証中へ入らないまま終わった`
-    : waits ? `${waits}を持って終えた（見回りが待つ）` : null;
-  const head = `Actions の作る担当（実行 ${url}）が`;
-  return why ? { to: config.todo, pause: Boolean(quota), reason: `${head}${why}。未着手へ戻す` }
-    : { to: config.hold, pause: false, reason: `${head}、Pull Request も問いも出さずに終わった（結果: ${jobStatus}）。落ちたとみなして保留にする` };
-}
+// 振り出しを止める理由（担当の発言の error。無ければ null）: Cancel されずに Claude の利用の上限・認証で止まったときだけ。続けて起こしても
+// 同じく止まるので、どちらの担当でも止める。持ち時間を超えた・Cancel された（ジョブの結果 cancelled）は担当の側の止まりなので数えない。
+export const pauseOf = (messages, jobStatus) =>
+  jobStatus === "cancelled" ? null : ((messages ?? []).find((m) => m?.type === "assistant" && QUOTA.includes(m.error))?.error ?? null);
 
 // issue へ書く「終わり」のコメント。その回にやったことの要約で、後から人と後の担当が読んで確かめる（flow.md「担当」）。担当の最後の
 // 発言（担当が書く要約）・後始末がしたこと・判定に断られた操作・実行へのリンクだけを書き、issue と実行のページで読めるもの
