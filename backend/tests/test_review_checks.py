@@ -1,10 +1,11 @@
-"""`scripts/review_checks.py`の差分の報告（`change`）と総量（`metrics`）のテスト。
+"""`scripts/review_checks.py`の差分の報告（`change`）と総量（`metrics`）と流れの摩擦の拾い方（`friction`）のテスト。
 
 履歴は一時的なgitリポジトリで作る。
 
 ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`と、`size`の表・発火は
 周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」と、種類ごとの上限に当たるファイルへ置いた
-ファイルごとの閾値を無視することは、緩んだ閾値に誰も気づかなくなるので通す。
+ファイルごとの閾値を無視することは、緩んだ閾値に誰も気づかなくなるので通す。`friction`の gh で置き場を読む部分は
+本物の置き場でしか通らないので、ここではコメントから行を拾う判断だけを通す。
 """
 
 import argparse
@@ -168,3 +169,24 @@ def test_size_holds_code_to_the_kind_limit_beyond_the_external_maximum(repo, mon
     assert "| app/over.ts | 301 | - | 新規 | 300 | 100% | 閾値300超過 |" in out
     assert "| frontend/src/types/generated/api.d.ts | 400 | - | 新規 | 500 | 80% |  |" in out
     assert "種類ごとの上限に当たるファイルごとの閾値（無視した。上限は instruction_limits・code_limits だけ） 1件: app/over.ts" in out
+
+
+def test_friction_picks_the_lines_written_after_the_review_including_quoted_and_listed_ones():
+    since = rc.dt.datetime(2026, 10, 7, 3, 39, 2, tzinfo=rc.dt.timezone.utc)
+    comments = [
+        {"createdAt": "2026-10-07T03:39:01Z", "body": "流れの摩擦: 前のレビューより前"},
+        {"createdAt": "2026-10-07T03:39:02Z", "body": "\n".join([
+            "流れの摩擦: 地の文",
+            "> 流れの摩擦: 引用",
+            "> - 流れの摩擦: 引用の箇条書き",
+            "- 流れの摩擦: 箇条書き",
+            "本文の中の 流れの摩擦: は拾わない",
+            "  - 流れの摩擦: 字下げは拾わない",
+        ])},
+    ]
+    assert rc.friction_lines(805, comments, since) == [
+        "#805 流れの摩擦: 地の文",
+        "#805 > 流れの摩擦: 引用",
+        "#805 > - 流れの摩擦: 引用の箇条書き",
+        "#805 - 流れの摩擦: 箇条書き",
+    ]

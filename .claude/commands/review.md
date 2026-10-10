@@ -82,15 +82,7 @@ python scripts/review_checks.py docs
 （`.claude/skills/file-issue/SKILL.md`「流れの摩擦を記録する」）。前のタグより後に書かれたその行を全部集め、全体最適の観点の
 材料にする。CLAUDE.md「原則」から直し方を決めて起票案か見送りにする。
 
-```bash
-since=$(git for-each-ref --sort=-taggerdate --count=1 --format='%(taggerdate:unix)' 'refs/tags/periodic-review/*')
-for n in $(gh issue list -R ridecompass/ride-compass-tasks --state all --limit 1000 --search "updated:>=$(date -d @$since +%F)" --json number --jq '.[].number'); do
-  gh issue view "$n" -R ridecompass/ride-compass-tasks --json comments --jq ".comments[] | select((.createdAt | fromdateiso8601) >= $since) | .body | split(\"\n\")[] | select(test(\"^(> )?(- )?流れの摩擦:\")) | \"#$n \(.)\""
-done
-```
-
-（一覧の `--json comments` は100件を超えると読めずに落ちるので、番号だけを取って1件ずつ読む。担当の終え方の要約は、後始末が
-終わりのコメントへ `> ` で引用して写すので、引用と箇条書きの頭も拾う。）
+`python scripts/review_checks.py friction` で集める（gh のトークンが置き場を読めること。担当は `GH_TOKEN=$FLOW_BOT_TOKEN` を付ける）。
 
 ### 3. 4つの観点で見る
 
