@@ -1,9 +1,12 @@
 // ゲートの入口。同じコードを2つの Worker に置き、秘密の値を持つ口だけを開ける: /webhook は WEBHOOK_SECRET を持つ Worker
 // （Cloudflare Access の外）、/answer は FORM_TOKEN を持つ Worker（ホスト全体が Access の内側）。
-import config from "../flow.config.json" with { type: "json" };
+import base from "../flow.config.json" with { type: "json" };
+import questionTemplate from "../question_template.md"; // wrangler.toml の rules で文字列として読む
 import { answerForm } from "./form.js";
 import { handleEvent } from "./gate.js";
 import { BUTTON_SVG } from "./rules.js";
+
+const config = { ...base, questionTemplate };
 
 // X-Hub-Signature-256 を HMAC で確かめる（verify は比較を一定時間で行う）。
 async function signed(secret, body, header) {

@@ -13,7 +13,7 @@
   "statuses": ["回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
   "owner": { "回答待ち": "hidakagit", "保留": "hidakagit", "未着手": "hidakagit-bot", "進行中": "hidakagit-bot", "検証中": "hidakagit-bot" },
   "done": "完了", "waiting": "回答待ち", "hold": "保留", "todo": "未着手", "working": "進行中", "review": "検証中",
-  "question": "このタスクをどう進めますか？",
+  "holdType": "要望",
   "transitions": {
     "回答待ち": ["未着手", "保留", "完了"],
     "保留": ["未着手", "回答待ち", "完了"],

@@ -13,7 +13,8 @@ export const config = {
   statuses: ["答え待ち", "置き", "前", "中", "検", "済"],
   owner: { 答え待ち: "u", 置き: "u", 前: "c", 中: "c", 検: "c" },
   done: "済", waiting: "答え待ち", hold: "置き", todo: "前", working: "中", review: "検",
-  question: "どうする？",
+  holdType: "要",
+  questionTemplate: "## 問い\n<問い>\n\n### 案\n- <案>\n\n<details><summary>判断材料</summary>\n\n**約束**: <約束>\n**案ごと**: <案ごと>\n**推奨**: <推奨>\n</details>",
   transitions: { 答え待ち: ["前", "置き", "済"], 置き: ["前", "答え待ち", "済"], 前: ["中", "答え待ち", "置き", "済"], 中: ["検", "前", "置き", "答え待ち", "済"], 検: ["済", "前", "答え待ち"], 済: [] },
   code: { repository: "o/code", branchPrefix: "work/t-", base: "main" },
   coordinator: { workflow: "w.yml", slots: { 作る: 2, 確かめる: 1 }, devLabel: "機", recent: 4, recordsSince: "2026-10-01T00:00:00Z" },
@@ -24,7 +25,7 @@ const FIELDS = { [config.project.priorityField]: ["上", "並", "下"] };
 const LOGIN = Object.fromEntries(Object.entries(config.people).map(([k, p]) => [p.node, k]));
 const AS = { "Bearer form-token": config.user, "Bearer bot-token": config.claude };
 
-// issue: { number, author（login）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, lastClose }
+// issue: { number, author（login）, type（種類の名前）, status, body, labels, assignees（login）, fields, comments（{ author, body }）, lastClose }
 // parent（issue と同じ形）を渡すと issue をその子にする。records は番号 → 記録の並び（コメント { by, at, body } か閉じ { closed: at }）で、
 // 見回りが issue ごとに読むもの（読んだ番号を read に残す）。closed は閉じた issue（{ number, size, closedAt, updatedAt（無ければ
 // closedAt）, stateReason（無ければ COMPLETED）, project（無ければ config の Project の番号） }）で、更新日の新しい順に 100 件ずつ返す
@@ -34,7 +35,7 @@ export function fakeGitHub({ issue, parent, labels = [config.project.urgentLabel
   const s = { issue: { ...blank, ...issue }, parent: parent && { ...blank, ...parent }, writes: [], updates, read: [], closedPages: 0 };
   const node = (i) => ({
     id: i === s.parent ? "I_P" : "I_1", number: i.number, title: "題名", body: i.body, url: `https://github.com/${config.repository}/issues/${i.number}`, state: i.state,
-    author: { databaseId: config.people[i.author ?? config.user]?.id }, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
+    author: { databaseId: config.people[i.author ?? config.user]?.id }, issueType: i.type ? { name: i.type } : null, parent: i === s.issue && s.parent ? { number: s.parent.number } : null,
     assignees: { nodes: i.assignees.map((login) => ({ id: config.people[login].node, login })) }, labels: { nodes: i.labels.map((name) => ({ name })) },
     lastClose: { nodes: i.lastClose }, repository: { nameWithOwner: config.repository },
     comments: { nodes: i.comments.map((c, k) => ({ author: { login: c.author }, createdAt: "2026-10-04T00:00:00Z", url: `c${k}`, body: c.body, bodyHTML: `<p>描いた: ${c.body}</p>` })) },
