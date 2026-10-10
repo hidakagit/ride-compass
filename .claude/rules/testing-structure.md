@@ -27,7 +27,6 @@ importしない → `backend/ruff.toml`の`TID253`）。テストにするのは
 | backend | `backend/tests/structure/` |
 | frontend | `frontend/src/structure/` |
 
-**母集団をソースから導く**（ファイルを手で名指ししない）。
 許可リストが要るなら、**その列挙が古くなったときにテスト自身が落ちる**ようにする
 （載っているのに実態が無い側も違反にする。`test_redis_skeleton.py`参照）。
 
@@ -65,7 +64,7 @@ for (const color of expressionColors) { expect(legendColors.has(color)).toBe(tru
 
 空でないことの主張は**同じテストの中**に置く。
 
-**要素ごとの検査は、ループより`parametrize`で書く。** ループで書くのは、上の例のように1回の実I/Oの結果を要素ごとに見るときである（testing.md「基本原則」の1）。
+**要素ごとの検査は、ループより`parametrize`で書く。** ループで書くのは、上の例のように1回の実I/Oの結果を要素ごとに見るときである（testing.md「ループで実I/Oを繰り返さない」）。
 宣言から導いた母集団を`parametrize`へ渡す（空になったら、`backend/pytest.ini`の`empty_parameter_set_mark`で集める時点で落ちる）。
 
 絞り込みの書き方は問わない。ループの中の条件で要素を選ぶ形（`if`の片側にだけアサーションを置く・`continue`で飛ばす）と、
