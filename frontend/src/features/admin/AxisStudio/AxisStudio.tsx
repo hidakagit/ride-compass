@@ -23,6 +23,7 @@ import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { getQueryClient } from "@/lib/queryClient";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
+import { errorMessage } from "@/lib/apiError";
 
 // shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。この中には
 // 材料カタログの材料idだけでなく、他axis_idを指すもの（他axis_idを材料として参照する
@@ -125,7 +126,7 @@ export default function AxisStudio() {
     try {
       await action();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err));
     } finally {
       // 待ちの印は、自分が立てたものだけを外す（待つ間にほかの軸で立てた印を外すと、その軸の待ちの間に押せてしまう）。
       setPendingAxisId((current) => (current === axisId ? null : current));

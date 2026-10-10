@@ -15,12 +15,14 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 import shapely
-from cachetools import LRUCache, cached
+from cachetools import LRUCache, TTLCache, cached
 from shapely.geometry.base import BaseGeometry
 
-from app.domain.jma_area import NEAREST_LIMIT_DEG
+from app.domain.jma_area import NEAREST_LIMIT_DEG, ResolvedArea, resolve_area
 from app.infrastructure.debug_log import log_throttled_warning
+from app.infrastructure.jma_warning_client import fetch_area_data
 
 logger = logging.getLogger("ridecompass.jma_area_boundaries")
 
@@ -93,3 +95,36 @@ async def find_class20_code(lat: float, lon: float) -> str | None:
         )
         raise AreaBoundariesUnavailableError from exc
     return boundaries.find(lat, lon)
+
+
+class OutsideAreas:
+    """地点がどの区域にも入らない（遠い海上）。陸の区域の警報・予報は当たらない。"""
+
+
+OUTSIDE_AREAS = OutsideAreas()
+
+
+async def resolve_point_area(
+    http_client: httpx.AsyncClient, area_data_cache: TTLCache, lat: float, lon: float
+) -> ResolvedArea | OutsideAreas | None:
+    """地点が属する区域を、地域マスタ(area.json)で警報のエリアまで辿る。
+
+    どの区域にも入らなければ`OUTSIDE_AREAS`。境界か地域マスタを読めない・辿れないならNone（区域が分からない）。
+    """
+    try:
+        class20_code = await find_class20_code(lat, lon)
+    except AreaBoundariesUnavailableError:
+        return None
+    if class20_code is None:
+        return OUTSIDE_AREAS
+
+    area_master = await fetch_area_data(http_client, area_data_cache)
+    if area_master is None:
+        return None
+
+    resolved = resolve_area(class20_code, area_master)
+    if resolved is None:
+        log_throttled_warning(
+            "weather:jma-area", "区域の境界が返したコードを地域マスタ(area.json)で警報のエリアへ辿れない class20=%s", class20_code
+        )
+    return resolved

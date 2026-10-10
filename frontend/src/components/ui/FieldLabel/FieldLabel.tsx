@@ -2,8 +2,7 @@
 
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 
-// フィールドラベル+情報アイコン。説明の開閉は`InfoPopover`が持つため、呼び出し側は`description`を渡すだけでよい。
-
+/** 入力欄の名前と、その脇の(i)。説明の開閉と浮かべ方は`InfoPopover`が持つので、呼び出し側は`description`を渡すだけでよく、表の行の中に置いても並びを崩さない。 */
 export function FieldLabel({ label, description }: { label: string; description: string }) {
   return (
     <InfoPopover

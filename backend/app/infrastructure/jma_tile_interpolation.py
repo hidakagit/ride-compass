@@ -57,13 +57,12 @@ def parse_tile_path(path: str) -> TileCoords | None:
 def crop_and_upscale(parent_png: bytes, quadrant: tuple[int, int]) -> bytes:
     """親タイルの指定象限を切り出し、元のタイルサイズへ最近傍で拡大する。"""
     with Image.open(io.BytesIO(parent_png)) as source:
-        # パレット形式（実データを持つタイル）とRGBA（空タイル）が混在するため揃える。
-        image = source.convert("RGBA")
-        width, height = image.size
+        width, height = source.size
         half_width, half_height = width // 2, height // 2
         left = quadrant[0] * half_width
         top = quadrant[1] * half_height
-        cropped = image.crop((left, top, left + half_width, top + half_height))
+        # パレット形式（実データを持つタイル）とRGBA（空タイル）が混在するため、切り出した4分の1をRGBAへ揃える。
+        cropped = source.crop((left, top, left + half_width, top + half_height)).convert("RGBA")
         upscaled = cropped.resize((width, height), Image.Resampling.NEAREST)
     buffer = io.BytesIO()
     upscaled.save(buffer, format="PNG", optimize=True)

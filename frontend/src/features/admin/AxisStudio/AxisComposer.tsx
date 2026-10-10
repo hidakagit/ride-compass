@@ -19,6 +19,7 @@ import { fieldClass, Input, Textarea } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
+import { errorMessage } from "@/lib/apiError";
 
 interface AxisComposerProps {
   /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。公開済み軸も
@@ -136,7 +137,7 @@ export default function AxisComposer({
       // リセットして開いたままにする必要はない。
       await onSave(payload, isNew);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }

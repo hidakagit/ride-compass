@@ -42,14 +42,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-// サイズは呼び出し側のCSSで決まる（デフォルトは16px）ため、ここでは形だけを定義する。
-
 interface IconProps {
   size?: number;
 }
 
-/** このファイルのアイコン1つぶん。軸カタログ（axisIconPalette.tsx）とレイヤー
- * カタログ（mapLayers.ts）のどちらもこの型で持つ。 */
+/** このファイルのアイコン1つぶん。 */
 export type MapIconComponent = (props: IconProps) => ReactElement;
 
 const VIEWBOX_SIZE = 20;
@@ -152,11 +149,7 @@ export function SurfaceQualityAxisIcon({ size = 16 }: IconProps) {
 export function NightAxisIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M17.5 10.66A7.5 7.5 0 1 1 9.34 2.5 5.83 5.83 0 0 0 17.5 10.66Z"
-
-        strokeLinejoin="round"
-      />
+      <path d="M17.5 10.66A7.5 7.5 0 1 1 9.34 2.5 5.83 5.83 0 0 0 17.5 10.66Z" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -226,11 +219,7 @@ export function TrackGradeIcon({ size = 16 }: IconProps) {
 export function TunnelIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M3 17V9a7 7 0 0 1 14 0v8"
-
-        strokeLinejoin="round"
-      />
+      <path d="M3 17V9a7 7 0 0 1 14 0v8" strokeLinejoin="round" />
       <path d="M3 17h14" />
     </svg>
   );
@@ -241,12 +230,7 @@ export function OnewayIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
       <path d="M3 10h13" />
-      <path
-        d="M12 5.5 17 10l-5 4.5"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <path d="M12 5.5 17 10l-5 4.5" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -280,7 +264,6 @@ export function SupplyPoiIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M5 7h10l-1 10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 7Z"
-
         strokeWidth="1.5"
         strokeLinejoin="round"
         strokeLinecap="butt"
@@ -388,10 +371,8 @@ export function RouteDiffIcon({ size = 16 }: IconProps) {
       <path d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8" strokeWidth="1.4" />
       <path
         d="M4.4 5.4 2.2 10.2h4.4zM15.6 5.4 13.4 10.2h4.4z"
-
         strokeWidth="1.3"
         strokeLinejoin="round"
-        fill="none"
         strokeLinecap="butt"
       />
     </svg>
@@ -415,17 +396,8 @@ export function NewRouteIcon({ size = 16 }: IconProps) {
 export function UndoIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M4.2 8.4h6.6a4.2 4.2 0 0 1 0 8.4H6.4"
-
-        fill="none"
-      />
-      <path
-        d="M7.4 4.6 3.6 8.4l3.8 3.8"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <path d="M4.2 8.4h6.6a4.2 4.2 0 0 1 0 8.4H6.4" />
+      <path d="M7.4 4.6 3.6 8.4l3.8 3.8" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -434,17 +406,8 @@ export function UndoIcon({ size = 16 }: IconProps) {
 export function UndoAllIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M6.6 8.4h5.2a4.2 4.2 0 0 1 0 8.4H8"
-
-        fill="none"
-      />
-      <path
-        d="M9.4 4.6 5.8 8.4l3.6 3.8"
-
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <path d="M6.6 8.4h5.2a4.2 4.2 0 0 1 0 8.4H8" />
+      <path d="M9.4 4.6 5.8 8.4l3.6 3.8" strokeLinejoin="round" />
       <path d="M3.2 3.6v9.6" strokeWidth="1.8" />
     </svg>
   );
@@ -468,12 +431,7 @@ export function ClearAllLayersIcon({ size = 16 }: IconProps) {
 export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M1.8 3.4h11.4L8.9 8.3v4.4L6.1 14V8.3L1.8 3.4Z"
-
-        strokeLinejoin="round"
-        strokeLinecap="butt"
-      />
+      <path d="M1.8 3.4h11.4L8.9 8.3v4.4L6.1 14V8.3L1.8 3.4Z" strokeLinejoin="round" strokeLinecap="butt" />
       <path d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6" />
     </svg>
   );

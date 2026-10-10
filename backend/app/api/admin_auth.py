@@ -22,7 +22,7 @@ async def require_admin_basic_auth(credentials: HTTPBasicCredentials | None = De
         detail="管理APIへのアクセスが許可されていません",
         headers={"WWW-Authenticate": 'Basic realm="RideCompass admin"'},
     )
-    if credentials is None or not settings.admin_basic_auth_username or not settings.admin_basic_auth_password:
+    if not settings.admin_basic_auth_username or not settings.admin_basic_auth_password or credentials is None:
         raise unauthorized
     username_ok = secrets.compare_digest(credentials.username, settings.admin_basic_auth_username)
     password_ok = secrets.compare_digest(credentials.password, settings.admin_basic_auth_password)

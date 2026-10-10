@@ -27,16 +27,16 @@ from app.domain.address_area import (
 from app.domain.geo import LatLon
 from app.domain.place_search import PLACE_PREDICTION_LIMIT, PLACE_PREDICTION_MIN_LENGTH, PlaceCandidate
 
-#: 上限までの区画（`found`）ごとに、祖先を都道府県から自分まで並べた段（`levels`）と名前（`names`）の配列を1行ずつ出す。
+#: 上限までの区画（`found`）ごとに、祖先を都道府県から自分まで並べた名前（`names`）の配列を1行ずつ出す。
 _AREA_CHAINS = """
 WITH RECURSIVE chain AS (
-    SELECT a.area_id AS leaf, a.parent_id, a.level, a.name, 0 AS depth
+    SELECT a.area_id AS leaf, a.parent_id, a.name, 0 AS depth
     FROM address_areas a WHERE a.area_id IN (SELECT area_id FROM found WHERE position <= CAST(:limit AS integer))
     UNION ALL
-    SELECT c.leaf, a.parent_id, a.level, a.name, c.depth + 1
+    SELECT c.leaf, a.parent_id, a.name, c.depth + 1
     FROM chain c JOIN address_areas a ON a.area_id = c.parent_id
 )
-SELECT leaf AS area_id, array_agg(level ORDER BY depth DESC) AS levels, array_agg(name ORDER BY depth DESC) AS names
+SELECT leaf AS area_id, array_agg(name ORDER BY depth DESC) AS names
 FROM chain GROUP BY leaf
 """
 
@@ -77,7 +77,7 @@ _SEARCH_SQL = text(f"""
               WHERE counted.total >= CAST(:limit AS integer)), 2147483647)
     ),
     found AS (
-        SELECT a.area_id, b.number, b.kind, coalesce(b.geom, a.geom) AS geom,
+        SELECT a.area_id, a.level, b.number, b.kind, coalesce(b.geom, a.geom) AS geom,
                row_number() OVER (ORDER BY min(h.numbered), array_position(CAST(:levels AS text[]), a.level), min(h.continued),
                                   ST_Distance(coalesce(b.geom, a.geom)::geography,
                                               ST_SetSRID(ST_MakePoint(:near_lon, :near_lat), 4326)::geography),
@@ -87,9 +87,8 @@ _SEARCH_SQL = text(f"""
         LEFT JOIN address_blocks b ON b.area_id = h.area_id AND b.number = h.number
         GROUP BY a.area_id, a.level, a.geom, b.number, b.kind, b.geom
     )
-    SELECT a.level, f.number, f.kind, c.levels, c.names, ST_Y(f.geom) AS latitude, ST_X(f.geom) AS longitude
+    SELECT f.level, f.number, f.kind, c.names, ST_Y(f.geom) AS latitude, ST_X(f.geom) AS longitude
     FROM found f
-    JOIN address_areas a USING (area_id)
     JOIN ({_AREA_CHAINS}) c USING (area_id)
     WHERE f.position <= CAST(:limit AS integer)
     ORDER BY f.position
@@ -130,9 +129,7 @@ class AddressSearchQuery:
 
 def _candidate(row: RowMapping) -> PlaceCandidate:
     """区画か、番地まで当たった街区・地番の候補。"""
-    name = area_label(zip(row["levels"], row["names"], strict=True))
-    if row["number"] is None:
-        return PlaceCandidate(kind="address", level=row["level"], name=name, area=None,
-                              latitude=row["latitude"], longitude=row["longitude"])
-    return PlaceCandidate(kind="address", level="block", name=block_label(name, row["number"], row["kind"]), area=None,
+    name = area_label(row["names"])
+    level, label = (row["level"], name) if row["number"] is None else ("block", block_label(name, row["number"], row["kind"]))
+    return PlaceCandidate(kind="address", level=level, name=label, area=None,
                           latitude=row["latitude"], longitude=row["longitude"])

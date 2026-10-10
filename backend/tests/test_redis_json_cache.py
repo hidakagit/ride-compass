@@ -46,6 +46,8 @@ async def test_a_stored_json_value_comes_back_and_counts_as_a_hit(category, fake
 
     assert await redis_json_cache.get_json(KEY, category=category) == value
     assert stats(category).cache_hits == 1
+    # TTLの無いキーはRedisの退避の対象にならず、上限に達すると書き込みが失敗する
+    assert await fake_redis.ttl(KEY) == TTL
     assert stats(category).errors == 0
 
 

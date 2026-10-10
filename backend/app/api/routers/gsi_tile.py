@@ -24,12 +24,14 @@ RELIEF_TILE_URL = f"{_RELIEF_PREFIX}/{RELIEF_UPSTREAM_PATH}"
 TERRAIN_ROUTE = "/api/gsi-terrain-tile/{z}/{x}/{y}.png"
 TERRAIN_TILE_URL = TERRAIN_ROUTE
 
-_T = TypeVar("_T")
+T = TypeVar("T")
 
 
-def _found(result: _T | GsiTileNotFound | None) -> _T:
-    # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）ではなく404を返す。
+def _found(result: T | GsiTileNotFound | None) -> T:
+    """取れたタイル。整備区域外は404、取得の失敗は502として送出する。"""
     if isinstance(result, GsiTileNotFound):
+        # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
+        # ではなく404を返す。
         raise tile_not_found(GSI_TILE_NOT_FOUND)
     if result is None:
         raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")

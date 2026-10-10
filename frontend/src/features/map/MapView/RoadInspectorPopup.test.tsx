@@ -13,7 +13,7 @@ import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import { onBackend } from "@/testing/backendServer";
 import { catalogEntry } from "@/testing/catalogAxes";
 import materialCatalog from "@/types/generated/material-catalog.json";
-import type { AxisInspectorResult } from "@/types/traffic";
+import type { AxisInspectorResult } from "@/features/map/regionApi";
 import RoadInspectorPopup from "./RoadInspectorPopup";
 
 const INSPECTOR = "/api/region/axis-inspector";

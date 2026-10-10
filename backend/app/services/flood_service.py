@@ -6,12 +6,9 @@ import httpx
 from cachetools import TTLCache
 
 from app.domain.flood_forecast import ActiveFloodForecast, extract_active_flood_forecast
-from app.domain.jma_area import resolve_area
 from app.domain.route import Coordinates
 from app.infrastructure.flood_client import fetch_flood_documents
-from app.infrastructure.debug_log import log_throttled_warning
-from app.infrastructure.jma_area_boundaries import AreaBoundariesUnavailableError, find_class20_code
-from app.infrastructure.jma_warning_client import fetch_area_data
+from app.infrastructure.jma_area_boundaries import OutsideAreas, resolve_point_area
 from app.domain.strict_model import StrictModel
 
 
@@ -31,31 +28,19 @@ class FloodService:
         エリア解決か予報の取得に失敗したらNone（出ているかが分からない）。空は、地点がどの区域にも
         入らないときと、取れた予報にその区域のものが無いときだけ。
         """
-        try:
-            class20_code = await find_class20_code(point.latitude, point.longitude)
-        except AreaBoundariesUnavailableError:
-            return None
-        if class20_code is None:
-            return FloodForecasts(forecasts=[])
-
-        area_master = await fetch_area_data(self._http_client, self._area_data_cache)
-        if area_master is None:
-            return None
-
-        resolved = resolve_area(class20_code, area_master)
+        resolved = await resolve_point_area(self._http_client, self._area_data_cache, point.latitude, point.longitude)
         if resolved is None:
-            log_throttled_warning(
-                "weather:jma-area", "区域の境界が返したコードを地域マスタ(area.json)で警報のエリアへ辿れない class20=%s", class20_code
-            )
             return None
+        if isinstance(resolved, OutsideAreas):
+            return FloodForecasts(forecasts=[])
 
         bulletins = await fetch_flood_documents(self._http_client, self._flood_cache)
         if bulletins is None:
             return None
 
-        forecasts: list[ActiveFloodForecast] = []
-        for bulletin in bulletins:
-            forecast = extract_active_flood_forecast(bulletin, resolved.class20_code, resolved.class10_code)
-            if forecast is not None:
-                forecasts.append(forecast)
-        return FloodForecasts(forecasts=forecasts)
+        return FloodForecasts(forecasts=[
+            forecast
+            for bulletin in bulletins
+            if (forecast := extract_active_flood_forecast(bulletin, resolved.class20_code, resolved.class10_code))
+            is not None
+        ])

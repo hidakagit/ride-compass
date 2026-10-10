@@ -297,7 +297,7 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 境界は落とさない（その段には上端に張り付いた道が入る）。
 
 軸スタジオは刻んでいる最中にこの落ちる値を印として出すため、保存前の下書きで同じ判定を問う
-（`thresholds_the_map_drops`、`POST /api/admin/axis-definitions/preview-display-thresholds`）。
+（`bands_the_map_keeps`、`POST /api/admin/axis-definitions/preview-display-thresholds`）。
 判定は`axis_display_for`と同じ`_map_band_thresholds`を通し、frontendへ規則を写さない。
 入力は段を決めるのに要るもの（`axis_id`・`shape`・`priority_overrides`・しきい値）だけで、
 表示名・重みのような下書きの途中で欠けうる項目を揃えさせない——揃えさせると、書きかけの
@@ -431,7 +431,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
-| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値も返す。どちらも評価と同じ配列の計算（`domain/axis_definitions.py: BreakpointLinearShape.score_at`・`first_term_points`）で出し、参考点は「ほかの項の材料が無い道」として評価する——ほかの項に必須の材料があれば評価と同じく欠損（null）になる（DBを読まない） |
+| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値も返す。どちらも評価と同じ配列の計算（`domain/axis_definitions.py: BreakpointLinearShape.scores_at`・`first_term_points`）で出し、参考点は「ほかの項の材料が無い道」として評価する——ほかの項に必須の材料があれば評価と同じく欠損（null）になる（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。画面が読む項目（名前・説明・重みの既定・チップ・地図が塗るもの・生値の単位と内訳等）だけを返し、`shape`・しきい値の上書きの生の値は返さない（地図の段は`map_paint`が軸の折れ線で写して配る） |
 
 管理API（`/api/admin/axis-definitions`）のBasic認証はルーターの`dependencies`で1か所に宣言し、
