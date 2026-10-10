@@ -19,8 +19,8 @@ from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
-from app.infrastructure.debug_control import install_ring_buffer_handler
-from app.infrastructure.http_client import get_http_client
+from app.infrastructure.debug_control import install_ring_buffer_handler, set_debug_mode
+from app.infrastructure.http_client import JSON_API_TIMEOUT, TILE_PROXY_TIMEOUT, get_http_client
 from app.infrastructure import road_network_store
 from app.infrastructure.region_tile_cache import PRUNE_INTERVAL_HOURS
 from app.infrastructure.msm_client import refresh as refresh_msm
@@ -37,7 +37,8 @@ from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.tuning_service import refresh_tuning_values
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
-logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
+logging.basicConfig()
+set_debug_mode(settings.debug_mode)
 for _handler in logging.getLogger().handlers:
     format_log_lines(_handler)
 
@@ -126,8 +127,8 @@ async def lifespan(app: FastAPI):
     # httpx.AsyncClientの生成はSSLコンテキスト構築を伴い、環境によっては数百ms〜1秒かかる。
     # 遅延生成のままだとデプロイ直後の最初のリクエストがこのコストを負い、接続タイムアウトが
     # タイトな外部呼び出しではConnectTimeoutを誘発する。実際に使うtimeout値を先に構築しておく。
-    get_http_client(10.0)
-    get_http_client(15.0)
+    get_http_client(JSON_API_TIMEOUT)
+    get_http_client(TILE_PROXY_TIMEOUT)
 
     async with get_session_factory()() as session:
         # 例外をここで捕捉しないため、軸定義を読めない状態では起動自体が失敗する（fail-fast）。

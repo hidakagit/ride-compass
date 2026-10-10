@@ -20,10 +20,9 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.api.admin_auth import require_admin_basic_auth
+from app.api.admin_db_errors import ADMIN_PATH_PREFIX
 from app.main import app
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
-
-ADMIN_PATH_PREFIX = "/api/admin/"
 
 client = TestClient(app)
 
