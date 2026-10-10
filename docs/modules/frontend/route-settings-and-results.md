@@ -13,7 +13,7 @@
 | `features/route/RouteForm/RoutePoints.tsx` | 地点の並び（出発地 › 経由地の番号の丸・足す › 目的地）と、その右の経由地と目的地を全部消す操作、押した地点の選び。並びに名前が入りきるかを測って両端の札の名前を出し分ける（下記「地点の指定」） |
 | `features/route/RouteForm/PointDetail.tsx` | 押した地点の詳しく: 呼び名・名前・出どころ・辺りと、住所や施設の名前を打つ欄（候補は欄の下。狭い画面では欄を押してから選ぶ・閉じるまで、欄と候補を画面の上側に出す。欄を押すと保存した地点も出す）・地図で置く操作・消す／現在地に戻す・置いた地点の保存（どれもアイコンだけの形。下記「地点の指定」「保存した地点」） |
 | `features/route/RouteForm/PointMark.tsx` | 並びの札と詳しくに出す、地図のピンと同じ図形の丸（`components/PinMark/PinMark.tsx`の中身に背景色を付けたもの） |
-| `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証（`{error, check}`。通れば送る距離を返す）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
+| `features/route/RouteForm/useRouteFormSubmit.ts` | 上記の検証（`{error, check}`。`check`は通ったかを返す）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `features/route/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `features/route/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キー・画面に出す名前・既定値はすべて生成物`route-generate-config.json`（backend `domain/hard_filters.py`）が正で、名前をフロントに持たない——キーと名前を別々に持つと、足したフィルタに名前が無く内部名が出る。重みづけとの違い（通らない）はチップの並びの末尾の(i)の奥に置く（タブの名前が「除外」なので見出しの文を持たない） |
 | `features/route/SavedPlacesPanel/SavedPlacesPanel.tsx` | 「保存」タブの「地点」の中身: 保存した地点の一覧（行は名前・辺りと、アイコンの「消す」。消すは確認の窓で「消す」を押すと消す）。無ければ無いと出し、保存の仕方は(i)の奥（下記「保存した地点」） |
@@ -424,7 +424,7 @@ DBの`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限�
 両方を囲む`Tabs.Root`（`@radix-ui/react-tabs`）と選択状態は`page.tsx`が持つ
 （`RouteForm`は中身だけを描く）。タブ専用の行を作らないぶん本文の縦が空き、ラベルは
 2文字へ詰める。どのタブも`forceMount`で常時マウントし表示だけ`data-state`で切り替える
-（`RouteSettingsPanel`がローカルstate[`lastWeights`等]を持つため、タブ切替のたびに
+（`RouteSettingsPanel`がローカルstate[`movedWeights`等]を持つため、タブ切替のたびに
 アンマウントすると失われる。ルート結果のタブと同じ方式）。
 「ルート生成」ボタンも同じ見出し行の**右端**に置く（デスクトップは`Disclosure`の`trailing`
 の中で左右へ分け、モバイルはタブを`BottomSheet`の`headerLead`・ボタンを`headerAction`へ

@@ -11,14 +11,19 @@ function formatBytes(value: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
+function rowsAndBytes(rows: number, bytes: number): string {
+  return `${formatCount(rows)}行 ・ ${formatBytes(bytes)}`;
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}秒`;
   return `${Math.round(seconds / 60)}分`;
 }
 
 /** 「データ保守」タブの他のパネルと同じ1行の形。判定の種類（取込・テーブル・接続）が違っても、
- * 読み手が知りたいのは「注意が要るか」で同じなので見た目を揃える。 */
-/** 行の見た目を揃えたぶん、何と何が並んでいるのかは見出しが引き受ける。並び順に根拠がある
+ * 読み手が知りたいのは「注意が要るか」で同じなので見た目を揃える。
+ *
+ * 行の見た目を揃えたぶん、何と何が並んでいるのかは見出しが引き受ける。並び順に根拠がある
  * 群（テーブルは容量の大きい順）は、その根拠も見出しへ書く。 */
 interface StatusGroup {
   title: string;
@@ -63,16 +68,14 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
     note: entry.note || undefined,
   }));
 
+  const connectionCount = `${report.connections.total} / ${report.connections.max_connections}`;
   const connections: StatusRow = {
     // 見出しの「接続」と同じ名前にすると、群と行の区別がつかない。
     name: "同時接続",
-    scale: `${report.connections.total} / ${report.connections.max_connections}`,
+    scale: connectionCount,
     flagged: report.connections.needs_attention,
     detail: [
-      {
-        label: "接続数",
-        value: `${report.connections.total} / ${report.connections.max_connections}`,
-      },
+      { label: "接続数", value: connectionCount },
       {
         label: "未完了のまま放置",
         value:
@@ -95,7 +98,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   // ものだけを行にし、残りは1行へ畳んで開いた先に一覧を置く。
   const tableRow = (entry: DbStatusResponse["tables"][number]): StatusRow => ({
     name: entry.table_name,
-    scale: `${formatCount(entry.row_count)}行 ・ ${formatBytes(entry.total_bytes)}`,
+    scale: rowsAndBytes(entry.row_count, entry.total_bytes),
     flagged: entry.needs_attention,
     detail: [
       { label: "行数", value: `${formatCount(entry.row_count)}件（実数）` },
@@ -115,11 +118,11 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
     ? [
         {
           name: `注意なし ${rest.length}テーブル`,
-          scale: `${formatCount(sumRows(rest))}行 ・ ${formatBytes(sumBytes(rest))}`,
+          scale: rowsAndBytes(sumRows(rest), sumBytes(rest)),
           flagged: false,
           detail: rest.map((entry) => ({
             label: entry.table_name,
-            value: `${formatCount(entry.row_count)}行 ・ ${formatBytes(entry.total_bytes)}`,
+            value: rowsAndBytes(entry.row_count, entry.total_bytes),
           })),
         },
       ]

@@ -60,6 +60,11 @@ class MaterialDistributionResponse(ValueSpread):
     available: bool
 
 
+def _require_known_material(material_id: str) -> None:
+    if not is_known_material(material_id):
+        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
+
+
 @router.get(
     "/api/admin/material-catalog/{material_id}/distribution",
     dependencies=[Depends(require_admin_basic_auth)],
@@ -74,8 +79,7 @@ async def get_material_distribution(
     `reference_points`はコードに書いた代表値で、実データの分布ではない。
     数値材料のみ対象で、真偽・カテゴリ材料は`available=false`を返す（分位に意味が無い）。
     """
-    if not is_known_material(material_id):
-        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
+    _require_known_material(material_id)
     distribution = await preview.material_value_distribution(material_id)
     if distribution is None:
         return MaterialDistributionResponse(available=False, **EMPTY_SPREAD.model_dump())
@@ -103,8 +107,7 @@ async def get_material_values(
     認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で
     Basic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。
     """
-    if not is_known_material(material_id):
-        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
+    _require_known_material(material_id)
     values = await preview.material_values(material_id)
     if values is None:
         return MaterialValuesResponse(available=False, values=[])
