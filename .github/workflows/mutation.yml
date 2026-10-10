@@ -76,7 +76,10 @@ jobs:
           else
             echo "full=true" >> "$GITHUB_OUTPUT"
           fi
+      # 本番と同じ版を PostgreSQL 公式の apt リポジトリから入れる。取得が詰まると、ジョブの上限まで止まり続けた（2026-10-10 の
+      # 試しで1本が37分止まった）ので、上限を付けて落とし、落ちた本だけをやり直す（test-review/SKILL.md の3）。
       - uses: ./.github/actions/postgis
+        timeout-minutes: 10
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

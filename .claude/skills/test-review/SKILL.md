@@ -49,12 +49,20 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
 
 （開発機に jq は無いので、`gh` の `-q` で読む。Monitor の持ち時間は最長30分なので、切れたら同じコマンドで張り直す。）
 
+終わった本の記録は、実行全体が終わる前でも
+`gh api --allow-escape-sequences repos/hidakagit/ride-compass/actions/jobs/<ジョブの id>/logs` で読める（`gh run view --log` は
+実行全体が終わるまで読めない。ジョブの id は `gh run view <id> --json jobs`）。本の中の手順ごとの始まりと終わりは
+`gh api repos/hidakagit/ride-compass/actions/jobs/<ジョブの id>` の `steps` で見られ、1つの手順が見込みより長く止まっていれば
+（DB を用意する手順は普段1分弱、変異の生成と記録は約9分）、下の「落ちたとき」に当たるかを見る。
+
 落ちたとき:
 
 - **shard の1本が「The runner has received a shutdown signal」で止まった**（変異がランナーのメモリを使い切った）:
   `gh run rerun <id> -R hidakagit/ride-compass --failed` で落ちた本と、それに続く段だけをやり直す。同じ本が続けて止まるなら、
   その本の記録（`gh run view <id> --job <ジョブの id> --log`）の最後の「始め <変異>」の変異が原因なので、6 の記録に書いて止める
   （台本の直しは、その回の外のタスクにする。.claude/skills/file-issue/SKILL.md「改善を起票する」）。
+- **shard の1本が、DB を用意する手順（`./.github/actions/postgis`）の10分の上限で落ちた**（apt の取得が詰まった）:
+  同じく `gh run rerun <id> -R hidakagit/ride-compass --failed` で1回やり直す。続けて落ちるなら、次の「それ以外」と同じに扱う。
 - **それ以外で落ちた**: `gh run view <id> -R hidakagit/ride-compass --log-failed` で読む。台本・ワークフローの誤りなら、その回の
   中で直さず、起票して 6 の記録に書いて止める（直したあとの回で測り直す）。
 - **review の段の要約に「変異を回し終えていない」と出た**（stop_after で抜けた本がある）: その回の見直しは比べに使えない。
