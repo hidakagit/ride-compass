@@ -42,7 +42,7 @@ from app.batch.common import (  # noqa: E402
     format_progress,
 )
 from app.batch.source_profile import SourceProfile, load_source_profile  # noqa: E402
-from app.domain.region import BoundingBox, tiles_covering_bbox  # noqa: E402
+from app.domain.region import tiles_covering_bbox  # noqa: E402
 from app.infrastructure.source_models import Source  # noqa: E402
 
 logger = logging.getLogger("ridecompass.fetch_dem_tiles")
@@ -52,6 +52,9 @@ _MAX_CONCURRENT = 8
 
 #: 1タイルあたりの試行回数の既定。超えたらそのタイルは諦め、件数として報告する。
 _DEFAULT_ATTEMPTS = 3
+
+#: 進捗を数えて出す区切りの枚数。
+_CHUNK = _MAX_CONCURRENT * 8
 
 _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
 
@@ -104,8 +107,8 @@ async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zo
             return
 
     last_report = started
-    for start in range(0, len(wanted), _MAX_CONCURRENT * 8):
-        chunk = wanted[start:start + _MAX_CONCURRENT * 8]
+    for start in range(0, len(wanted), _CHUNK):
+        chunk = wanted[start:start + _CHUNK]
         await asyncio.gather(*(one(x, y) for x, y in chunk))
         now = time.perf_counter()
         done = counts["取得"] + counts["区域外"] + counts["諦めた"]
@@ -119,9 +122,7 @@ async def _fetch_product(client: httpx.AsyncClient, root: Path, product: str, zo
 async def fetch(client: httpx.AsyncClient, root: Path, profile: SourceProfile,
                 attempts: int) -> dict[str, dict[str, int]]:
     """プロファイルが挙げた製品ごとに、対象範囲のタイルを写す。製品ごとの内訳を返す。"""
-    low_lat, low_lon, high_lat, high_lon = profile.target.bbox
-    bbox = BoundingBox(min_latitude=low_lat, min_longitude=low_lon,
-                       max_latitude=high_lat, max_longitude=high_lon)
+    bbox = profile.target.bounding_box()
     results: dict[str, dict[str, int]] = {}
     for product, zoom in profile.source(Source.DEM).grid.products.items():
         tiles = tiles_covering_bbox(bbox, zoom)
