@@ -1,6 +1,6 @@
 /**
  * `maplibre-gl` の代役。地図の部品を本物で描くテストが、描画の手前（WebGL を要する所）で差し替えるのに使う
- * （.claude/rules/testing.md「確かめる高さ」の境界の表の「テスト環境に無いブラウザの機能」）。
+ * （.claude/rules/testing-frontend.md「確かめる高さ（frontend）」の境界の表の「テスト環境に無いブラウザの機能」）。
  *
  * 代役は MapLibre の振る舞いを真似ず、受けたものを記録して返すだけにする:
  * - ソース・レイヤー・地物の状態は `mapTrace/recordingMap.ts` へ記録し、`MapOnScreen` から読む。

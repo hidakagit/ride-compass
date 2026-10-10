@@ -113,7 +113,7 @@ afterAll(() => {
       "このテストファイルが`process.env`を変えたまま終わった。" +
         "共有されるため、並行実行中の別ファイルの期待値が変わる" +
         "（判断を環境変数を引数で受ける純関数へ出し、テストはその純関数を呼ぶ。" +
-        ".claude/rules/testing.md パターン7）:\n  " +
+        ".claude/rules/testing-frontend.md パターン7）:\n  " +
         changed.join("\n  "),
     );
   }

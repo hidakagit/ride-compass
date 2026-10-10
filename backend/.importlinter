@@ -39,8 +39,8 @@ forbidden_modules =
 allow_indirect_imports = True
 
 # Disk cache keys and the check/fetch/store skeleton belong to infrastructure, as for
-# Redis (.claude/rules/caching.md). The admin "clear everything" of the basemap
-# router is the one operator action caching.md keeps on the raw cache.
+# Redis (.claude/rules/caching-retention.md). The admin "clear everything" of the basemap
+# router is the one operator action caching-retention.md keeps on the raw cache.
 [importlinter:contract:disk-cache-in-infrastructure]
 name = Disk caches are read only by infrastructure
 type = forbidden

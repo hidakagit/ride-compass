@@ -1,5 +1,13 @@
 {
-  "_": "個別に交渉した規模の閾値。これは測定値ではなく決定なので保存する（測定値=前回行数は periodic-review タグが指すコミットから導く）。ユーザー承認を経て変える。1,000行以上のファイルはここに載るまで毎回発火し、縮んで今の行数+15%を100行に切り上げた値より緩くなったエントリは size の『閾値の見直し』に出る。on_fire は発火したときの既定の対応として決めてあるもので、size が発火の一覧の下に出す。",
+  "_": "規模の閾値。これは測定値ではなく決定なので保存する（測定値=前回行数は periodic-review タグが指すコミットから導く）。数を変えるにはユーザーの承認が要る（tools/flow-gate/settings.json の permissions.ask がこのファイルの編集を止める）。instruction_limits は Claude に読ませる指示の文書の種類ごとの上限で、Claude Code の公式の目安の数（CLAUDE.md は200行未満・SKILL.md とコマンドは500行未満。rules は CLAUDE.md と同じ指示のファイルとして200行、docs/conventions は読む場面で開く点でスキルと同じ500行）に固定し、ファイルごとの例外を thresholds に置かない。超えたら上限を上げずに文書を分ける。thresholds はそれ以外の1,000行以上のファイルごとの閾値で、ここに載るまで毎回発火し、縮んで今の行数+15%を100行に切り上げた値より緩くなったエントリは size の『閾値の見直し』に出る。on_fire は発火したときの既定の対応として決めてあるもので、size が発火の一覧の下に出す。",
+  "instruction_limits": {
+    "CLAUDE.md": 200,
+    "*/CLAUDE.md": 200,
+    ".claude/rules/*.md": 200,
+    ".claude/skills/*/SKILL.md": 500,
+    ".claude/commands/*.md": 500,
+    "docs/conventions/*.md": 500
+  },
   "thresholds": {
     "backend/app/domain/axis_definitions.py": 1300,
     "backend/app/domain/evaluation.py": 500,
@@ -7,7 +15,6 @@
     "backend/app/domain/routing.py": 1400,
     "backend/app/services/road_graph_engine.py": 2100,
     "backend/tests/test_routing.py": 1500,
-    ".claude/rules/testing.md": 1350,
     "docs/modules/backend/routing-engine.md": 1200,
     "frontend/src/app/page.tsx": 800,
     "frontend/src/features/admin/AxisStudio/AxisScoringSection.tsx": 900,
@@ -20,7 +27,6 @@
     "backend/app/domain/evaluation.py": "経路へ運ぶ材料の選び（has_route_facing_raw_value〜displayed_material_ids）を別モジュールへ出す",
     "backend/app/domain/routing.py": "最寄りノードの空間索引（NodeSpatialIndex〜find_nearest_node_indexed）を domain/node_index.py へ出す",
     "docs/conventions/flow.md": "判定が機械で決まる手順（コマンドの出力の文言・件数・回数で分かれるもの）を tools/flow-gate の道具にし、節を道具を打つ1行と失敗したときの扱いにする",
-    ".claude/rules/testing.md": "書き方のパターン（パターン1〜）を別文書へ出す",
     "docs/modules/backend/routing-engine.md": "レグ内の時刻ビン・レグ別コスト配列・domain層の節を別文書へ出す",
     "frontend/src/app/page.tsx": "パネルの開閉と地図で扱える操作の決まり・シートの高さを hook へ出す",
     "frontend/src/features/map/MapView/MapView.tsx": "地点の印の effect と ref・初期化の後始末を useMapMarkers へ、ルートを収める計算を lib へ出す"
