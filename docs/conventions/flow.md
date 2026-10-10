@@ -166,8 +166,10 @@ issue の番号。`tools/flow-gate/src/hold.js`）が持つ。印は番号ごと
   置くので、gh で置き場を打つときは、読むときも `GH_TOKEN=$FLOW_BOT_TOKEN` を付ける（担当は付け忘れると断られる。開発機の対話の
   セッションは gh の既定が hidakagit で、付け忘れると hidakagit の名義で書かれうるので、必ず付ける）。名義の誤りを止めるのはこのトークンの範囲だけ（gh はトークンをホストごとにしか選べず、権限の拒否の
   規則は先頭の変数の代入を越えて当たるので、付けた打ち方と付け忘れた打ち方を見分けられない）。
-- **止める**: Actions の画面で Claude Dispatch を無効にする（Disable workflow）。動いている見回りは次の1回で無効と読み、状況の更新に
-  止めていると書いて、振り出さずに終える（次の見回りも起こさない）。戻すときは Enable workflow のあと Run workflow。
+- **止める**: Claude Dispatch を無効にする。ユーザーがチャットで頼めば、開発機の対話のセッションが
+  `gh workflow disable "Claude Dispatch" -R hidakagit/ride-compass` で打つ（ユーザーが Actions の画面の Disable workflow で打ってもよい）。動いている見回りは次の1回で無効と読み、状況の更新に
+  止めていると書いて、振り出さずに終える（次の見回りも起こさない）。戻すときは `gh workflow enable` のあと `gh workflow run`（画面なら Enable workflow のあと Run workflow）。
+  担当は止める・戻すを打てない（下の「担当の権限」の拒否の一覧）。
   利用の上限で後始末が止めた時刻（変数 `coordinator.pauseVariable`）を早く解くなら、コードのリポジトリの Settings → Secrets and
   variables → Actions → Variables で消す。動いている担当は止まらないので、止めるなら Actions の画面でその実行を Cancel する
   （後始末の段は走る）。1つのタスクだけを止めるなら、ボードで保留へ動かす。
@@ -183,18 +185,19 @@ issue の番号。`tools/flow-gate/src/hold.js`）が持つ。印は番号ごと
 （作業ブランチへの push と Pull Request を出す・タスクの issue を読む・コメントする・閉じる・`tools/flow-gate/bin` の道具を打つ 等）を
 教える。決して打たせない操作（master への push・強制の push・GitHub の API での書き込み・ワークフローを止める・止めたのを戻す等）は、
 同じファイルの `permissions.deny` で断る（拒否は判定役より先に効く）。ユーザーの答えが要る変更（規模の閾値の数を変える
-`scripts/size_thresholds.json` の編集）は `permissions.ask` に置く（どのモードでも自動では通らず、開発機ではユーザーに確かめ、
+`scripts/size_thresholds.json` の編集）は `permissions.ask` に置く（どのモードでも自動では通らず、
 担当には確かめる人がいないので通らない。Python 等のスクリプトの中の書き込みには当たらない）。拒否の規則はコマンドの文に当てるので、流れの道具が中で打つもの
 （`hold.js` が置き場へ打つ git の押し込み等）には当たらず、読むだけでも
 `-X`・`-f` 等の付いた `gh api`（`-X GET` に `-f` で欄を渡す一覧・`gh api graphql`）は断られる。つないだコマンドは全文にも当たるので
 （`git push … ; gh pr create --base master …` は `Bash(git push *master*)` に当たる）、規則の頭の道具（`git push`・`gh api`）はつながずに1つで打つ。読むときは欄を URL に書き
 （`gh api 'repos/<所有者>/<リポジトリ>/actions/workflows/<ファイル>/runs?created=<範囲>'`）、`gh run list`・`gh issue view --json`（`blockedBy` 等）で済むものはそれを使う。自動モードそのものも同じファイルの `permissions.defaultMode` で
 決める。各一覧は既定の規則（`$defaults`）を必ず残す。担当は連携の `settings` で
-このファイルを読む。開発機の対話のセッションも同じ決まりで動く: セッションの始まりのフック（`.claude/settings.json` の
-`SessionStart`）で `tools/flow-gate/bin/settings.js` が、master の版のこのファイルの `permissions` と `autoMode` をユーザー設定
-（`~/.claude/settings.json`）へ写す（判定役はリポジトリの `.claude/settings.json` の `autoMode` を読まず、`defaultMode` の `auto` も
-リポジトリの設定からは効かない。`permissions` は丸ごと置き換えるので、開発機にだけある許可は残らない）。決まりを変えるのは
-このファイルだけで、master に入った次のセッションから両方に効く（作業ブランチで直しても、作業中の自分の権限は変わらない）。
+このファイルを読む（連携は中身をランナーのユーザー設定へ書く）。このファイルは担当だけのもので、master に入った次の担当の実行から効く
+（作業ブランチで直しても、作業中の自分の権限は変わらない）。開発機の対話のセッションはこのファイルを読まない: 判定役への説明と
+自動モードは使う人が決めるもので、Claude Code はリポジトリの設定から読まない（公式の文書「Configure auto mode」）。開発機の
+対話のセッションの権限は、使う人であるユーザー自身の設定（`~/.claude/settings.json`）が持ち、リポジトリからは書かない（変えるときは、
+Claude が案を見せ、ユーザーが名指して入れる）。担当にも開発機にも効かせたい守りは、Claude の設定ではなく、Claude が変えられない
+GitHub の側（ルールセット・トークンの権限）に置く。
 判定役が自分を動かす設定の書き換えとして編集を断ったら、「担当が書けないファイル」のとおりにする。日常の操作が断られたら、
 回り込まず（別の道具・別の名義で打たない）、流れの摩擦として記録する（.claude/skills/file-issue/SKILL.md「流れの摩擦を記録する」。直すのは `autoMode` の説明）。断られた操作は、後始末の終わりのコメントの
 「判定に断られた操作」に、道具と打とうとしたものが出る。
