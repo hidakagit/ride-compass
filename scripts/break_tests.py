@@ -72,6 +72,11 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", check=False)
 
 
+def _changed(repo: Path, file: str) -> bool:
+    """実装が HEAD から変わっているか。"""
+    return _git(repo, "diff", "--quiet", "HEAD", "--", file).returncode != 0
+
+
 def _side(test: str) -> str:
     return test.split("/", 1)[0]
 
@@ -92,7 +97,7 @@ def load(repo: Path, entries: list[dict]) -> list[Breakage]:
         count = path.read_bytes().count(b.before.encode("utf-8"))
         if count != 1:
             problems.append(f"[{number}] 壊す前の文字列が実装に{count}回現れる（ちょうど1回でなければ回さない）: {b.file}")
-        if _git(repo, "diff", "--quiet", "HEAD", "--", b.file).returncode != 0:
+        if _changed(repo, b.file):
             problems.append(f"[{number}] 実装が HEAD から変わっている（コミットしてから回す）: {b.file}")
         sides = {_side(test) for test in b.tests}
         if not b.tests or not sides <= {"frontend", "backend"} or len(sides) != 1:
@@ -198,6 +203,11 @@ def _by_side(tests: list[str]) -> list[list[str]]:
     return [group for side in ("frontend", "backend") if (group := [t for t in tests if _side(t) == side])]
 
 
+def _print_failures(where: str, failures: list[tuple[str, str]]) -> None:
+    print(f"  落ちた（{where}）: {len(failures)}本")
+    print("".join(f"    {file} > {name}\n" for file, name in failures), end="")
+
+
 def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
     """全部の件を流して結果を出し、今のテストが1本も落ちなかった件があれば 1 を返す。"""
     tests = sorted({test for b in breakages for test in b.tests})
@@ -223,7 +233,7 @@ def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
                 stopped, failures = error, []
             finally:
                 path.write_bytes(original)
-            if _git(repo, "diff", "--quiet", "HEAD", "--", b.file).returncode != 0:
+            if _changed(repo, b.file):
                 raise Refused(f"[{number}] 実装が戻っていない: {b.file}")
             now = sorted((file, name) for file, name in failures if file not in copies)
             before = sorted((copies[file], name) for file, name in failures if file in copies)
@@ -232,17 +242,15 @@ def run(repo: Path, breakages: list[Breakage], ref: str | None) -> int:
             if stopped:
                 print(f"  テストの前に止まった（(b)）: {stopped.line}")
             else:
-                print(f"  落ちた（作業ツリーのテスト）: {len(now)}本")
-                print("".join(f"    {file} > {name}\n" for file, name in now), end="")
-            if ref and not stopped:
-                print(f"  落ちた（{ref} のテスト）: {len(before)}本")
-                print("".join(f"    {file} > {name}\n" for file, name in before), end="")
-                absent = [test for test in b.tests if test not in copy_of]
-                if absent:
-                    print(f"  {ref} に無いテストのファイル: {', '.join(absent)}")
+                _print_failures("作業ツリーのテスト", now)
+                if ref:
+                    _print_failures(f"{ref} のテスト", before)
+                    absent = [test for test in b.tests if test not in copy_of]
+                    if absent:
+                        print(f"  {ref} に無いテストのファイル: {', '.join(absent)}")
+                if not now:
+                    silent.append(f"[{number}] {b.name}")
             print("  実装は戻った")
-            if not now and not stopped:
-                silent.append(f"[{number}] {b.name}")
     print(f"落ちなかった件: {'、'.join(silent) or 'なし'}")
     return 1 if silent else 0
 
