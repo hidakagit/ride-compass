@@ -137,6 +137,8 @@ ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/admin/", NO_STORE),
     ("/api/debug/", NO_STORE),
     ("/health", NO_STORE),
+    # 画面のエラーの報告（POSTだけで、応答に本文が無い）
+    ("/api/client-errors", NO_STORE),
 )
 
 

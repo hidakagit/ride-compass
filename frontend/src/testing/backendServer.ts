@@ -8,7 +8,11 @@ import { expect, vi } from "vitest";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import type { AxisCatalogResponse } from "@/types/route";
 
-export const backendServer = setupServer();
+// 画面のエラーの報告（`lib/errorReport.ts`）は、通信の失敗や描画の例外を起こすどのテストからも出る。受け取るだけで中身を返さない
+// 口なので、テストごとに応答を与えずに受ける（`resetHandlers`は最初に渡した応答を残す）。報告の中身は`lib/errorReport.test.ts`が見る。
+export const backendServer = setupServer(
+  http.post(`${API_BASE_URL}/api/client-errors`, () => new HttpResponse(null, { status: 204 })),
+);
 
 export interface SentRequest {
   method: string;
