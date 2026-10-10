@@ -7,10 +7,10 @@ import argparse
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -45,7 +45,7 @@ async def batch_session_factory(
 
 def run_batch_cli(
     parser: argparse.ArgumentParser,
-    start: Callable[[argparse.Namespace, str], Awaitable[int]],
+    start: Callable[[argparse.Namespace, str], Coroutine[Any, Any, int]],
 ) -> int:
     """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流す。
 
@@ -56,12 +56,40 @@ def run_batch_cli(
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
-    started = start(args, args.database_url or settings.database_url)
+    return asyncio.run(start(args, args.database_url or settings.database_url))
 
-    async def body() -> int:
-        return await started
 
-    return asyncio.run(body())
+def affected_rows(status: str) -> int:
+    """asyncpgの`execute`が返す状態の文字列（`INSERT 0 123`・`UPDATE 45`等）から、書いた行の数を読む。"""
+    return int(status.split()[-1])
+
+
+def reused_edges_sql(previous: str | None, source: str = "road_edges", condition: str = "") -> str:
+    """区間ごとに写す段が、前回の値を写す区間を一時の表`_reused`に置く。
+
+    同じ形とみなすのは、鍵が同じで座標とその並びも同じ区間だけ（`=`。`ST_Equals`のように形を幾何として
+    比べる計算をしない）。`source`は今回の区間（別名`s`。`geom`を持つ）、`condition`は段が足す
+    結合と条件。`previous`がNone（写せない）なら空の表を置く。
+    """
+    if previous is None:
+        return f"CREATE TEMP TABLE _reused ON COMMIT DROP AS SELECT osm_way_id, segment_index FROM {source} WHERE false"
+    return f"""
+CREATE TEMP TABLE _reused ON COMMIT DROP AS
+SELECT s.osm_way_id, s.segment_index
+FROM {source} s JOIN {previous}.road_edges p
+  ON p.osm_way_id = s.osm_way_id AND p.segment_index = s.segment_index AND p.geom = s.geom
+{condition}
+"""
+
+
+def copy_reused_sql(table: str, columns: Sequence[str], previous: str) -> str:
+    """`_reused`の区間へ、前回の表`table`の値を写す。前回に値の無かった区間は前回の表に行が無く、今回も行を持たない。"""
+    return f"""
+INSERT INTO {table} (osm_way_id, segment_index, {", ".join(columns)})
+SELECT p.osm_way_id, p.segment_index, {", ".join(f"p.{column}" for column in columns)}
+FROM _reused r JOIN {previous}.{table} p
+  ON p.osm_way_id = r.osm_way_id AND p.segment_index = r.segment_index
+"""
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:
@@ -98,13 +126,12 @@ def format_progress(done: int, total: int | None, elapsed: float, unit: str = "�
     とき）は残りを出さない——分からないものを推測で埋めると、読み手が当てにする。
     """
     rate = done / elapsed if elapsed > 0 else 0.0
-    line = f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
-    if total:
-        remaining = (total - done) / rate if rate > 0 else 0.0
-        line = (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
-                f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
-                f" / 残り およそ {format_duration(remaining)}")
-    return line
+    if not total:
+        return f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
+    remaining = (total - done) / rate if rate > 0 else 0.0
+    return (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
+            f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
+            f" / 残り およそ {format_duration(remaining)}")
 
 
 #: 取得途中の一時ファイルの印。所定の名前と紛れないもの。

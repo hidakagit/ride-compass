@@ -12,6 +12,7 @@ import time
 
 import asyncpg
 
+from app.batch.common import affected_rows
 from app.domain import divided_carriageway as dc
 from app.infrastructure.source_models import WAYS_SOURCE_SQL
 from app.domain.traffic import direction_sql
@@ -52,7 +53,7 @@ FROM road_ways r JOIN ({direction_sql(_SOURCE_WAYS)}) d ON d.id = r.osm_way_id
 """
 
 
-async def _derive_divided(conn: asyncpg.Connection) -> int:
+async def _derive_divided(conn: asyncpg.Connection) -> None:
     started = time.perf_counter()
     await conn.execute(_WAY_FACTS)
     await conn.execute("CREATE INDEX ON _way_facts USING GIST (geom)")
@@ -60,13 +61,12 @@ async def _derive_divided(conn: asyncpg.Connection) -> int:
     await conn.execute(_DIVIDED)
     divided = await conn.fetchval("SELECT count(*) FROM way_directions WHERE divided")
     logger.info("上下線分離: 該当 %d本 / %.1f秒", divided, time.perf_counter() - started)
-    return divided
 
 
 async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         await conn.execute("TRUNCATE way_directions")
-        count = int((await conn.execute(_INSERT_DIRECTIONS)).split()[-1])
+        count = affected_rows(await conn.execute(_INSERT_DIRECTIONS))
         logger.info("通行方向を決めた: %d本", count)
         await _derive_divided(conn)
         ways = await conn.fetchval("SELECT count(*) FROM road_ways")
