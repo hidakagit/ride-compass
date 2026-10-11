@@ -8,10 +8,6 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 手元とCIで、検査とテストをどこでどう回すかを持つ。何を確かめるか・テストが要るか・書き方は
 [testing.md](../../rules/testing.md)と、そこから分けた`testing-*.md`が持つ。
 
-手で操作を組み立てる前に、既に仕組み化されているもので済まないかを見る: 規模・churnは
-`scripts/review_checks.py metrics`、本番DBへの調査は`backend/scripts/run_probe.py`、docsの整合は
-`scripts/review_checks.py docs`。
-
 ## 手元の検査の回し方
 
 - **手元とCIで同じ答えを2回買わない**: CIはPull Requestで毎回、静的検査とフルスイートを回す（[task-work/SKILL.md](../task-work/SKILL.md)「作る担当」の4・5。

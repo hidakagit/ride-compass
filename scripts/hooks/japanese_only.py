@@ -1,4 +1,4 @@
-"""Claude の文に英語の文があれば、先へ進ませずに日本語で書き直させるフック（.claude/rules/reporting.md「言葉」を機械で守る）。
+"""Claude の文に英語の文があれば、先へ進ませずに日本語で書き直させるフック（CLAUDE.md「出力言語」を機械で守る）。
 
 .claude/settings.json の hooks から、次の出来事で打つ（標準入力でフックの JSON を受け取る。公式「Hooks reference」）:
 - Stop・SubagentStop: その手番の最後の文（`last_assistant_message`）と、まだ止めていない英語の文（下の MessageDisplay）を見る。
@@ -129,7 +129,7 @@ def take_pending(hook: dict, found: list[str]) -> list[str]:
 
 def reason(lines: list[str]) -> str:
     shown = "\n".join(f"- {line[:120]}" for line in lines[:3])
-    return ("英語の文がある（.claude/rules/reporting.md「言葉」: ユーザーへ見せる文は、道具の合間の短い文も含めてすべて日本語）。"
+    return ("英語の文がある（CLAUDE.md「出力言語」: ユーザーへ見せる文は、道具の合間の短い文も含めてすべて日本語）。"
             f"日本語で書き直してから続ける。\n{shown}")
 
 
