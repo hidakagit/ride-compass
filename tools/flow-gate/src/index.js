@@ -6,6 +6,8 @@ import { answerForm } from "./form.js";
 import { handleEvent, reportHealth } from "./gate.js";
 import { GitHub } from "./github.js";
 
+export { Dispatcher } from "./dispatcher.js";
+
 const config = { ...base, questionTemplate };
 // 回答フォームへのボタン（GitHub の本文にボタンは置けないので、本文の頭にリンク付きの画像として置く）。
 const BUTTON = `<svg xmlns="http://www.w3.org/2000/svg" width="152" height="44"><rect width="152" height="44" rx="8" fill="#1f6feb"/><text x="76" y="28" text-anchor="middle"

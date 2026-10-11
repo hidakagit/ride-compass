@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import base from "../flow.config.json" with { type: "json" };
-import { dispatch, mismatched } from "../src/dispatch.js";
+import { dispatch, mismatched, withClaims } from "../src/dispatch.js";
 import { reportHealth, route, settle } from "../src/gate.js";
 
 const config = { ...base, questionTemplate: readFileSync(new URL("../question_template.md", import.meta.url), "utf8") }; // src/index.js と同じ組み方
@@ -18,6 +18,7 @@ function fake({ issue = {}, items = [], runs = [], workflow = "active", last = [
     if (q.includes("projectV2(number:$n){id fields")) return { organization: { projectV2: { id: `P${v.n}`, fields: { nodes: [config.fields.status, config.fields.priority].map((name) => ({ id: name, name, options: OPTIONS })) } } } };
     if (q.includes("items(first:100")) return { organization: { projectV2: { items: { pageInfo: { hasNextPage: false }, nodes: items } } } };
     if (q.includes("addProjectV2ItemById")) return { addProjectV2ItemById: { item: { id: "ITEM" } } };
+    if (q.includes("blocking(")) return { repository: { issue: { blocking: { nodes: [{ number: 7, state: "OPEN" }, { number: 8, state: "CLOSED" }] } } } };
     if (q.includes("t:repository")) return { t: { issue: { id: "I", state: "OPEN", body: "", author: { login: config.user }, issueType: null, assignees: { nodes: [] }, blockedBy: { nodes: [] },
       comments: { nodes: [] }, projectItems: { nodes: [] }, parent: null, timelineItems: { nodes: [] }, ...issue } }, c: { pullRequests: { nodes: [] } } };
     return {};
@@ -46,6 +47,9 @@ test("出来事の振り分け: ゲート自身・Claude の本文の書き換�
   assert.deepEqual(await route(gh, config, "issues", { action: "edited", sender: { login: config.claude }, issue: { number: 5 }, repository: tasks }), { numbers: [] });
   assert.deepEqual(await route(gh, config, "issues", { action: "milestoned", sender: { login: config.user }, issue: { number: 5 }, repository: tasks }), { numbers: [] });
   assert.deepEqual(await route(gh, config, "issue_comment", { action: "created", sender: { login: config.user }, issue: { number: 5 }, repository: tasks }), { numbers: [5] });
+  // 前提が閉じたら、後ろで開いているタスクも決め直す。ゲート自身が閉じたときは後ろだけ。
+  assert.deepEqual(await route(gh, config, "issues", { action: "closed", sender: { login: config.user }, issue: { number: 5 }, repository: tasks }), { numbers: [5, 7] });
+  assert.deepEqual(await route(gh, config, "issues", { action: "closed", sender: { login: config.gateBot }, issue: { number: 5 }, repository: tasks }), { numbers: [7] });
   assert.deepEqual(await route(gh, config, "pull_request", { action: "converted_to_draft", sender: { login: config.claude }, pull_request: { head: { ref: `${config.branchPrefix}12` } }, repository: code }), { numbers: [12] });
   const scheduled = await route(fake({ items: [item(2, "検証中")] }).gh, config, "schedule", {});
   assert.deepEqual([scheduled.numbers, scheduled.free, scheduled.known.tasks.length], [[2], true, 1], "定時は読んだタスクと実行も渡す");
@@ -101,6 +105,16 @@ test("振り出し: 止めたら振り出さず、枠の空きの数まで急ぎ
   assert.deepEqual(off.picked, []);
   assert.match(off.stopped, /無効/);
   assert.deepEqual((await dispatch(fake({ items }).gh, config, busy)).picked.map((p) => `${p.issue} ${p.kind}`), ["4 作る", "9 作る", "5 確かめる"]);
+});
+
+test("振り出し: 窓口が起こしたばかりの担当は、実行の一覧に出る前でも持たれているとみなし、同じタスクを2度つかまない", async () => {
+  const now = Date.now();
+  const claims = [{ number: 4, kind: "作る", at: now - 60e3 }, { number: 9, kind: "作る", at: now - (config.claimMinutes + 1) * 60e3 }];
+  const held = withClaims([], claims, config, now);
+  assert.deepEqual(held.map((r) => r.number), [4], "古い覚えは捨てる");
+  assert.deepEqual(withClaims([{ id: 40, number: 4, kind: "作る" }], claims, config, now).length, 1, "一覧に出たら覚えと二重に数えない");
+  const items = [item(4, "未着手"), item(5, "未着手")];
+  assert.deepEqual((await dispatch(fake({ items }).gh, config, held)).picked.map((p) => p.issue), ["5"]);
 });
 
 test("状況の更新: 盤面に表れない事実（突き合わせの失敗・振り出しの止まり・決め直したタスク）を、変わったときだけ足す", async () => {
