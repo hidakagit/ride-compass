@@ -11,7 +11,7 @@ const SAVED_PLACES_STORAGE_KEY = "ridecompass:saved-places";
 /** 名前を付けて保存した地点の一覧と、保存・削除。 */
 export function useSavedPlaces() {
   const [places, setPlaces] = useStoredState<SavedPlace[]>(SAVED_PLACES_STORAGE_KEY, [], {
-    serialize: (list) => JSON.stringify(list),
+    serialize: JSON.stringify,
     deserialize: readSavedPlaces,
   });
 
