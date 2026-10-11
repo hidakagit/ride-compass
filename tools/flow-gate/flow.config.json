@@ -20,5 +20,5 @@
   "mutationCheck": "changed-functions",
   "quotaStep": "利用の上限で止まった",
   "pauseMinutes": 60,
-  "claimMinutes": 10
+  "retries": 5
 }

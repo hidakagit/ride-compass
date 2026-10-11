@@ -3,14 +3,14 @@
 // 問いの種類ごとに要るものだけを出し、次のステータスは出さない。答えはユーザーの名義（env.FORM_TOKEN）でコメントに書き、
 // ラベルの付け外しも同じ名義で打つ。行き先はゲートが答えから決める。
 import { GitHub } from "./github.js";
-import { bodyRest, confirmItems, latestQuestion, norm } from "./questions.js";
+import { jstText } from "./facts.js";
+import { bodyRest, confirmItems, isQuestion, latestQuestion, norm } from "./questions.js";
 
 const RECENT = 5; // 材料に載せる最近のコメント（上に出した問いのコメントは数えない）
 const NONE = "該当なし（補足に記入）";
 const CHOICES = { 採否: ["着手する", "保留する", "見送る"], イレギュラー: ["やり直す", "保留する", "見送る"] };
 const OK = ["問題なし", "問題あり"];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const when = (t) => new Date(Date.parse(t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " "); // 日本時間
 
 const SCRIPT = `<script>
 const f = document.querySelector("form"), err = document.getElementById("err");
@@ -51,7 +51,7 @@ async function read(gh, config, number) {
   const { issue, labels } = r.repository;
   const comments = issue.comments.nodes;
   const question = latestQuestion(comments.map((c) => c.body), config.questionTemplate); // ゲートと同じく、形に合わない問いは問いとして読まない
-  const asked = comments.findLast((c) => /^## 問い/.test(norm(c.body)));
+  const asked = comments.findLast((c) => isQuestion(c.body));
   return { issue, comments, asked, question, all: labels.nodes.map((l) => l.name), have: issue.labels.nodes.map((l) => l.name) };
 }
 
@@ -72,7 +72,7 @@ async function submit(gh, env, config, number, form) {
   if (!q || q.answer) return { error: "答えていない問いがありません。" };
   if (form.get("question") !== q.text) return { error: "問いが新しくなっています。開き直してください。" };
   // 確かめの項目は開いたときの文で送られる。今の本文の残りに無い項目があれば、開いたあとに本文が変わったので開き直してもらう。
-  const items = [...form.keys()].filter((k) => /^itemd+$/.test(k)).map((k) => form.get(k));
+  const items = [...form.keys()].filter((k) => /^item\d+$/.test(k)).map((k) => form.get(k));
   if (items.some((t) => !confirmItems(issue.body).includes(t))) return { error: "本文の完了の条件が変わっています。開き直してください。" };
   const choice = form.get("choice");
   const chosen = form.getAll("label").filter((n) => all.includes(n));
@@ -99,7 +99,7 @@ export async function answerForm(request, env, config) {
   if (!q || q.answer) return page(`<p>#${number} に、答えていない問いはありません。</p>`, 404);
   const said = q.kind === "イレギュラー" ? comments.findLast((c) => /^### \S+担当の終わり/.test(norm(c.body)))?.bodyHTML : null;
   const recent = comments.filter((c) => c !== asked).slice(-RECENT).reverse()
-    .map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${when(c.createdAt)}</a></p>${c.bodyHTML}`).join("");
+    .map((c) => `<p class="note"><a href="${esc(c.url)}">${esc(c.author?.login ?? "ghost")} ・ ${jstText(Date.parse(c.createdAt))}</a></p>${c.bodyHTML}`).join("");
   // 判断材料と本文は GitHub の Markdown の描き方で HTML にする。互いに独立なので並べて打つ。
   const md = (text) => (text ? gh.rest("POST", "/markdown", { text, mode: "gfm", context: config.tasks }) : "");
   const [material, body] = await Promise.all([md(q.material), md(bodyRest(issue.body).trim())]);
