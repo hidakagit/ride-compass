@@ -103,6 +103,23 @@ export default function RouteSplicePanel({
   const metrics = metricDifferences(displayed, preview);
   const halves = [metrics.slice(0, 2), metrics.slice(2)];
 
+  // 差の棒の片側（楽になった軸は中央から左へ、きつくなった軸は右へ積む）。
+  function renderDeltaHalf(side: "decrease" | "increase") {
+    return (
+      <div className={cn("flex min-w-0 flex-[1_1_50%]", side === "decrease" ? "justify-end" : "justify-start")}>
+        {deltas
+          .filter((item) => (side === "decrease" ? item.delta < 0 : item.delta > 0))
+          .map((item) => (
+            <span
+              key={item.axisId}
+              className="block h-full"
+              style={{ width: `${(Math.abs(item.delta) / scale) * 50}%`, background: axisColors[item.axisId] }}
+            />
+          ))}
+      </div>
+    );
+  }
+
   return (
     <section
       className={cn(
@@ -236,35 +253,9 @@ export default function RouteSplicePanel({
                   .map((item) => `${item.label} ${formatDelta(item.delta, DIFFICULTY_DECIMALS)}`)
                   .join("、")}
               >
-                <div className="flex min-w-0 flex-[1_1_50%] justify-end">
-                  {deltas
-                    .filter((item) => item.delta < 0)
-                    .map((item) => (
-                      <span
-                        key={item.axisId}
-                        className="block h-full"
-                        style={{
-                          width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId],
-                        }}
-                      />
-                    ))}
-                </div>
+                {renderDeltaHalf("decrease")}
                 <div className="-my-0.5 w-0.5 bg-[var(--foreground)]" />
-                <div className="flex min-w-0 flex-[1_1_50%] justify-start">
-                  {deltas
-                    .filter((item) => item.delta > 0)
-                    .map((item) => (
-                      <span
-                        key={item.axisId}
-                        className="block h-full"
-                        style={{
-                          width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId],
-                        }}
-                      />
-                    ))}
-                </div>
+                {renderDeltaHalf("increase")}
               </div>
               <span className="text-[length:var(--font-size-sm)] leading-none font-bold text-[var(--color-route-splice)]">
                 ＋

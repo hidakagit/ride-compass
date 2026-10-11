@@ -16,9 +16,9 @@ import type { AxisMaterialBreakdown } from "@/lib/catalogAxis";
  */
 export function formatAxisRawValue(
   rawValue: number | undefined,
-  unit: string | null | undefined,
-  totalUnit: string | null | undefined,
-  distanceKm: number | null | undefined,
+  unit: string | null,
+  totalUnit: string | null,
+  distanceKm: number | null,
 ): string | null {
   if (rawValue == null || !unit) return null;
   const head = `${formatNumber(rawValue)}${unit}`;

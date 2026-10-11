@@ -16,7 +16,7 @@ import type { Coordinates, RouteCandidate, RoutePreferenceWeights } from "@/type
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 /** 押した「生成」の直近の結果。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
-type GenerationNotice = { kind: "failed" | "empty"; message: string };
+export type GenerationNotice = { kind: "failed" | "empty"; message: string };
 
 /** ルート生成の進み方。同時に成り立つのは1つだけ。 */
 type Generation =
