@@ -174,14 +174,14 @@ def test_friction_picks_the_lines_written_after_the_review_including_quoted_and_
     since = rc.dt.datetime(2026, 10, 7, 3, 39, 2, tzinfo=rc.dt.timezone.utc)
     comments = [
         {"createdAt": "2026-10-07T03:39:01Z", "body": "流れの摩擦: 前のレビューより前"},
-        {"createdAt": "2026-10-07T03:39:02Z", "body": "\n".join([
-            "流れの摩擦: 地の文",
-            "> 流れの摩擦: 引用",
-            "> - 流れの摩擦: 引用の箇条書き",
-            "- 流れの摩擦: 箇条書き",
-            "本文の中の 流れの摩擦: は拾わない",
-            "  - 流れの摩擦: 字下げは拾わない",
-        ])},
+        {"createdAt": "2026-10-07T03:39:02Z", "body": (
+            "流れの摩擦: 地の文\n"
+            "> 流れの摩擦: 引用\n"
+            "> - 流れの摩擦: 引用の箇条書き\n"
+            "- 流れの摩擦: 箇条書き\n"
+            "本文の中の 流れの摩擦: は拾わない\n"
+            "  - 流れの摩擦: 字下げは拾わない"
+        )},
     ]
     assert rc.friction_lines(805, comments, since) == [
         "#805 流れの摩擦: 地の文",
