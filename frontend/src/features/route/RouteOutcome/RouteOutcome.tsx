@@ -20,7 +20,6 @@ import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import EditDifference from "@/features/route/EditDifference/EditDifference";
-import ErrorText from "@/features/route/ErrorText/ErrorText";
 import GenerationNotice from "@/features/route/GenerationNotice/GenerationNotice";
 import WarningText from "@/features/route/WarningText/WarningText";
 import {
@@ -152,7 +151,9 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (routes.length === 0) return renderRouteOutcomeEmptyState();
     return (
       <>
-        {generation.failure && <ErrorText>作り直せませんでした。{generation.failure}</ErrorText>}
+        {generation.failure && (
+          <GenerationNotice notice={{ kind: "failed", message: `作り直せませんでした。${generation.failure}` }} />
+        )}
         {renderRouteOutcomeSectionBody()}
       </>
     );
