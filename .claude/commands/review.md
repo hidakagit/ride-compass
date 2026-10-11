@@ -26,7 +26,8 @@ $ARGUMENTS があればそれを対象範囲とする。
 - 直すもの → 既存のタスクに属するなら、そのタスクの issue へ書く。属さなければ起票案として置き場に
   issue を起こす（入口は種類で決まる。`docs/conventions/flow.md`「ステータスと割り当て」の「入口」）
 - **やらないと決めたもの → 見送りの理由と再評価の条件を issue に書く。** 既存のタスクに属するならその issue へ、属さなければ
-  起こして見送り（`Close as not planned`）で閉じる。利用者に見える壊れを直さずに見送るのは、CLAUDE.md「原則」の1のとおり問う。
+  種類を要望にして起こし、本文に見送りを勧めることを書く。閉じるかはユーザーが決める（入口でゲートが採否を問う。
+  `docs/conventions/flow.md`「ステータスと割り当て」の「入口」。ほかの種類は未着手で入り、担当へ振り出される）。利用者に見える壊れを直さずに見送るのは、CLAUDE.md「原則」の1のとおり問う。
   過去の見送りは、見送りで閉じた issue（`gh issue list -R ridecompass/ride-compass-tasks --state closed --search 'reason:"not planned"'`）と、
   前の回のタグの注釈（`git tag -n99 -l 'periodic-review/*'`）と、それ以前の記録（`grep -l "^## 判断: 見送り" docs/records/tasks/*.md`）で引く
 - レビューを終えたら、**見た対象コミットへ注釈付きタグを打つ**:
