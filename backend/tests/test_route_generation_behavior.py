@@ -478,14 +478,20 @@ async def test_a_point_whose_nearest_road_cannot_be_left_is_moved_to_the_nearest
         assert node_key(NORTH_EAST) in candidate.node_ids
 
 
+@pytest.mark.parametrize("nearest", ["cannot_be_left", "far"])
 @pytest.mark.parametrize("placed", ["origin", "waypoint", "destination"])
-async def test_a_point_whose_only_nearby_road_cannot_be_left_is_refused(engine_over, placed):
-    """出入りできる道が近くに無いなら、指した覚えのない遠くの道へ黙って寄せない。"""
-    network, point = _stuck_by_north_east("island", 0.03)  # 北東の角から約2.7km
+async def test_a_point_with_no_road_it_can_ride_nearby_is_refused(engine_over, nearest, placed):
+    """出入りできる道が近くに無いなら、指した覚えのない遠くの道へ黙って寄せない。一番近い道が出入りできない
+    （`cannot_be_left`）ときも、一番近い道が格子の角で、それ自体が遠い（`far`。川・山の中を指した）ときも同じ。"""
+    if nearest == "cannot_be_left":
+        network, point = _stuck_by_north_east("island", 0.03)  # 北東の角から約2.7km
+    else:
+        network = grid_network()
+        point = Coordinates(latitude=COORDINATES[NORTH_EAST][0], longitude=COORDINATES[NORTH_EAST][1] + 0.015)  # 約1.4km
     generator = engine_over(network)
 
     if placed == "origin":
-        candidates = await generator.generate_loops(point, 4.0, 1.5, max_routes=3, start_time=DEPARTURE)
+        candidates = await generator.generate_loops(point, 6.0, 1.5, max_routes=3, start_time=DEPARTURE)  # 角から回れる長さ
     elif placed == "waypoint":
         candidates = await generator.generate_via_waypoints(
             at(SOUTH_WEST), [point], destination=None, max_routes=3, start_time=DEPARTURE)
