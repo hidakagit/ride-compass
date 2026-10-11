@@ -19,16 +19,12 @@
 // pointermove/upを登録する」パターンを踏襲する（pointer captureが環境によって確実に
 // 効くとは限らないため使わない、という同じ理由）。
 
-import { cardinalLabel } from "@/lib/cardinalLabel";
+import { cardinalLabel, normalizeDeg } from "@/lib/cardinalLabel";
 import { useRef } from "react";
 import { WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
-
-function normalizeDeg(deg: number): number {
-  return ((deg % 360) + 360) % 360;
-}
 
 interface WindBearingSliderProps {
   /** 0〜360度（北=0、時計回り）。 */

@@ -51,13 +51,14 @@ export default function AxisContributionBar({
 }: AxisContributionBarProps) {
   const rows = axes.filter((axis) => hasContribution(contributions, axis.axisId));
   if (rows.length === 0) return null;
+  const colorOf = (axisId: string) => axisColors[axisId] ?? FALLBACK_COLOR;
 
   return (
     <div className="flex min-w-30 flex-auto flex-col gap-1">
       <div className={stackBarClass} role="img" aria-label="難易度の内訳">
         {rows.map((axis) => {
           const value = Math.min(100, Math.max(0, contributions[axis.axisId]));
-          const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
+          const color = colorOf(axis.axisId);
           return (
             <div
               key={axis.axisId}
@@ -73,7 +74,7 @@ export default function AxisContributionBar({
           .map((axis) => ({ axis, detail: renderDetail(axis) }))
           .filter(({ detail }) => detail !== null)
           .map(({ axis, detail }) => {
-            const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
+            const color = colorOf(axis.axisId);
             // 名前は出さずアイコンと値だけ（狭い幅では名前がそのまま行数になる）。名前は説明とaria-labelが持つ。
             const Icon = axisIconFor(axis.iconId);
             return (

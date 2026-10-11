@@ -30,8 +30,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ORIGIN_MARK_COLOR, ORIGIN_MARK_FALLBACK_COLOR } from "@/components/PinMark/PinMark";
 import { Tabs } from "@/components/ui/Tabs/Tabs";
 import { onBackend } from "@/testing/backendServer";
+import { AZA_CANDIDATE as AZA, FACILITY_CANDIDATE as FACILITY } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import type { PlaceCandidate } from "@/types/route";
 
 import RouteForm, { type SettingsTab } from "./RouteForm";
 
@@ -69,23 +69,6 @@ function waypointsOf(count: number) {
 }
 
 const DESTINATION = { latitude: 35.1, longitude: 139.1 };
-/** 字・丁目で当たった住所（その範囲の代表の位置）。 */
-const AZA: PlaceCandidate = {
-  kind: "address",
-  level: "aza",
-  name: "東京都千代田区丸の内二丁目",
-  area: null,
-  latitude: 35.679,
-  longitude: 139.764,
-};
-const FACILITY: PlaceCandidate = {
-  kind: "facility",
-  level: "point",
-  name: "浅草寺",
-  area: "台東区浅草二丁目",
-  latitude: 35.7148,
-  longitude: 139.7967,
-};
 
 // 詳しくは置いた地点の辺りを引く。辺りを見ないテストには、辺り無しと答える（見るテストは後から応答を渡す）。
 beforeEach(() => {

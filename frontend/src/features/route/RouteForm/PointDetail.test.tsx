@@ -26,22 +26,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SavedPlace } from "@/features/route/savedPlaces";
-import { useSavedPlaces } from "@/features/route/useSavedPlaces";
+import { SAVED_PLACES_STORAGE_KEY, useSavedPlaces } from "@/features/route/useSavedPlaces";
 
 import { onBackend } from "@/testing/backendServer";
+import { AZA_CANDIDATE as AZA, FACILITY_CANDIDATE as FACILITY } from "@/testing/routeFixtures";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import type { Coordinates, PlaceCandidate } from "@/types/route";
 
 import PointDetail from "./PointDetail";
 
-const AZA: PlaceCandidate = {
-  kind: "address",
-  level: "aza",
-  name: "東京都千代田区丸の内二丁目",
-  area: null,
-  latitude: 35.679,
-  longitude: 139.764,
-};
 const BLOCK: PlaceCandidate = {
   kind: "address",
   level: "block",
@@ -49,14 +42,6 @@ const BLOCK: PlaceCandidate = {
   area: null,
   latitude: 35.681,
   longitude: 139.767,
-};
-const FACILITY: PlaceCandidate = {
-  kind: "facility",
-  level: "point",
-  name: "浅草寺",
-  area: "台東区浅草二丁目",
-  latitude: 35.7148,
-  longitude: 139.7967,
 };
 
 /** 地図の真ん中（東京駅）。丸の内二丁目まで直線で0.4km、浅草寺まで4.6km。 */
@@ -73,7 +58,7 @@ afterEach(() => {
 
 /** 前に保存した地点を、この端末の保存へ置く。 */
 function storeSavedPlaces(places: SavedPlace[]) {
-  window.localStorage.setItem("ridecompass:saved-places", JSON.stringify(places));
+  window.localStorage.setItem(SAVED_PLACES_STORAGE_KEY, JSON.stringify(places));
 }
 
 function WithSavedPlaces(props: Omit<React.ComponentProps<typeof PointDetail>, "savedPlaces">) {

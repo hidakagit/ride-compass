@@ -6,13 +6,7 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap, Marker } from "maplibre-gl";
 
 import type { Coordinates, LocationSource, PinRole, SelectedRouteSegment } from "@/types/route";
-import {
-  ORIGIN_MARK_COLOR,
-  ORIGIN_MARK_FALLBACK_COLOR,
-  PIN_MARK_BACKGROUND,
-  PinMark,
-  pinMarkText,
-} from "@/components/PinMark/PinMark";
+import { originMarkColor, PIN_MARK_BACKGROUND, PinMark, pinMarkText } from "@/components/PinMark/PinMark";
 import { SelectedSpotIcon } from "@/components/ui/icons/icons";
 import palette from "@/types/generated/palette.json";
 import { runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
@@ -163,7 +157,7 @@ export function useMapMarkers(
         markerRef.current.setLngLat([location.longitude, location.latitude]);
       } else {
         markerRef.current?.remove();
-        const color = locationSource === "default" ? ORIGIN_MARK_FALLBACK_COLOR : ORIGIN_MARK_COLOR;
+        const color = originMarkColor(locationSource !== "default");
         const element = createOriginMarkerElement();
         setOriginMark({ element, color });
         markerRef.current = new maplibregl.Marker({
