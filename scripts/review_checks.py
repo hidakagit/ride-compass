@@ -11,7 +11,8 @@
     python scripts/review_checks.py friction  # 前のレビューより後の流れの摩擦の行（gh で置き場を読む）
     python scripts/review_checks.py change    # 変更の増減と規模の札（master との差分から）
 
-終了コード: `docs`は違反があれば1。それ以外は表示のみで常に0。
+終了コード: `docs`は違反があれば1、`friction`は前回レビューのタグが無ければ1。どれも、測れずに止まれば（下の HEAD の遅れ等）0でない。
+それ以外は表示のみで0。
 
 `change`は検知器ではなく、作業者が自分の差分に対してその場で打つ報告である
 （差分の起点を選ぶので、検知器を足す条件の外にある）。
