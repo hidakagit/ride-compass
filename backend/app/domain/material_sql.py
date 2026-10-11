@@ -20,6 +20,7 @@
 「タグが無い」は別で、道の行があれば非該当（false）になる（`tag_absent_is_false_sql`）。
 """
 
+import re
 from collections.abc import Iterable, Sequence
 from typing import NamedTuple
 
@@ -191,6 +192,16 @@ def landcover_value_sql(key: str) -> str:
     """区間単位の土地被覆。道1本の値へは落とさない——区間の値は全区間ぶん計算されており、
     落とす先は「同じ道の平均」でしかない（区間ごとの違いを消す）。"""
     return f"em.lc_{key}"
+
+
+#: 区間ごとの値を読む別名（上の表の`re`・`em`）の列の参照。
+_SEGMENT_VALUE_REFERENCE = re.compile(r"(?<![\w.])(?:re|em)\.\w")
+
+
+def reads_segment_values(expression: str) -> bool:
+    """式が区間ごとの値（別名`re`・`em`の列）を読むか。読む材料は、道1本を1つのフィーチャーにする読み出しでは
+    道1本の値で読まれるが、同じ道でも区間ごとに値が違いうる。"""
+    return _SEGMENT_VALUE_REFERENCE.search(expression) is not None
 
 
 def length_weighted_mean_sql(value: str) -> str:
