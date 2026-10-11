@@ -366,6 +366,10 @@ Redisは「TTL付きキャッシュ、または実データ源へのフォール
 用途を広げたときに同居するVM全体のメモリを圧迫する。** 現行のキーはすべてTTL付きの
 ため`volatile-lru`（TTL付きキーの中からLRUで退避）を選ぶ。
 
+本番で14MBのpickleを読んだ中央値は、
+ディスク（ページキャッシュに当たる）2.0ms・Redis GET（localhost）18.9ms・ディスク（ページキャッシュに当たらない）26.3msで、
+どちらの経路でも復元（unpickle）の263.1msが支配した（本番の実測。`docs/records/tasks/T649.md`「対応方針」）。
+
 ## Docker構成
 
 `docker-compose.yml`（ルート直下）がローカル開発用に frontend / backend / postgres

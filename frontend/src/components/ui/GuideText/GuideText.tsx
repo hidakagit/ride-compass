@@ -13,7 +13,7 @@ import {
 
 // 案内の文の中で、アイコンだけのパネルの操作を「名前」で指した所を、そのボタンと同じ見た目のアイコンにして描く
 // （docs/modules/frontend/frontend-design-system.md 5-1）。名前はボタンの`aria-label`と同じにする——
-// 読み上げと吹き出しには、ボタンと同じ名前を残す。
+// 読み上げと吹き出しには、ボタンと同じ名前を残す。案内の文で新しい操作を指すときは、ここへ足す。
 const BUTTON_MARKS = new Map<string, { Icon: MapIconComponent; variant: "primary" | "secondary" }>([
   ["ルート生成", { Icon: GenerateRoutesIcon, variant: "primary" }],
   ["差分を見る", { Icon: RouteDiffIcon, variant: "secondary" }],

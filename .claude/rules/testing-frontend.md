@@ -9,100 +9,65 @@ paths:
 
 # frontendのテストの書き方
 
+番号は CLAUDE.md「原則」の番号。
+
 ## 確かめる高さ（frontend）
 
-**入口**は、対象の種類で決まる。内部のstate・フックの呼ばれ方・子へ渡した関数の同一性は見ない。
+- 入口と確かめる出力は、対象の種類ごとに次の表で決める。内部のstate・フックの呼ばれ方・子へ渡した関数の同一性は確かめない。（原則5）
 
 | 対象 | 入力 | 確かめる出力 |
 |---|---|---|
 | 部品（`*.tsx`） | props・利用者の操作（`userEvent`） | 描いたもの（role・名前・表示文言・`aria-*`の状態）と、呼ばれたコールバックの引数 |
-| フック（`use*.ts`） | 引数（`renderHook`の`rerender`で変える）・戻り値の関数を呼ぶこと | 戻り値と、backendへ送ったもの（状態を変える要求だけ。読むだけの要求は応答を与えるだけで、送ったかを見ない） |
+| フック（`use*.ts`） | 引数（`renderHook`の`rerender`で変える）・戻り値の関数を呼ぶこと | 戻り値と、backendへ送ったもの |
 | ページ（`app/**/page.tsx`） | 部品と同じ | 部品と同じ。ある機能の変化が別の機能の振る舞いを変える受け渡しを見る（[page-composition.md](../../docs/modules/frontend/page-composition.md)） |
 | 純関数（`lib/`等） | 引数 | 戻り値 |
 
-**画面の操作は、利用者の1つの流れを1本のテストにしてよい**（開く→選ぶ→送る、のような流れ。途中で何度
-確かめてもよい）。
-
-**差し替えてよいのは次の境界だけ。** 自前のフック・`lib/`の関数・定数は、表の境界（環境変数の読み取り口・ファイルを落とす関数等）を除いて、差し替えずに本物を通す。
+- 画面の操作は、利用者の1つの流れ（開く→選ぶ→送る）を1本のテストにしてよく、途中で何度確かめてもよい。（原則5）
+- **差し替えてよいのは次の境界だけ**にする。自前のフック・`lib/`の関数・定数は、表の境界（環境変数の読み取り口・ファイルを
+  落とす関数等）を除いて、差し替えずに本物を通す。（原則5）
 
 | 境界 | 差し替え方 |
 |---|---|
-| backendとの通信 | 網の層で差し替える（msw）。backendを呼ぶ口のモジュール（`services/*Api.ts`・`features/**/*Api.ts`）も、通信を包む自前のフック（`hooks/useAxisCatalog.ts: useAxisCatalog`等）も差し替えず、本物を通す（取得のキャッシュは`vitest.setup.ts`がテストごとに空にする）。応答は`frontend/src/testing/backendServer.ts`の手引きで経路ごとに与え、応答を与えていない要求はテストを落とす。口それぞれは、網の層で確かめる自分のテストを持つ |
+| backendとの通信 | 網の層で差し替える（msw。足場は`frontend/src/testing/backendServer.ts`）。backendを呼ぶ口のモジュール（`services/*Api.ts`・`features/**/*Api.ts`）も、通信を包む自前のフック（`hooks/useAxisCatalog.ts: useAxisCatalog`等）も差し替えない。口それぞれは、網の層で確かめる自分のテストを持つ |
 | 時計 | `vi.useFakeTimers()`で進める。待ち時間の定数や、待つフック（`hooks/useDebouncedValue.ts: useDebouncedValue`）を差し替えない |
-| 環境変数 | 「パターン7」 |
-| テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`）・レイアウトの実寸（`embla-carousel-*`）等。`maplibre-gl`は`frontend/src/testing/maplibre.ts`の代役へ差し替え、地図の部品は本物を描く（代役は受けたものを記録するだけで、出来事と押した所の地物はテストが起こす）。テスト環境が持つもの（`localStorage`・`navigator`の値等。環境変数は上の行）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が投げる場面を作るときは`window`のゲッター（`vi.spyOn(window, "localStorage", "get")`）を差し替え、`getItem`/`setItem`へスパイを張らない |
+| 環境変数 | 下の「パターン7」 |
+| テスト環境に無いブラウザの機能 | WebGL（`maplibre-gl`は`frontend/src/testing/maplibre.ts`の代役へ差し替え、地図の部品は本物を描く）・レイアウトの実寸（`embla-carousel-*`）等 |
 | ファイルを落とす | GPXの書き出し等、ブラウザにファイルを保存させる関数 |
 | 子の部品 | 下の条件を満たすときだけ |
 
-**子の部品は、既定では本物を描く。** 差し替えてよいのは、子の中身がテスト環境に無い境界（上の表の
-「テスト環境に無いブラウザの機能」）を要し、それを境界の側で差し替えられないときだけ。差し替えて親のテストで見るのは
-受け渡し（親の状態がどの値として子へ渡るか、子から上がった操作で親の何が変わるか）だけで、差し替えた子の表示は確かめない（子のテストが持つ）。
-
-代役は受け取ったpropsを記録し、`children`を描くだけにする。子の振る舞いを真似ない。差し替えたものと、それで見えなくなるものは、ファイル冒頭の
-「ここで見ないもの」に書く。
-
-## パターン3: フロントエンドのテスト環境 → DOM不要ならnode環境
-
-DOM（render/renderHook/window/document等）を使わない純ロジックのテストファイルは、
-ファイル先頭へ`// @vitest-environment node`docblockを付けてnode環境に倒す
-（設定ファイルの`environmentMatchGlobs`は使わない）。
-既定のDOM環境はhappy-domで、個別ファイルで`// @vitest-environment jsdom`を付ければjsdomで動く。
-
-DOMに触れないかは、そのテストファイルが`render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているかで見る
-——**テストファイル自身だけでなく、importしている実装側の関数が内部で
-`document.createElement`等を呼んでいないかも確認すること。**
+- テスト環境が持つもの（`localStorage`・`navigator`の値等）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が
+  投げる場面は、`window`のゲッターを差し替えて作り（例: `vi.spyOn(window, "localStorage", "get")`）、`getItem`/`setItem`へスパイを
+  張らない。（原則5）
+- 子の部品は本物を描く。差し替えてよいのは、子の中身がテスト環境に無い境界（上の表の「テスト環境に無いブラウザの機能」）を要し、
+  それを境界の側で差し替えられないときだけにする。そのとき親のテストで見るのは受け渡し（親の状態がどの値として子へ渡るか・
+  子から上がった操作で親の何が変わるか）だけにし、差し替えた子の表示は確かめない。（原則3・5）
+- 子の代役は、受け取ったpropsを記録して`children`を描くだけにし、子の振る舞いを真似ない。差し替えたものと、それで見えなく
+  なるものは、ファイル冒頭の「ここで見ないもの」に書く。（原則3・8）
 
 ## パターン7: 環境変数に依存する挙動のテスト → 判断を純関数へ出し、テストは環境変数に触らない
 
-frontendのvitestでは**`process.env`はテストファイルをまたいで共有される**。テストが書き換える環境変数を、そのテスト自身の
-対象以外の実装も読んでいる形を避ける（`afterEach`で戻すことで済ませない）。`process.env`ごと差し替えない（`process.env = { ...ORIGINAL }`）。
+- vitestでは`process.env`がテストファイルをまたいで共有されるので、テストが書き換える環境変数を、そのテストの対象以外の実装も
+  読む形を作らない。`afterEach`で戻して済ませない。（原則3）
+- 環境変数で分かれる判断は、環境変数を引数で受ける純関数（`lib/tileBaseUrl.ts: resolveTileBaseUrl`）へ出してそれを確かめ、
+  環境変数を読むのは分岐を持たない薄い関数（`lib/tileBaseUrl.ts: tileBaseUrl`）だけにする。（原則3・8）
+- その値を使う側のテスト（URLの組み立て等）は、環境変数を立てず、読み取り口のモジュールを差し替えて値を固定する（例:
+  `lib/tileBaseUrl.ts: tileBaseUrl`・`lib/adminBasicAuth.ts: adminBasicAuthCredentials`を`vi.mock`）。（原則3）
+- 自分のテスト対象だけが読む環境変数（`app/api/version/route.ts: GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、その対象の
+  テストが立てて（例: `vi.stubEnv`）公開の入口を呼ぶ。（原則5）
 
-**判断を、環境変数を引数で受ける純関数へ出す**。環境変数を読むのは分岐を持たない薄い関数だけに
-し、テストはその純関数を呼ぶ（`lib/tileBaseUrl.ts: resolveTileBaseUrl`。testing.md「確かめる高さ」の (a)）。
+## 取り違えうる値は、入れ替えると落ちる実例で見る
 
-```ts
-export function tileBaseUrl(): string {
-  return resolveTileBaseUrl(process.env.NEXT_PUBLIC_TILE_BASE_URL, origin());
-}
-export function resolveTileBaseUrl(configured: string | undefined, origin: string | null): string { ... }
-```
-
-その値を**使う側**のテスト（URLの組み立て等）は、`process.env`を立てず、読み取り口のモジュール（`lib/tileBaseUrl.ts: tileBaseUrl`・
-`lib/adminBasicAuth.ts: adminBasicAuthCredentials`等）を`vi.mock`して値を固定する。
-
-```ts
-vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
-```
-
-漏れは`vitest.setup.ts`が実行時に見る（テストファイルの終わりに`process.env`が開始時と違えば落ちる。`vi.stubEnv`のように
-復元されるものは通る）。自分のテスト対象だけが読む環境変数
-（`app/api/version/route.ts: GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、その対象のテストが`vi.stubEnv`で立てて公開の入口を呼ぶ。
-
-## パターン9: 期待値の出どころを選ぶ（書き写さない・素のテキストを引く・軸を取り違えない）
-
-**同じ計算を2つの言語で持つなら、期待値を手で書き写さない。** 片方（正本側）の実行結果を
-フィクスチャとして書き出し、もう片方をそれに突き合わせる。backendと画面の間の置き場と作り方は「パターン11」。
-
-**素のテキストノードは、要素として引けない。** `<span>`と`<span>`の間へ直に書かれたテキストは、
-`getByText`の完全一致ではなく正規表現で当てる。
-
-**座標のように「どの軸をどこへ渡すか」を間違えうる値は、入れ替えると別物になる実例で見る。**
-変換式を検算するテストではなく、既知の1点（例: 東京都心のz/x/y）を通して**入れ替えたら落ちる**形にする。
+- 座標のように「どの軸をどこへ渡すか」を取り違えうる値は、変換式を検算せず、既知の1点（例: 東京都心のz/x/y）を通して、
+  入れ替えたら落ちる形で確かめる。（原則11）
 
 ## パターン11: backendと画面が同じ計算を持つ → backendが「入力→答え」の表を出す
 
-同じ計算をbackend（Python）と画面（TypeScript）の両方が持つところは、backendが出す表を画面のテストが通して一致を確かめる。
-
-- **入力はbackendに置き、答えはbackendの関数が出す**。入力の並びと、それを関数へ通して表にする関数を
-  `backend/scripts/cross_language_expectations.py`に置き、同じファイルの`EXPECTATIONS`へ「組の名前 → 表を作る関数」を
-  1行足す。`backend/scripts/export_openapi.py`が組ごとに`frontend/src/types/generated/<組>-expectations.json`へ
-  書き出す（組の名前は何の計算か。例: `geo`）。表は組の中で計算ごとにキーを分けた行の並びにする。
-- **入力は答えが分かれるところを選ぶ**: 区分の境界ちょうどとその少し手前・負の値・一周を超える値・0・
-  日付変更線のような折り返し。区分の数などbackendの宣言から決まるものは、入力もそこから導く。
-- **生成物は機械によらずバイト単位で同じにする**。浮動小数の答えは、
-  CPUで最下位の桁が変わりうるなら、意味のある桁へ丸めて出す。
-- **画面のテストは表の全行を画面の関数へ当てる**。表の置き場は対象の関数の隣のテスト（例: `lib/cardinalLabel.test.ts`）で、
-  全行を回す前に表が空でないことを確かめる（testing-structure.md パターン6）。浮動小数の許す差は表に持たせず、テストの側で決める。
-- **backendの関数は、表とは別に手で書いたあるべき値のpytestで確かめる**。pytestで表を通さない。
-- **式の定数（丸めの桁・ズームの列・入力の下限等）は、表で確かめずに生成物から読む**。backendの定数を生成物（`export_openapi.py`）へ出し、画面の式は
-  それを読む（例: タイルから組む点数の丸めは`mapDisplay.valueScale.difficultyDecimals`）。一致を確かめるテストは書かない。
+- 同じ計算をbackend（Python）と画面（TypeScript）の両方が持つところは、期待値を手で書き写さず、backendが出す「入力→答え」の表
+  （`backend/scripts/cross_language_expectations.py`）を、画面のテストが全行、画面の関数へ当てる。表を読むテストは対象の関数の隣に
+  置く（例: `lib/cardinalLabel.test.ts`）。（原則3）
+- 表の入力は、答えが分かれるところ（区分の境界ちょうどとその少し手前・負の値・一周を超える値・0・日付変更線のような折り返し）を
+  選び、区分の数などbackendの宣言から決まるものは、入力もそこから導く。（原則11）
+- 表は機械によらずバイト単位で同じにし、浮動小数の答えは、CPUで最下位の桁が変わりうるなら意味のある桁へ丸めて出す。浮動小数の
+  許す差は表に持たせず、画面のテストの側で決める。（原則3）
+- 式の定数（丸めの桁・ズームの列・入力の下限等）は表で確かめず、backendの定数を生成物（`export_openapi.py`）へ出して画面の式が
+  それを読む（例: タイルから組む点数の丸めは`mapDisplay.valueScale.difficultyDecimals`）。一致を確かめるテストは書かない。（原則3・8）

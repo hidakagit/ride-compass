@@ -15,7 +15,7 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   その答えに要る最小の範囲で取る。
 - **CIが回す検査とテストを手元で回してよい場面は3つ**。どれでもなければ回さずにPull Requestへpushし（CIはPull Requestで走る）、
   CIの結論を待つ。CIに載らない`e2e-live`は下の「E2E・画面の撮影の走らせ方」。
-  1. **CIが落ちた失敗を再現して直すとき**（[testing.md](../../rules/testing.md)「テストが落ちたときの直し方」）。回すのは落ちた失敗に届く範囲だけ。
+  1. **CIが落ちた失敗を再現して直すとき**（下の「落ちたテストを緑へ戻す順番」）。回すのは落ちた失敗に届く範囲だけ。
   2. **テストそのものを書く・書き換えるとき**（新しいテスト・起こし直し・足場の作り直し）。書いた形をほかのファイルへ
      写す前に、書いたファイルが動くかを見る。回すのは書いた・直したテストファイルだけで、1ファイルを書くたびにそのファイルを回してよい。
   3. **怪しいところがあって、CIの前に念を入れて確かめたいとき**（並べ替えで落ちそうな共有の状態・時計に依存する境界等）。
@@ -36,6 +36,22 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
   - **1の再現で直すためにソースかテストを変えたら、ソースを読む検査（[testing-structure.md](../../rules/testing-structure.md)「ソースを読む検査は、専用ディレクトリへ置く」）も範囲に含める**
     （backend: `python -m pytest backend/tests/structure -q`、frontend: `./node_modules/.bin/vitest run src/structure`）。
 - **同じ作業ツリーで並行して複数のテストプロセスを走らせない**（下の「テストDBは作業ツリーごとに分かれる」）。
+
+### 落ちたテストを緑へ戻す順番
+
+落ちた状態から緑へ戻すまでの順番。順番を固定する。どのテストをどう直してよいかは
+[testing.md](../../rules/testing.md)「テストが落ちたときの直し方」が決める。
+
+1. **失敗した対象を最小コストで洗い出す。** 直前の実行ログが手元にあるなら**それを読む**。
+   出力が読めない（文字化け・打ち切り・スクロールで流れた）なら、操作をやり直すのではなく
+   **判定している側を直接見る**——フックならそのスクリプトを読む、CIなら失敗したジョブの
+   ログを取る、検査なら検査単体を対象を絞って走らせる。
+2. **失敗の原因を洗い出す。** テスト名や件数ではなく、`AssertionError`の中身・例外の種類・
+   実際に渡された値まで取る。**「なぜ落ちたか」は1とは別に取る。**
+3. **同根のものだけをまとめて直す。** 束ねられないなら2へ戻る。複数ファイルを直すときは、1ファイルの失敗が残りを
+   巻き添えにしない形（ファイルごとに独立）で当て、**どれが変わってどれが変わらなかったかを出力に残す**。
+4. **3で触った範囲だけを確かめる。** 当て方は上の「回すときは」の箇条（テストと静的検査の両方・静的検査を先に・ソースを読む検査も範囲に）。
+   3・4を繰り返し、全部解けたらpushして、全体はCIで見る。
 
 ## 検査の置き場（手元・作業ブランチのCI・masterのCI）
 
@@ -61,6 +77,9 @@ description: "検査とテストを手元・作業ブランチのCI・masterのC
 - 同じコミットに複数の実行が混ざるので、ワークフローごとに`run_number`が最大の1件を採る。
 - ジョブのログは署名付きの別のURLへの302で返る。認証の見出しを転送先へ渡さない（Pythonの`urllib`では
   `Request.add_unredirected_header`で付ける）。
+
+CIで落ちたhypothesisの例は、出力の`@reproduce_failure`をテストへ一時的に付けて手元で再現し、残すなら`@example`にする
+（CIは見つけた失敗の例を残さない。`backend/tests/conftest.py`の設定の登録の上のコメント）。
 
 ### 型検査（mypy）
 
@@ -202,9 +221,6 @@ gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=<�
   測った版のチェックアウトの `backend/` で `python scripts/mutation/analyze.py <場所> [当て直しの成果物の場所]` を打つ。
 - **ランナーが止まった・段が落ちたとき**は、test-review スキルの3の「落ちたとき」のとおりにやり直す。
 - **開発機では回さない**。
-- **測れない形**: 関数の外（モジュールの直下の表・定数・既定値）、`app/domain/routing.py`とログ・警告の行（`setup.cfg`で外している）、
-  部分どうしのつなぎの食い違い（1つの関数の中の書き換えではないもの）。そこを確かめるテストは、変異を見つけないように
-  見えても要らないとは言えない。
 
 ## E2E・画面の撮影の走らせ方
 
@@ -228,6 +244,7 @@ gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=<�
 - アプリを開かないspec（`playwright.no-server.config.ts: testMatch`）は、ビルドもサーバーの起動も無しで
   `./node_modules/.bin/playwright test -c playwright.no-server.config.ts`で回せる。CIは`playwright.config.ts`でこれらも回す。
 - 開発機ではworkers=1で走る（`playwright.config.ts`）。
+- 落ちたテストのその時点の画面構造は`test-results/<テスト名>/error-context.md`に出る（ロケータの実際の名前はここで確かめる）。
 - **実データ・実backendで見る系統は、`frontend/e2e-live/`に置き、`playwright.live.config.ts`で
   走らせる。CIには載せない。** モックで決定的に回す`frontend/e2e/`と同じ場所に混ぜない。
   - **見るもの**: モック（`e2e/fixtures.ts: installApiMocks`）が本物の代わりに返しているもの——

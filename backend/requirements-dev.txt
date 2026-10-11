@@ -23,7 +23,7 @@ pytest-cov==6.0.0
 pytest-testmon==2.2.0
 pytest-randomly==5.0.0
 pytest-timeout==2.4.0
-# テストの網・時計・Redisの代役。使い方は.claude/rules/testing-scaffold.md「パターン5」。
+# テストの網・時計・Redisの代役。使い方は`backend/tests/fake_http.py`の先頭と、`backend/tests/conftest.py`の`clock`・`fake_redis`。
 # いずれも開発・CIでだけ使い、本番のイメージには入らない（respx・fakeredisはBSD-3-Clause、freezegunはApache-2.0）。
 respx==0.23.1
 freezegun==1.5.5

@@ -111,7 +111,7 @@ FastAPI(lifespan=lifespan)
         │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
         ├─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
         │       （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
-        │       タイミングに当たる、.claude/rules/caching-retention.md「無効化」参照）
+        │       タイミングに当たる、routing-engine.md「道路網全体の配列」参照）
         └─ (7) 同じくAPSchedulerで地域タイルの旧世代掃除ジョブを登録（interval=24時間＋
                 next_run_time=now。世代は派生の作り直し・取込でも再起動なしに変わるため定期に回す。
                 [静的道路属性](static-road-attributes.md)「共通骨格」の旧世代の掃除）
@@ -146,7 +146,7 @@ FastAPI(lifespan=lifespan)
 `apscheduler.executors.default`へスタックトレース付きのERRORで出す。そのうえで`main.py`の
 `_log_job_failure`（`EVENT_JOB_ERROR`の受け口）が`ridecompass.scheduler`へジョブidと例外を
 1行のWARNINGで出す——APScheduler側の名前は接頭辞`ridecompass.`から外れ、接頭辞単位で
-レベルを絞ると漏れるため（[logging.md](../../../.claude/rules/logging.md)「その他の運用上の注意」）。
+レベルを絞ると漏れるため（接頭辞は`test_canonical_definitions.py: test_loggers_use_the_documented_prefix`が見る）。
 スケジューラも受け口もlifespanの中で作って付けるので、lifespanを通るたびに同じ受け口の付いた新しいスケジューラになる。
 
 ## 1プロセスの境界（`single_process.py`）
@@ -267,7 +267,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
 | `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at`・`admin_data_backup_age_hours`（管理データのバックアップが最後に置けてからの時間。記録が無いか印のファイルが読めなければnull（読めない理由はWARNINGのログ）。下の「取り直せない管理データのバックアップ」） |
-| `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数）と、予報（MSM）の同期の鮮度 |
+| `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数）と、予報（MSM）の同期の鮮度。集計はプロセス内のカウンタで、デプロイ・再起動で0へ戻る（起点は`started_at`） |
 
 どちらも集計値だけで機微情報を含まないため無認証。本番DBがコードの期待に追いついているか
 （取込runの成否・テーブルの実数・統計とVACUUM）は、管理APIの`GET /api/admin/db-status`
@@ -313,7 +313,7 @@ JSONは`get_json`/`set_json`、バイナリは`get_bytes`/`set_bytes`、観測�
 
 新しくRedisへ持つキャッシュはこれを使う（例: 気象庁タイル本体の`jma_tile_redis_cache`・在否インデックスの
 `jma_tile_index`・アメダスの`jma_amedas_store`）。タイル本体は値がバイナリ（PNG/PBF）なので`get_bytes`/`set_bytes`に乗せている。
-骨格に無い操作が要るときは骨格へ口を足す（.claude/rules/caching-retention.md「Redisへ持つときは`redis_json_cache`を使う」）。
+骨格に無い操作が要るときは骨格へ口を足す（骨格を呼び出し元へ写すと`test_redis_skeleton.py`が落とす）。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 
