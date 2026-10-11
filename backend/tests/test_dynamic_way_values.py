@@ -246,18 +246,36 @@ def test_a_way_painted_with_a_signed_material_keeps_the_band_of_the_route_and_th
 
 
 def test_a_way_undetermined_by_bearing_stays_so_and_a_way_without_segments_keeps_its_own_value():
-    """向きで決まらない道は「向きで決まらない」のまま、区間の無い道（区間を作れない道）は道1本の値で塗る。"""
+    """向きで決まらない道は「向きで決まらない」のまま、区間の無い道（区間を作れない道）は道1本の値で塗り、その後ろの道も
+    塗る。"""
     keys, materials, served, segments, served_segments = _segment_tile()
-    keys = [*keys, "way-4"]
-    materials = {material_id: np.append(column, 7.0) for material_id, column in materials.items()}
     served = {"seg_grade": {**served["seg_grade"], "way-1": None}}
+    without = paint_folded_feature_values("axis_cover", FOLDED_AXES, keys, materials, served, segments, served_segments)
+    keys = ["way-4", *keys]
+    materials = {material_id: np.insert(column, 0, 7.0) for material_id, column in materials.items()}
 
     painted = paint_folded_feature_values("axis_cover", FOLDED_AXES, keys, materials, served, segments, served_segments)
     graded = paint_folded_feature_values("axis_grade", FOLDED_AXES, keys, materials, served, segments, served_segments)
 
-    assert painted["way-4"] == paint_feature_values("axis_cover", FOLDED_AXES, ["way-4"], {
-        material_id: column[-1:] for material_id, column in materials.items()}, {})["way-4"]
+    assert painted == {**without, "way-4": paint_feature_values("axis_cover", FOLDED_AXES, ["way-4"], {
+        material_id: column[:1] for material_id, column in materials.items()}, {})["way-4"]}
     assert graded["way-1"] is None
+
+
+def test_segments_of_a_way_the_tile_does_not_paint_change_no_other_way():
+    """配信が値を返さなかった道（勾配の地図で向きの定まらない道等）は、区間があっても塗る道に入らず、ほかの道の値を
+    変えない。"""
+    keys, materials, served, segments, served_segments = _segment_tile()
+    whole = paint_folded_feature_values("axis_grade", FOLDED_AXES, keys, materials, served, segments, served_segments)
+    kept = [row for row, key in enumerate(keys) if key != "way-2"]
+
+    painted = paint_folded_feature_values(
+        "axis_grade", FOLDED_AXES, [keys[row] for row in kept],
+        {material_id: column[kept] for material_id, column in materials.items()},
+        {"seg_grade": {key: value for key, value in served["seg_grade"].items() if key != "way-2"}},
+        segments, served_segments)
+
+    assert painted == {key: value for key, value in whole.items() if key != "way-2"}
 
 
 def test_a_tile_without_ways_paints_nothing():
