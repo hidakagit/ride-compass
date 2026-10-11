@@ -150,13 +150,15 @@ FOLDED_AXES = {axis.axis_id: axis for axis in [
     _axis("axis_grade", _line("seg_grade", preprocess="abs", breakpoints=((0.0, 0.0), (3.0, 30.0), (10.0, 100.0)))),
 ]}
 
-#: 道ごとの区間（長さm・割合・向きを付けた勾配・1kmあたりの回数）。値の無い区間と、上りと下りが打ち消す道を含む。
+#: 道ごとの区間（長さm・割合・向きを付けた勾配・1kmあたりの回数）。値の無い区間と、割合の値が1つも無い道（先頭）と、
+#: 上りと下りが打ち消す道を含む。
 WAYS = {
+    "way-0": [(200.0, np.nan, 4.0, 2.0), (100.0, np.nan, 2.0, 0.0)],
     "way-1": [(120.0, 4.0, 6.0, 0.0), (35.0, 30.0, -9.0, 28.6), (300.0, np.nan, 1.0, 3.3), (80.0, 12.0, np.nan, 0.0)],
-    "way-2": [(400.0, 2.0, -2.5, 5.0)],
+    "way-2": [(400.0, 2.0, -2.5, 5.0), (100.0, 6.0, np.nan, 0.0)],
     "way-3": [(60.0, 50.0, 8.0, 0.0), (60.0, 0.0, -8.0, 16.7)],
 }
-WAY_NUM = {"way-1": 3.0, "way-2": 0.0, "way-3": 10.0}
+WAY_NUM = {"way-0": 1.0, "way-1": 3.0, "way-2": 0.0, "way-3": 10.0}
 
 
 def _segment_tile():
@@ -215,7 +217,8 @@ def _route_values(segments: FeatureSegments, grade: np.ndarray) -> dict[str, dic
 
 
 # 引いた地図の道の色が、その道をルートとして走ったときのルートの値と同じ決まりで出る。食い違うと、地図で良く見えた道を
-# 走ったルートが悪い値になる（区間ごとに値の違う割合・勾配と、それを読む軸を参照する軸と、密度の軸）。
+# 走ったルートが悪い値になる（区間ごとに値の違う割合・勾配と、それを読む軸を参照する軸と、密度の軸）。値の無い道は、
+# ルートの値にも無く、塗らない。
 @pytest.mark.parametrize("axis_id", [axis_id for axis_id, axis in FOLDED_AXES.items()
                                      if axis.is_published and axis_id != "axis_grade"])
 def test_a_way_is_painted_with_the_value_of_a_route_along_its_segments(axis_id):
@@ -224,12 +227,12 @@ def test_a_way_is_painted_with_the_value_of_a_route_along_its_segments(axis_id):
 
     painted = paint_folded_feature_values(axis_id, FOLDED_AXES, keys, materials, served, segments, served_segments)
 
-    assert painted == {key: expected[key][axis_id] for key in keys}
+    assert painted == {key: values[axis_id] for key, values in expected.items() if axis_id in values}
 
 
 def test_a_way_painted_with_a_signed_material_keeps_the_band_of_the_route_and_the_direction_of_the_whole_way():
     """勾配の地図は、道1本の色の段がルートの勾配の値と同じ段になり、上りか下りかは道全体で決まる。上って下る道
-    （way-3）が平坦の色になると、坂のある道が平坦に見える。"""
+    （way-3）が平坦の色になると、坂のある道が平坦に見える。向きは値の無い区間を除いて決める（way-2）。"""
     keys, materials, served, segments, served_segments = _segment_tile()
     expected = _route_values(segments, served_segments["seg_grade"])
     shape = FOLDED_AXES["axis_grade"].shape
@@ -238,7 +241,7 @@ def test_a_way_painted_with_a_signed_material_keeps_the_band_of_the_route_and_th
 
     assert {key: shape.score_at(abs(value)) for key, value in painted.items()} == {
         key: expected[key]["axis_grade"] for key in keys}
-    assert {key: np.sign(value) for key, value in painted.items()} == {"way-1": 1.0, "way-2": -1.0, "way-3": 1.0}
+    assert {key: np.sign(value) for key, value in painted.items()} == {"way-0": 1.0, "way-1": 1.0, "way-2": -1.0, "way-3": 1.0}
     assert painted["way-3"] >= 3.0
 
 
@@ -255,3 +258,15 @@ def test_a_way_undetermined_by_bearing_stays_so_and_a_way_without_segments_keeps
     assert painted["way-4"] == paint_feature_values("axis_cover", FOLDED_AXES, ["way-4"], {
         material_id: column[-1:] for material_id, column in materials.items()}, {})["way-4"]
     assert graded["way-1"] is None
+
+
+def test_a_tile_without_ways_paints_nothing():
+    """取込範囲の中で道の無いタイル（海等）は、何も塗らずに返す。"""
+    empty = np.empty(0)
+    segments = FeatureSegments(feature_keys=(), distance_m=empty, feature_bearing_deg=empty,
+                               columns={"seg_cover": empty, "seg_count": empty})
+    materials = {"seg_cover": empty, "seg_count": empty, "way_num": empty}
+
+    painted = paint_folded_feature_values("axis_cover", FOLDED_AXES, [], materials, {}, segments, {"seg_grade": empty})
+
+    assert painted == {}

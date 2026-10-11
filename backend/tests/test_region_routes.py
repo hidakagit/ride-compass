@@ -472,8 +472,10 @@ TAG_AXES = {
 
 
 # 配信は印の無い軸にも、タイルの材料から探索と同じ評価で値を返す。返さないと、画面がその軸を配信で塗る形へ
-# 切り替えたとき、タイルから式を組んで塗っていた道がすべて「データなし」になる。
-def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_tile():
+# 切り替えたとき、タイルから式を組んで塗っていた道がすべて「データなし」になる。道のタグだけで決まる軸は、引いた地図
+# （道1本で塗るズーム）でも区間を読まずに塗る（区間を読む口は、ここでは取込範囲外を答える）。
+@pytest.mark.parametrize("z", [EDGE_UNIT_MIN_ZOOM, EDGE_UNIT_MIN_ZOOM - 1])
+def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_tile(z):
     materials = FeatureMaterials(
         feature_keys=("1", "2", "3"),
         columns={"surface_class": CategoricalColumn.encode(["paved", "unpaved", None])},
@@ -481,7 +483,7 @@ def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_ti
     with replaced_axis_definitions(TAG_AXES):
         app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens("axis_tag_reference", {}, materials)
         try:
-            response = client.get("/api/region/dynamic-way-values/axis_tag_reference/14/14551/6447")
+            response = client.get(f"/api/region/dynamic-way-values/axis_tag_reference/{z}/7275/3225")
         finally:
             app.dependency_overrides.clear()
 
