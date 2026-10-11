@@ -28,11 +28,8 @@ from datetime import datetime, timezone
 DERIVED = derived_tables()
 
 
-def on_postgis(test):
-    """DBで確かめるテストにだけ付ける。ほかのテストはDBの無い環境でも走る。"""
-    for mark in (pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis):
-        test = mark(test)
-    return test
+#: DBで確かめるテストにだけ付ける（接続とイベントループをファイルで共有する。testing-backend.md パターン2）。
+on_postgis = pytest.mark.asyncio(loop_scope="module")
 
 
 # --- 対象の導出 -------------------------------------------------------------

@@ -90,7 +90,7 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     """
     try:
         definitions = await repository.list_all()
-    except Exception as exc:  # noqa: BLE001 fail-fast用に専用の例外へラップして再送出する
+    except Exception as exc:  # fail-fast用に専用の例外へラップして再送出する
         raise AxisDefinitionSyncError(f"軸定義のDB読み込みに失敗しました error={exc!r}") from exc
     problem = _loading_problem(definitions)
     if problem is not None:

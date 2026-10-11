@@ -89,7 +89,7 @@ def build_table_sql(table) -> str:
     列名は宣言からのみ組み立てる（外部入力を連結しない）。
     """
     counts = [f"count(*) FILTER (WHERE {name} IS NULL) AS nulls_{name}" for name in value_columns(table)]
-    return f"SELECT {', '.join(['count(*) AS row_count', *counts])} FROM {table.name}"  # noqa: S608 宣言のみ
+    return f"SELECT {', '.join(['count(*) AS row_count', *counts])} FROM {table.name}"  # 宣言のみ
 
 
 #: 取込か作り直しの記録にあるソースごとに、作り直しに使った取込と成功した最新の取込。

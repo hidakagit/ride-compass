@@ -15,11 +15,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-import _prod_env  # noqa: E402
-import run_probe  # noqa: E402
-from tests.conftest import postgis_database_url  # noqa: E402
+import _prod_env
+import run_probe
+from tests.conftest import postgis_database_url
 
-pytestmark = [pytest.mark.postgis, pytest.mark.xdist_group(name="postgis")]
+#: 繋ぐ先のテストDBを用意させる。
+pytestmark = pytest.mark.usefixtures("road_graph_engine")
 
 
 @pytest.fixture(autouse=True)

@@ -45,11 +45,7 @@ from app.domain.road import SurfaceClass, TrackGrade
 from app.infrastructure.source_models import WAYS_SOURCE_SQL
 from tests.source_ingest import ingest_records, way_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 async def _ingest_ways(tags_by_way: dict[int, dict[str, str]]) -> None:

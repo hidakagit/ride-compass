@@ -48,7 +48,7 @@ from tests.source_ingest import (
     point_record,
 )
 
-pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: 対象範囲（関東）。道路の取込が宣言した範囲から読まれる。
 AREA = BoundingBox(min_latitude=34.9, min_longitude=138.4, max_latitude=37.2, max_longitude=140.9)

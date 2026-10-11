@@ -344,7 +344,7 @@ async def _create_database_if_absent(name: str, owner_path: str) -> bool:
     return True
 
 
-#: この実行の接続先。`pytest_collection_modifyitems`が1回だけ決める。
+#: この実行の接続先。`pytest_collection_finish`が1回だけ決める。
 _RESOLVED_DATABASE_URL: str | None = None
 
 
@@ -355,6 +355,12 @@ def postgis_database_url() -> str:
     作れない環境では共有DBへ退避する）。名前を`test_`で始めないのは、pytestが
     テスト関数として収集してしまうため。
     """
+    if _RUNNING_ITEM is not None and _RUNNING_ITEM.get_closest_marker("postgis") is None:
+        pytest.fail(
+            f"{_RUNNING_ITEM.nodeid} がDBの印の無いままテストDBへつなごうとした。"
+            f"{DATABASE_FIXTURE}（を使うフィクスチャ）を取れば印が付く",
+            pytrace=False,
+        )
     if _RESOLVED_DATABASE_URL is not None:
         return _RESOLVED_DATABASE_URL
     # フックを経ていない呼び出し（pytest外からのimport等）。DBを作らずに行き先だけ答える。
@@ -388,7 +394,7 @@ def _prepare_worktree_database() -> str:
     name = default_test_database_name(WORKTREE_ROOT)
     try:
         created = asyncio.run(_create_database_if_absent(name, str(WORKTREE_ROOT)))
-    except Exception as exc:  # noqa: BLE001 作れない理由はそのまま伝える
+    except Exception as exc:  # 作れない理由はそのまま伝える
         print(
             f"作業ツリー専用のテストDBを用意できないため、共有の{SHARED_TEST_DATABASE}を使います"
             f"（並行セッションと衝突しうる）: {exc}\n"
@@ -400,19 +406,61 @@ def _prepare_worktree_database() -> str:
     return f"{TEST_DATABASE_SERVER}/{name}"
 
 
+#: テストDBへつなぐ足場の根。これを（フィクスチャを経て間接にでも）使うテストに、DBの印を付ける。
+DATABASE_FIXTURE = "road_graph_engine"
+
+#: 準備か本体を走らせているテスト。DBの印の無いテストがテストDBへつなぐのを`postgis_database_url`で止める。
+_RUNNING_ITEM: pytest.Item | None = None
+
+
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
+    """テストDBへつなぐテストに、DBの印（`-m`で選ぶ`postgis`と、1つのワーカーへ寄せる`xdist_group`）を付ける。
+
+    先に動くのは、`-m`の選り分けとpytest-xdistの`--dist loadgroup`が同じフックで印を読むから。
+    """
+    for item in items:
+        if DATABASE_FIXTURE in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.postgis)
+            item.add_marker(pytest.mark.xdist_group(name="postgis"))
+
+
+@contextmanager
+def _running(item):
+    global _RUNNING_ITEM
+    _RUNNING_ITEM = item
+    try:
+        yield
+    finally:
+        _RUNNING_ITEM = None
+
+
+# 後片付けは見ない。ファイル単位のフィクスチャは、印の無いテストの後片付けの中で片付くことがある。
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    with _running(item):
+        return (yield)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    with _running(item):
+        return (yield)
+
+
+def pytest_collection_finish(session):
     """PostGISテストが1件でも選ばれていれば、この実行の接続先を決めて用意する。
 
     ここで済ませるのは、**同期のまま・イベントループの外で・1回だけ**行える唯一の場所だから
     （`asyncio.run`は実行中のループの中からは呼べず、フィクスチャの中では遅い）。
-    `-m "not postgis"`の実行には接続を1本も足さない。
+    `-m`の選り分けのあとに動くので、`-m "not postgis"`の実行には接続を1本も足さない。
     """
     global _RESOLVED_DATABASE_URL
     explicit = os.environ.get("TEST_DATABASE_URL")
     if explicit:
         _RESOLVED_DATABASE_URL = explicit
         return
-    if not any(item.get_closest_marker("postgis") for item in items):
+    if not any(item.get_closest_marker("postgis") for item in session.items):
         return
     _RESOLVED_DATABASE_URL = _prepare_worktree_database()
 
@@ -438,7 +486,7 @@ async def road_graph_engine():
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-    except Exception as exc:  # noqa: BLE001 接続できない理由はそのまま伝える
+    except Exception as exc:  # 接続できない理由はそのまま伝える
         await engine.dispose()
         # URLはそのまま出さない（パスワードを含む）。行き先はDB名で足りる。
         database = postgis_database_url().rsplit("/", 1)[-1]
@@ -453,7 +501,7 @@ async def road_graph_engine():
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     await create_tables(engine)
     # create_tables()は在る表を直さないので、前の実行が宣言と違う形で残した表（表を入れ替える実装を壊して回した・

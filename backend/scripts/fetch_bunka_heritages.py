@@ -28,9 +28,9 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import FETCH_PART_SUFFIX, format_duration  # noqa: E402
-from app.batch.source_adapters.bunka_heritages import heritages_path  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.common import FETCH_PART_SUFFIX, format_duration
+from app.batch.source_adapters.bunka_heritages import heritages_path
+from app.batch.source_profile import load_source_profile
 
 logger = logging.getLogger("ridecompass.fetch_bunka_heritages")
 

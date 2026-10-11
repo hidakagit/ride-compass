@@ -42,7 +42,7 @@ def recolored(path: str, content: bytes) -> bytes:
         return content
     try:
         return _recolor_palette(path, content)
-    except Exception as exc:  # noqa: BLE001 壊れた画像・未知の形式で取得そのものを落とさない
+    except Exception as exc:  # 壊れた画像・未知の形式で取得そのものを落とさない
         log_throttled_warning(
             "jma:tile-recolor", "気象庁の降水のタイルを塗り替えられませんでした path=%s error=%r", path, exc
         )

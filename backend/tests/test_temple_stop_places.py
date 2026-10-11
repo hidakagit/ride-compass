@@ -20,11 +20,7 @@ from app.batch.source_profile import load_source_profile
 from app.domain.geo import km_per_degree_longitude
 from app.infrastructure.source_models import Source
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 PROFILE = load_source_profile(None)
 ROWS: bunka_heritages.BunkaHeritageRows = PROFILE.source(Source.BUNKA_HERITAGE).rows

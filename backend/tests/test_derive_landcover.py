@@ -24,12 +24,8 @@ from app.domain.region import WEB_MERCATOR_HALF_M, tile_bounds_3857, tile_bounds
 from tests.source_ingest import ingest_records, tile_record, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
-# loop_scope="module"・xdist_group="postgis"が必須。
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+# loop_scope="module"が必須。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: 1辺が約2.4kmのタイル。中央に置いた道の帯（中心線から100m）はこの1枚に収まる。
 ZOOM, X, Y = 14, 14550, 6451

@@ -37,7 +37,7 @@ def get(path: str) -> tuple[bytes, str] | None:
     """キャッシュ済みなら(内容, Content-Type)を返す。未キャッシュ・読めないときはNone（呼び出し元が取り直す）。"""
     try:
         return _opened().get(path)
-    except Exception as exc:  # noqa: BLE001 ディスク・SQLiteの障害と壊れた項目は、いずれも未キャッシュ扱いにする
+    except Exception as exc:  # ディスク・SQLiteの障害と壊れた項目は、いずれも未キャッシュ扱いにする
         log_throttled_warning(_CATEGORY, "tile cache read failed for path=%s, treating as cache miss error=%r", path, exc)
         return None
 
@@ -46,7 +46,7 @@ def set(path: str, content: bytes, content_type: str) -> None:
     """書き込みの失敗（ディスクフル等）は警告だけにする——キャッシュに書けないことが配信を止める理由にはならない。"""
     try:
         _opened().set(path, (content, content_type))
-    except Exception as exc:  # noqa: BLE001 ディスクフル・権限・SQLiteの障害のいずれも吸収する
+    except Exception as exc:  # ディスクフル・権限・SQLiteの障害のいずれも吸収する
         log_throttled_warning(_CATEGORY, "tile cache write failed for path=%s (disk full/permission?) error=%r", path, exc)
 
 
@@ -60,7 +60,7 @@ def delete_where(is_stale: Callable[[str], bool]) -> int:
         cache = _opened()
         stale = [key for key in cache.iterkeys() if is_stale(key)]
         return sum(1 for key in stale if cache.delete(key))
-    except Exception as exc:  # noqa: BLE001 ディスク・SQLiteの障害は、消さずに残すことへ倒す
+    except Exception as exc:  # ディスク・SQLiteの障害は、消さずに残すことへ倒す
         log_throttled_warning(_CATEGORY, "tile cache prune failed, stale entries are kept error=%r", exc)
         return 0
 

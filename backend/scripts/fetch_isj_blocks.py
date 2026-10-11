@@ -21,10 +21,10 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import fetch_verified  # noqa: E402
-from app.batch.source_adapters.estat_small_area import range_prefectures  # noqa: E402
-from app.batch.source_adapters.isj_block import DOWNLOAD_URL, archive_path, read_rows  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.common import fetch_verified
+from app.batch.source_adapters.estat_small_area import range_prefectures
+from app.batch.source_adapters.isj_block import DOWNLOAD_URL, archive_path, read_rows
+from app.batch.source_profile import load_source_profile
 
 logger = logging.getLogger("ridecompass.fetch_isj_blocks")
 

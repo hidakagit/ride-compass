@@ -24,11 +24,7 @@ from app.domain.axis_definitions import (
 )
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 def _linear(axis_id: str, **overrides) -> AxisDefinition:

@@ -45,12 +45,8 @@ from tests.conftest import empty_ingested_tables
 from tests.source_ingest import gsi_dem_png, ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
-# loop_scope="module"・xdist_group="postgis"が必須。
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+# loop_scope="module"が必須。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: タイルT。x・yとも偶数なので、z14の親タイルの左上の4分の1に当たる。
 ZOOM, X, Y = 15, 29100, 12902

@@ -49,7 +49,7 @@ async def _get(
     with log_external_call(category, **log_fields) as fields:
         try:
             raw = await read(client)
-        except Exception as exc:  # noqa: BLE001 Redis障害は「取れない」へのfail-open対象
+        except Exception as exc:  # Redis障害は「取れない」へのfail-open対象
             record_redis_failure()
             mark_failed(fields, exc)
             return UNAVAILABLE
@@ -71,7 +71,7 @@ async def _set(
     with log_external_call(category, **log_fields) as fields:
         try:
             await write(client)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             record_redis_failure()
             mark_failed(fields, exc)
             return

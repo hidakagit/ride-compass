@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from measure_axis_saturation import (  # noqa: E402
+from measure_axis_saturation import (
     largest_single_input_share,
     saturation_cause,
     share_at_or_above,

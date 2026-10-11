@@ -13,10 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy.engine import make_url  # noqa: E402
+from sqlalchemy.engine import make_url
 
-from app.config import settings  # noqa: E402
-from app.infrastructure.orm_base import IRREPLACEABLE_KEY, declared_metadata  # noqa: E402
+from app.config import settings
+from app.infrastructure.orm_base import IRREPLACEABLE_KEY, declared_metadata
 
 
 def dump_args(database_url: str) -> list[str]:

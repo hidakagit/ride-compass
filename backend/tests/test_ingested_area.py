@@ -13,11 +13,7 @@ import pytest
 from app.domain.region import BoundingBox
 from tests.source_ingest import ingest_records, point_record, way_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 def _box(min_lat: float, min_lon: float, max_lat: float, max_lon: float) -> BoundingBox:

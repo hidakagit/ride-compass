@@ -2,8 +2,9 @@
 
 履歴は一時的なgitリポジトリで作る。
 
-ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`と、`size`の表・発火は
-周期レビューで人が読む出力で、ここでは通さない。`size`の「閾値の見直し」と、種類ごとの上限に当たるファイルへ置いた
+ここで見ないもの: `docs`はCI（Docs Consistency）が本物のリポジトリへ毎回流す。`trigger`の中身と、`size`の表・発火は
+周期レビューで人が読む出力で、ここでは通さない。`trigger`が発火したときだけ出す形は、誰も読まないセッションの始まりの
+フックが使うので通す。`size`の「閾値の見直し」と、種類ごとの上限に当たるファイルへ置いた
 ファイルごとの閾値を無視することは、緩んだ閾値に誰も気づかなくなるので通す。
 """
 
@@ -167,3 +168,16 @@ def test_size_holds_code_to_the_kind_limit_beyond_the_external_maximum(repo, mon
     assert "| app/over.ts | 301 | - | 新規 | 300 | 100% | 閾値300超過 |" in out
     assert "| frontend/src/types/generated/api.d.ts | 400 | - | 新規 | 500 | 80% |  |" in out
     assert "種類ごとの上限に当たるファイルごとの閾値（無視した。上限は instruction_limits・code_limits だけ） 1件: app/over.ts" in out
+
+
+@pytest.mark.parametrize("changed_lines, fired", [(rc.TRIGGER_IMPL_LINES - 1, False), (rc.TRIGGER_IMPL_LINES, True)])
+def test_trigger_for_the_session_start_says_nothing_until_it_fires(repo, capsys, changed_lines, fired):
+    # セッションの始まりのフックは発火したときだけ文脈へ出す。発火を出し損ねると、周期レビューに誰も気づかない。
+    _commit(repo, {"backend/a.py": "a\n"})
+    git(repo, "tag", f"{rc.REVIEW_TAG_PREFIX}001")
+    _commit(repo, {"backend/a.py": "a\n" + "b\n" * changed_lines})
+
+    assert rc.cmd_trigger(argparse.Namespace(only_fired=True)) == 0
+    out = capsys.readouterr().out
+
+    assert ("判定: **該当（変更行数）**" in out) if fired else out == ""

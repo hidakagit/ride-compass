@@ -25,8 +25,8 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import fetch_verified  # noqa: E402
-from app.batch.source_adapters.abr import (  # noqa: E402
+from app.batch.common import fetch_verified
+from app.batch.source_adapters.abr import (
     NATIONWIDE_ARCHIVES,
     archive_path,
     archive_url,
@@ -34,7 +34,7 @@ from app.batch.source_adapters.abr import (  # noqa: E402
     prefectures_in_range,
     read_rows,
 )
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.source_profile import load_source_profile
 
 logger = logging.getLogger("ridecompass.fetch_abr")
 

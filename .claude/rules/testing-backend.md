@@ -83,13 +83,6 @@ test_routes_generate.py
 実例: test_material_values.py（road_graph_sessionを直接使う）, test_derive_topology.py（自前の
 module fixtureを重ねる）
 
-**xdist_group="postgis"（必須）**:
-road_graph_session系フィクスチャを使うテスト（ファイルまたは個別テスト関数）には必ず
-`pytest.mark.xdist_group(name="postgis")`と`pytest.mark.postgis`（`pytest.ini`の`markers`に登録済み）の両方を付け、
-`pytestmark`が既にリストでなければ
-`pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]`
-の形にする。
-
 ## パターン8: テストが用意する状態は、本番で起こりうるものに限る
 
 DBの制約・取込の順序から**作れない状態**をテストで作らない。

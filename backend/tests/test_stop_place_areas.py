@@ -24,11 +24,7 @@ from app.batch.source_profile import Target, load_source_profile
 from app.infrastructure.source_models import Source
 from tests.source_ingest import ingest_records, point_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: 取込の範囲（min_lat, min_lon, max_lat, max_lon）。
 BBOX = (35.40, 139.20, 36.10, 140.00)

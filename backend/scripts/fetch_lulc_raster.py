@@ -23,9 +23,9 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import fetch_verified  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.infrastructure.proj_data import pin_bundled_proj_data  # noqa: E402
+from app.batch.common import fetch_verified
+from app.config import settings
+from app.infrastructure.proj_data import pin_bundled_proj_data
 
 pin_bundled_proj_data()
 

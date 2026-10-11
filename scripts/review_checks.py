@@ -393,23 +393,26 @@ def cmd_metrics(args: argparse.Namespace) -> int:
 
 def cmd_trigger(args: argparse.Namespace) -> int:
     tags = review_tags()
-    print("## 周期レビュー トリガー判定")
+    report = ["## 周期レビュー トリガー判定"]
     if not tags:
-        print(f"- 前回レビューのタグ（{REVIEW_TAG_PREFIX}*）が無い")
-        print("\n判定: **該当**（前回の記録が無い。実施してタグを打つ）")
+        report.append(f"- 前回レビューのタグ（{REVIEW_TAG_PREFIX}*）が無い")
+        report.append("\n判定: **該当**（前回の記録が無い。実施してタグを打つ）")
+        print("\n".join(report))
         return 0
     name, sha, day = tags[0]
     fired = []
     days = (dt.datetime.now(tz=dt.timezone.utc).date() - day).days if day else None
-    print(f"- 前回レビュー: {name} / {day}（{days}日経過、閾値 {TRIGGER_DAYS}日）")
+    report.append(f"- 前回レビュー: {name} / {day}（{days}日経過、閾値 {TRIGGER_DAYS}日）")
     if days is not None and days >= TRIGGER_DAYS:
         fired.append("日数")
     lines = code_churn(sha)
-    print(f"- コードの変更行数（{sha[:7]}..HEAD）: {lines:,}行（閾値 {TRIGGER_IMPL_LINES:,}）")
+    report.append(f"- コードの変更行数（{sha[:7]}..HEAD）: {lines:,}行（閾値 {TRIGGER_IMPL_LINES:,}）")
     if lines >= TRIGGER_IMPL_LINES:
         fired.append("変更行数")
-    print()
-    print("判定: " + (f"**該当（{'・'.join(fired)}）** → /review を実施する" if fired else "未該当"))
+    report.append("")
+    report.append("判定: " + (f"**該当（{'・'.join(fired)}）** → /review を実施する" if fired else "未該当"))
+    if fired or not args.only_fired:
+        print("\n".join(report))
     return 0
 
 
@@ -473,10 +476,12 @@ def main() -> int:
     for name, help_text, func, measures_head in (
         ("docs", "文書の整合（常に全件）", cmd_docs, False),
         ("metrics", "定量メトリクスと総量の前回比", cmd_metrics, True),
-        ("trigger", "周期レビューの発火判定", cmd_trigger, True),
     ):
         p = sub.add_parser(name, help=help_text)
         p.set_defaults(func=func, measures_head=measures_head)
+    p = sub.add_parser("trigger", help="周期レビューの発火判定")
+    p.add_argument("--only-fired", action="store_true", help="発火したときだけ出す（セッションの始まりのフック）")
+    p.set_defaults(func=cmd_trigger, measures_head=True)
     p = sub.add_parser("change", help="変更の増減と規模の札")
     p.add_argument("--base", default="origin/master", help="比べる相手（合流点から見る）")
     p.add_argument("--head", help="見る版（省くと作業ツリー）")

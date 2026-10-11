@@ -17,8 +17,8 @@ from fastapi import FastAPI
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.infrastructure.http_client import close_all_http_clients  # noqa: E402
-from app.main import app  # noqa: E402
+from app.infrastructure.http_client import close_all_http_clients
+from app.main import app
 
 
 @asynccontextmanager

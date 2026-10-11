@@ -22,11 +22,7 @@ from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from tests.conftest import raw_connection
 from tests.source_ingest import dem_tile_records, ingest_records, point_record, way_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 AREA = BoundingBox(min_latitude=35.67, min_longitude=139.69, max_latitude=35.69, max_longitude=139.72)
 ACCIDENT_YEARS = 1

@@ -17,11 +17,7 @@ from app.services.region_service import RegionService
 from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, point_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 async def _bump_revision() -> int:

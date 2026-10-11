@@ -12,11 +12,7 @@ from sqlalchemy import text
 
 from scripts.schema_gap import collect_gaps
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 async def test_a_dropped_check_an_extra_check_and_a_loosened_column_are_each_reported(road_graph_engine):

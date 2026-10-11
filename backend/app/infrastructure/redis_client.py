@@ -42,7 +42,7 @@ def get_redis_client_or_none() -> redis.Redis | None:
                 retry_on_timeout=False,
             )
         return _client
-    except Exception as exc:  # noqa: BLE001 設定の誤りでも未キャッシュで進む
+    except Exception as exc:  # 設定の誤りでも未キャッシュで進む
         record_redis_failure()
         log_throttled_warning(_CLIENT_CATEGORY, "Redisのクライアントを作れません error=%r", exc)
         return None

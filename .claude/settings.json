@@ -9,6 +9,11 @@
             "type": "command",
             "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/remote_dev/session_start.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\"",
             "timeout": 600
+          },
+          {
+            "type": "command",
+            "command": "[ \"$GITHUB_ACTIONS\" = true ] || [ \"$CLAUDE_CODE_REMOTE\" = true ] || python \"$CLAUDE_PROJECT_DIR/scripts/review_checks.py\" trigger --only-fired 2>&1; exit 0",
+            "timeout": 60
           }
         ]
       }
@@ -33,6 +38,18 @@
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/japanese_only.py\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/format_frontend.py\"",
+            "timeout": 30
           }
         ]
       }

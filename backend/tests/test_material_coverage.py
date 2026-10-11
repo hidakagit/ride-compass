@@ -90,8 +90,6 @@ def test_build_report_returns_none_ratio_when_population_is_empty():
 
 
 @pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
 async def test_the_report_counts_missing_values_per_population_on_the_database(road_graph_session):
     # 道3本（路面のタグは1本だけ）を取り込んで区間へ切る。標高は道1の周りにだけ置き、その区間だけが勾配を持つ。
     await ingest_records("osm_way", [

@@ -56,7 +56,7 @@ def get_by_key(key: tuple) -> Any | None:
         started = time.monotonic()
         value = cache().get(key)
         read_ms = (time.monotonic() - started) * 1000
-    except Exception as exc:  # noqa: BLE001 破損エントリ・SQLite障害はいずれも未キャッシュ扱いにする
+    except Exception as exc:  # 破損エントリ・SQLite障害はいずれも未キャッシュ扱いにする
         log_throttled_warning(
             _CATEGORY, "tile persistent cache read failed key=%r, treating as cache miss error=%r", key, exc
         )
@@ -74,6 +74,6 @@ def set_by_key(key: tuple, value: Any, *, expire: float) -> None:
     """
     try:
         cache().set(key, value, expire=expire)
-    except Exception as exc:  # noqa: BLE001 OSError（ディスクフル）・pickle化不能のいずれも吸収する
+    except Exception as exc:  # OSError（ディスクフル）・pickle化不能のいずれも吸収する
         log_throttled_warning(_CATEGORY, "tile persistent cache write failed key=%r error=%r", key, exc)
 
