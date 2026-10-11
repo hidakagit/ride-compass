@@ -364,14 +364,16 @@ jobs:
             | .changes.result == "success" and $run != null
               and (del(.changes) | to_entries | all(.value.result == ($run[.key] | if . == true then "success" elif . == false then "skipped" else null end)))' <<< "$NEEDS"
   # どちらも、changes が決めたときだけ呼ぶ（ci-ok を待つので、この実行の検査が全部決めたとおりに終わってから）。
+  # 状態の関数（!cancelled()）を外すと、ci-ok が needs する飛ばされたジョブを受けてデプロイも飛ばされるので、
+  # ci-ok の結果を条件に書く（公式の文書 Workflow syntax の jobs.<job_id>.needs）。
   deploy-backend:
     needs: [changes, ci-ok]
-    if: github.event_name == 'push' && fromJSON(needs.changes.outputs.run)['deploy-backend']
+    if: "!cancelled() && github.event_name == 'push' && needs.ci-ok.result == 'success' && fromJSON(needs.changes.outputs.run)['deploy-backend']"
     uses: ./.github/workflows/deploy-backend.yml
     secrets: inherit
   deploy-frontend:
     needs: [changes, ci-ok]
-    if: github.event_name == 'push' && fromJSON(needs.changes.outputs.run)['deploy-frontend']
+    if: "!cancelled() && github.event_name == 'push' && needs.ci-ok.result == 'success' && fromJSON(needs.changes.outputs.run)['deploy-frontend']"
     # 呼ばれた側が像をGitHubのコンテナの置き場へ置く。呼ばれた側のGITHUB_TOKENは、ここで渡した権限より広げられない。
     permissions:
       contents: read
