@@ -694,7 +694,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 `road_surface.properties`が画面へ配る——画面は識別子・道路名の列名を持たない（材料の列は材料の`tile_property`）。
 名前を変えると焼き込みSQLの文字列が変わるので、タイルの形の署名も変わって作り直しが起きる。`tile_cache.py`はタイルの生バイトを配信パスを鍵にディスク
 （`DATA_DIR/tile_cache/`）へ置く`diskcache`の包みで、容量の上限と退避はライブラリが持つ
-（退避の順を書いた順にしている理由は[キャッシュ方針](../../../.claude/rules/caching.md)「ディスクを選ぶときの責任」）。
+（退避の順を書いた順にしている理由は`backend/app/infrastructure/tile_cache.py`の`diskcache.Cache`の引数のコメント）。
 読み書きの失敗（ディスクフル等）は未キャッシュ扱いにし、タイル配信自体を失敗させない。
 
 **読み書きは必ず`asyncio.to_thread`経由で呼ぶ**。中身は同期のディスクI/Oで、地図の初期

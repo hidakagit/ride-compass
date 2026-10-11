@@ -1,4 +1,4 @@
-"""運用統計エンドポイント /api/debug/stats が、プロセス内の集計を応答へ受け渡す(.claude/rules/logging.md参照)。
+"""運用統計エンドポイント /api/debug/stats が、プロセス内の集計を応答へ受け渡す(docs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」参照)。
 
 集計はプロセスの寿命の間に足されるだけなので、ほかのテストが使わないカテゴリで数える。
 

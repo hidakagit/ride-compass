@@ -29,6 +29,7 @@ paths:
 
 ## パターン2: PostGIS統合テスト（road_graph_session）→ ファイル単位でエンジン・イベントループを共有
 
+- 使うテストに付ける印（`loop_scope`・`xdist_group`・`postgis`）は、`backend/tests/conftest.py`の`road_graph_engine`の上のコメントが持つ。
 - テストファイルの中で共有するのは、DB接続とスキーマまでにする。テストが書き換える行（生データ・派生の表）は、関数スコープの
   fixtureで各テストの前に作り直し、共有した行を書き換えて後片付けで戻す形にしない。（原則3）
 

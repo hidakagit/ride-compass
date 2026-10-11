@@ -13,6 +13,9 @@ backend のコードの変更を、本番（DB・デプロイ）と文書から�
 
 - **API・ドメイン概念・レイヤー種を新設するタスクは、docs/architecture/・docs/modules/ の追従を完了の条件に既定で含め、
   コードと同じコミットで書く**（書き分けは docs/architecture/README.md「書き分け」）。（原則4・3）
+- **APIルーター・Pydanticモデル・レジストリ・domain定数・MVT焼き込み値（CASE式・材料タグ・domain純関数）を変えたら、
+  生成物（`frontend/src/types/generated/`・`region-tile-config.json`）を同じコミットで作り直す**（作り方は
+  `backend/scripts/export_openapi.py`の先頭。タイル世代は手で上げない）。（原則3・4）
 - **評価軸（`axis_definitions`テーブルの行）の追加・削除・調整は、コミットで入れない**。本番の管理APIへ入れる
   （.claude/skills/production-data/SKILL.md「本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる」）。（原則3）
 - **新しいコードが読む前提（表・列・行データの形）を本番DBに揃えてから、その`backend/**`の変更をmasterへマージする**
