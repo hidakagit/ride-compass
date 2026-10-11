@@ -12,18 +12,25 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence, TypeVar, cast
 
+import numpy as np
+
 from app.domain.attributes import MaterialColumn
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, copy_axis_definitions
 from app.domain.dynamic_way_values import (
     FeatureMaterials,
+    FeatureSegments,
     MissingConditions,
     WayValueConditionName,
     WayValueQuery,
     assemble_conditions,
     axis_with_dependencies,
+    folds_segments,
     leaf_materials,
     paint_feature_values,
+    paint_folded_feature_values,
 )
+from app.domain.material_catalog import segment_material_ids
+from app.domain.region import EDGE_UNIT_MIN_ZOOM
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.feature_materials import FeatureMaterialService
 from app.services.gradient_way_service import GradientWayService
@@ -47,6 +54,18 @@ class DedicatedWayValueService(Protocol[_Conditions]):
 
     async def get_way_values(self, z: int, x: int, y: int, conditions: _Conditions) -> Mapping[str, float | None]:
         """フィーチャーの鍵→値。Noneは、その道の値が走行方位で決まらないこと（値が無い道は鍵ごと除く）。"""
+        ...
+
+
+_SegmentConditions = TypeVar("_SegmentConditions", contravariant=True)
+
+
+class SegmentValueService(Protocol[_SegmentConditions]):
+    """区間ごとに値が違いうる材料（`domain/material_catalog.py: segment_material_ids`）を配る実装が、`DedicatedWayValueService`に
+    加えて満たす形。道1本のフィーチャーの値を区間から畳むとき（`paint_folded_feature_values`）に、区間ごとの値を配る。"""
+
+    def segment_values(self, segments: FeatureSegments, conditions: _SegmentConditions) -> np.ndarray:
+        """`segments`の区間ごとの値（区間と同じ並び。値が無い・決まらない区間はNaN）。"""
         ...
 
 
@@ -91,6 +110,11 @@ def services_by_material(
                     f"material '{material_id}' is served by more than one dedicated way value service"
                 )
             by_material[material_id] = service
+    # 区間ごとに値が違いうる材料を配るのに区間の値の口が無いと、道1本の値を区間から畳む軸の配信が要求のたびに落ちる。
+    lacking = sorted(material_id for material_id, service in by_material.items()
+                     if material_id in segment_material_ids() and not hasattr(service, "segment_values"))
+    if lacking:
+        raise RuntimeError(f"materials {lacking} vary by segment but their service has no segment_values")
     return by_material
 
 
@@ -140,6 +164,8 @@ class FeatureMaterialSource(Protocol):
 
     async def materials(self, z: int, x: int, y: int) -> FeatureMaterials | None: ...
 
+    async def segments(self, z: int, x: int, y: int) -> FeatureSegments | None: ...
+
 
 class AxisWayValueLens:
     """地図のレンズが塗る、1つの軸の値（フィーチャーの鍵→値）。
@@ -165,6 +191,8 @@ class AxisWayValueLens:
         条件の型を合わせたもの。
 
         葉の材料がどれも配信のサービスの材料なら、タイルの材料を読まずにサービスが値を返したフィーチャーだけを塗る。
+        道1本を1つのフィーチャーにするズームで、区間から畳む軸（`folds_segments`）は、フィーチャーごとの区間の材料も読んで
+        畳む（取込範囲外・DB障害は値なし）。
         """
         served_ids = served_materials(self._axis_id, self._definitions)
         services = {material: self._build_service(material) for material in served_ids}
@@ -183,7 +211,19 @@ class AxisWayValueLens:
             if read is None:
                 return {}
             feature_keys, materials = read.feature_keys, read.columns
-        return paint_feature_values(self._axis_id, self._definitions, feature_keys, materials, served)
+        if z >= EDGE_UNIT_MIN_ZOOM or not folds_segments(self._axis_id, self._definitions):
+            return paint_feature_values(self._axis_id, self._definitions, feature_keys, materials, served)
+        segments = await self._feature_materials.segments(z, x, y)
+        if segments is None:
+            return {}
+        served_segments = {
+            material: cast(SegmentValueService[Any], service).segment_values(segments, conditions[material])
+            for material, service in services.items()
+            if material in segment_material_ids()
+        }
+        return paint_folded_feature_values(
+            self._axis_id, self._definitions, feature_keys, materials, served, segments, served_segments
+        )
 
 
 def axis_way_value_lens(

@@ -15,13 +15,13 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`rain.py`（雨の材料の宣言——窓の長さの一覧——と、1時間雨量の履歴から材料の値を求める計算・配ってよい履歴の古さ）・`dynamic_way_values.py`（要求の条件の組み立てと、フィーチャーの材料から地図が塗る値への写し） |
-| services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py`・`feature_midpoints.py`（配信サービスが、タイル内のフィーチャーの値をDBから引き、DB障害・取込範囲外・空のタイルを同じ形でログの欄へ記録する口と、地点の値を引く配信サービスが中ほどを鍵と緯度・経度の配列で引く口）・`feature_materials.py`（タイルのフィーチャーごとの材料を読み、ディスクへ持つ）・`dedicated_way_values.py`（材料→配信の実装の表、軸の葉の材料から実装を選ぶこと、条件を組んで値を引く共通の口、地図のレンズ、区間インスペクタが足す材料をまとめて引くこと） |
-| infrastructure | `dynamic_way_value_cache.py`（配信サービスの値は勾配のみ。ディスク経由）・`feature_material_cache.py`（タイルのフィーチャーごとの材料。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
+| services | `wind_way_service.py`・`gradient_way_service.py`・`rain_way_service.py`・`feature_midpoints.py`（配信サービスが、タイル内のフィーチャーの値をDBから引き、DB障害・取込範囲外・空のタイルを同じ形でログの欄へ記録する口と、地点の値を引く配信サービスが中ほどを鍵と緯度・経度の配列で引く口）・`feature_materials.py`（タイルのフィーチャーごとの材料と、道1本のフィーチャーごとの区間の材料を読み、ディスクへ持つ）・`dedicated_way_values.py`（材料→配信の実装の表、軸の葉の材料から実装を選ぶこと、条件を組んで値を引く共通の口、地図のレンズ、区間インスペクタが足す材料をまとめて引くこと） |
+| infrastructure | `dynamic_way_value_cache.py`（配信サービスの値は勾配のみ。ディスク経由）・`feature_material_cache.py`（タイルのフィーチャーごとの材料と区間の材料。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`・`get_axis_inspector_service`） |
 
 勾配材料の入力（`edge_elevation.average_grade`とフィーチャーの方位）・中ほど・フィーチャーごとの材料を
 DBから取り出す`infrastructure/road_graph_repository.py: get_feature_gradient_inputs_in_tile`・`get_feature_midpoints_in_tile`・
-`get_feature_materials_in_tile`と、そのSQL（`infrastructure/road_tile_sql.py`）は
+`get_feature_materials_in_tile`・`get_feature_segments_in_tile`と、そのSQL（`infrastructure/road_tile_sql.py`）は
 [routing-engine.md](routing-engine.md)が主管するファイルに属する。
 
 ## 2つのidの名前空間（読む前の前提）
@@ -107,7 +107,31 @@ frontendはどのクエリパラメータをどの軸のリクエストへ載せ
 1行足すだけで登録される（キーは`material_ids`から取るため、名前を2箇所に書かない）。
 1つの実装が同じ計算の材料群を担当できる——雨は窓の長さの一覧（`domain/rain.py: RAIN_WINDOW_HOURS`）へ
 1件足すと、材料カタログの行も配信の登録も一緒に増える。
-1つの材料を2つのサービスが担当していると、モジュールの読み込み時（＝起動時）に落ちる。
+1つの材料を2つのサービスが担当していると、モジュールの読み込み時（＝起動時）に落ちる。区間ごとに値が違いうる材料（下の
+「引いた地図の道1本の値」）を担当するサービスが区間ごとの値の口（`SegmentValueService`の`segment_values`）を持たないときも同じ。
+
+## 引いた地図の道1本の値（`domain/dynamic_way_values.py: paint_folded_feature_values`）
+
+道1本を1つのフィーチャーにするズーム（`EDGE_UNIT_MIN_ZOOM`より下）では、道1本の値を、その道を**ルートとして走ったときの
+ルートの値と同じ決まり**で出す——その道の区間をルートの区間に見立て、区間ごとに評価した得点を区間の長さで平均する
+（`domain/route.py: merge_axis_difficulties`）。道1本の材料で評価すると、区間ごとに値の違う材料（割合・勾配）では、
+得点が折れ線を通る前に平均されて、走ったルートの値と食い違う。
+
+- **畳む軸**（`folds_segments`）: 密度の軸（`domain/axis_definitions.py: averages_density`）でなく、内部軸まで辿った葉の材料に
+  区間ごとに値が違いうる材料（`domain/material_catalog.py: segment_material_ids`。値式が区間の値を読む材料）を持つ軸。
+  密度の軸は畳まない——ルートの値は横軸の値（1kmあたりの量）の距離平均の得点で、道1本の材料（道の数÷道の長さ）がその
+  平均と同じ値になる。ほかの軸は区間ごとの得点が道1本の得点と同じなので、区間を読まない。
+- **区間の材料**: 区間ごとに値が違いうる材料は区間の値（`services/feature_materials.py: FeatureMaterialService.segments`）、
+  ほかの材料は区間が属する道の値。配信のサービスが配る材料のうち区間ごとに違いうるもの（勾配）は、サービスが区間ごとの
+  値を配る（下の「`GradientWayService`」）。風・雨は区間ごとに引き直さず、道の値を区間に配る。
+- **符号付き材料を塗る軸**（勾配）: 畳んだ得点を、その得点に当たる材料の大きさへ戻し
+  （`domain/axis_definitions.py: BreakpointLinearShape.smallest_magnitude_at`）、区間の材料の値の距離平均の符号（道全体で
+  上るか下るか。0なら正）を付ける。段はルートの値と揃い、凡例は材料の目盛り（%）と上り・下りの塗り分けのまま。上って
+  下る道も坂のきつさの色になり、上りと下りが釣り合う道はどちらかの色に寄る。
+- 区間の無い道（長さ0の区間しか作れない道等）は、道1本の材料で評価する。走行方位で決まらない道は`null`のまま。
+  区間の材料が読めないタイル（取込範囲外・DB障害）は値なし（`{}`）。
+- 区間の材料を読むのは道1本のズームで畳む軸を要求されたときだけで、読み直しは重い（2026-10-10 の本番の実測で、
+  都心 z12 の初回が約4秒）ので、タイルの材料と同じキャッシュに持つ（下の「キャッシュ」）。
 
 ## API（`api/routers/region.py`）
 
@@ -134,12 +158,12 @@ axis_id → get_dedicated_way_value_service(axis_id) が今の軸の集合の写
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
   スケールになる。
 - 段階の境界も`map_paint`が同じスケールへ揃えて返す（[axis-studio.md](axis-studio.md)「地図が塗るもの」）。
-- **勾配のフィーチャーの値は、属する区間の勾配の値式を長さで重み付けて平均したもの**
+- **勾配のサービスが配るフィーチャーの値は、属する区間の勾配の値式を長さで重み付けて平均したもの**
   （`road_tile_sql.py: FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`。集約の式は`domain/material_sql.py: length_weighted_mean_sql`）。区間単位のズームでは属する区間が1本なので
-  その区間の値そのもの、way単位のズームではwayの全区間をならした値になる。1区間の外れ値が
-  way全体を染めることは無い（19mの区間の値で2kmの幹線が塗られていた）。符号付きで平均する
-  ため、結果はwayの両端の標高差を全長で割った値と一致し、**崖を下って上り返す道は
-  打ち消し合って0%になる**（絶対値で平均すれば打ち消さないが符号が失われ、登り／下りの塗り分けができない）。
+  その区間の値そのもの、way単位のズームではwayの全区間をならした値になる。符号付きで平均する
+  ため、結果はwayの両端の標高差を全長で割った値と一致し、崖を下って上り返す道は打ち消し合って0%になる。
+  **地図の勾配の軸は、way単位のズームではこの値を塗らず、区間から畳んだ値を塗る**（上の「引いた地図の道1本の値」）。
+  この値は、走行方位で決まらない道（`null`）と、区間の無い道の値に使う。
   区間は道の点を並びの順に切ったもので、どの区間の勾配も道と同じ向き（ジオメトリの始点→終点）を正とするため、
   向きを揃え直さずに平均する。区間の方位で揃え直すと、つづら折りの区間の符号が反転して登り続ける道が0%近くになる
   （`tests/test_feature_gradient_inputs.py`）。
@@ -183,24 +207,29 @@ axis_id → get_dedicated_way_value_service(axis_id) が今の軸の集合の写
   事故の密度は今の収録年数（`RoadGraphRepository.get_accident_years_covered`）で割る。区間単位のズームで、
   探索が同じ区間に読む材料と同じ値になる（`tests/test_feature_materials_in_tile.py`）。
 - 取込範囲外・DB障害・フィーチャーの無いタイルは値なし（地図の配信は`{}`）。
+- 道1本のズームの**区間の材料**（`FeatureMaterialService.segments`、`infrastructure/road_tile_sql.py: FEATURE_SEGMENTS_IN_TILE_SQL`）は、
+  タイルに入る道ごとにその道の全区間（タイルの外の区間も）を、区間ごとに値が違いうる材料だけ、探索と同じ値式で区間の行から
+  読む（`tests/test_feature_materials_in_tile.py`）。区間には、属する道の両端を結ぶ方位（勾配のサービスがフィーチャーの値に
+  使うのと同じ方位）を添える。
 
 ## キャッシュ
 
 ### タイルの材料（`infrastructure/feature_material_cache.py`）
 
-読んだタイルの材料をディスク（`tile_persistent_cache`）へ持つ。鍵は`(路面タイルの世代, 読み方の署名, z, x, y)`で、
+読んだタイルの材料と区間の材料をディスク（`tile_persistent_cache`）へ持つ。鍵は`(路面タイルの世代, 読み方の署名, z, x, y)`で、
 軸の定義・走行方位・時刻を入れない——材料はどれにも依らず、どの軸の要求も同じタイルの材料を共有する。
 
 - **路面タイルの世代**: 材料の鍵は路面タイルの`feature_key`と一致して初めて意味を持ち、派生の作り直しで同じSQLでも
   別の値になる。世代は派生の表と生データの両方を覆い、事故の収録年数も派生の作り直しと一緒に変わる。世代を読めない
   ときに読んだ材料は持たない（`infrastructure/cache_identity.py: is_known_tile_version`）。
-- **読み方の署名**（`services/feature_materials.py: FEATURE_MATERIALS_VALUE_SHAPE`）: 読み出しのSQLの形と、持つ値の
+- **読み方の署名**（`services/feature_materials.py: FEATURE_MATERIALS_VALUE_SHAPE`・`FEATURE_SEGMENTS_VALUE_SHAPE`）: 材料と区間の材料は
+  この署名で別のエントリになる。読み出しのSQLの形と、持つ値の
   列の組から機械で署名する。SQLを変えたデプロイの直後から前の読み方のエントリは読まれなくなり、TTL（24時間）で失効する。
 - 取込範囲外・空のタイル・DB障害は持たない（次の要求で読み直す）。
 - Redisに置かないのは、失っても自前のPostGISから読み直せるため（[.claude/rules/caching-retention.md](../../../.claude/rules/caching-retention.md)
   「Redisへ置くもの・置かないもの」）。読み直しの重さは、本番でタイルを焼く文と同じ結び方で全材料を読んで都心 z12 で
   0.65秒・z14 で0.08秒（2026-10-10 の実測）。1エントリの大きさ（材料の列×フィーチャー数）は未計測。
-- hit/missは`FeatureMaterialService`の`log_external_call`（`region:feature-materials`）の`fields["cache"]`に書く。
+- hit/missは`FeatureMaterialService`の`log_external_call`（`region:feature-materials`・`region:feature-segments`）の`fields["cache"]`に書く。
 
 ### 配信サービスの値（`infrastructure/dynamic_way_value_cache.py`）
 
@@ -285,8 +314,11 @@ get_way_values(z, x, y, WindConditions(bearing_deg, speed_kmh, at))
 入力は`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返す`(gradient_percent,
 road_bearing_deg)`のフィーチャー単位dict（勾配は属する区間の`edge_elevation.average_grade`から、
 方位はフィーチャーのジオメトリの両端を結ぶ方位）。区間単位のズームではその区間の実際の勾配が
-そのまま返り、way単位のズームでは**区間を長さで重み付けて平均した値**が代表になる
-（上の「フィーチャーの値」節と同じ規則。1区間の外れ値がway全体を染めない）。
+そのまま返り、way単位のズームでは**区間を長さで重み付けて平均した値**が代表になる（上の「API」の勾配の節）。
+
+way単位のズームで区間から畳むときの区間ごとの値（`segment_values`）は、区間の勾配に、区間が属する道の両端を結ぶ方位で
+符号を付ける（道1本の値と同じ向き。区間の方位で付けるとつづら折りの区間の符号が反転する）。道が走行方位に直角に
+近ければ、その道の区間は値を決めない。
 
 **暗黙の前提（モジュール間の隠れた依存）**: この入力のSQLは`em.average_grade IS NOT NULL`を
 要求するため、[elevation.md](elevation.md)の

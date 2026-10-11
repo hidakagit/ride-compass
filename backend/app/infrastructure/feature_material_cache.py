@@ -1,4 +1,5 @@
-"""地図の配信が読む、タイル1枚ぶんのフィーチャーごとの材料（`domain/dynamic_way_values.py: FeatureMaterials`）のディスクキャッシュ。
+"""地図の配信が読む、タイル1枚ぶんのフィーチャーごとの材料（`domain/dynamic_way_values.py: FeatureMaterials`）と、フィーチャーごとの
+区間の材料（`domain/dynamic_way_values.py: FeatureSegments`）のディスクキャッシュ。どちらを持つかは読み出しの形の署名で分かれる。
 
 材料は軸の定義・走行方位・時刻に依らないので、鍵にそれらを入れない——どの軸の要求も同じタイルの材料を共有し、
 軸スタジオで折れ点を変えてもキャッシュを捨てずに次の応答から効く。
@@ -14,10 +15,14 @@
 
 import asyncio
 
-from app.domain.dynamic_way_values import FeatureMaterials
+from typing import TypeVar
+
+from app.domain.dynamic_way_values import FeatureMaterials, FeatureSegments
 from app.infrastructure import tile_persistent_cache
 
 _KEY_PREFIX = "featmat"
+
+_Materials = TypeVar("_Materials", FeatureMaterials, FeatureSegments)
 
 # 材料は派生の表と生データで決まり、それらが変われば鍵の路面タイルの世代が変わる。鮮度の制約が無いので、
 # 失っても読み直すだけのものとして長く持ち、DBへの再問い合わせを抑える。
@@ -29,15 +34,16 @@ def _key(z: int, x: int, y: int, surface_tile_version: str, value_shape: str) ->
 
 
 async def get_tile_materials(
-    z: int, x: int, y: int, *, surface_tile_version: str, value_shape: str
-) -> FeatureMaterials | None:
-    """タイルの材料。未キャッシュ・読み出し失敗はいずれもNone（フィーチャーの無いタイルは0行の値で返る）。"""
+    z: int, x: int, y: int, *, surface_tile_version: str, value_shape: str, kind: type[_Materials]
+) -> _Materials | None:
+    """タイルの材料（`kind`の値）。未キャッシュ・読み出し失敗はいずれもNone（フィーチャーの無いタイルは0行の値で返る）。"""
     key = _key(z, x, y, surface_tile_version, value_shape)
-    return await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
+    cached = await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
+    return cached if isinstance(cached, kind) else None
 
 
 async def set_tile_materials(
-    z: int, x: int, y: int, materials: FeatureMaterials, *, surface_tile_version: str, value_shape: str
+    z: int, x: int, y: int, materials: FeatureMaterials | FeatureSegments, *, surface_tile_version: str, value_shape: str
 ) -> None:
     """新しく読んだタイルの材料をディスクへ書き戻す。"""
     key = _key(z, x, y, surface_tile_version, value_shape)

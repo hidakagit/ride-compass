@@ -26,6 +26,7 @@ check_tile_index`が持ち、ここでは入口ごとにそれを使っている
 import inspect
 from datetime import datetime, timezone
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -47,13 +48,18 @@ from app.domain.axis_definitions import (
 )
 from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult, InspectorComposite
-from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
+from app.domain.region import EDGE_UNIT_MIN_ZOOM, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.infrastructure import rate_limiter
 from app.infrastructure.derived_data_meta import DataRevisions
 from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.region_tile_cache import TileResponse
-from app.domain.dynamic_way_values import FeatureMaterials, paint_feature_values
+from app.domain.dynamic_way_values import (
+    FeatureMaterials,
+    FeatureSegments,
+    paint_feature_values,
+    paint_folded_feature_values,
+)
 from app.services.dedicated_way_values import AxisWayValueLens, DirectionalMaterialService
 from app.services.region_service import AxisInspectorService
 from app.services.gradient_way_service import GradientConditions
@@ -313,8 +319,10 @@ class FakeDynamicWayValueService:
     """DBを読む配信サービスの代役。受け取る条件の型は本物のサービスのものを渡す——要求から
     何を組み立てるか（`assemble_conditions`）は本物を通したいため。"""
 
-    def __init__(self, values=None, material_id="gradient_percent", conditions_type=GradientConditions):
+    def __init__(self, values=None, material_id="gradient_percent", conditions_type=GradientConditions,
+                 segment_values=None):
         self._values = values if values is not None else {}
+        self._segment_values = segment_values
         self.material_id = material_id
         self.conditions_type = conditions_type
         self.last_request = None
@@ -323,21 +331,32 @@ class FakeDynamicWayValueService:
         self.last_request = (z, x, y, conditions)
         return self._values
 
+    def segment_values(self, segments, conditions):
+        return self._segment_values
+
 
 class FakeFeatureMaterials:
     """タイルの材料を読む口（`services/feature_materials.py: FeatureMaterialService`）の代役。"""
 
-    def __init__(self, materials: FeatureMaterials | None = None):
+    def __init__(self, materials: FeatureMaterials | None = None, segments: FeatureSegments | None = None):
         self._materials = materials
+        self._segments = segments
 
     async def materials(self, z, x, y):
         return self._materials
 
+    async def segments(self, z, x, y):
+        return self._segments
 
-def _lens(axis_id: str, services=None, materials: FeatureMaterials | None = None) -> AxisWayValueLens:
+
+def _lens(
+    axis_id: str, services=None, materials: FeatureMaterials | None = None, segments: FeatureSegments | None = None
+) -> AxisWayValueLens:
     """軸の集合は今の`AXIS_DEFINITIONS`。`services`は材料id→配信サービスの代役。"""
     services = services if services is not None else {"gradient_percent": FakeDynamicWayValueService()}
-    return AxisWayValueLens(axis_id, copy_axis_definitions(), FakeFeatureMaterials(materials), services.__getitem__)
+    return AxisWayValueLens(
+        axis_id, copy_axis_definitions(), FakeFeatureMaterials(materials, segments), services.__getitem__
+    )
 
 
 SIGNED = "axis_way_value_signed"
@@ -408,6 +427,30 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     assert fake.last_request == (14, 14551, 6447, conditions)
 
 
+# 引いた地図（道1本で塗るズーム）では、区間から畳む軸の値を、フィーチャーごとの区間の材料と配信のサービスが配る
+# 区間の値から畳んで返す。畳み方はtest_dynamic_way_values.pyが持つため、同じ関数へ通した結果と突き合わせる。
+@pytest.mark.usefixtures("dedicated_axes")
+def test_region_dedicated_way_values_folds_the_segments_of_a_way_on_the_zoomed_out_map():
+    raw = {"1": 0.0}
+    grades = np.array([8.0, -8.0])
+    segments = FeatureSegments(feature_keys=("1", "1"), distance_m=np.full(2, 100.0), feature_bearing_deg=np.zeros(2),
+                               columns={"gradient_percent": grades})
+    expected = paint_folded_feature_values(
+        SIGNED, AXIS_DEFINITIONS, list(raw), {}, {"gradient_percent": raw}, segments, {"gradient_percent": grades})
+    fake = FakeDynamicWayValueService(values=dict(raw), segment_values=grades)
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens(
+        SIGNED, {"gradient_percent": fake}, segments=segments)
+
+    try:
+        response = client.get(
+            f"/api/region/dynamic-way-values/{SIGNED}/{EDGE_UNIT_MIN_ZOOM - 1}/7275/3225", params={"bearing_deg": 0})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == expected != raw
+
+
 #: 地図を配信で塗る印の無い軸。タグから引く分類の材料を読む軸と、それを内部軸として読む軸。
 TAG_AXES = {
     "axis_tag_internal": AxisDefinition(
@@ -429,8 +472,10 @@ TAG_AXES = {
 
 
 # 配信は印の無い軸にも、タイルの材料から探索と同じ評価で値を返す。返さないと、画面がその軸を配信で塗る形へ
-# 切り替えたとき、タイルから式を組んで塗っていた道がすべて「データなし」になる。
-def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_tile():
+# 切り替えたとき、タイルから式を組んで塗っていた道がすべて「データなし」になる。道のタグだけで決まる軸は、引いた地図
+# （道1本で塗るズーム）でも区間を読まずに塗る（区間を読む口は、ここでは取込範囲外を答える）。
+@pytest.mark.parametrize("z", [EDGE_UNIT_MIN_ZOOM, EDGE_UNIT_MIN_ZOOM - 1])
+def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_tile(z):
     materials = FeatureMaterials(
         feature_keys=("1", "2", "3"),
         columns={"surface_class": CategoricalColumn.encode(["paved", "unpaved", None])},
@@ -438,7 +483,7 @@ def test_region_dedicated_way_values_paints_an_axis_from_the_materials_of_the_ti
     with replaced_axis_definitions(TAG_AXES):
         app.dependency_overrides[get_dedicated_way_value_service] = lambda: _lens("axis_tag_reference", {}, materials)
         try:
-            response = client.get("/api/region/dynamic-way-values/axis_tag_reference/14/14551/6447")
+            response = client.get(f"/api/region/dynamic-way-values/axis_tag_reference/{z}/7275/3225")
         finally:
             app.dependency_overrides.clear()
 

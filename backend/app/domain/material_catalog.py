@@ -74,6 +74,7 @@ from app.domain.material_sql import (
     landcover_value_sql,
     per_km_value_sql,
     poi_density_value_sql,
+    reads_segment_values,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAG_NAMES,
     HIGHWAY_SQL,
@@ -988,6 +989,11 @@ def material_value_sql() -> dict[str, str]:
         for material_id, spec in MATERIAL_CATALOG.items()
         if spec.value_sql is not None
     }
+
+
+def segment_material_ids() -> frozenset[str]:
+    """同じ道でも区間ごとに値が違いうる材料（値式が区間ごとの値を読む材料。`material_sql.py: reads_segment_values`）。"""
+    return frozenset(material_id for material_id, sql in material_value_sql().items() if reads_segment_values(sql))
 
 
 def material_coverage_specs() -> dict[str, WayMaterialCoverageSpec | EdgeMaterialCoverageSpec]:

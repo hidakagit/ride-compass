@@ -6,6 +6,9 @@
 
 from dataclasses import dataclass
 
+import numpy as np
+
+from app.domain.dynamic_way_values import FeatureSegments
 from app.domain.gradient import GRADIENT_VALUE_DECIMALS, LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import tile_bounds_lonlat
@@ -91,3 +94,16 @@ class GradientWayService:
             )
             fields["computed"] = len(values)
             return values
+
+    def segment_values(self, segments: FeatureSegments, conditions: GradientConditions) -> np.ndarray:
+        """区間ごとの実効勾配（正=登り・負=下り、符号を決められない区間はNaN）。区間の勾配の符号は、区間が属する道の
+        両端を結ぶ方位で決める——道1本のフィーチャーの値と同じ向きで、区間の方位で決めるとつづら折りの区間の符号が
+        反転する。"""
+        values = (
+            GradientCalculator.effective_gradient(gradient_percent, bearing, conditions.bearing_deg)
+            for gradient_percent, bearing in zip(
+                np.asarray(segments.columns[self.material_id], dtype=float).tolist(),
+                segments.feature_bearing_deg.tolist(),
+            )
+        )
+        return np.array([np.nan if value is None else value for value in values], dtype=float)
