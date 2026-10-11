@@ -38,7 +38,7 @@ def main() -> int:
     # 打てない（構文の誤り等）ときは利用者の画面にだけ出し、作業は止めない。CI の format:check と型検査が同じものを落とす。
     result = subprocess.run(
         ["node", str(prettier), "--write", "--log-level", "warn", path.relative_to(frontend).as_posix()],
-        cwd=frontend, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=frontend, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
     )
     if result.returncode != 0:
         print(result.stderr.strip() or result.stdout.strip(), file=sys.stderr)
