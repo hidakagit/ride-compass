@@ -1,9 +1,4 @@
-import {
-  ORIGIN_MARK_COLOR,
-  ORIGIN_MARK_FALLBACK_COLOR,
-  PIN_MARK_BACKGROUND,
-  PinMark,
-} from "@/components/PinMark/PinMark";
+import { originMarkColor, PIN_MARK_BACKGROUND, PinMark } from "@/components/PinMark/PinMark";
 import { cn } from "@/lib/cn";
 import type { PinRole } from "@/types/route";
 
@@ -27,12 +22,7 @@ export default function PointMark({ role, label, originLocated, className }: Poi
       )}
       style={{ background: PIN_MARK_BACKGROUND[role] }}
     >
-      <PinMark
-        role={role}
-        label={label}
-        size={13}
-        color={originLocated ? ORIGIN_MARK_COLOR : ORIGIN_MARK_FALLBACK_COLOR}
-      />
+      <PinMark role={role} label={label} size={13} color={originMarkColor(originLocated)} />
     </span>
   );
 }

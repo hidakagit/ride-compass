@@ -63,7 +63,7 @@ export interface EditDifference {
   stretches: ChangedStretch[];
 }
 
-type Shape = Pick<RouteCandidate, "edge_ids" | "edge_point_offsets" | "geometry">;
+type Shape = Pick<RouteCandidate, "edge_point_offsets">;
 
 /** `edge_ids`の`index`番目のEdgeの始点までの距離（km）。 */
 function kmAtEdge(shape: Shape, cumulativeKm: readonly number[], index: number): number {

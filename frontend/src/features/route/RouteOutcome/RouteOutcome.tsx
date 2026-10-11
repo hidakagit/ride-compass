@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useMemo, useRef } from "react";
 
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
-import ErrorText from "@/features/route/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { DownloadIcon, FastestRouteIcon, RouteSpliceIcon } from "@/components/ui/icons/icons";
@@ -21,6 +20,9 @@ import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import { downloadGpx, MAX_GPX_TRACK_POINTS } from "@/features/route/gpxExport";
 import EditDifference from "@/features/route/EditDifference/EditDifference";
+import ErrorText from "@/features/route/ErrorText/ErrorText";
+import GenerationNotice from "@/features/route/GenerationNotice/GenerationNotice";
+import WarningText from "@/features/route/WarningText/WarningText";
 import {
   durationBaseline,
   durationDifferenceLabel,
@@ -90,20 +92,7 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     if (generation.running) {
       return <p className={textVariants({ variant: "hint" })}>{generation.progressLabel ?? "生成中..."}</p>;
     }
-    if (outcome?.kind === "failed") {
-      return (
-        <ErrorText>
-          <GuideText text={outcome.message} />
-        </ErrorText>
-      );
-    }
-    if (outcome?.kind === "empty") {
-      return (
-        <p role="status" className={textVariants({ variant: "hint" })}>
-          {outcome.message}
-        </p>
-      );
-    }
+    if (outcome) return <GenerationNotice notice={outcome} />;
     return (
       <p className={textVariants({ variant: "hint" })}>
         <GuideText text="「ルート設定」の「ルート生成」を押すと候補がここに並びます" />
@@ -187,20 +176,12 @@ export default function RouteOutcome({ results, generation, splice, routeWeights
     return (
       <>
         {/* 作り直しの失敗を出している間は、それが前の条件の候補であることも伝えているので重ねない。 */}
-        {generation.conditionsDirty && !generation.failure && (
-          <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
-            生成条件が変更されています
-          </p>
-        )}
-        {generation.weightsNotApplied && (
-          <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
-            重み配分を反映できず、既定の配分で作りました。
-          </p>
-        )}
+        {generation.conditionsDirty && !generation.failure && <WarningText>生成条件が変更されています</WarningText>}
+        {generation.weightsNotApplied && <WarningText>重み配分を反映できず、既定の配分で作りました。</WarningText>}
         {generation.destinationCorrected && (
-          <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
+          <WarningText>
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
-          </p>
+          </WarningText>
         )}
         {reusedRouteId !== null && (
           <p className={cn(textVariants({ variant: "hint" }), "m-0")}>

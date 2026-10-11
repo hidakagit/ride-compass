@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge/Badge";
-import { Button, buttonVariants } from "@/components/ui/Button/Button";
+import { Button } from "@/components/ui/Button/Button";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { PlaceOnMapIcon, SavedPlaceIcon, SavePlaceIcon } from "@/components/ui/icons/icons";
 import { Input } from "@/components/ui/Input/Input";
-import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { panelIconToggleClass, Toggle } from "@/components/ui/Toggle/Toggle";
 import { textVariants } from "@/components/ui/Text/Text";
 import PlaceCandidates, { isRepresentative } from "@/features/route/PlaceSearch/PlaceCandidates";
 import { PREDICTION_MIN_LENGTH, usePlaceLookup } from "@/features/route/PlaceSearch/usePlaceLookup";
@@ -298,10 +298,7 @@ export default function PointDetail({
           <div className={raised ? "hidden" : "contents"}>
             <Toggle
               variant="plain"
-              className={cn(
-                buttonVariants({ size: "panelIcon" }),
-                "flex-none data-[state=on]:border-[var(--color-accent)] data-[state=on]:bg-[var(--color-accent)] data-[state=on]:text-white",
-              )}
+              className={cn(panelIconToggleClass, "flex-none")}
               pressed={armed}
               disabled={full}
               aria-label={armToggleName}

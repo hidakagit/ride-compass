@@ -37,14 +37,16 @@ export function readSavedPlaces(raw: string): SavedPlace[] {
   return parsed.map(readSavedPlace).filter((place): place is SavedPlace => place !== null);
 }
 
+const samePosition = (a: Coordinates, b: Coordinates) => a.latitude === b.latitude && a.longitude === b.longitude;
+
 /** 保存した地点のうち、位置`at`にあるもの。 */
 export function savedPlaceAt(list: SavedPlace[], at: Coordinates): SavedPlace | null {
-  return list.find((place) => place.latitude === at.latitude && place.longitude === at.longitude) ?? null;
+  return list.find((place) => samePosition(place, at)) ?? null;
 }
 
 /** 一覧へ1件を入れる。同じ名前・同じ位置の件は置き換え、入れた件を先頭に置く（最近保存したものほど上）。 */
 export function withSavedPlace(list: SavedPlace[], place: SavedPlace): SavedPlace[] {
-  return [place, ...list.filter((saved) => saved.name !== place.name && savedPlaceAt([saved], place) === null)];
+  return [place, ...list.filter((saved) => saved.name !== place.name && !samePosition(saved, place))];
 }
 
 /** 打った文字を名前に含む地点（空なら全部）。 */

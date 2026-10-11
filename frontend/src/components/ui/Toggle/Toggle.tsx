@@ -3,6 +3,7 @@
 import * as RadixToggle from "@radix-ui/react-toggle";
 import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef } from "react";
+import { buttonVariants } from "@/components/ui/Button/Button";
 import { cn } from "@/lib/cn";
 
 // 押して切り替えるボタン（ON/OFF）。押下状態の表示（aria-pressed・data-state）とキーボード操作は
@@ -26,6 +27,12 @@ const toggleVariants = cva(
     },
     defaultVariants: { variant: "chip" },
   },
+);
+
+/** パネルの押して切り替える操作（地点を地図で置く等）。パネルのほかの操作と同じアイコンだけの形で、押している間はアクセント色で塗る。 */
+export const panelIconToggleClass = cn(
+  buttonVariants({ size: "panelIcon" }),
+  "data-[state=on]:border-[var(--color-accent)] data-[state=on]:bg-[var(--color-accent)] data-[state=on]:text-white",
 );
 
 interface ToggleProps

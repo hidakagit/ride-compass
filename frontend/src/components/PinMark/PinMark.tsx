@@ -17,6 +17,11 @@ export const PIN_MARK_BACKGROUND: Record<PinRole, string> = {
 export const ORIGIN_MARK_COLOR = palette.semantic.pin_origin;
 export const ORIGIN_MARK_FALLBACK_COLOR = palette.semantic.pin_origin_unresolved;
 
+/** 出発地の印の色を、位置が取れているかで選ぶ（パネルの印と地図のピンが同じ色になるように1か所で決める）。 */
+export function originMarkColor(located: boolean): string {
+  return located ? ORIGIN_MARK_COLOR : ORIGIN_MARK_FALLBACK_COLOR;
+}
+
 interface PinMarkProps {
   role: PinRole;
   /** 経由地の中に出す番号（地図もパネルも訪問の順）。 */

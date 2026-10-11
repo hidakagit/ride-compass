@@ -3,10 +3,9 @@
 import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
-import ErrorText from "@/features/route/ErrorText/ErrorText";
+import GenerationNotice from "@/features/route/GenerationNotice/GenerationNotice";
 import { Button } from "@/components/ui/Button/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog/Dialog";
-import { GuideText } from "@/components/ui/GuideText/GuideText";
 import { cn } from "@/lib/cn";
 import MapView from "@/features/map/MapView/MapView";
 import { mapOverlayEdge, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
@@ -327,19 +326,7 @@ export default function Home() {
   // 候補が出たときは点と地図のルートで分かるので出さない（狭い画面で地図を空ける）。
   function renderGenerationOutcomeNote() {
     const { outcome } = generation;
-    if (!outcome) return null;
-    if (outcome.kind === "failed") {
-      return (
-        <ErrorText>
-          <GuideText text={outcome.message} />
-        </ErrorText>
-      );
-    }
-    return (
-      <p role="status" className={textVariants({ variant: "hint" })}>
-        {outcome.message}
-      </p>
-    );
+    return outcome && <GenerationNotice notice={outcome} />;
   }
 
   // 「ルート設定」の中身（デスクトップの区分・モバイルのシートの両方）。生成の結果・誤りはここに出さない（ボタンは

@@ -8,7 +8,7 @@ import AxisContributionBar, { hasContribution } from "@/components/AxisContribut
 import AxisDetail from "@/components/AxisContributionBar/AxisDetail";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
-import { cn } from "@/lib/cn";
+import WarningText from "@/features/route/WarningText/WarningText";
 import { formatDifficulty, formatLoad } from "@/lib/mapDisplay/valueScale";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
@@ -74,6 +74,8 @@ export default function RouteAxisProfile({
   missingTravelDataShare,
   axisColors,
 }: RouteAxisProfileProps) {
+  // 値の無い区間の割合（丸めた%）。値が無ければ0として扱い、知らせない。
+  const missingPct = missingTravelDataShare == null ? 0 : Math.round(missingTravelDataShare * 100);
   const contributionRows = axes.filter((axis) => hasContribution(axisContributions, axis.axisId));
 
   // 評価に使っていない軸（重み0）はnullを返し、AxisContributionBarの凡例から落とす。
@@ -158,14 +160,10 @@ export default function RouteAxisProfile({
           {/* 所要時間の前提が崩れていることは、所要時間のすぐ下で知らせる（黙って短い所要時間を見せない）。
               値の無い区間は丸めて1%以上のときだけ出す——0%を並べても判断の材料にならない。 */}
           {windUnavailable && (
-            <p className={cn(textVariants({ variant: "hint" }), "m-0 text-[var(--color-warning-strong)]")}>
-              風のモデルの計算値を使えなかったため、無風として所要時間を出しています
-            </p>
+            <WarningText>風のモデルの計算値を使えなかったため、無風として所要時間を出しています</WarningText>
           )}
-          {missingTravelDataShare != null && Math.round(missingTravelDataShare * 100) >= 1 && (
-            <p className={cn(textVariants({ variant: "hint" }), "m-0 text-[var(--color-warning-strong)]")}>
-              {`データの無い区間が${Math.round(missingTravelDataShare * 100)}%[坂・信号の無い道として所要時間を出しています]`}
-            </p>
+          {missingPct >= 1 && (
+            <WarningText>{`データの無い区間が${missingPct}%[坂・信号の無い道として所要時間を出しています]`}</WarningText>
           )}
           {contributionRows.length > 0 ? (
             <AxisContributionBar

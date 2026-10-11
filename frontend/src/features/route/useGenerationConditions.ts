@@ -49,6 +49,9 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   const moveWaypoint = useCallback((index: number, point: Coordinates) => {
     setWaypoints((prev) => prev.map((current, i) => (i === index ? point : current)));
   }, []);
+  const addWaypoint = useCallback((point: Coordinates) => {
+    setWaypoints((prev) => [...prev, point]);
+  }, []);
 
   // 目的地（あれば片道のルート）。
   const [destination, setDestination] = useState<Coordinates | null>(null);
@@ -66,25 +69,16 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
   // 超える点は置かれない）。
   const placePin = useCallback(
     (role: PinRole, point: Coordinates) => {
-      if (role === "origin") {
-        onOriginPlace(point);
-        setArmedPinRole(null);
-        return;
+      if (role === "origin") onOriginPlace(point);
+      else if (role === "destination") setDestination(point);
+      else if (waypointToReplace !== null) moveWaypoint(waypointToReplace, point);
+      else {
+        addWaypoint(point);
+        if (waypoints.length + 1 < routeGenerateConfig.max_waypoints) return;
       }
-      if (role === "destination") {
-        setDestination(point);
-        setArmedPinRole(null);
-        return;
-      }
-      if (waypointToReplace !== null) {
-        moveWaypoint(waypointToReplace, point);
-        setArmedPinRole(null);
-        return;
-      }
-      setWaypoints((prev) => [...prev, point]);
-      if (waypoints.length + 1 >= routeGenerateConfig.max_waypoints) setArmedPinRole(null);
+      setArmedPinRole(null);
     },
-    [onOriginPlace, moveWaypoint, waypointToReplace, waypoints.length],
+    [onOriginPlace, moveWaypoint, addWaypoint, waypointToReplace, waypoints.length],
   );
   // 検索で置いた地点の候補。名前を出すのは、その地点がまだ候補の位置にある間だけ（ピンを動かす・地図で置き直すと、
   // 名前の所ではなくなる）。
@@ -96,11 +90,11 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
       const point = { latitude: candidate.latitude, longitude: candidate.longitude };
       if (role !== "waypoint") placePin(role, point);
       else if (waypointIndex !== null) moveWaypoint(waypointIndex, point);
-      else setWaypoints((prev) => [...prev, point]);
+      else addWaypoint(point);
       setArmedPinRole(null);
       setFound((prev) => [...prev, candidate]);
     },
-    [moveWaypoint, placePin],
+    [moveWaypoint, addWaypoint, placePin],
   );
   /** 地点`at`が検索で置いたときの位置のままなら、その候補。 */
   const foundAt = useCallback(
@@ -163,14 +157,8 @@ export function useGenerationConditions({ onOriginPlace }: GenerationConditionsI
     HARD_FILTERS_STORAGE_KEY,
     DEFAULT_HARD_FILTERS,
     {
-      serialize: (value) => JSON.stringify(value),
-      deserialize: (raw) => {
-        try {
-          return syncHardFilterKeys(JSON.parse(raw) as HardFilterOverride, DEFAULT_HARD_FILTERS);
-        } catch {
-          return null;
-        }
-      },
+      serialize: JSON.stringify,
+      deserialize: (raw) => syncHardFilterKeys(JSON.parse(raw) as HardFilterOverride, DEFAULT_HARD_FILTERS),
     },
   );
 

@@ -1,6 +1,6 @@
 // ルート候補とその周り（生成の条件・区間）の組み立て。呼び出し側は変えたいフィールドだけ渡す。
 // **既定値は型を満たすための空だけ。** 見たい値（id・方位・距離等）は呼び出し側が書く。
-import type { GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
+import type { GenerationConditions, PlaceCandidate, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 
 /** `RouteCandidate`の組み立て（backendは既定値の項目も必ず返すため、型は全フィールドが必須）。 */
 export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
@@ -100,3 +100,23 @@ export function makeRouteSegment(overrides: Partial<RouteSegmentDetail> = {}): R
     ...overrides,
   };
 }
+
+/** 字・丁目で当たった住所（その範囲の代表の位置）。 */
+export const AZA_CANDIDATE: PlaceCandidate = {
+  kind: "address",
+  level: "aza",
+  name: "東京都千代田区丸の内二丁目",
+  area: null,
+  latitude: 35.679,
+  longitude: 139.764,
+};
+
+/** 名前で当たった施設（辺りを持つ）。 */
+export const FACILITY_CANDIDATE: PlaceCandidate = {
+  kind: "facility",
+  level: "point",
+  name: "浅草寺",
+  area: "台東区浅草二丁目",
+  latitude: 35.7148,
+  longitude: 139.7967,
+};

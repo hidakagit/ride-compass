@@ -25,20 +25,20 @@ describe("WindBearingSlider 表示", () => {
 });
 
 describe("WindBearingSlider キー操作", () => {
-  it("右・上で5度増やし、左・下で5度減らす。一周をまたいだら0〜360の中へ畳む", async () => {
-    for (const [value, key, next] of [
-      [10, "{ArrowUp}", 15],
-      [10, "{ArrowDown}", 5],
-      [2, "{ArrowLeft}", 357],
-      [358, "{ArrowRight}", 3],
-    ] as const) {
+  it.each([
+    [10, "{ArrowUp}", 15],
+    [10, "{ArrowDown}", 5],
+    [2, "{ArrowLeft}", 357],
+    [358, "{ArrowRight}", 3],
+  ] as const)(
+    "右・上で5度増やし、左・下で5度減らす。一周をまたいだら0〜360の中へ畳む（%d度で%s）",
+    async (value, key, next) => {
       const { dial, onChange } = renderDial(value);
       act(() => dial.focus());
       await userEvent.keyboard(key);
       expect(onChange).toHaveBeenLastCalledWith(next);
-      document.body.innerHTML = "";
-    }
-  });
+    },
+  );
 
   it("矢印以外のキーでは何もしない", async () => {
     const { dial, onChange } = renderDial(10);
@@ -49,20 +49,17 @@ describe("WindBearingSlider キー操作", () => {
 });
 
 describe("WindBearingSlider ドラッグ", () => {
-  it("押した点の、中心から見た向きを値にする（北が0で時計回り）", () => {
-    for (const [x, y, deg] of [
-      [34, 0, 0],
-      [68, 34, 90],
-      [0, 34, 270],
-    ] as const) {
-      const { dial, onChange } = renderDial(0);
-      fireEvent.pointerDown(dial, { clientX: x, clientY: y });
-      expect(onChange).toHaveBeenLastCalledWith(deg);
-      act(() => {
-        window.dispatchEvent(new MouseEvent("pointerup"));
-      });
-      document.body.innerHTML = "";
-    }
+  it.each([
+    [34, 0, 0],
+    [68, 34, 90],
+    [0, 34, 270],
+  ] as const)("押した点の、中心から見た向きを値にする（北が0で時計回り。(%d,%d)は%d度）", (x, y, deg) => {
+    const { dial, onChange } = renderDial(0);
+    fireEvent.pointerDown(dial, { clientX: x, clientY: y });
+    expect(onChange).toHaveBeenLastCalledWith(deg);
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointerup"));
+    });
   });
 
   it("押したまま動かすと追いかけ、指を離したら止まる", () => {
