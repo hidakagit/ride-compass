@@ -33,18 +33,18 @@ from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import batch_session_factory  # noqa: E402
-from app.domain.axis_definitions import (  # noqa: E402
+from app.batch.common import batch_session_factory
+from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     evaluate_axes_inputs,
     evaluate_axes_values,
 )
-from app.domain.region import BoundingBox, parse_bbox  # noqa: E402
-from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
-from app.domain.value_distribution import weighted_quantiles  # noqa: E402
-from app.services import axis_preview_service  # noqa: E402
-from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
-from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
+from app.domain.region import BoundingBox, parse_bbox
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.domain.value_distribution import weighted_quantiles
+from app.services import axis_preview_service
+from app.services.axis_registry_service import refresh_axis_definitions
+from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 # 「上端へ張り付いている」とみなす難易度。100ちょうどに限ると、折れ点の最終区間に
 # わずかに届かない値ばかりの軸を見逃す。

@@ -41,13 +41,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import Connection, text  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from sqlalchemy import Connection, text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.batch.ingest import partition_required_columns, partition_table_name  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
-from app.infrastructure.orm_base import declared_metadata  # noqa: E402
-from app.infrastructure.source_models import SourceFeatureRow  # noqa: E402
+from app.batch.ingest import partition_required_columns, partition_table_name
+from app.batch.source_profile import load_source_profile
+from app.infrastructure.orm_base import declared_metadata
+from app.infrastructure.source_models import SourceFeatureRow
 
 _TABLES = """
 SELECT c.relname AS table, coalesce(pg_get_partkeydef(c.oid), '') AS partition

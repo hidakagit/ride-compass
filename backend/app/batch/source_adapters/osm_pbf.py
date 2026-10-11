@@ -153,7 +153,7 @@ class _Handoff:
             try:
                 work(self)
                 self.flush()
-            except BaseException as exc:  # noqa: BLE001  スレッドの例外を本流へ運ぶ
+            except BaseException as exc:  # スレッドの例外を本流へ運ぶ
                 self.error = exc
             finally:
                 self.queue.put(_SENTINEL)
@@ -185,7 +185,7 @@ def _pbf_origin(path: Path) -> dict[str, Any]:
         stamp = replication_timestamp(path)
         if stamp:
             origin["replication_timestamp"] = stamp
-    except Exception:  # noqa: BLE001 出所の付帯情報が取れないだけで取込は続ける
+    except Exception:  # 出所の付帯情報が取れないだけで取込は続ける
         pass
     return origin
 

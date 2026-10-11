@@ -24,11 +24,7 @@ from app.batch.source_adapters import bunka_heritages
 from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, load_source_profile
 from tests.conftest import raw_connection
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 SOURCE = "ingest_unchanged_probe"
 ROWS = bunka_heritages.BunkaHeritageRows(snapshot="2026-10-08", designations=["重要文化財"])

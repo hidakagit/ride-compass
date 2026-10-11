@@ -53,7 +53,7 @@ from coverage import CoverageData
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
+from app.batch.common import asyncpg_dsn  # sys.pathを通した後に読む
 
 
 def _defined_names(node: ast.stmt) -> list[str]:
@@ -311,7 +311,7 @@ def test_database_unreachable(backend: Path) -> str | None:
 
     try:
         asyncio.run(connect())
-    except Exception as exc:  # noqa: BLE001 繋がらない理由はそのまま出す
+    except Exception as exc:  # 繋がらない理由はそのまま出す
         return f"{type(exc).__name__}: {exc}"
     return None
 

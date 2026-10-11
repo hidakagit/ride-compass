@@ -12,12 +12,8 @@ from app.batch import derive_topology, derive_way_directions
 from tests.source_ingest import ingest_records, way_record, zigzag_point
 
 # road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing.mdのパターン2どおり
-# loop_scope="module"・xdist_group="postgis"が必須。
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+# loop_scope="module"が必須。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 ONEWAY = {"highway": "residential", "oneway": "yes"}
 

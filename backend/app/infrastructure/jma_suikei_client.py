@@ -102,7 +102,7 @@ async def fetch_weather(client: JmaTileClient, latitude: float, longitude: float
             # 1画素だけを切り出してから揃える（パレットと透過の指定は切り出しても残る）。
             only = image.crop((pixel.column, pixel.row, pixel.column + 1, pixel.row + 1)).convert("RGBA")
             red, green, blue, alpha = cast(tuple[int, int, int, int], only.getpixel((0, 0)))
-    except Exception as exc:  # noqa: BLE001 壊れた画像は「空が分からない」に倒し、応答の残りは返す
+    except Exception as exc:  # 壊れた画像は「空が分からない」に倒し、応答の残りは返す
         log_throttled_warning(_CATEGORY, "推計気象分布（天気）のタイルを読めませんでした path=%s error=%r", path, exc)
         return None
     return _weather_from_color(red, green, blue, alpha)

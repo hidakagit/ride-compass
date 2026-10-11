@@ -50,11 +50,7 @@ from tests.source_ingest import (
     zigzag_point,
 )
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: 道とノードは土地被覆のタイル（ズーム14の1枚。約2km四方）の中ほどに置く。区間の帯（中心線から100m）もこの1枚に収まる。
 BASE_LON, BASE_LAT = 139.688, 35.683
@@ -183,7 +179,7 @@ def ran(world, monkeypatch) -> Ran:
 async def _values(conn: asyncpg.Connection) -> dict[str, str]:
     """派生の表ごとの、全部の行と値のハッシュ。"""
     return {table.name: await conn.fetchval(
-        f"SELECT md5(coalesce(string_agg(r::text, '|' ORDER BY r::text), '')) FROM {table.name} r")  # noqa: S608 宣言のみ
+        f"SELECT md5(coalesce(string_agg(r::text, '|' ORDER BY r::text), '')) FROM {table.name} r")  # 宣言のみ
         for table in derived_tables()}
 
 
@@ -193,7 +189,7 @@ async def _revision(conn: asyncpg.Connection) -> int:
 
 async def test_the_world_fills_every_derived_table(world):
     """前提: 比べる表はどれも行を持ち、飛ばした段の値が空の表どうしの比べにならない。"""
-    assert {table.name: await world.fetchval(f"SELECT count(*) > 0 FROM {table.name}")  # noqa: S608 宣言のみ
+    assert {table.name: await world.fetchval(f"SELECT count(*) > 0 FROM {table.name}")  # 宣言のみ
             for table in derived_tables()} == {table.name: True for table in derived_tables()}
 
 

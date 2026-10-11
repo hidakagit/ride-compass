@@ -390,7 +390,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest, open_set
             ),
         )
         job_registry.set_done(job_id, response)
-    except Exception:  # noqa: BLE001 バックグラウンドジョブの例外はここで必ず捕捉し記録する
+    except Exception:  # バックグラウンドジョブの例外はここで必ず捕捉し記録する
         # ここは例外の種類を選ばず捕まえるため、DB接続やPostGISの例外もそのまま入る。
         # それらの`str(exc)`には接続先やSQLが混じるので、詳細はログ（logger.exception、
         # トレースバック込み）にだけ残し、クライアントへは汎用メッセージを返す。

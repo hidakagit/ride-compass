@@ -21,7 +21,7 @@ from app.main import app
 from tests.axis_system_fixture import replaced_axis_definitions
 from tests.conftest import postgis_database_url
 
-pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: DBを読んで値を出す専用配信の軸（勾配）。方位だけで引けるので、要求の欄だけで材料の取得まで進む。
 GRADIENT_AXIS = AxisDefinition(

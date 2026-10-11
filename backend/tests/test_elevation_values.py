@@ -17,11 +17,7 @@ from sqlalchemy import text
 
 from app.domain.attributes import MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT, ElevationAttribute, elevation_values_sql
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 STEP_DEG = 0.001
 STEP_M = 6378137.0 * math.radians(STEP_DEG)

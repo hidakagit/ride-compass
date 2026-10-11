@@ -23,9 +23,9 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import fetch_verified  # noqa: E402
-from app.batch.source_adapters.npa_honhyo import ENCODING, honhyo_path  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.common import fetch_verified
+from app.batch.source_adapters.npa_honhyo import ENCODING, honhyo_path
+from app.batch.source_profile import load_source_profile
 
 logger = logging.getLogger("ridecompass.fetch_accident_csv")
 

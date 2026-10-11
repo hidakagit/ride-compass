@@ -539,7 +539,7 @@ class RoadGraphRepository:
         column_expr = spec.value_sql
         result = await self._session.execute(
             text(
-                f"SELECT DISTINCT {column_expr} AS value"  # noqa: S608 カタログの宣言のみ
+                f"SELECT DISTINCT {column_expr} AS value"  # カタログの宣言のみ
                 + way_from_clause([column_expr])
                 + f" WHERE {column_expr} IS NOT NULL ORDER BY value"
             )

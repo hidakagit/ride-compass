@@ -36,8 +36,7 @@ from tests.conftest import postgis_database_url
 from tests.source_ingest import abr_prefecture_record, ingest_records, point_record, way_record
 
 #: DBから組むテストの印（テスト用DBへ繋ぎ、接続とイベントループをファイルで共有する。testing-backend.md パターン2）。
-_ON_TEST_DB = (pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis,
-               pytest.mark.usefixtures("road_graph_session"))
+_ON_TEST_DB = (pytest.mark.asyncio(loop_scope="module"), pytest.mark.usefixtures("road_graph_session"))
 
 
 def _on_test_db(test):

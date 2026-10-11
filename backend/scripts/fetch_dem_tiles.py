@@ -32,7 +32,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.dem_tile_store import (  # noqa: E402
+from app.batch.dem_tile_store import (
     TILE_ROOT,
     TILE_URL,
     is_absent,
@@ -40,13 +40,13 @@ from app.batch.dem_tile_store import (  # noqa: E402
     mark_absent,
     write_tile,
 )
-from app.batch.common import (  # noqa: E402
+from app.batch.common import (
     PROGRESS_INTERVAL_SECONDS,
     format_progress,
 )
-from app.batch.source_profile import SourceProfile, load_source_profile  # noqa: E402
-from app.domain.region import tiles_covering_bbox  # noqa: E402
-from app.infrastructure.source_models import Source  # noqa: E402
+from app.batch.source_profile import SourceProfile, load_source_profile
+from app.domain.region import tiles_covering_bbox
+from app.infrastructure.source_models import Source
 
 logger = logging.getLogger("ridecompass.fetch_dem_tiles")
 

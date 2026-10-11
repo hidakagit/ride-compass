@@ -13,8 +13,6 @@ from tests.source_ingest import dem_tile_records, ingest_records, way_record
 
 
 @pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
 async def test_each_table_shows_its_rows_and_a_partitioned_one_the_rows_of_all_its_partitions(road_graph_session):
     # 分割の親や分割しない表の行数を取り違えると、管理画面で「取り込んだのに入っていない」を見誤る。
     await ingest_records("osm_way", [

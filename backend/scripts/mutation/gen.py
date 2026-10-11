@@ -17,10 +17,10 @@ if os.name == "nt":
     multiprocessing.set_start_method = lambda *a, **k: None
     _real_system = platform.system
     platform.system = lambda: "Linux"
-    import mutmut.__main__ as m  # noqa: E402
+    import mutmut.__main__ as m
     platform.system = _real_system
 else:
-    import mutmut.__main__ as m  # noqa: E402
+    import mutmut.__main__ as m
 
 
 def main():

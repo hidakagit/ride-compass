@@ -20,11 +20,8 @@ from app.domain import landcover
 
 
 
-def on_postgis(test):
-    """SQLを実行するテストにだけ付ける。純関数のテストはDBの無い環境でも走る。"""
-    for mark in (pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis):
-        test = mark(test)
-    return test
+#: SQLを実行するテストにだけ付ける（接続とイベントループをファイルで共有する。testing-backend.md パターン2）。
+on_postgis = pytest.mark.asyncio(loop_scope="module")
 
 # 配布元の画素値のうち、どのクラスでもないもの（No Data と Clouds）。
 NO_DATA = 0

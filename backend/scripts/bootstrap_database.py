@@ -30,13 +30,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import text  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.batch import derive_cli, ingest_cli  # noqa: E402
-from app.batch.common import format_duration, run_batch_cli  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
-from app.infrastructure.road_graph_repository import REQUIRED_EXTENSIONS, create_tables  # noqa: E402
+from app.batch import derive_cli, ingest_cli
+from app.batch.common import format_duration, run_batch_cli
+from app.batch.source_profile import load_source_profile
+from app.infrastructure.road_graph_repository import REQUIRED_EXTENSIONS, create_tables
 
 logger = logging.getLogger("ridecompass.bootstrap_database")
 

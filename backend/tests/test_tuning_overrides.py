@@ -54,8 +54,6 @@ class TestMerge:
 
 
 @pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
 async def test_override_round_trip_reaches_the_running_value(road_graph_session: AsyncSession):
     """書いた値が、プロセス内の`TUNING_VALUES`まで届いて消費者に効く。"""
     default = TUNING_PARAMETERS_BY_ID[_PARAM].default
@@ -83,8 +81,6 @@ async def test_override_round_trip_reaches_the_running_value(road_graph_session:
 
 
 @pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
 async def test_an_empty_table_leaves_every_declared_default(road_graph_session: AsyncSession):
     """行が1つも無くても宣言どおりに動く（fresh bootstrapで投入が要らない）。"""
     await refresh_tuning_values(road_graph_session)
@@ -94,16 +90,12 @@ async def test_an_empty_table_leaves_every_declared_default(road_graph_session: 
 
 
 @pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
 async def test_writing_an_undeclared_id_is_rejected(road_graph_session: AsyncSession):
     with pytest.raises(TuningOverrideError):
         await set_override(road_graph_session, "turn.no_such_value", 1.0)
 
 
 @pytest.mark.asyncio(loop_scope="module")
-@pytest.mark.xdist_group(name="postgis")
-@pytest.mark.postgis
 async def test_the_row_records_when_it_was_changed(road_graph_session: AsyncSession):
     """`updated_at`が実際のDBに在って、挿入でも書き換えでも書いた時刻へ進む。"""
     default = TUNING_PARAMETERS_BY_ID[_PARAM].default

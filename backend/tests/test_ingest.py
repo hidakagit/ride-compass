@@ -33,12 +33,8 @@ from app.infrastructure.source_models import SourceFeatureRow
 from tests.conftest import postgis_database_url, raw_connection
 
 # road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
-# loop_scope="module"・xdist_group="postgis"が必須。
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+# loop_scope="module"が必須。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 SOURCE = "ingest_probe"
 #: 必ず持つ列を宣言したアダプタで初めて取り込むソース（区画は作るときにだけ制約を持つ）。

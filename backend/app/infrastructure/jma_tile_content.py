@@ -30,5 +30,5 @@ def is_empty_tile(content: bytes, extension: str) -> bool:
         with Image.open(io.BytesIO(content)) as image:
             rgba = image if image.mode == "RGBA" else image.convert("RGBA")
             return rgba.getchannel("A").getbbox() is None
-    except Exception:  # noqa: BLE001 壊れた画像・未知の形式は「中身あり」扱いで取得を止めない
+    except Exception:  # 壊れた画像・未知の形式は「中身あり」扱いで取得を止めない
         return False

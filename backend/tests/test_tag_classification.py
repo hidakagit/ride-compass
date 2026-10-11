@@ -15,11 +15,7 @@ from sqlalchemy import text
 
 from app.domain import traffic
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 
 async def _kinds(engine, tags_by_id: dict[int, dict[str, str]]) -> dict[int, str]:

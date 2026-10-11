@@ -52,9 +52,9 @@ from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import asyncpg  # noqa: E402
+import asyncpg
 
-from app.batch import (  # noqa: E402
+from app.batch import (
     derive_addresses,
     derive_counts,
     derive_elevation,
@@ -64,20 +64,20 @@ from app.batch import (  # noqa: E402
     derive_topology,
     derive_way_directions,
 )
-from app.batch.code_fingerprint import code_fingerprint, library_versions  # noqa: E402
-from app.batch.ingest import partition_table_name  # noqa: E402
-from app.batch.common import (  # noqa: E402
+from app.batch.code_fingerprint import code_fingerprint, library_versions
+from app.batch.ingest import partition_table_name
+from app.batch.common import (
     SOURCE_DATA_LOCK,
     asyncpg_dsn,
     batch_session_factory,
     format_duration,
     run_batch_cli,
 )
-from app.infrastructure.tuning_overrides import load_tuning_values  # noqa: E402
-from app.infrastructure import derived_data_meta, road_network_store  # noqa: E402
-from app.infrastructure.derived_data_freshness import declared_columns  # noqa: E402
-from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
-from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL, Source  # noqa: E402
+from app.infrastructure.tuning_overrides import load_tuning_values
+from app.infrastructure import derived_data_meta, road_network_store
+from app.infrastructure.derived_data_freshness import declared_columns
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.source_models import LATEST_SUCCEEDED_RUNS_SQL, Source
 
 logger = logging.getLogger("ridecompass.derive_cli")
 

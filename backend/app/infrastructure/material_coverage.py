@@ -72,7 +72,7 @@ def _way_coverage_sql():
     )
     # 元データの引き方は`domain/material_sql.py`が持つ。ここで書き写すと、生データの
     # 置き場が変わったときにこの1本だけが古いテーブルを指したまま残る。
-    sql = (  # noqa: S608 固定の内部辞書のみ使用
+    sql = (  # 固定の内部辞書のみ使用
         f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM {WAYS_SOURCE_SQL} AS w"
     )
     return text(sql)
@@ -88,7 +88,7 @@ def _edge_coverage_sql():
     # 判定式が`re.`（区間の形）を読むようになったら、この形では組めないので区間へ結ぶ形に戻す。
     scans = [f"(SELECT {', '.join(columns)} FROM {table} em) t_{table}"
              for table, columns in columns_by_table.items()]
-    sql = (  # noqa: S608 固定の内部辞書のみ使用
+    sql = (  # 固定の内部辞書のみ使用
         "SELECT (SELECT count(*) FROM road_edges) AS total"
         + (", * FROM " + " CROSS JOIN ".join(scans) if scans else "")
     )

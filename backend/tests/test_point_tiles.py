@@ -27,11 +27,7 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.conftest import raw_connection
 from tests.source_ingest import ingest_records, point_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 Z = 16
 [(X, Y)] = tiles_covering_bbox(

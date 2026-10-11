@@ -3,7 +3,7 @@
 DBそのものは要らない——チェックアウトの場所から名前を導く規則だけを見る。
 
 ここで見ないもの: 接続先の選び方（`TEST_DATABASE_URL`を優先する・作れなければ共有DBへ退避する）は
-pytestのフック（`pytest_collection_modifyitems`）が実行の始めに1回決めるもので、テストの中から
+pytestのフック（`pytest_collection_finish`）が実行の始めに1回決めるもので、テストの中から
 その前の状態は作れない。CIの`TEST_DATABASE_URL`で全部のPostGISテストが繋がることが、その結線を通す。
 """
 

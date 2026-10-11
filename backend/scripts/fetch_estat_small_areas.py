@@ -23,14 +23,14 @@ import shapefile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import fetch_verified  # noqa: E402
-from app.batch.source_adapters.estat_small_area import (  # noqa: E402
+from app.batch.common import fetch_verified
+from app.batch.source_adapters.estat_small_area import (
     DOWNLOAD_URL,
     boundary_path,
     open_shapefile,
     range_prefectures,
 )
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.source_profile import load_source_profile
 
 logger = logging.getLogger("ridecompass.fetch_estat_small_areas")
 

@@ -220,7 +220,7 @@ class _DistanceFinish:
                 failed += 1
                 logger.debug("trace turnaround bearing=%d failed: %s", turnaround.bearing, exc)
                 continue
-            except Exception:  # noqa: BLE001 エンジンの不具合の可能性が高いためスタックトレース付きで残し、他候補は続行する
+            except Exception:  # エンジンの不具合の可能性が高いためスタックトレース付きで残し、他候補は続行する
                 failed += 1
                 logger.error("trace turnaround bearing=%d unexpected error", turnaround.bearing, exc_info=True)
                 continue

@@ -158,7 +158,7 @@ async def _explain(connection: asyncpg.Connection, query: str) -> str:
     """
     try:
         return await connection.fetchval("SELECT pg_temp._rc_explain($1::text)", query)
-    except Exception:  # noqa: BLE001  計測の失敗で計測対象を巻き込まない
+    except Exception:  # 計測の失敗で計測対象を巻き込まない
         return ""
 
 

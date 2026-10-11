@@ -24,7 +24,7 @@ import asyncpg
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
+from app.batch.common import asyncpg_dsn  # sys.pathを通した後に読む
 
 _DEFAULT_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
 _NAME_PREFIX = "ridecompass_test_"

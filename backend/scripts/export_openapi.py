@@ -22,12 +22,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.domain.wind_grid import (  # noqa: E402
+from app.domain.wind_grid import (
     WIND_GRID_DETAIL_MAX_POINTS,
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.domain.route_request import (  # noqa: E402
+from app.domain.route_request import (
     ASSUMED_SPEED_KMH,
     DEFAULT_DISTANCE_TOLERANCE_KM,
     DEFAULT_MAX_ROUTES,
@@ -38,15 +38,15 @@ from app.domain.route_request import (  # noqa: E402
     MIN_ASSUMED_SPEED_KMH,
     MIN_ROUTES,
 )
-from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
-from app.api.routers.debug_admin import LogLevelName  # noqa: E402
-from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
-from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS  # noqa: E402
-from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME  # noqa: E402
-from app.main import app  # noqa: E402
-from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
-from app.domain.geo import COMPASS_LABELS  # noqa: E402
-from app.domain.place_search import (  # noqa: E402
+from app.api.routers.axis_admin import AxisDefinitionPayload
+from app.api.routers.debug_admin import LogLevelName
+from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS
+from app.infrastructure.point_tile_layers import POINT_TILE_LAYERS
+from app.infrastructure.vector_tile import ROAD_FEATURE_PROPERTIES, ROAD_SURFACE_LAYER_NAME
+from app.main import app
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES
+from app.domain.geo import COMPASS_LABELS
+from app.domain.place_search import (
     PLACE_KIND_LABELS,
     PLACE_MATCH_LEVEL_LABELS,
     PLACE_PREDICTION_DELAY_SECONDS,
@@ -54,18 +54,18 @@ from app.domain.place_search import (  # noqa: E402
     PlaceKind,
     PlaceMatchLevel,
 )
-from cross_language_expectations import EXPECTATIONS  # noqa: E402
-from app.domain.weather_elements import (  # noqa: E402
+from cross_language_expectations import EXPECTATIONS
+from app.domain.weather_elements import (
     WEATHER_ELEMENTS,
     WEATHER_LAYER_GROUPS,
     WeatherElement,
     weather_element_deliveries,
     weather_element_tile,
 )
-from app.domain.cycling_speed import SEGMENT_SPEED_CONDITIONS  # noqa: E402
-from app.domain.difficulty import DIFFICULTY_DECIMALS, OVERALL_DIFFICULTY_WORDING  # noqa: E402
-from app.domain.map_paint import DEFAULT_DIFFICULTY_BOUNDARIES  # noqa: E402
-from app.domain.map_display import (  # noqa: E402
+from app.domain.cycling_speed import SEGMENT_SPEED_CONDITIONS
+from app.domain.difficulty import DIFFICULTY_DECIMALS, OVERALL_DIFFICULTY_WORDING
+from app.domain.map_paint import DEFAULT_DIFFICULTY_BOUNDARIES
+from app.domain.map_display import (
     ALWAYS_SHOWN_ATTRIBUTIONS,
     AXIS_LAYER_SPECS,
     LayerText,
@@ -112,8 +112,8 @@ from app.domain.map_display import (  # noqa: E402
     MAP_LAYER_DATA_SOURCES,
     MAP_OVERLAY_GROUPS,
 )
-from app.domain.warning_display import WARNING_BADGE_DISPLAY  # noqa: E402
-from app.domain.weather_display import (  # noqa: E402
+from app.domain.warning_display import WARNING_BADGE_DISPLAY
+from app.domain.weather_display import (
     WEATHER_CATEGORIES,
     LINEAR_RAINBAND_COLOR,
     LINEAR_RAINBAND_OUTLINE_CASING_COLOR,
@@ -125,39 +125,39 @@ from app.domain.weather_display import (  # noqa: E402
     WIND_CALM_BELOW_MS,
     WIND_SPEED_COLOR_STOPS,
 )
-from app.domain.display_palette import (  # noqa: E402
+from app.domain.display_palette import (
     SEMANTIC_COLORS,
     resolved_display_axes,
 )
-from app.api.routers.gsi_tile import RELIEF_TILE_URL, TERRAIN_TILE_URL  # noqa: E402
-from app.api.cache_policy import BASEMAP  # noqa: E402
-from app.domain.gsi_tiles import RELIEF_ATTRIBUTION, RELIEF_MAX_ZOOM, TERRAIN_MAX_ZOOM  # noqa: E402
-from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M  # noqa: E402
-from app.domain.landcover import (  # noqa: E402
+from app.api.routers.gsi_tile import RELIEF_TILE_URL, TERRAIN_TILE_URL
+from app.api.cache_policy import BASEMAP
+from app.domain.gsi_tiles import RELIEF_ATTRIBUTION, RELIEF_MAX_ZOOM, TERRAIN_MAX_ZOOM
+from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M
+from app.domain.landcover import (
     LANDCOVER_CLASSES,
     LANDCOVER_RING_OUTER_M,
     LANDCOVER_TILE_MAX_ZOOM,
     LANDCOVER_TILE_MIN_ZOOM,
 )
-from app.infrastructure.cache_identity import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import JMA_ELEMENTS, JMA_TILE_MIN_ZOOM, effective_max_zoom  # noqa: E402
-from app.domain.material_catalog import (  # noqa: E402
+from app.infrastructure.cache_identity import LANDCOVER_TILE_VERSION
+from app.domain.jma_tile_specs import JMA_ELEMENTS, JMA_TILE_MIN_ZOOM, effective_max_zoom
+from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
     POPULATION_LABELS,
     display_axis_missing_semantics,
 )
-from app.domain.primary_attributes import PRIMARY_ATTRIBUTES  # noqa: E402
-from app.domain.region import MAX_MERCATOR_LATITUDE, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
-from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
-from app.config import Settings  # noqa: E402
-from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_SHARE  # noqa: E402
-from app.domain.tuning import client_tuning_values  # noqa: E402
-from app.domain.weather import PRECIPITATION_MIN_MM  # noqa: E402
-from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS  # noqa: E402
-from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES  # noqa: E402
-from app.infrastructure.job_registry import JOB_TTL_SECONDS  # noqa: E402
-from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
+from app.domain.primary_attributes import PRIMARY_ATTRIBUTES
+from app.domain.region import MAX_MERCATOR_LATITUDE, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
+from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS
+from app.config import Settings
+from app.domain.route_preference import ENABLED_AXIS_WEIGHT, MAX_AXIS_SHARE
+from app.domain.tuning import client_tuning_values
+from app.domain.weather import PRECIPITATION_MIN_MM
+from app.infrastructure.msm_client import DEFAULT_UPDATE_INTERVAL_SECONDS as MSM_UPDATE_INTERVAL_SECONDS
+from app.infrastructure.jma_amedas_client import AMEDAS_REFRESH_INTERVAL_MINUTES
+from app.infrastructure.job_registry import JOB_TTL_SECONDS
+from app.services.tile_version_service import TILE_SHAPES
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"

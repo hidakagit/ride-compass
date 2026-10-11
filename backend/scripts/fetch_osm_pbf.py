@@ -24,9 +24,9 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.common import fetch_verified  # noqa: E402
-from app.batch.source_adapters.osm_pbf import DATA_DIR, OsmWayRows  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.common import fetch_verified
+from app.batch.source_adapters.osm_pbf import DATA_DIR, OsmWayRows
+from app.batch.source_profile import load_source_profile
 
 logger = logging.getLogger("ridecompass.fetch_osm_pbf")
 

@@ -31,7 +31,7 @@ async def interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> tuple[
         if coords.ext == "pbf":
             return crop_and_upscale_mvt(parent_content, coords.quadrant), parent_content_type
         return crop_and_upscale(parent_content, coords.quadrant), parent_content_type
-    except Exception as exc:  # noqa: BLE001 補間の失敗で地図表示自体を落とさない
+    except Exception as exc:  # 補間の失敗で地図表示自体を落とさない
         log_throttled_warning(
             "jma:tile-interpolation",
             "JMAタイルの補間に失敗しました path=%s parent=%s error=%r",

@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-import axis_apply  # noqa: E402
+import axis_apply
 
 ADMIN = "/api/admin/axis-definitions"
 

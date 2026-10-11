@@ -28,11 +28,7 @@ from app.infrastructure.source_models import Source
 from tests.conftest import empty_ingested_tables
 from tests.source_ingest import ingest_records, way_record
 
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: 取込の範囲（min_lat, min_lon, max_lat, max_lon）。
 BBOX = (35.40, 139.20, 35.80, 139.80)

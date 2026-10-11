@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.domain.axis_definitions import AxisDefinition  # noqa: E402
+from app.domain.axis_definitions import AxisDefinition
 
 ADMIN_PATH = "/api/admin/axis-definitions"
 CATALOG_PATH = "/api/axis-catalog"

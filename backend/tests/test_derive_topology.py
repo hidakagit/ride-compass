@@ -17,12 +17,8 @@ from app.batch import derive_topology
 from tests.source_ingest import ingest_records, way_record
 
 # road_graph_session（conftest.py）と同じDBを使うため、.claude/rules/testing-backend.mdのパターン2どおり
-# loop_scope="module"・xdist_group="postgis"が必須。
-pytestmark = [
-    pytest.mark.asyncio(loop_scope="module"),
-    pytest.mark.xdist_group(name="postgis"),
-    pytest.mark.postgis,
-]
+# loop_scope="module"が必須。
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 #: 東京都心付近。座標そのものに意味は無く、測地線長が0にならない間隔であればよい。
 BASE_LON, BASE_LAT = 139.70, 35.68

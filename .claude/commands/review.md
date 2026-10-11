@@ -37,8 +37,9 @@ $ARGUMENTS があればそれを対象範囲とする。
 
 ## 回すとき
 
-**開発機の対話のセッションは、作業に着手する際、周期レビューの閾値に該当していないかを`python scripts/review_checks.py trigger`で確かめ**（分割元タスクの完了直後も該当）、
-該当すれば`/review`の実施と`/code-review`の実施提案を行う。Actions の担当は閾値を見ない。
+**開発機の対話のセッションの始まりに、周期レビューの閾値に該当していれば、フック（`.claude/settings.json`の`SessionStart`が打つ
+`python scripts/review_checks.py trigger --only-fired`）が出す**（分割元タスクの完了直後は`trigger`を打って確かめる）。
+出たら`/review`の実施と`/code-review`の実施提案を行う。Actions の担当とクラウドのセッションでは、フックは打たない。
 
 ## 進め方
 
@@ -282,8 +283,7 @@ done
   動かさない（`.claude/skills/ask/SKILL.md`「保留と棚卸」）
 - **実装↔テスト**: 変更に対応するテストがあるか。実装詳細への依存（privateメソッド直叩き）、
   不要になったテスト、過剰なmock、**実質的に意味のないテスト**（実装をなぞるだけで
-  壊れ方を検証しない、常にpassする）、DBを使うテストに`postgis`の印が付け忘れられていないか
-  （`.claude/rules/testing-scaffold.md`「テストの足場で、本来のNGを覆わない」）。同じ名前・同じ中身のテストの足場（fixture・fake・
+  壊れ方を検証しない、常にpassする）。同じ名前・同じ中身のテストの足場（fixture・fake・
   ヘルパー）が複数のテストファイルに写されていないか
 
 #### 文書とコメントが名指しするもの
