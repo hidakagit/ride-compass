@@ -35,7 +35,7 @@ def health() -> dict[str, str | float | None]:
     # デプロイのたびに再起動されるため実質デプロイ時刻の目安）で、本番に実際に
     # デプロイされているコミットが最新かどうかを外部から確認できるようにする
     # （ローカル開発ではcommitはnullのまま。詳細はdocs/architecture/tech-stack.md参照）。
-    # admin_data_backup_age_hoursは管理データのバックアップが最後に置けてからの時間で、止まりに気づくために読む。
+    # admin_data_backup_age_hoursはDBのバックアップが最後に置けてからの時間で、止まりに気づくために読む。
     age = backup_age_hours(datetime.now(UTC))
     return {
         "status": "ok",

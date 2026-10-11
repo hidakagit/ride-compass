@@ -1,6 +1,6 @@
 # 毎日1回。VMが止まっていた間に過ぎた回は、起動したときに1回打つ（Persistent=true）。
 [Unit]
-Description=Daily RideCompass admin data backup
+Description=Daily RideCompass database backup
 
 [Timer]
 OnCalendar=*-*-* 03:17:00 Asia/Tokyo

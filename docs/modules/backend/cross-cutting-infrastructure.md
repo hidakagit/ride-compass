@@ -36,14 +36,13 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `data_paths.py` | backendがディスクへ置くものの根（本番ではホストのディレクトリを載せ、コンテナを入れ替えても残る） |
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計。集計の型（`ExternalCallStats`）はプロセス内のカウンタと`/api/debug/stats`の応答が共有する（ヒット率・平均の計算元の回数・合計時間は応答に載せない） |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
-| infrastructure | `admin_data_backup.py` | 管理データのバックアップが最後に置けてからの時間（`/health`が返す）。下の「取り直せない管理データのバックアップ」 |
+| infrastructure | `admin_data_backup.py` | DBのバックアップが最後に置けてからの時間（`/health`が返す）。下の「本番DBのバックアップ」 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
 | infrastructure | `single_process.py` | 起動時にワーカー数を読み、複数なら起動を止める（プロセス内に持つ状態の前提を落ちる形にする） |
 | infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）の読み書きと、宣言の範囲での検算。プロセス内の値へは書かない |
 | services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）と、プロセス内の値への反映（起動時の読み込みと、書いた直後） |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く。名前に添える対象（どの路面の見込み・停止要因の種別の値か）は、値を使う側の宣言（`domain/road.py`・`domain/traffic.py`）から引く |
-| scripts | `admin_data_dump_args.py` | 取り直せない管理データの表を書き出す`pg_dump`の引数（DB名と表）。表は印（`orm_base.IRREPLACEABLE`）から導く |
-| ops | `admin_data_backup.sh` | 本番VMのホストで、上の引数で`pg_dump`し、Object Storageの非公開バケットへ置き、置けた時刻を書く |
+| ops | `admin_data_backup.sh` | 本番VMのホストで、DBの全体を`pg_dump`し、Object Storageの非公開バケットの前の1個と入れ替え、置けた時刻を書く |
 | ops | `ridecompass-admin-data-backup.service`・`ridecompass-admin-data-backup.timer` | それを毎日打つsystemdのユニット（VMへの登録は手で1回） |
 | scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す。宣言どおりの表を同じ接続の一時スキーマへ作ってから巻き戻すまでの間に、`public`とカタログを突き合わせる——制約・既定値・索引の式をPostgreSQLが正規化した形で比べるので、CHECKの式・主キー・一意も比べられる。名前は比べない。取込が作る子パーティション（生データの区画）は、列のNULL許容だけをアダプタの宣言（`batch/ingest.py: partition_required_columns`）と比べ、カタログの値だけを読む（取込が入れ直している最中でも、そのロックを待たずに測れる）。本番DBへは、backendのデプロイがコンテナを入れ替えたあとに毎回当てる（差があればデプロイが失敗で終わる。docs/architecture/tech-stack.md「デプロイの反映確認」）ほか、手で`run_probe.py`から当てる |
 | scripts | `lost_constraints.py` | 2つの版の`backend/app`をgitから取り出し、ORMが宣言する表・制約を名前抜きの同じ形へ揃えて、消えたものを出す（DBは使わない）。SQLの文の中の絞り込みは見ない——断片をつないで組み立てるSQLは文字列から構文木を取れないものが残るため |
@@ -266,7 +265,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at`・`admin_data_backup_age_hours`（管理データのバックアップが最後に置けてからの時間。記録が無いか印のファイルが読めなければnull（読めない理由はWARNINGのログ）。下の「取り直せない管理データのバックアップ」） |
+| `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at`・`admin_data_backup_age_hours`（DBのバックアップが最後に置けてからの時間。記録が無いか印のファイルが読めなければnull（読めない理由はWARNINGのログ）。下の「本番DBのバックアップ」） |
 | `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数）と、予報（MSM）の同期の鮮度 |
 
 どちらも集計値だけで機微情報を含まないため無認証。本番DBがコードの期待に追いついているか
@@ -427,33 +426,31 @@ FastAPI側で処理済みのためここには来ない）。
 コンテナの`TZ`ではなく整形する側を変える。`TZ`を動かすと素の`datetime.now()`の意味まで
 変わり、スケジューラ・DBへ書く時刻へ波及する。
 
-## 取り直せない管理データのバックアップ（`ops/admin_data_backup.sh`）
+## 本番DBのバックアップ（`ops/admin_data_backup.sh`）
 
-管理画面で人が積み上げた行（軸の定義・較正値の上書き等）は、外部から取り直せず派生からも作り直せない。
-DBを失ったときに戻せるよう、本番VMのsystemdのtimerが毎日、その表だけを`pg_dump`（custom形式）で書き出し、
-Oracle Cloud Object Storageの非公開バケットへ置く。戻しは`pg_restore`（登録・戻しの手順は
-[production-data/SKILL.md](../../../.claude/skills/production-data/SKILL.md)「管理データのバックアップ」「本番DBを失ったとき」）。
+本番DBには、外部から取り直せず派生からも作り直せない行（管理画面で人が積み上げた軸の定義・較正値の上書き等）と、
+取り直しと作り直しに時間のかかる生データ・派生データがある。DBを失ったときに書き出しから全体を戻せるよう、本番VMの
+systemdのtimerが毎日、DBの全体を`pg_dump`（custom形式・圧縮あり）で書き出し、Oracle Cloud Object Storageの非公開バケットへ
+置く。戻しは`pg_restore`（登録・戻しの手順は[production-data/SKILL.md](../../../.claude/skills/production-data/SKILL.md)「DBのバックアップ」
+「本番DBを失ったとき」）。
 
-- **対象は表の印から導く**。ORMの表に`__table_args__ = {"info": IRREPLACEABLE}`を付けると、次の書き出しから
-  入る。表の名前とDB名は、デプロイ済みのイメージで`scripts/admin_data_dump_args.py`を打って取る（シェルに
-  表の名前を書かない）。`pg_dump`は`--strict-names`で打つので、印の付いた表が本番DBに無ければ書き出しごと失敗する。
+- **バケットに置くのは常に1個**。書き出しはObject Storageの無料の枠に2個は入らない大きさなので、確かめの通った新しい書き出しが
+  手元にできてから前の1個を消し、新しいものを置く。枠を超える書き出しは置かずに失敗する（上限は同じスクリプトの定数）。
+- **手元にも1個残す**。書き出しはDBのディスクの、PostgreSQLの`data_directory`の外へ書き、次の回まで消さない。バケットへ置く途中で
+  落ちても、手元から送り直せる。VMごと失ったときはバケットのものから戻す。書き出す前に、そのディスクの空きがDBの大きさより
+  少なければ書かずに失敗する（OSのディスクと`/run`には書き出しが入らない）。
+- **DB名は、デプロイ済みのbackendの接続先の設定から取る**（シェルにDB名を書かない）。
 - **`pg_dump`はホストのもの**を使う。サーバーと同じPGDGのパッケージで入るので版が揃う——`pg_dump`は自分より
   新しいメジャー版のサーバーからは書き出さず、イメージ（python:slim）のDebianの配布物はサーバーより古い。
-- **置くのはVMの鍵を使わない形**（インスタンス・プリンシパル。OCI CLIは公式のコンテナイメージで打つ）。VMに
-  許すのはそのバケットへの新しいオブジェクトの作成（`OBJECT_CREATE`）だけで、読み出し・上書き・削除はできない
-  ——VMが乗っ取られても、置いたバックアップは消せない。オブジェクト名は書き出した時刻（UTC）なので、毎日増える
-  だけで上書きしない。消すのはバケットのライフサイクルの規則で、30日より古いものだけ（VMの権限の外）。止まった日が
-  30日続くと残りが無くなるので、止まりは次のとおり外から気づく。
+- **置くのはVMの鍵を使わない形**（インスタンス・プリンシパル。OCI CLIは公式のコンテナイメージで打つ）。VMに許すのは
+  そのバケットのオブジェクトの一覧・作成・削除だけで、ほかのバケットには触れない。前の1個を消すのがこのスクリプトなので、
+  VMが乗っ取られればバケットのものは消せる——そのときは手元の1個も同じVMにあり、戻す材料が無くなる。
 - **止まりは`/health`で外へ出す**。置けたらその時刻を、ホストの`/home/ubuntu/ridecompass-cache-data`（コンテナの`data/`）の
   `admin_data_backup_at`へ書き、`infrastructure/admin_data_backup.py`が経過時間を出す。DBに表を足さないのは、本番のスキーマを
   人が埋める手間（docs/architecture/tech-stack.md「デプロイの反映確認」）を、1行の時刻のために増やさないため。
-- **書き出しの時点では中身を検算しない**。アプリが起動できない中身（値の不変条件に通らない軸等）も書き出すが、
-  前の日のものは残る。戻した行は、backendの起動時の読み込み（`services/axis_registry_service.py:
+- **書き出しの時点では中身を検算しない**。戻したDBの軸・較正値は、backendの起動時の読み込み（`services/axis_registry_service.py:
   refresh_axis_definitions`・`infrastructure/tuning_overrides.py: load_tuning_values`）が管理APIの本文と同じ
-  検査に通し、通らなければ起動しない。
-- **戻しはスキーマごと入れ替える**（`pg_restore --clean --if-exists --single-transaction`）。表の定義は
-  書き出した日の本番のもので、ほかの表からの外部キーは無いので落とせる。1つのトランザクションなので、
-  途中で落ちれば何も変わらない。
+  検査に通し、通らなければ起動しない。残るのは1個なので、前の日のものへは戻れない。
 - 稼働中のbackendは戻した行を読み直さない（読み込みは起動時と管理APIの書き込み直後だけ）。戻したら再起動する。
 
 ## 非同期ジョブレジストリ詳細（`job_registry.py`）

@@ -10,7 +10,7 @@ paths:
 コード変更と本番環境（DB・デプロイ）の同期について、「作業として何を完了条件に含めるか」の運用ルールだけを書く。
 個々のモジュールの設計・実装事実は`docs/modules/*.md`が持つ。
 
-本番DBを失ったときの作り直しは`.claude/skills/production-data/SKILL.md`の付録の「本番DBを失ったとき」（その材料は同じ付録の「管理データのバックアップ」）、
+本番DBを失ったときの作り直しは`.claude/skills/production-data/SKILL.md`の付録の「本番DBを失ったとき」（その材料は同じ付録の「DBのバックアップ」）、
 派生データの作り直しは`.claude/skills/production-data/SKILL.md`の「派生データの作り直し」。
 
 ## コミットと同時に揃えるもの

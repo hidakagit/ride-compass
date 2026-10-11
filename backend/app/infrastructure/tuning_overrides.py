@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID
-from app.infrastructure.orm_base import IRREPLACEABLE, Base
+from app.infrastructure.orm_base import Base
 
 logger = logging.getLogger("ridecompass.tuning")
 
@@ -35,7 +35,6 @@ class TuningOverrideError(RuntimeError):
 
 class TuningOverrideRow(Base):
     __tablename__ = "tuning_overrides"
-    __table_args__ = {"info": IRREPLACEABLE}
 
     param_id: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[float] = mapped_column(Float, nullable=False)

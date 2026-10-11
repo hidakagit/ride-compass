@@ -1,6 +1,6 @@
 ---
 name: production-data
-description: "本番の派生データを作り直す・本番へ軸定義の変更を入れる・管理データのバックアップを登録する・本番DBを失ったときに戻す手順。本番のデータに触る作業の前に使う。"
+description: "本番の派生データを作り直す・本番へ軸定義の変更を入れる・DBのバックアップを登録する・本番DBを失ったときに戻す手順。本番のデータに触る作業の前に使う。"
 ---
 
 この手順のうち本番へ書く操作（本番VM・本番DB・本番の管理APIへ打つもの）は、開発機の対話のセッションが
@@ -61,30 +61,41 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
 
 作業の前には読まない。一度きりの準備（登録）と、災害時の手順。
 
-### 管理データのバックアップ
+### DBのバックアップ
 
-- 対象: 取り直せない管理データ（軸の定義・較正値の上書き等。ORMで`IRREPLACEABLE`の印を持つ表）。
-  仕組みは[横断基盤](../../../docs/modules/backend/cross-cutting-infrastructure.md)「取り直せない管理データのバックアップ」。
-- ルール: 本番VMのsystemdのtimerが毎日03:17（日本時間）に、その表を`pg_dump`してOracle Cloud Object Storageの
-  非公開バケットへ`admin-data/<UTCの時刻>.dump`として置く。バケットにはライフサイクルの規則で直近30日だけを残す
-  （消すのはObject Storageの規則）。置けたら時刻を書き、backendの`/health`が
-  `admin_data_backup_age_hours`（最後に置けてからの時間）を返す。読んで知らせる見張りは無い。
-  **VMを作り直したら、下の登録の1.〜4.をやり直す**。
+- 対象: 本番DBの全体（管理画面で積み上げた軸の定義・較正値の上書き、生データ・派生データ）。
+  仕組みは[横断基盤](../../../docs/modules/backend/cross-cutting-infrastructure.md)「本番DBのバックアップ」。
+- ルール: 本番VMのsystemdのtimerが毎日03:17（日本時間）に、DBの全体を`pg_dump`（custom形式・圧縮あり）して、
+  Oracle Cloud Object Storageの非公開バケットへ`db/<UTCの時刻>.dump`として置き、前の回のものを消す。残すのは、バケットに
+  1個（無料の枠の10GBに1個だけ入る）と、VMのDBのディスクの`/mnt/pgdata/ridecompass-backup/latest.dump`に1個。
+  置けたら時刻を書き、backendの`/health`が`admin_data_backup_age_hours`（最後に置けてからの時間）を返す。
+  **VMを作り直したら、下の登録の1.〜5.をやり直す**。
 - 登録（1回。Oracle Cloudのコンソールと、VMにSSHで入って打つ）:
   1. バケットを作る: コンソールの Storage → Buckets で、ホームリージョンに
      標準の層・既定の見え方（公開しない）で作る（例: `ridecompass-admin-data`）。ネームスペースは同じ画面か、
      テナンシの詳細の「Object Storage namespace」に出る。
   2. VMを動的グループに入れる: Identity → Dynamic groups で、ルール`instance.id = '<VMのインスタンスのOCID>'`
      の動的グループを作る（例: `ridecompass-vm`。OCIDはコンソールのインスタンスの詳細に出る）。
-  3. 書く権限を1つだけ与える: Identity → Policies で、バケットのあるコンパートメントに次の1文のポリシーを作る。
+  3. そのバケットのオブジェクトの一覧・作成・削除だけを許す: Identity → Policies で、バケットのあるコンパートメントに次の3文のポリシーを作る。
      ```
+     Allow dynamic-group ridecompass-vm to manage objects in compartment <コンパートメント名> where all {target.bucket.name='ridecompass-admin-data', request.permission='OBJECT_INSPECT'}
      Allow dynamic-group ridecompass-vm to manage objects in compartment <コンパートメント名> where all {target.bucket.name='ridecompass-admin-data', request.permission='OBJECT_CREATE'}
+     Allow dynamic-group ridecompass-vm to manage objects in compartment <コンパートメント名> where all {target.bucket.name='ridecompass-admin-data', request.permission='OBJECT_DELETE'}
      ```
      動的グループをDefault以外のアイデンティティ・ドメインに作ったときは、`dynamic-group '<ドメイン名>'/'ridecompass-vm'`と書く。
      バケットがテナンシのルートのコンパートメントにあるときは、`in compartment <コンパートメント名>`の代わりに`in tenancy`と書く
-     （場所の書き方は公式の文書「Policy Syntax」の Location）。5.も同じ。ルートを`compartment`で書くと、コンソールが
+     （場所の書き方は公式の文書「Policy Syntax」の Location）。4.も同じ。ルートを`compartment`で書くと、コンソールが
      `Compartment {<ルートの名前>} does not exist or is not part of the policy compartment subtree`で断る。
-  4. VMで設定ファイルを置き、ユニットを登録し、1回打って確かめてからtimerを有効にする（ユニットはデプロイが
+  4. 送りかけで残った部分を消す: 大きな書き出しは分割して送られ、送る途中で落ちると、送り終えた部分が枠を使ったまま残る。
+     Object Storageのサービスにバケットのオブジェクトを扱う権限を与え（公式の文書「Using Object Lifecycle Policies」）、
+     Identity → Policies で、**テナンシのルートのコンパートメント**に次の1文のポリシーを作る（`<リージョン>`はバケットのある
+     リージョンの識別子。例: `ap-tokyo-1`）。
+     ```
+     Allow service objectstorage-<リージョン> to manage object-family in compartment <コンパートメント名>
+     ```
+     続けて Storage → Buckets → バケット → Policies の「Lifecycle policy rules」で Create Rule を押し、Lifecycle target を
+     Uncommitted multipart uploads・Lifecycle action を Delete・日数を1にして作る。規則が効き始めるまで最大24時間かかる（同じ文書）。
+  5. VMで設定ファイルを置き、ユニットを登録し、1回打って確かめてからtimerを有効にする（ユニットはデプロイが
      揃える作業コピーのものを`systemctl link`で指す）:
      ```
      sudo mkdir -p /etc/ridecompass
@@ -96,47 +107,38 @@ description: "本番の派生データを作り直す・本番へ軸定義の変
      sudo systemctl enable --now ridecompass-admin-data-backup.timer
      systemctl list-timers ridecompass-admin-data-backup.timer
      ```
-     `journalctl`の最後に「管理データを置きました object=admin-data/…」が出て、コンソールのバケットにそのオブジェクトが
-     見え、`curl -fsS http://localhost:8000/health`の`admin_data_backup_age_hours`が0.0なら済み。
-  5. 30日より古いものを消す: Object Storageのサービスにバケットのオブジェクトを扱う権限を与える
-     （公式の文書「Using Object Lifecycle Policies」）。Identity → Policies で、**テナンシのルートのコンパートメント**に
-     次の1文のポリシーを作る（`<リージョン>`はバケットのあるリージョンの識別子。例: `ap-tokyo-1`）。
-     ```
-     Allow service objectstorage-<リージョン> to manage object-family in compartment <コンパートメント名>
-     ```
-     バケットがルートのコンパートメントにあるときは、3.と同じく`in tenancy`と書く。
-     続けて Storage → Buckets → バケット → Policies の「Lifecycle policy rules」で Create Rule を押し、Lifecycle action を
-     Delete・日数を30・Object name filters の prefix を`admin-data/`にして作る。規則が効き始めるまで最大24時間かかる（同じ文書）。
+     1回は30分ほどかかる。`journalctl`の最後に「DBの全体を置きました object=db/…」が出て、コンソールのバケットにそのオブジェクトが
+     1個だけ見え、`curl -fsS http://localhost:8000/health`の`admin_data_backup_age_hours`が0.0なら済み。
 - 動いているかを見る: backendの`/health`の`admin_data_backup_age_hours`。詳しくはVMで`systemctl list-timers ridecompass-admin-data-backup.timer`
   （前回・次回）と`sudo journalctl -u ridecompass-admin-data-backup.service --since -2d`。
 
 ### 本番DBを失ったとき
 
-- 対象: 本番DB（またはVMごと）を失った・管理データの表を誤操作で壊したとき。
-- 戻る材料: 生データは取り直し、派生データは生データから作り直す。管理データは上の「管理データのバックアップ」が
-  バケットに置いた`pg_dump`のファイルから戻す。
-- 戻すファイルを取る: コンソールの Storage → Buckets → バケット → `admin-data/`で、一番新しいオブジェクトを
-  ダウンロードし、`scp`でVMの`/tmp/admin-data.dump`へ送る。
-- 作り直しの順番（本番VMで。1.と3.は上の「派生データの作り直し」と同じ形の使い捨てのコンテナで打つ）:
-  1. スキーマを作る: `python scripts/bootstrap_database.py --to schema`（拡張が無ければ、何をスーパーユーザーで
-     打てばよいかを言って止まる）
-  2. 管理データを戻す（ホストで。DB名は`/home/ubuntu/ridecompass-backend.env`の`DATABASE_URL`の最後の部分）:
+- 対象: 本番DB（またはVMごと）を失った・誤操作で壊したとき。
+- 戻る材料: 上の「DBのバックアップ」の書き出し1個。戻すと、DBは書き出した時点の全体（管理データ・生データ・派生データ）になる。
+  それより後の管理画面の変更と取込は戻らないので、要るならやり直す。
+- 戻すファイルを取る: VMが残っていれば`/mnt/pgdata/ridecompass-backup/latest.dump`を使う。VMを失ったときは、コンソールの
+  Storage → Buckets → バケット → `db/`のオブジェクトをダウンロードし、`scp`で新しいVMのDBのディスク（例: `/mnt/pgdata/restore.dump`）へ送る。
+- 戻す順番（本番VMで。DB名・利用者は`/home/ubuntu/ridecompass-backend.env`の`DATABASE_URL`のもの）:
+  1. backendを止める: `sudo docker stop ridecompass-backend`（コンテナが無ければ飛ばす）
+  2. DBが無ければ、利用者とDBを作る（利用者は書き出しに入らない）:
      ```
-     sudo chmod 644 /tmp/admin-data.dump
-     sudo -u postgres pg_restore --clean --if-exists --single-transaction --dbname=<DB名> /tmp/admin-data.dump
+     sudo -u postgres createuser --pwprompt <利用者>
+     sudo -u postgres createdb --owner=<利用者> <DB名>
      ```
-  3. 取り込んで派生を作る: `python scripts/bootstrap_database.py --from ingest`（外部ソースのファイルは先に
-     手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）。このコンテナには
-     `-v /home/ubuntu/ridecompass-raster:/app/raster:ro`も足す（ラスタはDBと別にVMに置き、`deploy-backend.yml`が取得してbackendへ同じ形で載せる）
-  4. backendのコンテナを起動し直し（`sudo docker restart ridecompass-backend`、コンテナが無ければ
-     `deploy-backend.yml`を`workflow_dispatch`で打つ）、戻ったことを確かめる:
+  3. 戻す（表を作り直して行を入れる。数十分かかる）:
+     ```
+     sudo chmod 644 <ファイル>
+     sudo -u postgres pg_restore --clean --if-exists --jobs=4 --dbname=<DB名> <ファイル>
+     ```
+  4. 書き出しのあとに派生を作り直していたら、道路網の配列の置き場（`/home/ubuntu/ridecompass-cache-data/road_network/`の中）を消す
+     （戻したDBより新しい世代の置き場が残ると、backendはそれを読む）。
+  5. `deploy-backend.yml`を`workflow_dispatch`で打つ（ラスタを取り、道路網の配列が無ければ作り、backendを起動する）。
+     戻ったことを確かめる:
      ```
      curl -fsS http://localhost:8000/health
      curl -fsS http://localhost:8000/api/axis-catalog | head -c 300
      sudo docker logs --tail 50 ridecompass-backend 2>&1 | grep -E '軸定義|AxisDefinitionSyncError|TuningOverrideError'
      ```
-     `/health`が応答し、ログに「軸定義をDBから読み込みました axes=<戻した軸の数>」が出ていれば済み。軸・較正値が
-     アプリの検査に通らなければ起動が止まり（`AxisDefinitionSyncError`等）、`/health`は応答しない——そのときは
-     1つ前の日のファイルで2.からやり直す。
-- 管理データの表だけを誤操作で壊したとき: 2.と4.だけを行う。
-- 4.より前に2.を済ませる（backendは軸が0行だと起動しない。[axis-studio.md](../../../docs/modules/backend/axis-studio.md)「まっさらなDBに軸の行は入らない」）。
+     `/health`が応答し、ログに「軸定義をDBから読み込みました axes=<戻した軸の数>」が出ていれば済み。
+  6. VMを作り直したときは、上の「DBのバックアップ」の登録の5.をやり直す。

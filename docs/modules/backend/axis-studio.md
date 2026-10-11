@@ -251,8 +251,8 @@ Pythonの値、ルート選びと地図の配信は材料の型ごとの配列�
 `scripts/bootstrap_database.py`が作るのはスキーマ・取込・派生までで、`axis_definitions`の
 行は作らない。`refresh_axis_definitions`は0行を`AxisDefinitionSyncError`として扱うため、
 **新規環境ではアプリが起動しない**。軸を足す管理APIも起動したbackendにしか無いので、新規環境へ
-軸を入れる経路は、管理データのバックアップからの復元（`pg_restore`、
-[横断基盤](cross-cutting-infrastructure.md)「取り直せない管理データのバックアップ」）だけである。
+軸を入れる経路は、本番DBのバックアップからの復元（`pg_restore`、
+[横断基盤](cross-cutting-infrastructure.md)「本番DBのバックアップ」）だけである。
 新規環境（composeのDB・クラウドのセッション）はテストを回す場と決めており、
 アプリを確かめるのは本番か手元の開発機で行う（[setup.md](../../architecture/setup.md)）。
 

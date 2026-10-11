@@ -23,7 +23,7 @@
 | 標高 | 国土地理院DEMタイル（APIキー不要、日本国内限定） | 評価の材料（勾配）は取込バッチだけが叩き、**ルート生成・評価が実行時に取りに行く経路は無い**。地図の地形の表示は、backendが実行時に取りに行って中継し、ディスクに持つ |
 | 土地被覆 | Esri × Impact Observatory の10m LULC（GeoTIFF） | リポジトリに持たず、デプロイがVMへ取得して読み取り専用でマウントする |
 | 立ち寄り先の地点 | Overture Maps の places（GeoParquet）を DuckDB（MIT）で取込の範囲だけ切り出す | 取得と取込のバッチだけが使う（`backend/requirements-batch.txt`）。利用条件と版の入れ替えは[data-sources.md](data-sources.md) |
-| 管理データの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerが取り直せない管理データを置き、バケットのライフサイクルの規則が古いものを消す。仕組みと登録の手順は[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)付録「管理データのバックアップ」 |
+| 本番DBの退避先 | Oracle Cloud Object Storage（非公開のバケット） | 本番VMのtimerがDBの全体の書き出しを置き、前の1個を消す（無料の枠に1個だけ入る）。仕組みと登録の手順は[production-data/SKILL.md](../../.claude/skills/production-data/SKILL.md)付録「DBのバックアップ」 |
 | タスクの流れのゲート | Cloudflare Workers（`tools/flow-gate/wrangler.toml`。Webhookを受けるWorkerと、Cloudflare Accessで守る回答フォームのWorker） | アプリの外の運用の道具で、本番の利用者の経路に無い。公開するトークンは下の「秘密の値とトークン」、決まりは[flow.md](../conventions/flow.md) |
 
 ## 地図タイルプロバイダ

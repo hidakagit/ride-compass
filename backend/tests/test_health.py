@@ -1,4 +1,4 @@
-"""`/health`のうち、管理データのバックアップからの経過時間を見る（見回りがこれを読んで止まりに気づく）。
+"""`/health`のうち、DBのバックアップからの経過時間を見る（見回りがこれを読んで止まりに気づく）。
 
 ここで見ないもの: `commit`・`started_at`（値を詰めて返すだけ）。
 """
@@ -43,4 +43,4 @@ def test_health_stays_ok_when_the_backup_marker_is_unreadable(tmp_path, monkeypa
     response = client.get("/health")
 
     assert (response.status_code, response.json()["status"], response.json()["admin_data_backup_age_hours"]) == (200, "ok", None)
-    assert "管理データのバックアップの印のファイルが読めない" in caplog.text
+    assert "DBのバックアップの印のファイルが読めない" in caplog.text

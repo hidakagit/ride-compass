@@ -9,12 +9,6 @@ import importlib
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 
-#: 表の`info`に付ける印（`__table_args__ = {"info": IRREPLACEABLE}`）。外部から取り直せず、派生からも
-#: 作り直せない表（人が管理画面で積み上げた行）であることを宣言する。バックアップ
-#: （`scripts/admin_data_dump_args.py`）が書き出す母集団はこの印から導く。
-IRREPLACEABLE_KEY = "irreplaceable"
-IRREPLACEABLE = {IRREPLACEABLE_KEY: True}
-
 #: 表の`info`に付ける印（`__table_args__`の最後に`{"info": DERIVED}`）。生データから作り直す派生の表であることを
 #: 宣言する。鮮度台帳（`derived_data_freshness.py`）が数える表と、材料の式が読む列を持つ表（`road_graph_repository.py`）は、
 #: この印から導く。

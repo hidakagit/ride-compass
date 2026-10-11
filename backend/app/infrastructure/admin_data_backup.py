@@ -1,4 +1,4 @@
-"""取り直せない管理データのバックアップ（`backend/ops/admin_data_backup.sh`）が、最後に置けてから何時間たったか。
+"""本番DBのバックアップ（`backend/ops/admin_data_backup.sh`）が、最後に置けてから何時間たったか。
 
 退避のスクリプトは本番VMのホストで動き、置けた時刻（UTC、ISO 8601）を1行だけ`MARKER_PATH`へ書く。ホストの
 `/home/ubuntu/ridecompass-cache-data`がコンテナの`data/`（`deploy-backend.yml`の`-v`）なので、スクリプトの書き先と
@@ -26,7 +26,7 @@ def backup_age_hours(now: datetime) -> float | None:
     except (OSError, ValueError) as exc:
         # `/health`が毎回読むので、ここで落とすとそれを待つデプロイまで止まる。読めない理由はここでしか分からない。
         log_throttled_warning(
-            "admin-data-backup", "管理データのバックアップの印のファイルが読めない path=%s error=%r", MARKER_PATH, exc
+            "admin-data-backup", "DBのバックアップの印のファイルが読めない path=%s error=%r", MARKER_PATH, exc
         )
         return None
     return (now - placed_at).total_seconds() / 3600
