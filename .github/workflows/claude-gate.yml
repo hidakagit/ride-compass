@@ -1,28 +1,19 @@
-# タスクの流れのゲート（tools/flow-gate/）の検査と公開。製品の CI（ci.yml）と分ける理由と、どの変更でも走らせる理由は
-# docs/architecture/tech-stack.md「CIの実行枠」。
-#
-# - flow-gate: lint とテスト。コードのリポジトリの必須チェックに置く。
-#   Pull Request では本文の形（.github/pull_request_template.md）も照らす。本文は master のコミットになるので、本文を直した
-#   （edited）ときも照らし直す。
-# - deploy-gate: master への push で flow-gate が通ったら、ゲートと回答フォームを Cloudflare へ公開する。
+# タスクの流れのゲート（tools/flow-gate/）の検査と公開。製品の CI（ci.yml）と分ける理由は docs/architecture/tech-stack.md「CIの実行枠」。
+# flow-gate（必須の検査）: lint とテストと、Pull Request の本文の形（本文は master のコミットになるので、直したときも照らす）。
+# deploy-gate: master への push で、ゲートと回答フォームを Cloudflare へ公開する。差分で選ばず、master の先頭の実行が毎回公開する
+# （ゲートを変えた push の公開が落ちても、次の push が公開し直す）。先頭でなくなった実行は、新しい版を上書きしないよう公開しない。
 name: Claude Gate
 
 on:
   push:
-    # 作業ブランチ（orch/**）へのpushでは走らせない（ci.ymlと同じ）。
     branches: [master]
   pull_request:
     types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 jobs:
-  # lint が構文と import の解決（無いファイル・無い名前）を動かさずに見る。
-  # テストは部品（src/）しか読み込まないので、道具（bin/）の静的な誤りは lint だけが落とす。
   flow-gate:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/flow-gate
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -30,21 +21,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: tools/flow-gate/package-lock.json
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      # Dependabot の Pull Request はマージせず、同じ版を取り込んだタスクが閉じる（.github/dependabot.yml の冒頭）ので照らさない。
-      # 本文は式で run へ埋めず、環境変数で渡す（本文の中の文字がシェルに読まれない）。
+      - run: npm ci && npm run lint && npm test
+        working-directory: tools/flow-gate
+      # Dependabot の PR はマージしない（同じ版を取り込んだタスクが閉じる）ので照らさない。本文は環境変数で渡す（シェルに読ませない）。
       - if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           BODY: ${{ github.event.pull_request.body }}
-        run: |
-          printf '%s' "$BODY" > "$RUNNER_TEMP/pr-body.md"
-          node bin/pr-body.js "$RUNNER_TEMP/pr-body.md"
-  # 公開は Cloudflare の公式の wrangler-action で行う。tools/flow-gate/ の差分の有無で選ばず、master の先頭の実行が毎回公開する。差分で
-  # 選ぶと、ゲートを変えた push の公開が落ちたとき、ゲートを触らない次の push が公開せず、公開済みの版が古いまま残る。
-  # 実行どうしは1本ずつ動かし、master の先頭でなくなった実行は公開しない（遅れて終わった古い実行が新しい版を上書きしない。
-  # 新しい版は、その push の実行が公開する）。
+        run: printf '%s' "$BODY" > "$RUNNER_TEMP/pr-body.md" && node scripts/pr-body.js "$RUNNER_TEMP/pr-body.md"
   deploy-gate:
     needs: [flow-gate]
     if: github.event_name == 'push'
@@ -52,26 +35,18 @@ jobs:
     concurrency:
       group: deploy-gate
       cancel-in-progress: false
+    strategy:
+      max-parallel: 1
+      matrix:
+        command: [deploy, deploy --env form]
     steps:
       - uses: actions/checkout@v5
       - id: head
-        run: |
-          if [ "$(git ls-remote origin refs/heads/master | cut -f1)" = "$GITHUB_SHA" ]; then
-            echo "latest=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice title=deploy-gate::master の先頭ではないので公開しない（先頭の実行が公開する）"
-          fi
+        run: '[ "$(git ls-remote origin refs/heads/master | cut -f1)" = "$GITHUB_SHA" ] && echo "latest=true" >> "$GITHUB_OUTPUT" || echo "master の先頭ではないので公開しない"'
       - if: steps.head.outputs.latest == 'true'
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: tools/flow-gate
-          command: deploy
-      - if: steps.head.outputs.latest == 'true'
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: tools/flow-gate
-          command: deploy --env form
+          command: ${{ matrix.command }}

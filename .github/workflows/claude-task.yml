@@ -1,9 +1,9 @@
-# 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。振り出し（claude-dispatch.yml）が起こす。手でも起こせる:
+# 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。ゲートが振り出す（tools/flow-gate/src/dispatch.js）。手でも起こせる:
 #   gh workflow run claude-task.yml -R ridecompass/ride-compass -f issue=<置き場の issue の番号> -f kind=<作る|確かめる>
-# 担当は .claude/skills/task-work/SKILL.md の「作る担当」「確かめる担当」の手順を進める。
-# このリポジトリは公開で、Actions の記録は誰でも読める。担当の出力の全文（show_full_output）と報告（display_report）は出さない。
+# 担当は .claude/skills/task-work/SKILL.md の手順を進め、ステータスは書かない（実行の始まりと終わりの出来事で、ゲートが決める）。
+# このワークフローを無効にすると、ゲートは振り出さない（止める操作）。リポジトリは公開なので、担当の出力の全文は記録に出さない。
 name: Claude Task
-# 振り出しは、この名前から動いている担当の issue の番号を読む（tools/flow-gate/src/dispatch.js: runOf）。
+# ゲートは、この名前からどのタスクのどの担当かを読む（tools/flow-gate/src/facts.js: runOf）。
 run-name: "#${{ inputs.issue }} ${{ inputs.kind }}"
 
 on:
@@ -21,32 +21,27 @@ on:
 permissions:
   contents: read
 
-# 同じ issue の実行は1本ずつ動き、あとから来たものは取り消されずに順に待つ（queue: max）。1つのタスクを触るのが1者だけなのは、
-# 最初の段が取る持つ印が守る（tools/flow-gate/src/hold.js）。待っていた担当は、前の実行が終わってから最初の段で照らされ、行き先が
-# 無ければ何もせず終わる。
+# 1つのタスクの担当は1人。同じ issue の実行は、取り消さずに順に動く。
 concurrency:
   group: claude-task-${{ inputs.issue }}
   queue: max
 
 jobs:
   task:
-    # backend のテストを CI（ci.yml の backend）と同じ aarch64・同じ PostgreSQL + PostGIS で流せるようにする。
+    # backend のテストを CI と同じ aarch64・同じ PostgreSQL + PostGIS で流す。
     runs-on: ubuntu-24.04-arm
-    # 担当の持ち時間。超えると Actions がジョブを止め、最後の段（後始末）が落ちたものとして扱う。
     timeout-minutes: 240
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
-      # 置き場へ書く道具（tools/flow-gate/bin/cli.js）は hidakagit-bot、コードのリポジトリの gh は hidakagit の名義。
-      # マージを GITHUB_TOKEN で打つと master の CI とデプロイが起きないので、hidakagit のトークンで打つ。
+      # 置き場へは hidakagit-bot、コードのリポジトリの gh は hidakagit の名義（GITHUB_TOKEN のマージは master の CI とデプロイを起こさない）。
       FLOW_BOT_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
       GH_TOKEN: ${{ secrets.CODE_TOKEN }}
-      # Mapillary の API（graph.mapillary.com・tiles.mapillary.com）の読み取り。tasks#69 の街灯の点の付き方の測定に使う。
       MAPILLARY_TOKEN: ${{ secrets.MAPILLARY_TOKEN }}
       ISSUE: ${{ inputs.issue }}
+      TASKS: ridecompass/ride-compass-tasks
       KIND: ${{ inputs.kind }}
-      # 担当の実行は最初の結果で終わり、裏の処理の知らせで起こし直されない。Bash の run_in_background と裏の subagent を外す
-      # （Monitor・ScheduleWakeup 等は claude_args の --disallowedTools で外す）。
+      # 担当は最初の結果で終わる。裏の処理（run_in_background・裏の subagent）は外す。
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
     steps:
       - uses: actions/checkout@v5
@@ -58,72 +53,58 @@ jobs:
           node-version-file: frontend/package.json
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      # 持つ印を取り、作るなら未着手 → 進行中が通ったときだけ、確かめるなら検証中のときだけ進み、issue に着手を書く。
-      - name: 引き受ける
-        id: claim
-        run: |
-          if node tools/flow-gate/bin/claim.js "$ISSUE" "$KIND" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; then echo "go=true" >> "$GITHUB_OUTPUT"; fi
-      # ci.yml の backend と同じ PostgreSQL + PostGIS。
-      - if: steps.claim.outputs.go == 'true'
-        uses: ./.github/actions/postgis
-      # Read が PDF をページで読むときに使う pdftoppm。apt の一覧は上の段の apt.postgresql.org.sh が更新してある。
-      - name: poppler-utils（PDF のページの読み込み）
-        if: steps.claim.outputs.go == 'true'
-        run: sudo apt-get install -y --no-install-recommends poppler-utils
+      - uses: ./.github/actions/postgis
+      # Read が PDF をページで読むときの pdftoppm（apt の一覧は postgis の段が更新してある）。
+      - run: sudo apt-get install -y --no-install-recommends poppler-utils
       - uses: actions/setup-python@v6
-        if: steps.claim.outputs.go == 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             backend/requirements-batch.txt
             backend/requirements-dev.txt
-      - if: steps.claim.outputs.go == 'true'
-        run: pip install -r requirements-batch.txt -r requirements-dev.txt
+      - run: pip install -r requirements-batch.txt -r requirements-dev.txt
         working-directory: backend
-      - if: steps.claim.outputs.go == 'true'
-        run: npm ci
+      - run: npm ci && npx playwright install --with-deps chromium
         working-directory: frontend
-      # e2e を手元で回すための Playwright の Chromium（ci.yml の e2e と同じ入れ方）。
-      - if: steps.claim.outputs.go == 'true'
-        run: npx playwright install --with-deps chromium
-        working-directory: frontend
-      - name: git の名義
-        if: steps.claim.outputs.go == 'true'
-        run: |
-          git config --global user.name hidakagit
-          git config --global user.email 6731891+hidakagit@users.noreply.github.com
+      - run: git config --global user.name hidakagit && git config --global user.email 6731891+hidakagit@users.noreply.github.com
       - uses: anthropics/claude-code-action@v1
         id: claude
-        if: steps.claim.outputs.go == 'true'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
-          # 権限の決まり（自動モード・拒否の一覧・判定役への説明。master の版）。連携は settings をユーザー設定へ混ぜて書き、判定役は
-          # ユーザー設定の autoMode を読む（リポジトリの .claude/settings.json の autoMode は読まない）。
-          settings: ${{ github.workspace }}/tools/flow-gate/settings.json
+          # 担当はゲートの App が起こす。連携は、名前を挙げていないボットが起こした実行を断る。
+          allowed_bots: ridecompass-gate
+          # 担当の権限（連携がランナーのユーザー設定へ書く。判定役はユーザー設定の autoMode を読む）。
+          settings: ${{ github.workspace }}/.github/claude-task/settings.json
           claude_args: --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
-          # 決まりも環境の説明も写さず、読む節だけを指す（docs/conventions/flow.md「担当」の3）。
           prompt: |
             あなたは RideCompass の${{ inputs.kind }}担当です。作業ツリー ${{ github.workspace }} で、置き場 ridecompass/ride-compass-tasks の issue #${{ inputs.issue }} を扱います。
-            まず CLAUDE.md と docs/conventions/flow.md の「担当」、.claude/skills/task-work/SKILL.md の全文（「${{ inputs.kind }}担当」の手順を進める）、.claude/skills/ask/SKILL.md の「問い」、.claude/skills/file-issue/SKILL.md の「issue の形」を読み、その手順のとおりに進めてください。
-      # 作る担当の GitHub に無い変更は、マシンと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
-      - name: 残った変更
-        if: always() && steps.claim.outputs.go == 'true' && inputs.kind == '作る'
+            まず CLAUDE.md と .claude/skills/task-work/SKILL.md の全文（「${{ inputs.kind }}担当」の手順を進める）を読み、その手順のとおりに進めてください。
+      # 作る担当の GitHub に無い変更は、ランナーと一緒に消えないよう wip の枝へ残す（作業ブランチは書き換えない）。
+      - if: always() && inputs.kind == '作る'
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            git add -A
-            git commit -q -m "tasks#${ISSUE}: 作業途中（作る担当の終わりに残った未コミットの変更）"
-          fi
+          [ -z "$(git status --porcelain)" ] || { git add -A && git commit -q -m "tasks#${ISSUE}: 作業途中（作る担当の終わりに残った未コミットの変更）"; }
           git fetch -q origin
-          if [ -z "$(git branch -r --contains HEAD)" ]; then
-            wip="wip/tasks-${ISSUE}-$(date -u +%Y%m%dT%H%M%SZ)"
-            git push -q origin "HEAD:refs/heads/${wip}"
-            echo "GitHub に無い変更を ${wip} へ残した"
+          if [ -z "$(git branch -r --contains HEAD)" ]; then git push -q origin "HEAD:refs/heads/wip/tasks-${ISSUE}-$(date -u +%Y%m%dT%H%M%SZ)"; fi
+      # 手番の記録（実行のファイル）を非公開の置き場の日（UTC）ごとのリリースへ置き、issue に終わりを書く（.github/claude-task/after.js）。
+      # 1つのリリースに付けられるのは1000件まで（公式の文書「About releases」）。並んで作ると後のほうは作れないので、作られたものへ付ける。
+      - if: always()
+        env:
+          GH_TOKEN: ${{ secrets.FLOW_BOT_TOKEN }}
+          # 連携が書き出す実行のファイル。担当が起きる前に落ちたときは無い。
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
+        run: |
+          TAG="turns-$(date -u +%F)"; NAME="tasks-$ISSUE-$GITHUB_RUN_ID.json.gz"; LOG=""
+          if [ -f "$EXECUTION_FILE" ] && gzip -c "$EXECUTION_FILE" > "$RUNNER_TEMP/$NAME"; then
+            gh release view "$TAG" -R "$TASKS" > /dev/null 2>&1 || gh release create "$TAG" -R "$TASKS" --title "担当の手番の記録 ${TAG#turns-}" --notes "" || true
+            gh release upload "$TAG" "$RUNNER_TEMP/$NAME" -R "$TASKS" && LOG="https://github.com/$TASKS/releases/download/$TAG/$NAME"
           fi
-      # 作る担当のタスクが進行中のままなら終わり方で未着手か保留へ動かし、利用の上限・認証なら振り出しをしばらく止める
-      # （tools/flow-gate/bin/after.js）。手番の記録（実行のファイル）は非公開の置き場のリリースへ置く。
-      # issue へ終わり（担当の最後の発言を含む）を書いて、持つ印を手放す。発言は非公開の置き場にだけ書き、この記録には出さない。
-      - name: 後始末
-        if: always() && steps.claim.outputs.go == 'true'
-        run: node tools/flow-gate/bin/after.js "$ISSUE" "$KIND" "${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" "${{ job.status }}"
+          node .github/claude-task/after.js "$KIND" "$EXECUTION_FILE" "$LOG" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$RUNNER_TEMP/end.md"
+          gh issue comment "$ISSUE" -R "$TASKS" --body-file "$RUNNER_TEMP/end.md"
+      # 担当が Claude の利用の上限・認証で止まったら、この段が落ちる。ゲートはこの段の名前（flow.config.json: quotaStep）で読み、振り出しを止める。
+      - name: 利用の上限で止まった
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
+        run: node .github/claude-task/after.js --quota "$EXECUTION_FILE"

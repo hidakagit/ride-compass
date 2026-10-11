@@ -2,4 +2,5 @@
 // 規則はプラグインの errors（実行すれば必ず落ちるものだけを集めた既定の組）をそのまま使う。
 import importPlugin from "eslint-plugin-import";
 
-export default [importPlugin.flatConfigs.errors];
+// cloudflare: で始まる import は Workers の実行環境が持つ組み込みで、手元のファイルには無い。
+export default [importPlugin.flatConfigs.errors, { rules: { "import/no-unresolved": ["error", { ignore: ["^cloudflare:"] }] } }];
