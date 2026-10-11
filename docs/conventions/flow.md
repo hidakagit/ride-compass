@@ -253,7 +253,7 @@ master のコミットは Pull Request の題名と本文から作られる。�
 本文の形は `.github/pull_request_template.md` だけが持ち、Pull Request の CI（Claude Gate の flow-gate）が照らす。
 
 件名は必ず `tasks#<issue の番号>:` から始める（段階なら段階の sub-issue の番号、複数なら`tasks#12・tasks#13:`）。
-属するタスクの無い変更は作らない（CLAUDE.md「作業ツリーの安全」の「新しいタスクは…」）。
+属するタスクの無い変更は作らない（.claude/skills/file-issue/SKILL.md「起票する」の「今の差分で直せるものは直す」）。
 
 ## ゲートを変える・公開する
 
