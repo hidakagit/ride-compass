@@ -38,46 +38,44 @@ export function useRouteResults() {
   const [usedWeights, setUsedWeights] = useState<RoutePreferenceWeights | null>(null);
 
   /** 生成の結果で一覧を入れ替える。最初に選ぶのは先頭（最速の1本か、最も早く着く候補）。 */
-  const replaceWithGenerated = useCallback((generated: RouteCandidate[], routePreference: RoutePreferenceWeights) => {
-    setGenerated(generated);
-    setEdits([]);
-    nextEditNumber.current = 1;
-    setSelection({ routeId: generated[0]?.id ?? null, reused: false });
-    // 候補が入れ替わると、押していた区間も意味を失う。
+  const replaceWithGenerated = useCallback(
+    (generated: RouteCandidate[], routePreference: RoutePreferenceWeights | null) => {
+      setGenerated(generated);
+      setEdits([]);
+      nextEditNumber.current = 1;
+      setSelection({ routeId: generated[0]?.id ?? null, reused: false });
+      // 候補が入れ替わると、押していた区間も意味を失う。
+      setSelectedRouteSegment(null);
+      setUsedWeights(routePreference);
+    },
+    [],
+  );
+
+  // 選び直すと、押していた区間は外す。
+  const select = useCallback((routeId: string, reused: boolean) => {
     setSelectedRouteSegment(null);
-    setUsedWeights(routePreference);
+    setSelection({ routeId, reused });
   }, []);
 
   /** 区間の乗り換えで作ったルートを足して選ぶ。idは画面が振る（backendは同じ値を毎回返す）。 */
-  const addEdit = useCallback((route: RouteCandidate, originId: string) => {
-    const number = nextEditNumber.current++;
-    const id = `${EDIT_ID_PREFIX}-${number}`;
-    setEdits((current) => [...current, { route: { ...route, id }, originId, number }]);
-    setSelection({ routeId: id, reused: false });
-    setSelectedRouteSegment(null);
-  }, []);
+  const addEdit = useCallback(
+    (route: RouteCandidate, originId: string) => {
+      const number = nextEditNumber.current++;
+      const id = `${EDIT_ID_PREFIX}-${number}`;
+      setEdits((current) => [...current, { route: { ...route, id }, originId, number }]);
+      select(id, false);
+    },
+    [select],
+  );
 
   /** 候補・選択・使われた重みを消す。 */
-  const clear = useCallback(() => {
-    setGenerated([]);
-    setEdits([]);
-    nextEditNumber.current = 1;
-    setSelection(NO_SELECTION);
-    setUsedWeights(null);
-    setSelectedRouteSegment(null);
-  }, []);
+  const clear = useCallback(() => replaceWithGenerated([], null), [replaceWithGenerated]);
 
   /** 候補のタブを選ぶ。押していた区間は外す。 */
-  const selectTab = useCallback((routeId: string) => {
-    setSelectedRouteSegment(null);
-    setSelection({ routeId, reused: false });
-  }, []);
+  const selectTab = useCallback((routeId: string) => select(routeId, false), [select]);
 
   /** 乗り換えで作った経路が既にある候補と同じ道だったので、足さずにその候補を選ぶ。 */
-  const selectReused = useCallback((routeId: string) => {
-    setSelectedRouteSegment(null);
-    setSelection({ routeId, reused: true });
-  }, []);
+  const selectReused = useCallback((routeId: string) => select(routeId, true), [select]);
 
   const routes = useMemo(() => [...generated, ...edits.map((edit) => edit.route)], [generated, edits]);
   const selectedCandidate = routes.find((route) => route.id === selectedRouteId) ?? null;

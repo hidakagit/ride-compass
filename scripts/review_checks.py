@@ -65,7 +65,7 @@ TEST_PREFIXES = ("frontend/src/testing/", "frontend/src/structure/")
 #: 開発機での起動の道具）。道具の置き場を列挙しないのは、道具が改名・新設されても製品へ
 #: 落ちないため。製品の増減が生成物・道具の増減に埋もれないよう、総量の前回比で分けて出す。
 #: タスク管理は製品と無関係に作り直されるので、道具の増減に混ぜずに分ける。
-#: ここで宣言する置き場は、どれも追跡下のファイルに当たる（`backend/tests/test_review_checks.py`）。
+#: ここで宣言する置き場は、どれも追跡下のファイルに当たる（`scripts/tests/test_review_checks.py`）。
 PRODUCT_PREFIXES = ("backend/app/", "frontend/src/")
 GENERATED_PREFIXES = ("frontend/src/types/generated/",)
 #: タスク管理の置き場の正本は CI 側（`.github/taskflow-paths`。製品の CI はここだけの変更で重い検査を飛ばす）。

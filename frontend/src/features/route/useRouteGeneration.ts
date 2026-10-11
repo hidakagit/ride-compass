@@ -16,7 +16,7 @@ import type { Coordinates, RouteCandidate, RoutePreferenceWeights } from "@/type
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 /** 押した「生成」の直近の結果。失敗は前の候補を残したまま出すため、候補0件の理由と分けて持つ。 */
-type GenerationNotice = { kind: "failed" | "empty"; message: string };
+export type GenerationNotice = { kind: "failed" | "empty"; message: string };
 
 /** ルート生成の進み方。同時に成り立つのは1つだけ。 */
 type Generation =
@@ -74,36 +74,19 @@ export function useRouteGeneration({
   const { routePreferenceToSend } = conditions;
   const { distanceTargeted, distance, waypoints, destination, maxRoutes, hardFilters } = conditions.snapshot;
   // いまの条件から生成の入力を組み立てる。`destinationOverride`はbackendが補正した目的地。
-  const buildCurrentGenerationInput = useCallback(
-    (destinationOverride?: Coordinates): GenerationInput => {
-      return {
-        origin,
-        distanceKm: distanceTargeted ? Number(distance) : null,
-        distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
-        maxRoutes: Number(maxRoutes),
-        assumedSpeedKmh,
-        startTime: departure.at,
-        startTimePinned: departure.pinned,
-        hardFilters,
-        routePreference: routePreferenceToSend,
-        waypoints,
-        destination: destinationOverride ?? destination,
-      };
-    },
-    [
-      distanceTargeted,
-      distance,
-      waypoints,
-      destination,
-      origin,
-      maxRoutes,
-      assumedSpeedKmh,
-      departure.at,
-      departure.pinned,
-      hardFilters,
-      routePreferenceToSend,
-    ],
-  );
+  const buildCurrentGenerationInput = (destinationOverride?: Coordinates): GenerationInput => ({
+    origin,
+    distanceKm: distanceTargeted ? Number(distance) : null,
+    distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
+    maxRoutes: Number(maxRoutes),
+    assumedSpeedKmh,
+    startTime: departure.at,
+    startTimePinned: departure.pinned,
+    hardFilters,
+    routePreference: routePreferenceToSend,
+    waypoints,
+    destination: destinationOverride ?? destination,
+  });
 
   // 表示中の候補を作った条件と、いまのフォームがずれているか（変えただけでは何も起きないことを知らせる）。
   const conditionsDirty =

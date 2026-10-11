@@ -1,123 +1,96 @@
-// ゲート: GitHub の出来事と回答フォームの送信を受け、遷移の表で照らして書く。1つの出来事では、タスクを1回読み、1回で書く。
-import { addComment, GitHub, labelNames, readTask, setField } from "./github.js";
-import { bodyRest, judge, normalize, notes, ownerOf, SCAN, withButton } from "./rules.js";
+// ゲート: GitHub の出来事から決め直すタスクを決め、事実を全部読み（src/facts.js）、あるべき姿を決め（src/decide.js）、今と違う所だけを書く。
+// ステータスと、変わってはいけない値（種類・担当者・本文のボタンと条件・ボード・優先度）を書くのはゲートだけ。
+import { decide } from "./decide.js";
+import { readFacts } from "./facts.js";
+import { askText, bodyRest, norm } from "./questions.js";
 
-export class Gate {
-  // App の名義で読み書きする。
-  static async open(env, config) {
-    const gate = new Gate();
-    gate.config = config;
-    gate.gh = await GitHub.asApp(env, config.installation);
-    return gate;
-  }
+// ボードの id と単一選択の欄。
+const board = (gh, config, world) => gh.gql(`query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){id
+  fields(first:30){nodes{...on ProjectV2SingleSelectField{id name options{id name}}}}}}}`, { o: config.owner, n: config.boards[world] }).then((r) => r.organization.projectV2);
 
-  // 答えていない問いを見分けるため、コメントを SCAN 件読む。
-  async read(ref) {
-    const r = await readTask(this.gh, this.config, ref, { comments: SCAN });
-    this.project = r.project;
-    this.labelIds = r.labels;
-    return r.issue;
-  }
-
-  // 本文: 回答待ちの間だけ、先頭に回答フォームへのボタン（画像は GitHub が中継して取りに来るので Access の外の urls.gate から返す）。
-  bodyFor(issue) {
-    const rest = bodyRest(issue.body);
-    const { gate, form } = this.config.urls;
-    return issue.state === "OPEN" && issue.status === this.config.waiting ? withButton(rest, `${form}/answer?issue=${issue.number}`, `${gate}/button.svg`) : rest;
-  }
-
-  // want に変えたいものだけを渡す（status・fields（Status 以外の欄の名前 → 値）・comments・labels・unlabels・close・reopen・body）。
-  // 担当者はステータスの番、本文の先頭は書いた後の状態に合わせて、同じ要求に入れる。
-  async write(issue, want = {}) {
-    const next = { ...issue, status: want.status ?? issue.status, state: want.close ? "CLOSED" : want.reopen ? "OPEN" : issue.state, body: want.body ?? issue.body };
-    const ops = [];
-    if (next.status !== issue.status) ops.push(setField(this.project, issue.item, this.config.project.statusField, next.status));
-    for (const [name, value] of Object.entries(want.fields ?? {})) ops.push(setField(this.project, issue.item, name, value));
-    for (const body of want.comments ?? []) ops.push(addComment(issue.id, body));
-    if (want.reopen) ops.push(["reopenIssue", { issueId: issue.id }]);
-    const update = {};
-    const owner = ownerOf(this.config, next);
-    if (owner && (issue.assignees.nodes.length !== 1 || issue.assignees.nodes[0].login !== owner)) update.assigneeIds = [this.config.people[owner].node];
-    const have = labelNames(issue);
-    const labels = [...new Set([...have.filter((n) => !want.unlabels?.includes(n)), ...(want.labels ?? [])])].filter((n) => this.labelIds[n]);
-    if (labels.length !== have.length || labels.some((n) => !have.includes(n))) update.labelIds = labels.map((n) => this.labelIds[n]);
-    const body = this.bodyFor(next);
-    if (body !== normalize(issue.body)) update.body = body;
-    if (want.close) update.stateInput = { value: "CLOSED", stateReason: want.close };
-    if (Object.keys(update).length) ops.push(["updateIssue", { id: issue.id, ...update }]);
-    await this.gh.write(ops);
-  }
-
-  // 今のステータスから to へ動かす（回答フォーム・Pull Request）。照らしを通れば書く。完了へは close（無ければ見送り）で閉じる。
-  // body は本文の書き換え（回答フォームで残りの条件にチェックを付けたとき）で、書き換えた本文で照らす。
-  async apply(issue, to, { close, body, ...rest } = {}) {
-    const closing = to === this.config.done ? (close ?? "NOT_PLANNED") : undefined;
-    const verdict = judge(this.config, issue.status, to, { close: closing, body: body ?? issue.body });
-    if (verdict.ok) await this.write(issue, { ...rest, status: to, body, close: issue.state === "OPEN" ? closing : undefined });
-    return verdict;
-  }
-
-  // Project に入った: 未着手。Claude が起こした親の無いもので種類が todoTypes（改善）に無いものは保留（起こした者が ask.js で問う）。
-  // 段階は優先度の欄が空なら親の優先度を継ぐ。ほかの欄は書かない（誰も決めていない欄は空のまま見せ、起票の直後に入れた値を、読んで
-  // から書くまでの間に消さない）。入った時点のステータス（ボードで選んだ列）は見ない。
-  async enter(nodeId, projectNodeId) {
-    const issue = await this.read({ nodeId });
-    if (this.project.id !== projectNodeId || !issue?.item || issue.state !== "OPEN") return;
-    const byUser = issue.author?.databaseId === this.config.people[this.config.user].id;
-    const priority = this.config.project.priorityField;
-    const inherited = issue.parent && !issue.fields[priority] ? (await readTask(this.gh, this.config, { number: issue.parent.number })).issue?.fields[priority] : null;
-    await this.write(issue, { status: !byUser && !issue.parent && !this.config.todoTypes.includes(issue.issueType?.name) ? this.config.hold : this.config.todo, fields: inherited ? { [priority]: inherited } : {} });
-  }
-
-  // ステータスか開き閉じが変わった（ボードの移動・Claude の道具・閉じる・開き直す）。同じ照らしで、通れば開き閉じとステータスを
-  // 揃え、通らなければ変化の前へ戻して理由をコメントする。move はボードの移動のときだけ渡す（{ project, from, to }）。
-  async changed(nodeId, move) {
-    const issue = await this.read({ nodeId });
-    if (!issue?.item || !issue.status || (move && (move.project !== this.project.id || move.from === null || move.from === move.to))) return;
-    const { done } = this.config;
-    const closed = issue.state === "CLOSED";
-    const reason = issue.lastClose.nodes[0]?.stateReason === "COMPLETED" ? "COMPLETED" : "NOT_PLANNED";
-    const [from, to] = move ? [move.from, move.to] : closed && issue.status !== done ? [issue.status, done] : !closed && issue.status === done ? [done, null] : [];
-    if (!from) return;
-    const close = to === done ? (move ? "COMPLETED" : reason) : undefined;
-    const verdict = judge(this.config, from, to, { close, body: issue.body, comments: issue.comments.nodes.map((c) => c.body) });
-    if (verdict.ok) return this.write(issue, { status: to, close: closed ? undefined : close });
-    const back = move ? {} : closed ? { reopen: true } : { close: reason };
-    await this.write(issue, { status: from, ...back, comments: [notes.back(verdict.reason, from)] });
-  }
-
-  // 作業ブランチの Pull Request: 開くと検証中へ（表で行けるのは進行中からだけ）。閉じたら、検証中のタスクだけを動かす: マージされずに
-  // 閉じた → 未着手、マージされた → 完了の条件が全部チェック済みなら完了（完成）、残りがあれば残りを書いて未着手。
-  async pullRequest(action, pr) {
-    const { branchPrefix } = this.config.code;
-    const number = pr.head.ref.startsWith(branchPrefix) && Number(pr.head.ref.slice(branchPrefix.length));
-    const issue = number && (await this.read({ number }));
-    if (!issue?.item || issue.state !== "OPEN") return;
-    if (action !== "closed") return this.apply(issue, this.config.review);
-    if (issue.status !== this.config.review) return;
-    const said = (rest) => ({ comments: [notes.pullRequest(pr, rest)] });
-    if (!pr.merged) return this.apply(issue, this.config.todo, said("がマージされずに閉じられました。コメントを読んでやり直してください。"));
-    const done = await this.apply(issue, this.config.done, { close: "COMPLETED", ...said("をマージしました。完了にします。") });
-    if (!done.ok) await this.apply(issue, this.config.todo, said(`をマージしました。${done.reason}Claude に戻します。`));
-  }
+async function setField(gh, config, world, item, name, option) {
+  const p = await board(gh, config, world);
+  const field = p.fields.nodes.find((n) => n.name === name);
+  const value = field?.options.find((o) => o.name === option);
+  if (!value) throw new Error(`${world} のボードの ${name} に「${option}」が無い`);
+  await gh.gql(`mutation($p:ID!,$i:ID!,$f:ID!,$v:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$v}}){clientMutationId}}`,
+    { p: p.id, i: item, f: field.id, v: value.id });
 }
 
-export async function handleEvent(env, config, name, payload) {
-  if (payload.sender?.login === config.gate) return;
-  const gate = () => Gate.open(env, config);
-  if (payload.repository?.full_name === config.code.repository)
-    return name === "pull_request" && ["opened", "reopened", "closed"].includes(payload.action) ? (await gate()).pullRequest(payload.action, payload.pull_request) : undefined;
-  if (name === "projects_v2_item" && payload.projects_v2_item.content_type === "Issue") {
-    const item = payload.projects_v2_item;
-    const change = payload.changes?.field_value;
-    if (payload.action === "created") return (await gate()).enter(item.content_node_id, item.project_node_id);
-    if (payload.action === "edited" && change?.field_name === config.project.statusField)
-      return (await gate()).changed(item.content_node_id, { project: item.project_node_id, from: change.from?.name ?? null, to: change.to?.name ?? null });
-  }
-  if (name !== "issues") return;
-  const g = await gate();
-  if (["closed", "reopened"].includes(payload.action)) return g.changed(payload.issue.node_id);
-  // 担当者・本文などが変わった: 担当者と本文の先頭だけを今の状態に揃える（手で担当者を変えても、ステータスの番へ戻る）。
-  const issue = await g.read({ nodeId: payload.issue.node_id });
-  if (issue?.item) await g.write(issue);
+// 1つのタスクを決め直して、今と違う所だけを書く。本文（ボタン）は問いのコメントより先に書く（問いの通知から開いたときにボタンがあるように）。閉じるのは最後。
+// moved は、ユーザーがボードでステータスを動かした出来事で決め直すとき（戻したら知らせる）。
+export async function settle(gh, config, number, record, moved = false) {
+  const f = { ...(await readFacts(gh, config, number, record)), moved };
+  const d = decide(f, config);
+  const issue = `/repos/${config.tasks}/issues/${number}`;
+  const patch = { ...(d.open && !f.open ? { state: "open" } : {}), ...(d.type !== f.type ? { type: d.type } : {}), ...(d.body !== norm(f.body) ? { body: d.body } : {}),
+    ...(String(d.assignees) !== String(f.assignees) ? { assignees: d.assignees } : {}) };
+  if (Object.keys(patch).length) await gh.rest("PATCH", issue, patch);
+  if (d.ask) await gh.rest("POST", `${issue}/comments`, { body: askText(d.ask, config.questionTemplate) });
+  if (d.notice) await gh.rest("POST", `${issue}/comments`, { body: d.notice });
+  if (d.ready) await gh.gql(`mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){clientMutationId}}`, { id: f.pr.id });
+  await Promise.all(d.cancel.map((id) => gh.rest("POST", `/repos/${config.code}/actions/runs/${id}/cancel`)));
+  // ボードへ入っていなければ、決めた世界のボードへ入れる（入口）。
+  const item = f.item ?? (await gh.gql(`mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}`,
+    { p: (await board(gh, config, d.board)).id, c: f.id })).addProjectV2ItemById.item.id;
+  if (d.status !== f.status) await setField(gh, config, d.board, item, config.fields.status, d.status);
+  if (d.priority && d.priority !== f.priority) await setField(gh, config, d.board, item, config.fields.priority, d.priority); // 段階は親の優先度を継ぐ
+  if (!d.open && f.open) await gh.rest("PATCH", issue, { state: "closed", state_reason: d.closeAs.toLowerCase() });
+  return { ...f, ...d };
+}
+
+// 事実を変える出来事だけを、決まった置き場から受ける。ゲート自身の書き込みのこだまは受けない（前提が閉じたときの後ろのタスクは除く）。
+const ACTIONS = { issues: ["opened", "closed", "reopened", "typed", "untyped", "labeled", "unlabeled", "edited"], issue_comment: ["created"],
+  pull_request: ["opened", "closed", "reopened", "synchronize", "converted_to_draft", "ready_for_review"], workflow_run: ["requested", "in_progress", "completed"], projects_v2_item: ["edited"] };
+const REPO = { issues: "tasks", issue_comment: "tasks", pull_request: "code", workflow_run: "code" };
+const OWN = ["workflow_run", "issues closed"]; // ゲート自身の出来事でも受けるもの（起こした担当の実行・閉じたタスクの後ろ）
+export const ignored = (config, name, p) => !ACTIONS[name]?.includes(p.action) || (REPO[name] && p.repository?.full_name !== config[REPO[name]])
+  || (p.sender?.login === config.gateBot && !OWN.includes(name) && !OWN.includes(`${name} ${p.action}`));
+const branch = (config, ref) => (ref?.startsWith(config.branchPrefix) ? [Number(ref.slice(config.branchPrefix.length))] : []);
+
+const ROUTES = {
+  async issues(gh, config, p) {
+    // 回答のボタンだけを書き足した本文の書き換えは受けない（問う者はボタンを書いてから問いを書くので、ここで決め直すとボタンを消す）。
+    const buttonOnly = p.action === "edited" && p.changes?.body && bodyRest(p.changes.body.from) === bodyRest(p.issue.body);
+    if (p.action !== "closed") return buttonOnly ? [] : [p.issue.number];
+    // 前提が閉じたら、その後ろで待っていたタスクも決め直す（閉じたのがゲート自身でも）。
+    const [o, r] = config.tasks.split("/");
+    const after = (await gh.gql(`query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){blocking(first:20){nodes{number state}}}}}`,
+      { o, r, n: p.issue.number })).repository.issue.blocking.nodes.filter((x) => x.state === "OPEN").map((x) => x.number);
+    return p.sender?.login === config.gateBot ? after : [p.issue.number, ...after];
+  },
+  issue_comment: (gh, config, p) => [p.issue.number],
+  pull_request: (gh, config, p) => branch(config, p.pull_request.head.ref),
+  // CI の終わり。マージのコミットの CI は、そのコミットの PR の作業ブランチのタスク。
+  async workflow_run(gh, config, p) {
+    const w = p.workflow_run;
+    if (p.action !== "completed") return [];
+    const pulls = w.head_branch === config.base ? await gh.rest("GET", `/repos/${config.code}/commits/${w.head_sha}/pulls`) : [];
+    return [w.head_branch, ...pulls.map((pr) => pr.head.ref)].flatMap((ref) => branch(config, ref));
+  },
+  async projects_v2_item(gh, config, p) {
+    if (p.changes?.field_value?.field_name !== config.fields.status) return [];
+    const ours = await Promise.all(Object.keys(config.boards).map((w) => board(gh, config, w)));
+    if (!ours.some((x) => x.id === p.projects_v2_item.project_node_id)) return [];
+    const node = (await gh.gql(`query($id:ID!){node(id:$id){...on Issue{number}}}`, { id: p.projects_v2_item.content_node_id })).node;
+    return { numbers: node?.number ? [node.number] : [], moved: p.sender?.login === config.user };
+  },
+};
+export async function route(gh, config, name, p) {
+  const r = await ROUTES[name](gh, config, p);
+  return Array.isArray(r) ? { numbers: r } : r;
+}
+
+// 盤面に表れないゲートの事実を、Actions のボードの状況の更新に出す（盤面を持つのはゲート。ユーザーの決定）。諦めた出来事がある（Off track。
+// その出来事での決め直しが抜けている）・振り出しを止めている（At risk。理由といつまで）・保っている（On track）。変わったときだけ足す。
+export async function reportHealth(gh, config, { stopped = null, failed = [] } = {}) {
+  const p = await board(gh, config, "actions");
+  const r = await gh.gql(`query($id:ID!){node(id:$id){...on ProjectV2{statusUpdates(first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{status body}}}}}`, { id: p.id });
+  const last = r.node.statusUpdates.nodes[0];
+  const [status, head] = failed.length ? ["OFF_TRACK", "ゲートがやり直しても処理できなかった出来事がある（その出来事での決め直しが抜けている）"]
+    : stopped ? ["AT_RISK", `振り出しを止めている: ${stopped}`] : ["ON_TRACK", "ゲートは出来事を処理できている"];
+  if (!failed.length && (last ? last.status === status && last.body.split("\n")[0] === head : status === "ON_TRACK")) return;
+  const body = [head, ...failed.map((f) => `- ${f.name}: ${f.error}`)].join("\n");
+  await gh.gql(`mutation($p:ID!,$s:ProjectV2StatusUpdateStatus!,$b:String!){createProjectV2StatusUpdate(input:{projectId:$p,status:$s,body:$b}){clientMutationId}}`,
+    { p: p.id, s: status, b: body });
 }

@@ -57,8 +57,8 @@ paths:
   要求ごとに通り、要求の中身に依らない原因（配信元の配色・コード・配信の止まり、置き場のファイル、プロキシの設定等）を
   知らせる警告は同じにする。1回の操作で1度しか通らない口（ルート生成・定期の同期・起動時の確認等）は、この限りでない。
 - **hit/missを数えるのは、値を使う側の`log_external_call`の1か所**。その下のキャッシュの層（例: ディスクの
-  `tile_cache.py`・`tile_persistent_cache.py`）は`log_external_call`で囲まず、失敗だけを`debug_log.py: log_throttled_warning`で
-  出す（同じ読みを二重に数えない）。失敗しないプロセス内メモリだけの層（例: `infrastructure/detour_ratio_cache.py`）は
+  `tile_cache.py`・`tile_persistent_cache.py`）は`log_external_call`で囲まず（同じ読みを二重に数えない）、失敗を`debug_log.py: log_throttled_warning`で
+  出す。失敗しないプロセス内メモリだけの層（例: `infrastructure/detour_ratio_cache.py`）は
   どちらも出さない。
 
 ### 429拒否 → `record_rate_limit_rejection`

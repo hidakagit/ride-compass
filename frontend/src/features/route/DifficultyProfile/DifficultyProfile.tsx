@@ -160,7 +160,8 @@ export default function DifficultyProfile({
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId);
           gesture.current.pointers.add(event.pointerId);
-          if (gesture.current.pointers.size > 1 || screenPointers.current.size > 1) gesture.current.multi = true;
+          // 画面全体の指は窓の捕捉の段で先に数えてあるので、グラフの上の指もそこに含まれる。
+          if (screenPointers.current.size > 1) gesture.current.multi = true;
         }}
         onPointerMove={(event) => {
           if (event.buttons === 0 || gesture.current.multi || !gesture.current.pointers.has(event.pointerId)) return;

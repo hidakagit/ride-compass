@@ -555,20 +555,20 @@ def find_nearest_node_indexed(
 
 
 def snap_to_accessible_node(
-    index: NodeSpatialIndex, accessible: np.ndarray, point: Coordinates, max_correction_km: float,
+    index: NodeSpatialIndex, accessible: np.ndarray, point: Coordinates, max_snap_km: float,
 ) -> tuple[int, bool] | None:
-    """利用者が置いた点を、そこから出て戻れるNode（`accessible`が真）へ寄せる。
+    """利用者が置いた点を、`max_snap_km`以内で、そこから出て戻れるNode（`accessible`が真）へ寄せる。
 
-    一番近いNodeが出て戻れればそのNode、そうでなければ`max_correction_km`以内で一番近い出て戻れるNode
-    （2つ目の値が真）。どちらも無ければNone。一番近いNodeが孤立した小さな塊・一方通行の袋にあると、
-    そこへ寄せた点からは経路が出ない（出発地なら走り出せず、経由地・目的地なら着いても出られない）。
+    一番近いNodeが出て戻れればそのNode、そうでなければ一番近い出て戻れるNode（2つ目の値が真）。`max_snap_km`
+    以内に無ければNone。一番近いNodeが孤立した小さな塊・一方通行の袋にあると、そこへ寄せた点からは経路が出ない
+    （出発地なら走り出せず、経由地・目的地なら着いても出られない）。
     """
-    nearest = find_nearest_node_indexed(index, point)
+    nearest = find_nearest_node_indexed(index, point, max_distance_km=max_snap_km)
     if nearest is None:
         return None
     if accessible[nearest]:
         return nearest, False
-    corrected = find_nearest_node_indexed(index, point, allowed=accessible, max_distance_km=max_correction_km)
+    corrected = find_nearest_node_indexed(index, point, allowed=accessible, max_distance_km=max_snap_km)
     return None if corrected is None else (corrected, True)
 
 

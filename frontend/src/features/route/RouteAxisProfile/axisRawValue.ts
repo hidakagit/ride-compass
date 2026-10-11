@@ -16,9 +16,9 @@ import type { AxisMaterialBreakdown } from "@/lib/catalogAxis";
  */
 export function formatAxisRawValue(
   rawValue: number | undefined,
-  unit: string | null | undefined,
-  totalUnit: string | null | undefined,
-  distanceKm: number | null | undefined,
+  unit: string | null,
+  totalUnit: string | null,
+  distanceKm: number | null,
 ): string | null {
   if (rawValue == null || !unit) return null;
   const head = `${formatNumber(rawValue)}${unit}`;
@@ -43,7 +43,7 @@ function formatNumber(value: number): string {
 
 /**
  * 内訳1件を人が読める文へ整える（例:「街灯あり 68%」「制限速度 42km/h」）。出す先は
- * 軸の説明ポップオーバーで、パネルの行には出さない（設計原則「数値は3層で見せる」）。
+ * 軸の説明ポップオーバーで、パネルの行には出さない（.claude/rules/screen.md「数値は3層で見せる」）。
  *
  * 表記は材料の型から決まり、軸ごとの対応表を持たない。真偽値材料の値は0/1で運ばれる
  * （backendの`route_facing_material_ids`）ため、距離加重平均がそのまま該当区間の

@@ -9,8 +9,12 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 const CARDINAL_LABELS = mapDisplay.compassLabels;
 const SECTOR_DEG = 360 / CARDINAL_LABELS.length;
 
+/** 角度を0以上360未満へ畳む。 */
+export function normalizeDeg(deg: number): number {
+  return ((deg % 360) + 360) % 360;
+}
+
 export function cardinalLabel(bearingDeg: number): string {
-  const normalized = ((bearingDeg % 360) + 360) % 360;
-  const index = Math.round(normalized / SECTOR_DEG) % CARDINAL_LABELS.length;
+  const index = Math.round(normalizeDeg(bearingDeg) / SECTOR_DEG) % CARDINAL_LABELS.length;
   return CARDINAL_LABELS[index];
 }

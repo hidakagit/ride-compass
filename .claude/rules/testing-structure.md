@@ -72,5 +72,3 @@ for (const color of expressionColors) { expect(legendColors.has(color)).toBe(tru
 空なら真になる量化（`assert all(...)`・`assert not any(...)`・`expect(xs.every(...)).toBe(true)`）も同じに扱う。
 
 落とす規則は`backend/tests/structure/test_vacuous_loops.py`と`frontend/src/structure/vacuousLoops.test.ts`が持つ。
-**読めるのは上の例の形の主張だけ**で、別の形（`assert set(picked) == {...}`等）で確かめていても
-違反として出る——そのときは上の形の主張を1行足す。

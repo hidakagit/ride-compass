@@ -2,9 +2,10 @@
 
 import PointMark from "@/components/PinMark/PointMark";
 import { Button } from "@/components/ui/Button/Button";
+import type { PinRole } from "@/types/route";
 
 /** 小窓から置ける役割（出発地は置かない——出発地は現在地か、決まった所に置いて行き先だけを試し直す）。 */
-export type SpotPlaceRole = "waypoint" | "destination";
+export type SpotPlaceRole = Exclude<PinRole, "origin">;
 
 interface SpotPlaceActionsProps {
   /** 経由地が生成の受け付ける数まで置いてあるか。 */

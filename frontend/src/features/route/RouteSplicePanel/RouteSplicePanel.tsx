@@ -103,6 +103,23 @@ export default function RouteSplicePanel({
   const metrics = metricDifferences(displayed, preview);
   const halves = [metrics.slice(0, 2), metrics.slice(2)];
 
+  // 差の棒の片側（楽になった軸は中央から左へ、きつくなった軸は右へ積む）。
+  function renderDeltaHalf(side: "decrease" | "increase") {
+    return (
+      <div className={cn("flex min-w-0 flex-[1_1_50%]", side === "decrease" ? "justify-end" : "justify-start")}>
+        {deltas
+          .filter((item) => (side === "decrease" ? item.delta < 0 : item.delta > 0))
+          .map((item) => (
+            <span
+              key={item.axisId}
+              className="block h-full"
+              style={{ width: `${(Math.abs(item.delta) / scale) * 50}%`, background: axisColors[item.axisId] }}
+            />
+          ))}
+      </div>
+    );
+  }
+
   return (
     <section
       className={cn(
@@ -124,7 +141,7 @@ export default function RouteSplicePanel({
         <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold whitespace-nowrap")} id="splice-heading">
           区間の乗り換え
         </h3>
-        {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
+        {/* 使い方は画面へ書かずここへ置く（.claude/rules/screen.md「冗長なものは削る」）。 */}
         {/* 押す所（24px四方）の余りを両脇の間に重ね、デスクトップのパネルの幅に1行で収める。「‹」は余りをカードの余白へ寄せる。 */}
         <InfoPopover triggerAriaLabel="区間の乗り換えの説明" triggerClassName="-mx-1">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
@@ -236,35 +253,9 @@ export default function RouteSplicePanel({
                   .map((item) => `${item.label} ${formatDelta(item.delta, DIFFICULTY_DECIMALS)}`)
                   .join("、")}
               >
-                <div className="flex min-w-0 flex-[1_1_50%] justify-end">
-                  {deltas
-                    .filter((item) => item.delta < 0)
-                    .map((item) => (
-                      <span
-                        key={item.axisId}
-                        className="block h-full"
-                        style={{
-                          width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId],
-                        }}
-                      />
-                    ))}
-                </div>
+                {renderDeltaHalf("decrease")}
                 <div className="-my-0.5 w-0.5 bg-[var(--foreground)]" />
-                <div className="flex min-w-0 flex-[1_1_50%] justify-start">
-                  {deltas
-                    .filter((item) => item.delta > 0)
-                    .map((item) => (
-                      <span
-                        key={item.axisId}
-                        className="block h-full"
-                        style={{
-                          width: `${(Math.abs(item.delta) / scale) * 50}%`,
-                          background: axisColors[item.axisId],
-                        }}
-                      />
-                    ))}
-                </div>
+                {renderDeltaHalf("increase")}
               </div>
               <span className="text-[length:var(--font-size-sm)] leading-none font-bold text-[var(--color-route-splice)]">
                 ＋

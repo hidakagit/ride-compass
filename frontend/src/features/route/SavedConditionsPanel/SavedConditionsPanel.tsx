@@ -1,12 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button/Button";
-import { ConfirmDialog, DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { GuideText } from "@/components/ui/GuideText/GuideText";
-import { DeleteSavedIcon, RecallSavedIcon, SaveConditionsIcon } from "@/components/ui/icons/icons";
-import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
+import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
+import { RecallSavedIcon, SaveConditionsIcon } from "@/components/ui/icons/icons";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -16,6 +14,7 @@ import {
   type GenerationConditionsSnapshot,
   type SavedCondition,
 } from "@/features/route/savedConditions";
+import SavedList from "@/features/route/SavedList/SavedList";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { cn } from "@/lib/cn";
 
@@ -73,7 +72,8 @@ export function SaveConditionsButton({
   const fixOrigin = originKnown && (fixOriginDraft ?? originManual);
   // 窓を開いているか。保存すると閉じる。
   const [saving, setSaving] = useState(false);
-  const currentDescription = describeConditions(current, catalog);
+  // 窓を開くまで読まないが、見出しの行はページと一緒に描き直されるので、条件が変わったときだけ組む。
+  const currentDescription = useMemo(() => describeConditions(current, catalog), [current, catalog]);
 
   return (
     <>
@@ -158,8 +158,6 @@ export default function SavedConditionsPanel({ saved, onRecall, onRemove }: Save
   // 呼び出すを押した設定。確認の窓で中身を見せ、「反映する」を押すまで入れ替えない。
   const [recalling, setRecalling] = useState<SavedCondition | null>(null);
   const [recalled, setRecalled] = useState<SavedCondition | null>(null);
-  // 消すを押した設定の名前。確認の窓で「消す」を押すまで消さない。
-  const [removing, setRemoving] = useState<string | null>(null);
   const recallingDescription = recalling && describeConditions(recalling, catalog);
 
   return (
@@ -171,45 +169,25 @@ export default function SavedConditionsPanel({ saved, onRecall, onRemove }: Save
           : ""}
       </p>
 
-      {saved.length === 0 ? (
-        <p className={textVariants({ variant: "hint" })}>
-          保存した設定はまだありません。
-          <InfoPopover triggerAriaLabel="設定の保存の仕方" triggerClassName="ml-1 align-middle">
-            <GuideText text="「ルート設定」の見出しの「いまの設定を保存」で、いまの設定に名前を付けて保存します。保存した設定はここから呼び出せます。" />
-          </InfoPopover>
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {saved.map((entry) => (
-            <li
-              key={entry.name}
-              className="flex items-center gap-1 rounded-sm border border-[var(--color-border)] px-1.5 py-1"
-            >
-              <span className="min-w-0 flex-auto truncate font-semibold">{entry.name}</span>
-              <Button
-                size="panelIcon"
-                aria-label={`「${entry.name}」を呼び出す`}
-                aria-haspopup="dialog"
-                aria-expanded={recalling?.name === entry.name}
-                usage="この設定の中身を窓で見て、「反映する」で各タブの値と地図の地点を入れ替えます。作るのはいつもの「ルート生成」です。"
-                onClick={() => setRecalling(entry)}
-              >
-                <RecallSavedIcon size={18} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="panelIcon"
-                aria-label={`「${entry.name}」を消す`}
-                aria-haspopup="dialog"
-                aria-expanded={removing === entry.name}
-                onClick={() => setRemoving(entry.name)}
-              >
-                <DeleteSavedIcon size={18} />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <SavedList
+        items={saved}
+        noun="設定"
+        howToSave="「ルート設定」の見出しの「いまの設定を保存」で、いまの設定に名前を付けて保存します。保存した設定はここから呼び出せます。"
+        renderMain={(entry) => <span className="min-w-0 flex-auto truncate font-semibold">{entry.name}</span>}
+        renderActions={(entry) => (
+          <Button
+            size="panelIcon"
+            aria-label={`「${entry.name}」を呼び出す`}
+            aria-haspopup="dialog"
+            aria-expanded={recalling?.name === entry.name}
+            usage="この設定の中身を窓で見て、「反映する」で各タブの値と地図の地点を入れ替えます。作るのはいつもの「ルート生成」です。"
+            onClick={() => setRecalling(entry)}
+          >
+            <RecallSavedIcon size={18} />
+          </Button>
+        )}
+        onRemove={(entry) => onRemove(entry.name)}
+      />
       <DialogRoot
         open={recalling !== null}
         onOpenChange={(open) => {
@@ -245,19 +223,6 @@ export default function SavedConditionsPanel({ saved, onRecall, onRemove }: Save
           </DialogContent>
         )}
       </DialogRoot>
-      <ConfirmDialog
-        open={removing !== null}
-        title={`「${removing ?? ""}」を消します`}
-        confirmLabel="消す"
-        onCancel={() => setRemoving(null)}
-        onConfirm={() => {
-          if (removing === null) return;
-          setRemoving(null);
-          onRemove(removing);
-        }}
-      >
-        消した設定は元に戻せません。
-      </ConfirmDialog>
     </div>
   );
 }

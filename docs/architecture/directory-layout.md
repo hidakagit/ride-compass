@@ -119,7 +119,7 @@ CI・フック・開発環境の用意のスクリプト）・`tools/`（アプ�
     読まず、要る関数は引数で受ける（読むと同じ入力で結果が変わり、テストも時計を差し替えることになる）。
   - 生成物へ出す表示の宣言（地図のレイヤー・凡例の語彙等）はここに置く。レジストリから導く
     （構造仕様17）ため、レジストリと同じ層に要る。本番のプロセスが読まないものは
-    `scripts/deploy_backend_gate.py: NOT_DEPLOYED`がデプロイの判定から外す。
+    `backend/scripts/deploy_backend_gate.py: NOT_DEPLOYED`がデプロイの判定から外す。
 
 **判断の線（`services/`・`batch/`・`infrastructure/`）**: この3層が持ってよいのは、I/O（DB・外部・キャッシュ・
 ファイル）、外部の書式を解く・組む（`infrastructure/`と`batch/source_adapters/`。上の`domain/`の項の「外部の書式」）、

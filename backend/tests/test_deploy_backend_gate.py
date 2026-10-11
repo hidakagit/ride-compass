@@ -1,4 +1,4 @@
-"""`scripts/deploy_backend_gate.py`の判定テスト（本番・ネットワークには触れない）。
+"""`backend/scripts/deploy_backend_gate.py`の判定テスト（本番・ネットワークには触れない）。
 
 履歴は一時的なgitリポジトリで作り、振り分けの一覧は本物（`DEPLOY_PATHS`・`NOT_DEPLOYED`）を当てる。
 
@@ -11,9 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.script_module import load_script
-
-gate = load_script("deploy_backend_gate")
+from scripts import deploy_backend_gate as gate
 
 
 @pytest.mark.parametrize(

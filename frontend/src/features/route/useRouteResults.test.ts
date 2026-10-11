@@ -30,15 +30,7 @@ const SPLICED = makeRouteCandidate({ id: "spliced-00", kind: "spliced", distance
 const SEGMENT: SelectedRouteSegment = {
   latitude: 35.6,
   longitude: 139.7,
-  segment: makeRouteSegment({
-    geometry: { type: "LineString", coordinates: [] },
-    start_latitude: 35.6,
-    start_longitude: 139.7,
-    end_latitude: 35.61,
-    end_longitude: 139.71,
-    cumulative_distance_km: 0.5,
-    distance_km: 0.5,
-  }),
+  segment: makeRouteSegment(),
 };
 
 function renderResults() {

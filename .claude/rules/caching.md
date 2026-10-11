@@ -96,7 +96,7 @@ paths:
 `get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を直接呼んでよいファイルは
 `backend/tests/structure/test_redis_skeleton.py: ALLOWED`が持つ（骨格そのものと、その接続の本体）。ここに無いファイルで
 使うとテストが落ちる。骨格に無い操作は骨格へ足す（[caching-retention.md](caching-retention.md)「Redisへ持つときは
-`redis_json_cache`を使う」）。それでも寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
+`redis_json_cache`を使う」）。
 
 **寄せ終わったのに`ALLOWED`へ残っている場合も落ちる**。
 

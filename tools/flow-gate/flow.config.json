@@ -1,30 +1,24 @@
 {
-  "repository": "ridecompass/ride-compass-tasks",
-  "project": { "owner": "ridecompass", "number": 2, "statusField": "Status", "priorityField": "優先度", "urgentLabel": "急ぎ", "sizeField": "規模", "startField": "着手可能日時", "unsetPriority": "中" },
-  "gate": "ridecompass-gate[bot]",
-  "urls": { "gate": "https://ridecompass-gate.h7g4bin.workers.dev", "form": "https://ride-compass-answer.h7g4bin.workers.dev" },
+  "tasks": "ridecompass/ride-compass-tasks",
+  "code": "ridecompass/ride-compass",
+  "base": "master",
+  "owner": "ridecompass",
   "installation": 165726503,
-  "people": {
-    "hidakagit": { "id": 6731891, "node": "MDQ6VXNlcjY3MzE4OTE=" },
-    "hidakagit-bot": { "id": 334916358, "node": "U_kgDOE_ZrBg" }
-  },
+  "gateBot": "ridecompass-gate[bot]",
   "user": "hidakagit",
   "claude": "hidakagit-bot",
-  "statuses": ["回答待ち", "保留", "未着手", "進行中", "検証中", "完了"],
-  "owner": { "回答待ち": "hidakagit", "保留": "hidakagit", "未着手": "hidakagit-bot", "進行中": "hidakagit-bot", "検証中": "hidakagit-bot" },
-  "done": "完了", "waiting": "回答待ち", "hold": "保留", "todo": "未着手", "working": "進行中", "review": "検証中",
-  "todoTypes": ["保守", "調査", "不具合"],
-  "transitions": {
-    "回答待ち": ["未着手", "保留", "完了"],
-    "保留": ["未着手", "回答待ち", "完了"],
-    "未着手": ["進行中", "回答待ち", "保留", "完了"],
-    "進行中": ["検証中", "未着手", "保留", "回答待ち", "完了"],
-    "検証中": ["完了", "未着手", "回答待ち"],
-    "完了": []
-  },
-  "code": { "repository": "ridecompass/ride-compass", "branchPrefix": "orch/tasks-", "base": "master" },
-  "coordinator": {
-    "workflow": "claude-task.yml", "watcher": "claude-dispatch.yml", "slots": { "作る": 6, "確かめる": 4 }, "devLabel": "開発機が要る", "holdRef": "refs/heads/hold/",
-    "recent": 30, "recordsSince": "2026-10-04T00:09:49Z", "pauseVariable": "CLAUDE_PAUSE_UNTIL", "pauseMinutes": 60, "watchEveryMinutes": 1, "watchForMinutes": 350, "watchFailMinutes": 30
-  }
+  "urls": { "gate": "https://ridecompass-gate.h7g4bin.workers.dev", "form": "https://ride-compass-answer.h7g4bin.workers.dev" },
+  "boards": { "actions": 2, "dialog": 3 },
+  "dialogType": "対話作業",
+  "fields": { "status": "Status", "priority": "優先度", "size": "規模", "start": "着手可能日時" },
+  "priorities": ["高", "中", "低"],
+  "unsetPriority": "中",
+  "urgentLabel": "急ぎ",
+  "branchPrefix": "orch/tasks-",
+  "workflow": "claude-task.yml",
+  "slots": { "作る": 6, "確かめる": 4 },
+  "mutationCheck": "changed-functions",
+  "quotaStep": "利用の上限で止まった",
+  "pauseMinutes": 60,
+  "retries": 5
 }

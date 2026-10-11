@@ -1,7 +1,7 @@
 """本番のbackendでルートを1本作り、レンズで塗る値がルートの区間に載っているかを見る
 （`.github/workflows/deploy-backend.yml`がデプロイのあとに、`.github/workflows/prod-route-check.yml`が1日1回呼ぶ）。
 
-    python scripts/prod_route_check.py
+    python backend/scripts/prod_route_check.py
 
 利用者の画面と同じAPIを外から通す: 軸カタログを1回 → 画面の既定の条件で生成を1回 → 終わるまで結果を聞く。
 候補が0件か、カタログのどれかの軸について、候補1のどの区間もその軸のレンズが塗る値を持たなければ、理由を出して
@@ -21,7 +21,7 @@ from pathlib import Path
 #: 本番のbackend（docs/architecture/tech-stack.md「本番の宛先」）。
 PRODUCTION_BACKEND = "https://193-123-166-150.sslip.io"
 #: 画面の既定の生成条件（候補数・許容幅・巡航速度・道の除外）。backendのOpenAPIの生成物で、画面も同じものを読む。
-GENERATE_CONFIG = Path(__file__).resolve().parents[1] / "frontend/src/types/generated/route-generate-config.json"
+GENERATE_CONFIG = Path(__file__).resolve().parents[2] / "frontend/src/types/generated/route-generate-config.json"
 #: 起点（緯度, 経度）。取込範囲の中の決まった地点で、毎回同じ所を作る。
 START_POINT = (35.7597, 139.7387)
 DISTANCE_KM = 15.0

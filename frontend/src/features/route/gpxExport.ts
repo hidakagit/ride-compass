@@ -67,13 +67,10 @@ function simplifyCoordinates(coordinates: readonly GeoJSON.Position[]): GeoJSON.
   if (coordinates.length <= MAX_GPX_TRACK_POINTS) return [...coordinates];
   const points = toLocalPlane(coordinates);
   // 両端は常に残るため、許容するずれを増やし続ければ2点まで減らせる（＝必ず収まる）。
-  let tolerance = SIMPLIFY_TOLERANCE_M;
-  let kept = markKeptPoints(points, tolerance);
-  while (kept.filter(Boolean).length > MAX_GPX_TRACK_POINTS) {
-    tolerance *= 2;
-    kept = markKeptPoints(points, tolerance);
+  for (let tolerance = SIMPLIFY_TOLERANCE_M; ; tolerance *= 2) {
+    const kept = markKeptPoints(points, tolerance);
+    if (kept.filter(Boolean).length <= MAX_GPX_TRACK_POINTS) return coordinates.filter((_, index) => kept[index]);
   }
-  return coordinates.filter((_, index) => kept[index]);
 }
 
 function escapeXmlText(value: string): string {

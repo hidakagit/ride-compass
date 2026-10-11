@@ -30,7 +30,7 @@ paths:
   ビルド時の生成物（`frontend/src/types/generated/`）はコードの宣言から決め、DBを読まない。
 - **新しいコードが読む前提（表・列・行データの形）を本番DBに揃えてから、その`backend/**`の変更をmasterへ入れる（マージする）**。
   masterに入ってCI（`.github/workflows/ci.yml`）が通ると、backendは本番へ自動デプロイされ、止める仕組みは無い
-  （コンテナを入れ替えるかの振り分けは`scripts/deploy_backend_gate.py`が正本）。
+  （コンテナを入れ替えるかの振り分けは`backend/scripts/deploy_backend_gate.py`が正本）。
   本番の既存の表は`create_tables()`が宣言の変更に追従せず、差は本番で埋める（デプロイが入れ替えの後に
   測る。docs/architecture/tech-stack.md「デプロイの反映確認（backend/frontendで注入元が異なる）」の`schema_gap.py`）。
   本番へ書くのは、開発機の対話のセッションが`.claude/skills/dev-session/SKILL.md`の「本番へ書く」のとおり打つ
@@ -39,12 +39,6 @@ paths:
     作業用のスキーマを作るので動かない。読まずに宣言だけ足す表は、出したあとに作ってよい。空の表のDDLは手で書かず、
     ORMの宣言（`app/infrastructure/orm_base.py: declared_metadata`）から`sqlalchemy.schema`の`CreateTable`・`CreateIndex`を
     PostgreSQLの方言でcompileして出す。
-  - 既存の行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）: 移す順序は CLAUDE.md「原則」の6の
-    変更の区切りで決める（本番で動くコードが読めない行が残る間を作らない）。
-
-## backendを先に出した窓では、frontendが新しい材料を知らない
-
-- 対象: 材料（`material_catalog`）・一次属性・レジストリを増やす変更。
-- ルール: backendをデプロイしてからfrontendをデプロイするまでの間、**新しい材料を使う軸の
-  編集画面は別物として開く**。窓の間は軸スタジオでその軸を触らない（画面はエラーを出さず、保存すると軸の中身が変わって書き戻る）。両方のデプロイが
-  終わったことを確認してから編集する。
+  - 既存の行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）: 新旧どちらの形の行も読めるコードを先に出し、
+    本番の行を新しい形へ移してから、旧の形を読む口を消す（本番で動くコードが読めない行が残る間を作らない）。旧の口を消すことは、
+    そのタスクの完了の条件に残す。

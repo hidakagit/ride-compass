@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import type { AxisDefinitionResponse } from "@/types/route";
+import type { AxisDefinitionResponse, AxisShape } from "@/types/route";
 
 import {
   bandLabelsOnMap,
@@ -28,6 +28,7 @@ import {
   parseThresholdList,
   resizeBandLabels,
   thresholdsKeptOnMap,
+  unknownMaterialIds,
 } from "./axisDraft";
 
 function material(id: string, dtype: AxisMaterialOption["dtype"]): AxisMaterialOption {
@@ -248,6 +249,24 @@ describe("buildShape", () => {
     ["真偽の点数", axis({ shape: { kind: "categorical", material: BOOL.id, mapping: { true: 3, false: 4 } } })],
   ])("%s: 開いてそのまま送ると、保存済みの形に戻る", (_case, def) => {
     expect(buildShape(draftFromExisting(def, MATERIALS, AXES), MATERIALS)).toEqual(def.shape);
+  });
+});
+
+describe("unknownMaterialIds", () => {
+  // 知らない材料を見落とすと、種類の材料の値ごとの点数が「はい/いいえ」の2つへ潰れて保存される。
+  const line = (...materials: string[]): AxisShape => ({
+    kind: "breakpoint_linear",
+    terms: terms2(...materials),
+    preprocess: "identity",
+    breakpoints: [],
+  });
+  it.each<[string, AxisShape, string[]]>([
+    ["折れ線の項の、一覧にも軸にも無いもの", line("new_m", NUM.id), ["new_m"]],
+    ["折れ線の項が材料と軸だけ", line(NUM.id, "axis_p"), []],
+    ["一覧に無い材料の点数", { kind: "categorical", material: "new_m", mapping: { a: 1 } }, ["new_m"]],
+    ["一覧にある材料の点数", { kind: "categorical", material: CAT.id, mapping: { a: 1 } }, []],
+  ])("%s", (_case, shape, expected) => {
+    expect(unknownMaterialIds(shape, MATERIALS, AXES)).toEqual(expected);
   });
 });
 

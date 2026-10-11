@@ -36,7 +36,7 @@ export function useSavedConditions({
   onOriginFollowCurrent,
 }: SavedConditionsInputs) {
   const [saved, setSaved] = useStoredState<SavedCondition[]>(SAVED_CONDITIONS_STORAGE_KEY, [], {
-    serialize: (list) => JSON.stringify(list),
+    serialize: JSON.stringify,
     deserialize: readSavedConditions,
   });
 

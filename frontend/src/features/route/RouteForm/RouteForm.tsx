@@ -8,11 +8,11 @@ import { MIN_DISTANCE_KM } from "@/features/route/savedConditions";
 import SavedPlacesPanel from "@/features/route/SavedPlacesPanel/SavedPlacesPanel";
 import type { SavedPlacesState } from "@/features/route/useSavedPlaces";
 import RoutePoints from "./RoutePoints";
-import { Button, buttonVariants } from "@/components/ui/Button/Button";
+import { Button } from "@/components/ui/Button/Button";
 import { DistanceTargetIcon } from "@/components/ui/icons/icons";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { textVariants } from "@/components/ui/Text/Text";
-import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { panelIconToggleClass, Toggle } from "@/components/ui/Toggle/Toggle";
 import { cn } from "@/lib/cn";
 
 /** 「ルート設定」区分のタブ。タブ列と選択状態はpage.tsxが持ち（見出し行に置くため）、
@@ -73,6 +73,18 @@ const DISTANCE_TOLERANCE_KM = routeGenerateConfig.default_distance_tolerance_km;
 const MIN_ROUTES = routeGenerateConfig.min_routes;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
 
+// forceMount+data-stateでの表示切替（ルート結果のタブと同じ方式）。
+// 候補数等は`features/route/useGenerationConditions.ts`の制御stateのため非表示中も値は失われないが、
+// 重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
+// 重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。
+function KeptTabContent({ value, children }: { value: string; children: React.ReactNode }) {
+  return (
+    <TabsContent value={value} forceMount className="data-[state=inactive]:hidden">
+      {children}
+    </TabsContent>
+  );
+}
+
 export default function RouteForm({
   conditions,
   origin,
@@ -98,11 +110,7 @@ export default function RouteForm({
 
   return (
     <div>
-      {/* forceMount+data-stateでの表示切替（ルート結果のタブと同じ方式）。
-          候補数等は`features/route/useGenerationConditions.ts`の制御stateのため非表示中も値は失われないが、
-          重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
-          重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
-      <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
+      <KeptTabContent value="generate">
         <div className="mb-2 flex items-center justify-end gap-2">
           <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
           <div className="inline-flex items-center gap-2">
@@ -146,10 +154,7 @@ export default function RouteForm({
           <div className="flex items-center gap-2">
             <Toggle
               variant="plain"
-              className={cn(
-                buttonVariants({ size: "panelIcon" }),
-                "flex-none data-[state=on]:border-[var(--color-accent)] data-[state=on]:bg-[var(--color-accent)] data-[state=on]:text-white",
-              )}
+              className={cn(panelIconToggleClass, "flex-none")}
               pressed={distanceTargeted}
               aria-label={distanceToggleName}
               title={distanceToggleName}
@@ -180,17 +185,13 @@ export default function RouteForm({
             </InfoPopover>
           </div>
         </div>
-      </TabsContent>
+      </KeptTabContent>
 
-      <TabsContent value="weights" forceMount className="data-[state=inactive]:hidden">
-        {weightsPanel}
-      </TabsContent>
+      <KeptTabContent value="weights">{weightsPanel}</KeptTabContent>
 
-      <TabsContent value="exclusions" forceMount className="data-[state=inactive]:hidden">
-        {exclusionsPanel}
-      </TabsContent>
+      <KeptTabContent value="exclusions">{exclusionsPanel}</KeptTabContent>
 
-      <TabsContent value="saved" forceMount className="data-[state=inactive]:hidden">
+      <KeptTabContent value="saved">
         {/* 保存するものは地点と設定の2つで、呼び出し方が違う（地点は打つ欄から1地点へ置き、設定は各タブの値を入れ替える）。 */}
         <Tabs defaultValue="places">
           <TabsList className="mb-2" aria-label="保存するもの">
@@ -204,14 +205,12 @@ export default function RouteForm({
               設定
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="places" forceMount className="data-[state=inactive]:hidden">
+          <KeptTabContent value="places">
             <SavedPlacesPanel places={savedPlaces.places} onRemove={savedPlaces.remove} />
-          </TabsContent>
-          <TabsContent value="conditions" forceMount className="data-[state=inactive]:hidden">
-            {savedConditionsPanel}
-          </TabsContent>
+          </KeptTabContent>
+          <KeptTabContent value="conditions">{savedConditionsPanel}</KeptTabContent>
         </Tabs>
-      </TabsContent>
+      </KeptTabContent>
     </div>
   );
 }
