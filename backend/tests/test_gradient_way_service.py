@@ -3,6 +3,7 @@
 
 ここで見ないもの:
 - 実効勾配の式・直角で値を決めない幅 → `test_gradient.py`
+- 区間ごとの値を道1本の値へ畳むこと → `test_dynamic_way_values.py`
 - 鍵のどの部分が違っても別のエントリになること・置き場の失敗と失効 → `test_dynamic_way_value_cache.py`・`test_tile_persistent_cache.py`
 - 路面タイルの世代がDBの世代と形の署名を持つこと → `test_cache_identity.py`
 """
@@ -10,9 +11,11 @@
 import inspect
 from contextlib import nullcontext
 
+import numpy as np
 import pytest
 
 from app.config import settings
+from app.domain.dynamic_way_values import FeatureSegments
 from app.domain.gradient import GradientCalculator
 from app.infrastructure import debug_log
 from app.infrastructure.derived_data_meta import DataRevisions
@@ -84,6 +87,21 @@ async def test_perpendicular_way_is_undetermined_instead_of_zero_or_missing():
     result = await service.get_way_values(Z, X, Y, GradientConditions(90.0))
 
     assert result == {1: None, 2: 15.0}
+
+
+def test_segments_are_signed_by_the_direction_of_their_way():
+    """引いた地図の道1本の値を区間から畳むとき、区間の勾配の符号は、道1本の値と同じく道の両端を結ぶ方位で決まる。
+    区間ごとの方位で決めると、つづら折りを登り続ける道の区間が上りと下りに分かれる。道が走行方位に直角なら、その道の
+    区間は値を決めない。"""
+    segments = FeatureSegments(
+        feature_keys=("1", "1", "2"), distance_m=np.full(3, 100.0), feature_bearing_deg=np.array([0.0, 0.0, 90.0]),
+        columns={"gradient_percent": np.array([5.0, -3.0, 4.0])},
+    )
+
+    values = GradientWayService(repository=FakeGradientInputsRepository(inputs={})).segment_values(
+        segments, GradientConditions(180.0))
+
+    np.testing.assert_array_equal(values, [-5.0, 3.0, np.nan])
 
 
 async def test_second_call_with_same_bearing_bucket_is_served_from_cache():

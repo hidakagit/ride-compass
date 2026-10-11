@@ -116,6 +116,19 @@ class BreakpointLinearShape(StrictModel):
         """横軸の値それぞれの点数（`score_at`を1回の配列計算で）。"""
         return _breakpoint_score_array(self, np.asarray(xs, dtype=float), np.zeros(len(xs), dtype=bool)).tolist()
 
+    def smallest_magnitude_at(self, score: float) -> float:
+        """丸める前の折れ線で点数が`score`になる横軸の値のうち、0以上で最も小さいもの。符号を畳む軸
+        （`preprocess="abs"`）の点数を、その点数に当たる値の大きさへ戻すのに使う。
+
+        0以上の範囲の折れ線が`score`に届かなければ（丸めた点数の平均が端をわずかに越えたとき等）、点数が最も近い節。
+        """
+        xs = [0.0, *(x for x, _ in self.breakpoints if x > 0)]
+        ys = evaluate_breakpoint_linear(np.asarray(xs, dtype=float), self.breakpoints).tolist()
+        for x0, y0, x1, y1 in zip(xs, ys, xs[1:], ys[1:]):
+            if min(y0, y1) <= score <= max(y0, y1):
+                return x0 if y0 == y1 else x0 + (score - y0) * (x1 - x0) / (y1 - y0)
+        return min(zip(xs, ys), key=lambda point: abs(point[1] - score))[0]
+
 
 _FLAG_KEYS = {"true": True, "false": False}
 

@@ -6,7 +6,7 @@
 - 軸の外に照らす検査（`check_axis_definition`）・軸の集合の検査（`check_axis_set`）と書き込みのガード
   （`check_publish_immutability`・`check_material_exclusivity`・`check_internal_axis_not_published`）
 - 軸1本の評価（`evaluate_axis_array`・`evaluate_axis_values`）と生値（`axis_raw_value_array`・`raw_values`・
-  `first_term_points`・`BreakpointLinearShape.score_at`）
+  `first_term_points`・`BreakpointLinearShape.score_at`）と、点数から値の大きさへの戻し（`BreakpointLinearShape.smallest_magnitude_at`）
 
 ここで見ないもの:
 - 軸が軸を参照するときの並べ替え・軸の集合の評価・既定の重みと時間帯 → `test_axis_hierarchy.py`
@@ -527,6 +527,35 @@ class TestBreakpointScores:
         shape = linear(MaterialTerm(material="a"), breakpoints=((0.0, 0.0), (500.0, 100.0)), preprocess="abs")
 
         assert axis_definitions.evaluate_axis_values(axis(shape=shape), {"a": [x, -x]}, 2) == [shape.score_at(abs(x))] * 2
+
+
+    @given(
+        st.lists(st.integers(-1000, 1000), min_size=1, max_size=6, unique=True),
+        st.lists(st.floats(0.0, 100.0), min_size=6, max_size=6),
+        st.floats(0.0, 1100.0),
+    )
+    def test_a_magnitude_given_back_for_a_score_has_that_score(self, xs, ys, x):
+        """引いた地図の勾配の道は、畳んだ点数をこの値へ戻して塗る。戻した値の点数が違うと、道が別の段の色になる。"""
+        points = list(zip(sorted(float(v) for v in xs), ys))
+        shape = linear(MaterialTerm(material="a"), breakpoints=points, preprocess="abs")
+        score = shape.score_at(x)
+
+        magnitude = shape.smallest_magnitude_at(score)
+
+        assert magnitude >= 0.0
+        assert shape.score_at(magnitude) == score
+
+    @pytest.mark.parametrize(("breakpoints", "score", "magnitude"), [
+        # 上って平らになり下がる折れ線は、その点数に最初に届く値（平らな所はその始まり）。
+        (((0.0, 0.0), (5.0, 50.0), (10.0, 50.0), (15.0, 20.0)), 35.0, 3.5),
+        (((0.0, 0.0), (5.0, 50.0), (10.0, 50.0), (15.0, 20.0)), 50.0, 5.0),
+        # 0以上の範囲で届かない点数は、点数の最も近い節。
+        (((-10.0, 100.0), (10.0, 0.0)), 60.0, 0.0),
+    ])
+    def test_a_magnitude_is_the_smallest_value_with_the_score(self, breakpoints, score, magnitude):
+        shape = linear(MaterialTerm(material="a"), breakpoints=breakpoints, preprocess="abs")
+
+        assert shape.smallest_magnitude_at(score) == pytest.approx(magnitude)
 
 
 def on_the_line(points: list[tuple[float, float]], x: float) -> float:

@@ -1,7 +1,8 @@
 """`services/dedicated_way_values.py`の登録表——材料→配信サービスの対応を、登録済みの全サービスに対して確かめる。
 
 材料idが材料カタログの既知材料であること、組み立てたサービスがその材料の値を返すこと、受け取る条件を
-要求から組み立てられること、1つの材料を2つのサービスが担当していないことを見る。
+要求から組み立てられること、1つの材料を2つのサービスが担当していないこと、区間ごとに値が違いうる材料のサービスが
+区間の値を配れることを見る。
 
 ここで見ないもの:
 - 軸の葉の材料から配るサービスを選ぶこと・区間インスペクタが足す材料（`DirectionalMaterialService`） → `test_region_routes.py`
@@ -51,5 +52,15 @@ def test_two_services_for_one_material_fail_at_registration():
     class Second(First):
         pass
 
-    with pytest.raises(RuntimeError, match="gradient_percent"):
+    with pytest.raises(RuntimeError, match="more than one"):
         services_by_material((First, Second))
+
+
+def test_a_service_for_a_material_that_varies_by_segment_needs_segment_values():
+    """区間ごとに値が違いうる材料（勾配）の区間の値を配れないと、引いた地図でその材料を読む軸の配信が要求のたびに落ちる。
+    登録の時点（起動時）に落とす。"""
+    class WithoutSegments:
+        material_ids = ("gradient_percent",)
+
+    with pytest.raises(RuntimeError, match="segment_values"):
+        services_by_material((WithoutSegments,))

@@ -25,11 +25,16 @@ from sqlalchemy import Row, TextClause, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays, MaterialColumn
-from app.domain.dynamic_way_values import FeatureMaterials
+from app.domain.dynamic_way_values import FeatureMaterials, FeatureSegments
 from app.domain.graph import LeanEdge, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
-from app.domain.material_catalog import MATERIAL_CATALOG, material_array_columns, material_value_sql
+from app.domain.material_catalog import (
+    MATERIAL_CATALOG,
+    material_array_columns,
+    material_value_sql,
+    segment_material_ids,
+)
 from app.domain.region import BoundingBox
 from app.infrastructure import derived_data_meta
 from app.infrastructure.material_joins import material_from_clause
@@ -38,6 +43,7 @@ from app.infrastructure.road_tile_sql import (
     FEATURE_GRADIENT_INPUTS_IN_TILE_SQL,
     FEATURE_MATERIALS_IN_TILE_SQL,
     FEATURE_MIDPOINTS_IN_TILE_SQL,
+    FEATURE_SEGMENTS_IN_TILE_SQL,
     ROAD_SURFACE_TILE_MVT_SQL,
 )
 from app.infrastructure.source_models import (
@@ -605,6 +611,31 @@ class RoadGraphRepository:
                for material_id in categorical_ids},
         }
         return FeatureMaterials(feature_keys=tuple(row.feature_keys or ()), columns=columns)
+
+    async def get_feature_segments_in_tile(
+        self, z: int, x: int, y: int, bbox: BoundingBox, accident_years_covered: int
+    ) -> FeatureSegments | None:
+        """道1本を1つのフィーチャーにするズームのタイルの、フィーチャーごとの区間と区間ごとに値が違いうる材料
+        （`road_tile_sql.py: FEATURE_SEGMENTS_IN_TILE_SQL`）。取込範囲外はNone、範囲内0件は0行。"""
+        row = (await self._session.execute(FEATURE_SEGMENTS_IN_TILE_SQL, {
+            **_tile_params(z, x, y, bbox), "accident_years": accident_years_covered,
+        })).one()
+        if not row.covered:
+            return None
+        numeric_ids, categorical_ids = material_array_columns()
+        segment_ids = segment_material_ids()
+        columns: dict[str, MaterialColumn] = {
+            **{material_id: _float_array(getattr(row, f"c_{material_id}") or [])
+               for material_id in numeric_ids if material_id in segment_ids},
+            **{material_id: CategoricalColumn.encode(getattr(row, f"c_{material_id}") or [])
+               for material_id in categorical_ids if material_id in segment_ids},
+        }
+        return FeatureSegments(
+            feature_keys=tuple(row.feature_keys or ()),
+            distance_m=_float_array(row.distance_m or []),
+            feature_bearing_deg=_float_array(row.bearing_deg or []),
+            columns=columns,
+        )
 
     async def _feature_pairs_in_tile(
         self, sql: TextClause, z: int, x: int, y: int, bbox: BoundingBox

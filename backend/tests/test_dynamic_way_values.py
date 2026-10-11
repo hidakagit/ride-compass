@@ -1,19 +1,20 @@
 """`domain/dynamic_way_values.py`——ルートを出す前の地図が塗る値を、フィーチャーの材料と配信のサービスが配る値から
-求めること（`paint_feature_values`）。
+求めること（`paint_feature_values`）と、道1本のフィーチャーの値を区間から畳むこと（`paint_folded_feature_values`）。
 
-材料カタログは本番の正本を読まず、性質だけを持つ架空の材料を使う（塗る値の種類は`domain/map_paint.py`を通るので、
-そちらの名前空間を差し替える）。
+材料カタログは本番の正本を読まず、性質だけを持つ架空の材料を使う（塗る値の種類は`domain/map_paint.py`を、区間ごとに
+値が違いうるか・密度の軸かは`domain/material_catalog.py`を通るので、両方の名前空間を差し替える）。
 
 ここで見ないもの:
 - 塗る値の種類・段の境界・凡例の目盛り（`map_paint`） → `test_map_paint.py`
 - 折れ線の得点・対応表・0次条件の評価そのもの（`domain/axis_definitions.py: evaluate_axis_array`） → `test_axis_definitions.py`
 - 軸から配るサービスを選ぶこと・要求の条件の組み立て・配信のAPI → `test_region_routes.py`
+- 区間の材料を読むこと → `test_feature_materials_in_tile.py`、勾配の区間ごとの向き → `test_gradient_way_service.py`
 """
 
 import numpy as np
 import pytest
 
-from app.domain import map_paint
+from app.domain import map_paint, material_catalog
 from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
 from app.domain.axis_definitions import (
     BreakpointLinearShape,
@@ -21,14 +22,16 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     PriorityCondition,
 )
-from app.domain.dynamic_way_values import paint_feature_values
+from app.domain.difficulty import weighted_mean_by_distance
+from app.domain.dynamic_way_values import FeatureSegments, paint_feature_values, paint_folded_feature_values
 from app.domain.evaluation import build_static_edge_score_matrix
 from app.domain.map_paint import SignedMaterialMapValue
 from app.domain.material_catalog import CoverageExcluded, MaterialSpec
+from app.domain.route import DensityScoreInput, RouteSegmentDetail, merge_axis_difficulties
 from tests.axis_system_fixture import replaced_axis_definitions, shaped_axis
 
 
-def _material(material_id, dtype="numeric", unit="") -> MaterialSpec:
+def _material(material_id, dtype="numeric", unit="", value_sql=None, additive=False) -> MaterialSpec:
     return MaterialSpec(
         material_id=material_id,
         label=material_id,
@@ -36,6 +39,8 @@ def _material(material_id, dtype="numeric", unit="") -> MaterialSpec:
         dtype=dtype,
         unit=unit,
         tile_property=None,
+        value_sql=value_sql,
+        additive=additive,
         coverage=CoverageExcluded(reason="架空", missing_semantics="definite"),
     )
 
@@ -43,6 +48,11 @@ def _material(material_id, dtype="numeric", unit="") -> MaterialSpec:
 CATALOG = {spec.material_id: spec for spec in [
     _material("num_a", unit="%"), _material("num_b"), _material("bool_a", dtype="boolean"),
     _material("cat_a", dtype="categorical"),
+    # 区間ごとに値が違いうる材料（値式が区間の値を読む）: 土地被覆のような割合・勾配のような向きのある値・1kmあたりの回数。
+    _material("seg_cover", value_sql="em.cover"), _material("seg_grade", unit="%", value_sql="em.grade"),
+    _material("seg_count", value_sql="em.count / (re.distance_m / 1000.0)", additive=True),
+    # 道1本で決まる材料（道のタグ）。
+    _material("way_num", value_sql="w.num"),
 ]}
 
 
@@ -50,6 +60,7 @@ CATALOG = {spec.material_id: spec for spec in [
 def catalog(monkeypatch):
     """材料カタログ（架空の材料だけ）。"""
     monkeypatch.setattr(map_paint, "MATERIAL_CATALOG", CATALOG)
+    monkeypatch.setattr(material_catalog, "MATERIAL_CATALOG", CATALOG)
 
 
 pytestmark = pytest.mark.usefixtures("catalog")
@@ -128,3 +139,152 @@ def test_values_from_a_service_replace_the_material_of_the_tile():
     )
 
     assert painted == {"feature-0": -4.0, "feature-1": None}
+
+
+#: 道1本の値を区間から畳む軸と、畳まない軸（密度の軸）。
+FOLDED_AXES = {axis.axis_id: axis for axis in [
+    _axis("axis_cover", _line("seg_cover", "way_num", breakpoints=((0.0, 0.0), (5.0, 80.0), (20.0, 100.0)))),
+    _axis("axis_density", _line("seg_count")),
+    shaped_axis(_line("seg_count"), axis_id="axis_internal_density"),
+    _axis("axis_composite", _line("axis_internal_density", "way_num", breakpoints=((0.0, 0.0), (30.0, 90.0), (60.0, 100.0)))),
+    _axis("axis_grade", _line("seg_grade", preprocess="abs", breakpoints=((0.0, 0.0), (3.0, 30.0), (10.0, 100.0)))),
+]}
+
+#: 道ごとの区間（長さm・割合・向きを付けた勾配・1kmあたりの回数）。値の無い区間と、割合の値が1つも無い道（先頭）と、
+#: 上りと下りが打ち消す道を含む。
+WAYS = {
+    "way-0": [(200.0, np.nan, 4.0, 2.0), (100.0, np.nan, 2.0, 0.0)],
+    "way-1": [(120.0, 4.0, 6.0, 0.0), (35.0, 30.0, -9.0, 28.6), (300.0, np.nan, 1.0, 3.3), (80.0, 12.0, np.nan, 0.0)],
+    "way-2": [(400.0, 2.0, -2.5, 5.0), (100.0, 6.0, np.nan, 0.0)],
+    "way-3": [(60.0, 50.0, 8.0, 0.0), (60.0, 0.0, -8.0, 16.7)],
+}
+WAY_NUM = {"way-0": 1.0, "way-1": 3.0, "way-2": 0.0, "way-3": 10.0}
+
+
+def _segment_tile():
+    """道1本のフィーチャーの材料と区間の材料。道の材料は、道のタグはその値、区間の材料は区間の値の距離平均
+    （道の表の値と同じ。勾配のように道の表に無い材料は配信の値）。"""
+    keys = list(WAYS)
+    segment_keys = [key for key in keys for _ in WAYS[key]]
+    rows = [row for key in keys for row in WAYS[key]]
+    distance_m, cover, grade, count = (np.array(column, dtype=float) for column in zip(*rows))
+
+    def way_mean(column):
+        return np.array([weighted_mean_by_distance(
+            [(None if np.isnan(value) else value, distance) for value, distance, owner
+             in zip(column, distance_m, segment_keys) if owner == key]) for key in keys], dtype=float)
+
+    way_grade = way_mean(grade)
+    materials = {"seg_cover": way_mean(cover), "seg_count": way_mean(count),
+                 "way_num": np.array([WAY_NUM[key] for key in keys])}
+    served = {"seg_grade": {key: round(float(value), 1) for key, value in zip(keys, way_grade)}}
+    segments = FeatureSegments(
+        feature_keys=tuple(segment_keys), distance_m=distance_m, feature_bearing_deg=np.zeros(len(rows)),
+        columns={"seg_cover": cover, "seg_count": count},
+    )
+    return keys, materials, served, segments, {"seg_grade": grade}
+
+
+def _route_values(segments: FeatureSegments, grade: np.ndarray) -> dict[str, dict[str, float]]:
+    """道ごとに、その区間をルートの区間に見立てた探索の得点を、ルートの値の決まりで畳んだ値。"""
+    n = len(segments)
+    nan = np.full(n, np.nan)
+    owners = segments.feature_keys
+    arrays = EdgeMaterialArrays(
+        numeric_ids=("seg_cover", "seg_grade", "seg_count", "way_num"),
+        numeric_values=np.column_stack([segments.columns["seg_cover"], grade, segments.columns["seg_count"],
+                                        [WAY_NUM[owner] for owner in owners]]),
+        categorical_ids=(), categorical_columns=(), hard_filter_ids=(), hard_filter_flags=np.empty((n, 0), dtype=bool),
+        distance_m=segments.distance_m, bearing_deg=nan, mid_lat=nan, mid_lon=nan,
+        elevation_present=np.zeros(n, dtype=bool), elevation_gain_m=nan, elevation_loss_m=nan,
+    )
+    with replaced_axis_definitions(FOLDED_AXES):
+        matrix = build_static_edge_score_matrix(arrays, {})
+    details: dict[str, list[RouteSegmentDetail]] = {}
+    for row, owner in enumerate(owners):
+        distance_km = float(segments.distance_m[row]) / 1000
+        details.setdefault(owner, []).append(RouteSegmentDetail(
+            start_latitude=0.0, start_longitude=0.0, end_latitude=0.0, end_longitude=0.0,
+            cumulative_distance_km=0.0, distance_km=distance_km,
+            axis_difficulties={axis_id: float(score) for axis_id, score
+                               in zip(matrix.axis_ids, matrix.axis_scores[row]) if not np.isnan(score)},
+        ).with_density_inputs({
+            axis_id: DensityScoreInput(value=float(column.inputs[row]), distance_km=distance_km, weight_share=None,
+                                       shape=column.shape)
+            for axis_id, column in matrix.density_axes.items() if not np.isnan(column.inputs[row])
+        }))
+    return {owner: merge_axis_difficulties(segments) for owner, segments in details.items()}
+
+
+# 引いた地図の道の色が、その道をルートとして走ったときのルートの値と同じ決まりで出る。食い違うと、地図で良く見えた道を
+# 走ったルートが悪い値になる（区間ごとに値の違う割合・勾配と、それを読む軸を参照する軸と、密度の軸）。値の無い道は、
+# ルートの値にも無く、塗らない。
+@pytest.mark.parametrize("axis_id", [axis_id for axis_id, axis in FOLDED_AXES.items()
+                                     if axis.is_published and axis_id != "axis_grade"])
+def test_a_way_is_painted_with_the_value_of_a_route_along_its_segments(axis_id):
+    keys, materials, served, segments, served_segments = _segment_tile()
+    expected = _route_values(segments, served_segments["seg_grade"])
+
+    painted = paint_folded_feature_values(axis_id, FOLDED_AXES, keys, materials, served, segments, served_segments)
+
+    assert painted == {key: values[axis_id] for key, values in expected.items() if axis_id in values}
+
+
+def test_a_way_painted_with_a_signed_material_keeps_the_band_of_the_route_and_the_direction_of_the_whole_way():
+    """勾配の地図は、道1本の色の段がルートの勾配の値と同じ段になり、上りか下りかは道全体で決まる。上って下る道
+    （way-3）が平坦の色になると、坂のある道が平坦に見える。向きは値の無い区間を除いて決める（way-2）。"""
+    keys, materials, served, segments, served_segments = _segment_tile()
+    expected = _route_values(segments, served_segments["seg_grade"])
+    shape = FOLDED_AXES["axis_grade"].shape
+
+    painted = paint_folded_feature_values("axis_grade", FOLDED_AXES, keys, materials, served, segments, served_segments)
+
+    assert {key: shape.score_at(abs(value)) for key, value in painted.items()} == {
+        key: expected[key]["axis_grade"] for key in keys}
+    assert {key: np.sign(value) for key, value in painted.items()} == {"way-0": 1.0, "way-1": 1.0, "way-2": -1.0, "way-3": 1.0}
+    assert painted["way-3"] >= 3.0
+
+
+def test_a_way_undetermined_by_bearing_stays_so_and_a_way_without_segments_keeps_its_own_value():
+    """向きで決まらない道は「向きで決まらない」のまま、区間の無い道（区間を作れない道）は道1本の値で塗り、その後ろの道も
+    塗る。"""
+    keys, materials, served, segments, served_segments = _segment_tile()
+    served = {"seg_grade": {**served["seg_grade"], "way-1": None}}
+    without = paint_folded_feature_values("axis_cover", FOLDED_AXES, keys, materials, served, segments, served_segments)
+    keys = ["way-4", *keys]
+    materials = {material_id: np.insert(column, 0, 7.0) for material_id, column in materials.items()}
+
+    painted = paint_folded_feature_values("axis_cover", FOLDED_AXES, keys, materials, served, segments, served_segments)
+    graded = paint_folded_feature_values("axis_grade", FOLDED_AXES, keys, materials, served, segments, served_segments)
+
+    assert painted == {**without, "way-4": paint_feature_values("axis_cover", FOLDED_AXES, ["way-4"], {
+        material_id: column[:1] for material_id, column in materials.items()}, {})["way-4"]}
+    assert graded["way-1"] is None
+
+
+def test_segments_of_a_way_the_tile_does_not_paint_change_no_other_way():
+    """配信が値を返さなかった道（勾配の地図で向きの定まらない道等）は、区間があっても塗る道に入らず、ほかの道の値を
+    変えない。"""
+    keys, materials, served, segments, served_segments = _segment_tile()
+    whole = paint_folded_feature_values("axis_grade", FOLDED_AXES, keys, materials, served, segments, served_segments)
+    kept = [row for row, key in enumerate(keys) if key != "way-2"]
+
+    painted = paint_folded_feature_values(
+        "axis_grade", FOLDED_AXES, [keys[row] for row in kept],
+        {material_id: column[kept] for material_id, column in materials.items()},
+        {"seg_grade": {key: value for key, value in served["seg_grade"].items() if key != "way-2"}},
+        segments, served_segments)
+
+    assert painted == {key: value for key, value in whole.items() if key != "way-2"}
+
+
+def test_a_tile_without_ways_paints_nothing():
+    """取込範囲の中で道の無いタイル（海等）は、何も塗らずに返す。"""
+    empty = np.empty(0)
+    segments = FeatureSegments(feature_keys=(), distance_m=empty, feature_bearing_deg=empty,
+                               columns={"seg_cover": empty, "seg_count": empty})
+    materials = {"seg_cover": empty, "seg_count": empty, "way_num": empty}
+
+    painted = paint_folded_feature_values("axis_cover", FOLDED_AXES, [], materials, {}, segments, {"seg_grade": empty})
+
+    assert painted == {}

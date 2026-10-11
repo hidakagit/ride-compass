@@ -14,6 +14,7 @@ from app.domain.material_catalog import (
     GRADIENT_PERCENT,
     material_tile_columns,
     material_value_sql,
+    segment_material_ids,
     tile_unscaled_sql_params,
 )
 from app.domain.material_sql import length_weighted_mean_sql
@@ -240,6 +241,46 @@ FEATURE_MATERIALS_IN_TILE_SQL = text(
 )
 
 
+#: 道1本を1つのフィーチャーにするズーム（`EDGE_UNIT_MIN_ZOOM`より下）のタイルの、フィーチャーごとの区間と、区間ごとに値が
+#: 違いうる材料（`segment_material_ids`）の区間の値。区間は道の全区間で、タイルの外の区間も読む——フィーチャーは道1本
+#: 全体を塗る。値は探索と同じ値式を区間の行で読み（勾配は道の向きを正とする）、フィーチャーの方位は勾配の配信と同じ
+#: 両端を結ぶ方位。並びは配列の位置（`ord`）で揃える。列は`FEATURE_MATERIALS_IN_TILE_SQL`と同じ形（`c_<材料id>`）に、
+#: `distance_m`・`bearing_deg`を足したもの。
+_FEATURE_SEGMENT_EXPRESSIONS = {material_id: expression for material_id, expression in _FEATURE_MATERIAL_EXPRESSIONS.items()
+                                if material_id in segment_material_ids()}
+FEATURE_SEGMENTS_IN_TILE_SQL = text(
+    f"""
+    WITH coverage AS ({COVERAGE_SQL})
+    SELECT
+        coverage.covered,
+        array_agg(f.feature_key ORDER BY f.ord) FILTER (WHERE f.ord IS NOT NULL) AS feature_keys,
+        array_agg(f.distance_m ORDER BY f.ord) FILTER (WHERE f.ord IS NOT NULL) AS distance_m,
+        array_agg(f.bearing_deg ORDER BY f.ord) FILTER (WHERE f.ord IS NOT NULL) AS bearing_deg,
+        {", ".join(f"array_agg(f.m_{material_id} ORDER BY f.ord) FILTER (WHERE f.ord IS NOT NULL) AS c_{material_id}"
+                   for material_id in _FEATURE_SEGMENT_EXPRESSIONS)}
+    FROM coverage
+    LEFT JOIN LATERAL (
+        SELECT
+            src.feature_key,
+            row_number() OVER () AS ord,
+            re.distance_m,
+            degrees(ST_Azimuth(ST_StartPoint(src.geom)::geography, ST_EndPoint(src.geom)::geography)) AS bearing_deg,
+            {", ".join(f"({expression}) AS m_{material_id}"
+                       for material_id, expression in _FEATURE_SEGMENT_EXPRESSIONS.items())}
+        FROM ({_TILE_FEATURE_SOURCE_SQL}) src
+        JOIN LATERAL {ways_lookup_sql('src.osm_way_id')} w ON true
+        CROSS JOIN LATERAL (
+            -- 区間を道ごとに主キーの索引で引く（`OFFSET 0`は`FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`と同じ理由）。
+            SELECT * FROM road_edges r WHERE r.osm_way_id = src.osm_way_id OFFSET 0
+        ) re
+        {material_from_clause(_FEATURE_SEGMENT_EXPRESSIONS.values(), 're.osm_way_id', 're.segment_index')}
+        WHERE coverage.covered AND src.segment_index IS NULL
+    ) f ON true
+    GROUP BY coverage.covered
+    """
+)
+
+
 #: タイルのディスク／Redisキャッシュの鍵に入る**形の署名**。焼き込むSQLから導出するため、
 #: 列や分類タグを変えれば自動的に別の鍵になる。DBの中身が作り直されたことは署名では表せず、
 #: そちらは`services/tile_version_service.py`が世代の変化として扱う。
@@ -250,3 +291,5 @@ FEATURE_GRADIENT_INPUTS_SHAPE = shape_digest(FEATURE_GRADIENT_INPUTS_IN_TILE_SQL
 #: フィーチャーごとの材料を読むSQLの形の署名。材料のタイル値のキャッシュの鍵に入る
 #: （`services/feature_materials.py: FEATURE_MATERIALS_VALUE_SHAPE`）。
 FEATURE_MATERIALS_SHAPE = shape_digest(FEATURE_MATERIALS_IN_TILE_SQL)
+#: フィーチャーごとの区間の材料を読むSQLの形の署名（`services/feature_materials.py: FEATURE_SEGMENTS_VALUE_SHAPE`）。
+FEATURE_SEGMENTS_SHAPE = shape_digest(FEATURE_SEGMENTS_IN_TILE_SQL)
