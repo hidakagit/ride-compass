@@ -1,7 +1,12 @@
 """Redisへ持つcache-asideの共通骨格（JSON・生のバイト列・Hash）。
 
-呼び出し元が持つのはキー設計・TTL・値の意味づけだけで、可用性チェックから
-サーキットブレーカーへの記録までをここが引き受ける。
+呼び出し元が持つのはキー設計・TTL・値の意味づけだけで、可用性の確認・クライアント取得・
+`log_external_call`での計測・失敗を未キャッシュ扱いにする・サーキットブレーカーへの記録をここが引き受ける。
+値がバイナリなら`get_bytes`/`set_bytes`を使う（base64にしてJSONへ包まない）。キーごとの項目をまとめて書くなら、
+Hashの`get_hash`/`set_hashes`（pipelineで1往復）を使う。
+
+    value = await get_json(key, category="cache:xxx")            # ミスはNone・障害はUNAVAILABLE
+    await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 """
 
 import json

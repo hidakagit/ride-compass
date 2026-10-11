@@ -18,6 +18,9 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 **機械化できないものは残る。** 「そのテストは要るか」の3問と、「本番で作れない入力を
 使っていないか」の突き合わせは、対象ごとに値域の導出が要るため人が読む。
 
+対象のモジュール名で集めた母集団は、対象を間接に通すテストを落とす。届いていない行が1行だけ孤立して見えたら、
+`--cov-context=test`でどのテストが通しているかを引いてから「無検査」と判断する。
+
 実行方法（backendディレクトリから。テストは母集団——対象のモジュール名を書くテスト全部——を並べて渡す）:
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py app/domain/routing.py tests/test_routing.py
     .venv\Scripts\python.exe scripts\audit_test_rewrite.py app/domain/geo.py tests/test_geo.py tests/test_region.py
@@ -192,7 +195,7 @@ def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
 
 
 def monkeypatch_seams(tree: ast.AST) -> set[str]:
-    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。testing-scaffold.md「フェイクの数は、実装の外向き参照の写し」の seams 数はこのユニーク数。"""
+    """`monkeypatch.setattr`の第2引数の文字列（差し替えた属性の名前）。起こし直しの報告に並べる seams 数（testing-rewrite.md「既存テストを直さず、実装から起こし直す」）はこのユニーク数。"""
     return {
         node.args[1].value
         for node in ast.walk(tree)

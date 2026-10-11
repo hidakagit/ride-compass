@@ -7,6 +7,9 @@
 
 要求を見るときは経路の記録（`router.calls`・`route.calls`）を読む。クエリはURLに載った形
 （`request.url.params`、値は文字列）で見る。
+
+クライアントを受け取らず、自分で`httpx.stream`等を呼ぶ実装は、pytestのフィクスチャ`respx_mock`で差す。
+そのときも、実装の中で作られる`httpx.Client`を1テストで何度も作らせない。
 """
 
 import httpx

@@ -1,4 +1,4 @@
-// 起こし直したテストを外から測る（.claude/rules/testing-rewrite.md「既存テストを直さず、実装から起こし直す」の手順3）。
+// 起こし直したテストを外から測る（.claude/rules/testing-rewrite.md「カバレッジで見落としを探す」）。
 //
 //   node scripts/audit-test-rewrite.mjs <実装のファイル> [テストのファイル...] [--summary]
 //

@@ -4,6 +4,16 @@
 失敗はdebug_modeに関わらず常時WARNINGで出す。外部サービス障害時に同種の警告でログが
 埋まらないよう、カテゴリごとに固定窓で抑制し、超過分は窓の切り替わり時に件数だけ報告する。
 集計はプロセス内カウンタに持ち、`/api/debug/stats`が読む。
+
+`log_external_call`で囲むと、成功はDEBUG、失敗（例外 or `fields["result"]="error"`）は抑制付きWARNINGが自動で出て、
+`/api/debug/stats`の統計（呼び出し数・エラー数・キャッシュヒット率・平均/最大所要時間）にも自動集計される。
+
+- カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `weather:jma-tile`, `basemap:openfreemap`）。
+  `log_throttled_warning`のカテゴリも同じ形にする。
+- キャッシュを挟む場合は`fields["cache"] = "hit" / "miss"`を必ず設定する。
+- 失敗は`fields["result"] = "error"`で示す（例外を捕まえて倒すときは`mark_failed`）。集計が失敗として
+  数えるのはこれと捕まえずに送り出した例外だけで、ほかは成功に数える。`"ok"`等の状態は、ログに
+  残したいときだけ書く。HTTPステータスは`fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。
 """
 
 import logging

@@ -108,7 +108,7 @@ def _label(
 
 
 def _origin_label(origin: Coordinates) -> str:
-    """常時のサマリログに書く出発地。小数2桁（≈1km）へ丸める（logging.md 基本原則4）。"""
+    """常時のサマリログに書く出発地。小数2桁（≈1km）へ丸める（logging.md「決まり」の4）。"""
     return f"({origin.latitude:.2f},{origin.longitude:.2f})"
 
 

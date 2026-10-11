@@ -104,8 +104,8 @@ Monitor で次を回す（ジョブが終わるたびに1行出し、実行が�
      `gh workflow run mutation.yml -R ridecompass/ride-compass --ref master -f ref=<作業ブランチ>` で回す。
      成果物 `mutation-*` の `results.jsonl` で表の変異が全部 `killed` で、`kills/` にその行の `kept_test` があることを見る。
   3. `only.txt` を消してから Pull Request を出す。テスト全体が通ることは Pull Request の CI が見る。CI で
-     落ちたときは testing-review.md「重なり」の4のとおりにする。
-  4. Pull Request の本文の検証に、testing-review.md「消す・まとめる前に、残す側が落ちるかを見る」の4の表を、2 の変異と結果で書く。
+     落ちたときは testing-review.md「重なり」のとおりにする。
+  4. Pull Request の本文の検証に、testing-review.md「消す・まとめる前に、残す側が落ちるかを見る」の表を、2 の変異と結果で書く。
 
 ### 6. 記録して終える
 

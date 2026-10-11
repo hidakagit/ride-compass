@@ -47,6 +47,8 @@ from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 # hypothesisは1例ごとに壁時計の締め切り（既定200ms）を持ち、超えると落とす。共有のランナーでは同じ例の所要時間が
 # 実行ごとに揺れて別のテストが落ちるため外す。止まったテストはpytest-timeoutが落とす。
+# 親を渡さずに登録するので、hypothesisが環境変数`CI`（GitHub Actionsは立てる）を見て既定にする`ci`の設定
+# （乱数を固定し、例の保存先を持たず、失敗の再現の印を出す）を引き継ぐ。CIは見つけた失敗の例を残さない。
 hypothesis_settings.register_profile("ridecompass", deadline=None)
 hypothesis_settings.load_profile("ridecompass")
 
@@ -146,7 +148,11 @@ async def fake_redis(monkeypatch, redis_server):
 
 
 class MonotonicClock:
-    """回数制限・外部I/Oの記録・データの世代の読み直しが読む単調時計。止まっていて、進めたぶんだけ進む。"""
+    """回数制限・外部I/Oの記録・データの世代の読み直しが読む単調時計。止まっていて、進めたぶんだけ進む。
+
+    これらの時計はfreezegun（`clock`）でなくこれへ差し替える。窓・TTLの記録はプロセスに残ってテストをまたぐので、
+    テストの終わりに実時計へ戻るfreezegunで進めると、戻ったあとに窓・TTLが明けなくなる。
+    """
 
     def __init__(self) -> None:
         self._now = 0.0
@@ -423,7 +429,12 @@ def pytest_collection_modifyitems(config, items):
 # イベントループをまたいで使い回せないため、エンジンと（それが乗る）イベントループを
 # ファイル（モジュール）単位に広げ、ファイル内の全テストで1本の接続を使い回す。
 # これを使うテストファイル側は `pytestmark = pytest.mark.asyncio(loop_scope="module")`
-# を付けてイベントループのスコープを合わせる必要がある。
+# を付けてイベントループのスコープを合わせる必要がある。ファイル内で自前のasync fixtureを足して
+# road_graph_session/road_graph_repositoryに依存させるなら、その fixture にも`loop_scope="module"`を付ける
+# （`@pytest_asyncio.fixture(loop_scope="module")`。素の`@pytest.fixture`でasync fixtureを書かない）。
+# road_graph_session系を使うテスト（ファイルまたは個別の関数）には`pytest.mark.xdist_group(name="postgis")`と
+# `pytest.mark.postgis`も付け、1つのワーカーへ寄せる（同じテストDBを並行して消し込むと競合する）:
+# `pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]`
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
