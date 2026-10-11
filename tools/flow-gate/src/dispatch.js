@@ -32,6 +32,10 @@ async function stopReason(gh, config) {
     ? `担当が Claude の利用の上限か認証で止まったため、${at} まで（担当を1件手で起こせば早く戻る）` : null;
 }
 
+// 振り出しの窓口（src/dispatcher.js: Dispatcher）が覚えた担当のうち、claimMinutes より新しく、まだ実行の一覧に出ていないものを、実行に足す。
+export const withClaims = (runs, claims, config, now) =>
+  [...runs, ...claims.filter((c) => now - c.at < config.claimMinutes * 60e3 && !runs.some((r) => r.number === c.number && r.kind === c.kind))];
+
 // 枠の数まで、急ぎ・優先度・番号の順に振り出す。作る担当の枠 = 進行中、確かめる担当の枠 = 検証中（CI待ちは枠を使わない）。
 // 返すのは起こした担当（picked）と、止めているならその理由（stopped）。tasks は読み済みのボードの開いたタスク（無ければ読む）。
 export async function dispatch(gh, config, runs, tasks = null) {

@@ -11,6 +11,15 @@ rules = [{ type = "Text", globs = ["**/question_template.md"], fallthrough = tru
 [triggers]
 crons = ["*/15 * * * *"]
 
+# 振り出しの窓口（src/dispatcher.js: Dispatcher）。無料のプランでは保存先が SQLite のものだけを使える。
+[[durable_objects.bindings]]
+name = "DISPATCHER"
+class_name = "Dispatcher"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Dispatcher"]
+
 [env.form]
 name = "ride-compass-answer"
 workers_dev = true

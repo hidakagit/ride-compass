@@ -1,7 +1,7 @@
 // ゲート: 出来事を受け、どのタスクかを決め、事実を全部読み（src/facts.js）、あるべき姿を決め（src/decide.js）、今と違う所だけを書く。
 // ステータスと、変わってはいけない値（種類・担当者・本文のボタンと条件・ボード・優先度）を書くのはゲートだけ。
 import { decide, DISPATCH } from "./decide.js";
-import { dispatch, mismatched } from "./dispatch.js";
+import { mismatched } from "./dispatch.js";
 import { readFacts, readRuns, runOf } from "./facts.js";
 import { GitHub } from "./github.js";
 import { askText, norm } from "./questions.js";
@@ -57,9 +57,16 @@ const ACTIONS = { issues: ["opened", "closed", "reopened", "typed", "untyped", "
 // 出来事から、決め直すタスクの番号と、担当の枠が空いたか（free）を決める。
 export async function route(gh, config, name, p) {
   if (ACTIONS[name] && !ACTIONS[name].includes(p.action)) return { numbers: [] };
+  const fromCode = p.repository?.full_name === config.code;
+  // 前提が閉じたら、その後ろで待っていたタスクも決め直す（閉じたのがゲート自身でも）。
+  if (name === "issues" && p.action === "closed" && !fromCode) {
+    const [o, r] = config.tasks.split("/");
+    const after = (await gh.gql(`query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){blocking(first:20){nodes{number state}}}}}`,
+      { o, r, n: p.issue.number })).repository.issue.blocking.nodes.filter((b) => b.state === "OPEN").map((b) => b.number);
+    return { numbers: p.sender?.login === config.gateBot ? after : [p.issue.number, ...after] };
+  }
   if (p.sender?.login === config.gateBot && name !== "workflow_run") return { numbers: [] };
   if (name === "issues" && p.action === "edited" && p.sender?.login === config.claude) return { numbers: [] };
-  const fromCode = p.repository?.full_name === config.code;
   const branch = (ref) => (ref?.startsWith(config.branchPrefix) ? [Number(ref.slice(config.branchPrefix.length))] : []);
   if (["issues", "issue_comment"].includes(name) && !fromCode) return { numbers: [p.issue.number] };
   if (name === "pull_request" && fromCode) return { numbers: branch(p.pull_request.head.ref) };
@@ -99,7 +106,8 @@ export async function reportHealth(gh, config, { error = null, stopped = null, f
     { p: p.id, s: status, b: body });
 }
 
-// 担当の枠が空いたか、決め直したタスクが振り出せるステータスへ来たら、振り出す。
+// 担当の枠が空いたか、決め直したタスクが振り出せるステータスへ来たら、振り出しの窓口（src/dispatcher.js: Dispatcher）に頼む。
+// 出来事ごとの処理は同時に動くので、振り出しは1つの窓口で順に扱う（同じタスクを2度つかまない）。
 export async function handleEvent(env, config, name, payload) {
   const gh = await GitHub.app(env, config.installation);
   const { numbers, free, moved, known } = await route(gh, config, name, payload);
@@ -109,7 +117,7 @@ export async function handleEvent(env, config, name, payload) {
   // 定時の突き合わせは、読み済みのボードのタスクへ決め直した結果を重ねて振り出す（読み直さない）。
   const now = new Map(settled.map((d) => [d.number, d]));
   const tasks = known?.tasks.filter((t) => !now.get(t.number) || now.get(t.number).open).map((t) => (now.has(t.number) ? { ...t, status: now.get(t.number).status } : t));
-  const sent = free || settled.some((d) => d.status !== d.before && DISPATCH[d.status]) ? await dispatch(gh, config, await runs, tasks) : { stopped: null };
+  const sent = free || settled.some((d) => d.status !== d.before && DISPATCH[d.status]) ? await env.DISPATCHER.get(env.DISPATCHER.idFromName("one")).dispatch(config, tasks) : { stopped: null };
   // 突き合わせで決め直したタスクのうち、出来事を取りこぼしていたもの（CI待ちは、マージのあとの master の CI の終わりを出来事で受けないので、
   // 定時の突き合わせで進むのが普通の流れ。数えない）と、振り出しを止めている理由。定時の起動が状況の更新に出す。
   return { fixed: settled.filter((d) => d.status !== d.before && d.before !== "CI待ち").map((d) => d.number), stopped: sent.stopped };

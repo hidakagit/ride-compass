@@ -73,6 +73,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.CODE_TOKEN }}
+          # 担当はゲートの App が起こす。連携は、名前を挙げていないボットが起こした実行を断る。
+          allowed_bots: ridecompass-gate
           # 担当の権限（連携がランナーのユーザー設定へ書く。判定役はユーザー設定の autoMode を読む）。
           settings: ${{ github.workspace }}/.github/claude-task/settings.json
           claude_args: --model claude-opus-5-5 --disallowedTools Monitor,ScheduleWakeup,CronCreate,CronDelete,CronList,Workflow
