@@ -64,7 +64,7 @@ $ARGUMENTS があればそれを対象範囲とする。
 （書いていない項目は「変更ファイルの全文」）。
 
 分割してAgentへ委任するときは観点を単位にし、ドメイン（backend/frontend等）で割らない。
-Explore の Agent に委ねる（.claude/skills/dev-session/SKILL.md「開発機の対話のセッション」の「裏の作業役に任せる」）。**例外は全体最適の構造の問い**で、層を単位に割る。
+Explore の Agent に委ねる（.claude/rules/worktree-safety.md）。**例外は全体最適の構造の問い**で、層を単位に割る。
 
 **複雑度の観点だけは分割しない。** 常に単独で実施する。
 

@@ -21,7 +21,7 @@
 
 | 置き場・役 | 持つもの・すること |
 |---|---|
-| 置き場のリポジトリと Project（`flow.config.json: repository`・`project`） | タスクの issue・段階・問いと答え・記録。記録は issue にだけ持ち、git に写さない。Project の「状況の更新」に見回りが書く全体の様子（「様子を見る」） |
+| 置き場の非公開のリポジトリと Project（`flow.config.json: repository`・`project`） | タスクの issue・段階・問いと答え・記録。記録は issue にだけ持ち、git に写さない。Project の「状況の更新」に見回りが書く全体の様子（「様子を見る」） |
 | ゲート（Cloudflare の Worker。Webhook を受ける `ridecompass-gate` と、Access の内側の回答フォーム `ride-compass-answer`） | 出来事を表で照らしてステータスを書き、担当者をステータスの番に揃える。表に無い変化を戻す。回答フォーム |
 | Claude（hidakagit-bot の名義） | 作業・問いとコメントを書く・実施の順番・検証中の確かめとマージ・Project の欄の規模と優先度 |
 | ユーザー（hidakagit） | 判断を回答フォームで答える（開発機の対話のセッションではチャットで。.claude/skills/ask/SKILL.md「答え」）。本番での最後の確かめ。表にある遷移ならボードでステータスを動かす（表に無い移動はゲートが戻す）。ラベル（`急ぎ` 等）を付け外しする |
