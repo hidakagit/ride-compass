@@ -25,7 +25,7 @@ paths:
 | 環境が無いときのスキップ（`pytest.skip`・`skipif`・`test.skip`） | 落とす。外すかどうかは実行する側がマーカーで選ぶ（`-m "not postgis"`） |
 | 落ちたテストを再試行する設定（Playwrightの`retries`） | 再試行しない（`retries: 0`）。不安定に落ちたら、落ちた原因を直す |
 | 警告を無視する設定 | testing.md「警告は既定でエラー」の条件を満たすものだけ |
-| 呼び出しの内容を見ずに値を返すフェイク（`lambda *a: 値`・任意の属性を受ける器） | `tests/bound_fake.py: bound`で本物の署名に当てる。組み立てて返す型は本物を使う |
+| 呼び出しの内容を見ずに値を返すフェイク（`lambda *a: 値`・任意の属性を受ける器） | 本物の署名に当てる形にする（例: `tests/bound_fake.py: bound`）。組み立てて返す型は本物を使う |
 
 - 次は覆いに当たらないので、足場に置いてよい: 並行実行のための隔離（作業ツリーごとのDB・一時ディレクトリ）・時刻の固定・
   テスト環境が作れない本番の規則を本番と同じに置くもの（`vitest.setup.ts`の`pointer-events-auto`の規則）・呼ばれないことを
@@ -53,8 +53,8 @@ paths:
 
 ## パターン5: 外部クライアントのフェイクは共有モジュールから取る
 
-- 複数のテストで同じ形になるフェイク・足場は、backendは`backend/tests/`直下の、`test_`で始まらないモジュール（`conftest.py`を
-  除く）に、frontendは`frontend/src/testing/`に置き、用途を先頭のdocstring・コメントに書く。共有の組み立ての関数があるものは、
+- 複数のテストで同じ形になるフェイク・足場は、共有の置き場（例: backendは`backend/tests/`直下の、`test_`で始まらないモジュール
+  （`conftest.py`を除く）、frontendは`frontend/src/testing/`）に置き、用途を先頭のdocstring・コメントに書く。共有の組み立ての関数があるものは、
   それを全部の場所が使う（`frontend/src/testing/routeFixtures.ts: makeRouteCandidate`は`e2e/fixtures.ts`も使う）。（原則3）
 - 共有の足場とフェイクが自分のテストを持つかは、3問で決める。本物の口を真似て、ずれうる振る舞いを自分で持つフェイクは持ち、
   同じ公開の口に対するテストを本物とフェイクの両方へ流してずれを止める（本物の側は、HTTPならrespx、DBなら実DB、テスト環境で

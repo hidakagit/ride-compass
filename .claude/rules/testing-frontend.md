@@ -36,7 +36,7 @@ paths:
 | 子の部品 | 下の条件を満たすときだけ |
 
 - テスト環境が持つもの（`localStorage`・`navigator`の値等）は、それを読むフックを差し替えず、環境に値を置く。`localStorage`が
-  投げる場面は、`window`のゲッター（`vi.spyOn(window, "localStorage", "get")`）を差し替えて作り、`getItem`/`setItem`へスパイを
+  投げる場面は、`window`のゲッターを差し替えて作り（例: `vi.spyOn(window, "localStorage", "get")`）、`getItem`/`setItem`へスパイを
   張らない。（原則5）
 - 子の部品は本物を描く。差し替えてよいのは、子の中身がテスト環境に無い境界（上の表の「テスト環境に無いブラウザの機能」）を要し、
   それを境界の側で差し替えられないときだけにする。そのとき親のテストで見るのは受け渡し（親の状態がどの値として子へ渡るか・
@@ -50,10 +50,10 @@ paths:
   読む形を作らない。`afterEach`で戻して済ませない。（原則3）
 - 環境変数で分かれる判断は、環境変数を引数で受ける純関数（`lib/tileBaseUrl.ts: resolveTileBaseUrl`）へ出してそれを確かめ、
   環境変数を読むのは分岐を持たない薄い関数（`lib/tileBaseUrl.ts: tileBaseUrl`）だけにする。（原則3・8）
-- その値を使う側のテスト（URLの組み立て等）は、`process.env`を立てず、読み取り口のモジュール（`lib/tileBaseUrl.ts: tileBaseUrl`・
-  `lib/adminBasicAuth.ts: adminBasicAuthCredentials`等）を`vi.mock`して値を固定する。（原則3）
+- その値を使う側のテスト（URLの組み立て等）は、環境変数を立てず、読み取り口のモジュールを差し替えて値を固定する（例:
+  `lib/tileBaseUrl.ts: tileBaseUrl`・`lib/adminBasicAuth.ts: adminBasicAuthCredentials`を`vi.mock`）。（原則3）
 - 自分のテスト対象だけが読む環境変数（`app/api/version/route.ts: GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、その対象の
-  テストが`vi.stubEnv`で立てて公開の入口を呼ぶ。（原則5）
+  テストが立てて（例: `vi.stubEnv`）公開の入口を呼ぶ。（原則5）
 
 ## 取り違えうる値は、入れ替えると落ちる実例で見る
 
