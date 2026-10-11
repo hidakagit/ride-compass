@@ -1,10 +1,10 @@
-# 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。ゲートが振り出す（tools/flow-gate/src/dispatch.js）。手でも起こせる:
+# 担当（作る・確かめる）を1件、GitHub Actions のランナーで動かす。見回りが振り出す（tools/flow-gate/src/patrol.js）。手でも起こせる:
 #   gh workflow run claude-task.yml -R ridecompass/ride-compass -f issue=<置き場の issue の番号> -f kind=<作る|確かめる>
 # 担当は .claude/skills/task-work/SKILL.md の手順を進め、ステータスは書かない（実行の始まりと終わりの出来事で、ゲートが決める）。
-# このワークフローを無効にすると、ゲートは振り出さない（止める操作）。リポジトリは公開なので、担当の出力の全文は記録に出さない。
+# このワークフローを無効にすると、見回りは振り出さない（止める操作）。リポジトリは公開なので、担当の出力の全文は記録に出さない。
 name: Claude Task
-# ゲートは、この名前からどのタスクのどの担当かを読む（tools/flow-gate/src/facts.js: runOf）。
-run-name: "#${{ inputs.issue }} ${{ inputs.kind }}"
+# 見回りは、この名前からどのタスクのどの担当の、どの振り出しの実行かを読む（tools/flow-gate/src/facts.js: runOf）。
+run-name: "#${{ inputs.issue }} ${{ inputs.kind }} ${{ inputs.key }}"
 
 on:
   workflow_dispatch:
@@ -17,6 +17,9 @@ on:
         required: true
         type: choice
         options: [作る, 確かめる]
+      key:
+        description: 振り出しの識別子（見回りが付ける。手で起こすときは空でよい）
+        required: false
 
 permissions:
   contents: read

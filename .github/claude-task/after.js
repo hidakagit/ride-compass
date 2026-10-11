@@ -2,7 +2,7 @@
 // 使い方: node .github/claude-task/after.js <作る|確かめる> <実行のファイル> <手番の記録の URL（無ければ空）> <実行の URL>
 //   issue に書く終わりのコメントの本文を出す（担当の最後の発言・手番の記録・判定に断られた操作・実行）。
 // 使い方: node .github/claude-task/after.js --quota <実行のファイル>
-//   担当が Claude の利用の上限・認証で止まったときだけ 1 で終わる（ゲートがこの段の失敗を読んで振り出しを止める。tools/flow-gate/src/dispatch.js）。
+//   担当が Claude の利用の上限・認証で止まったときだけ 1 で終わる（見回りがこの段の失敗を読んで振り出しを止める。tools/flow-gate/src/patrol.js）。
 import { existsSync, readFileSync } from "node:fs";
 
 const [kind, file, log, url] = process.argv.slice(2);

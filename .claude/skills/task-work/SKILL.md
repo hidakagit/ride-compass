@@ -33,7 +33,7 @@ description: "タスクを作る担当・確かめる担当として進める手
    - 段階に分けた親が振り出されたら、段階で確かめていない親の完了の条件を確かめる。
    - コードを変えないタスク（調査・計測）は、結果を本文に書いて自分の分の条件にチェックを付け、結果を見てほしいなら
      `- [ ] ユーザーが確かめる: …` の行を足す。
-   - 残りが無くなれば `GH_TOKEN=$FLOW_BOT_TOKEN gh issue close <番号> -R ridecompass/ride-compass-tasks --reason completed` で閉じる。
+   - 閉じない。条件に全部チェックが付けば、ゲートが完成で閉じる。
 4. `tasks#<番号>:` の件名でコミットし、`git push origin orch/tasks-<番号>` を、ほかのコマンドとつながずに1つで打つ（拒否の一覧の
    `Bash(git push *master*)` はつないだ全文に当たる）。手元で回す検査と整形は .claude/skills/run-checks/SKILL.md「手元の検査の回し方」だけが決め、
    全体は CI に任せる。作業ブランチの強制 push は断られるので、直しは足すコミットにする。

@@ -1,12 +1,13 @@
 // 問いと答えの形（.claude/skills/ask/SKILL.md「問い」）。問いの頭は「## 問い（種類）」で、種類の無い「## 問い」は判断として読む。
 const KINDS = ["採否", "判断", "確かめ", "イレギュラー"];
 export const norm = (t) => (t ?? "").replace(/\r\n/g, "\n");
+export const isQuestion = (t) => /^## 問い/.test(norm(t));
 const sections = (text) => [...text.matchAll(/^\*\*([^*]+)\*\*:/gm)].map((m) => m[1]); // 判断材料の節の名前
 const BLOCK = /^<!-- flow-gate -->\n([\s\S]*?)<!-- \/flow-gate -->\n*/;
 const BUTTON = /^\[!\[回答する\]\([^)]*\/button\.svg\)\]\([^)]*\/answer\?issue=\d+\)$/;
 
 // 本文の頭の回答のボタン（GitHub の画面にボタンは足せないので、リンク付きの画像。画像とフォームの道は src/index.js が開ける）。
-export const answerUrl = (config, number) => `${config.urls.form}/answer?issue=${number}`;
+const answerUrl = (config, number) => `${config.urls.form}/answer?issue=${number}`;
 // 印の間にゲートの書かない行があれば、黙って消さずに印の外の先頭へ出す。foreign はその行。
 export function splitBody(body) {
   const foreign = (BLOCK.exec(norm(body))?.[1] ?? "").split("\n").filter((l) => l.trim() && !BUTTON.test(l.trim()));
@@ -21,7 +22,7 @@ export const confirmItems = (body) => remaining(body).filter((l) => CONFIRM.test
 export const remaining = (body) => [...bodyRest(body).matchAll(/^\s*- \[ \] (.+)$/gm)].map((m) => m[1].trim());
 
 // 問い: 頭の行・問いの文1行・（あれば）「### 案」と1行1案・（あれば）<details> の判断材料。ほかの行があれば null。
-export function parseQuestion(text) {
+function parseQuestion(text) {
   const all = norm(text);
   const cut = all.indexOf("<details>");
   const [head, ...lines] = (cut < 0 ? all : all.slice(0, cut)).split("\n");
@@ -44,7 +45,7 @@ export function checkQuestion(template, text) {
 }
 
 // 答え: 決定（続ける・保留・見送り）と、確かめなら項目ごとの「問題なし・問題あり」。前の形の「次のステータス:」の行も読む。
-export function parseAnswer(text) {
+function parseAnswer(text) {
   const all = norm(text);
   if (!/^## 回答\n/.test(all)) return null;
   const picked = /^(?:回答|次のステータス): (.+)$/m.exec(all)?.[1] ?? "";
@@ -55,7 +56,7 @@ export function parseAnswer(text) {
 
 // コメントの並びから今の問いと、その答え（無ければ null）。形（template）に合わない問いは問いとして読まない（残す守り: 問いの形の検査）。
 export function latestQuestion(comments, template) {
-  const i = comments.findLastIndex((c) => /^## 問い/.test(norm(c)));
+  const i = comments.findLastIndex(isQuestion);
   if (i < 0) return null;
   const q = !template || !checkQuestion(template, comments[i]).length ? parseQuestion(comments[i]) : null;
   const a = comments.slice(i + 1).map(parseAnswer).find(Boolean) ?? null;

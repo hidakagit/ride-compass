@@ -11,7 +11,7 @@
 タスクは GitHub の issue で、1つの Pull Request に収まらないものは段階（親の sub-issue）に分ける（.claude/skills/file-issue/SKILL.md「段階に分ける」）。
 ステータスは Project の欄「Status」に置き、**ゲート（`tools/flow-gate/`）が事実から1つの決め方で決める**（`tools/flow-gate/src/decide.js: decide`）。
 事実は、issue（開き閉じと閉じた人・完了の条件・問いと答え・前提・着手可能日時）・作業ブランチの Pull Request（下書きか・CI・差し戻し・
-マージのコミットの CI）・担当の実行の有無。同じ事実からは何度決めても同じで、ゲートは今の値と違う所だけを書く。Claude はステータスを書かない。
+マージのコミットの CI）・担当が付いているか。同じ事実からは何度決めても同じで、ゲートは今の値と違う所だけを書く。Claude はステータスを書かない。
 それぞれの状態で何をするかは、この文書と流れのスキル（`.claude/skills/` の task-work・ask・file-issue・dev-session）が決める。
 
 ## 置き場と役割
@@ -21,7 +21,7 @@
 | 置き場・役 | 持つもの・すること |
 |---|---|
 | 置き場のリポジトリ（`flow.config.json: tasks`）と2つのボード（`flow.config.json: boards`） | タスクの issue・問いと答え・記録（記録は issue にだけ持ち、git に写さない）。Actions のボードは担当が進めるタスク、対話作業のボードは種類「対話作業」（`flow.config.json: dialogType`）の、開発機の対話のセッションだけが進めるタスク |
-| ゲート（Cloudflare の Worker。Webhook を受ける `ridecompass-gate` と、Access の内側の回答フォーム `ride-compass-answer`） | 出来事と定時に事実を読み、ステータス・担当者・本文の先頭のボタン・ボード・種類・優先度を書く。担当を振り出す。回答フォーム |
+| ゲート（Cloudflare の Worker。Webhook を受ける `ridecompass-gate` と、Access の内側の回答フォーム `ride-compass-answer`） | 出来事と定時に事実を読み、ステータス・担当者・本文の先頭のボタン・ボード・種類・優先度を書く。見回りが担当を振り出す。回答フォーム |
 | Claude（hidakagit-bot の名義） | 作業・問いとコメント・段階と前提・確かめとマージ・欄の規模と優先度と着手可能日時 |
 | ユーザー（hidakagit） | 判断（回答フォームか、開発機の対話のセッションのチャット）・本番での最後の確かめ・保留と完了・ラベル（`急ぎ` 等） |
 
@@ -57,8 +57,8 @@
   毎回たどるのが負荷になるので、本文の先頭に置く（ユーザーの決定）。
 
 **1つのタスクを触るのは1者だけ**: 担当は振り出しでだけ起き、同じ issue の実行は担当のワークフローの `concurrency`（`queue: max`）で1本ずつ順に動く。
-実行のあるタスクは振り出さない。振り出しは1つの窓口（`tools/flow-gate/src/dispatcher.js: Dispatcher`）が1つずつ順に扱い、起こした担当を
-実行の一覧に出るまで覚えるので、同時に届いた出来事が同じタスクを2度つかむことは無い。開発機の対話のセッションは、対話作業の段階を前提に張って持つ（.claude/skills/dev-session/SKILL.md「開発機の対話のセッション」）。
+担当が付いているかは、見回りの1つの記録（`tools/flow-gate/src/patrol.js: Patrol`）だけが持ち、振り出した時点（順番待ちを含む）と
+担当の実行の始まり・終わりの知らせで変える。出来事は1つの受け箱（`tools/flow-gate/src/inbox.js: Inbox`）から1つずつ順に処理する。担当の付いたタスクは振り出さない。開発機の対話のセッションは、対話作業の段階を前提に張って持つ（.claude/skills/dev-session/SKILL.md「開発機の対話のセッション」）。
 
 ## 担当（Claude が自分の番を進める）
 
@@ -66,18 +66,18 @@
 
 | 役 | すること |
 |---|---|
-| ゲート | ステータスを決め、担当を振り出し、定時に突き合わせる |
+| ゲート（見回りを含む） | ゲートはステータスを決めて書き、見回り（`tools/flow-gate/src/patrol.js`）は担当の記録を持って振り出す |
 | 担当のワークフロー（`.github/workflows/claude-task.yml`） | 準備をして担当を起こし、終わったら後始末をする |
 | 作る担当・確かめる担当（Claude Code。`anthropics/claude-code-action`） | タスクの遂行と報告（手順は .claude/skills/task-work/SKILL.md）。次の担当を起こすことには触れない |
 
-- **振り出す条件と順**（`tools/flow-gate/src/decide.js: dispatchable`・`tools/flow-gate/src/dispatch.js: dispatch`）: 作るは未着手、確かめるは検証待ち。
-  前提が開いている・着手可能日時が先・対話作業・実行がある、は除く。並びは `急ぎ` → 優先度の選択肢の順（空は `flow.config.json: unsetPriority`）→
-  番号の小さい順で、種類ごとの枠（`flow.config.json: slots`。使っている数は動いている実行の数）まで。振り出すのは、担当の実行が終わったとき・
-  振り出せるステータスになったとき・突き合わせのとき。
-- **突き合わせ**（`tools/flow-gate/src/dispatch.js: mismatched`）: ゲートが定時（`tools/flow-gate/wrangler.toml` の `triggers`）に、作業のステータスと
-  実行の有無が食い違うタスクと CI待ちのタスクを決め直し、空いた枠へ振り出す。出来事を取りこぼしたときの守り。
+- **振り出す条件と順**（見回り。`tools/flow-gate/src/patrol.js: Patrol.dispatch`）: 作るは未着手、確かめるは検証待ち。
+  前提が開いている・着手可能日時が先・対話作業・担当が付いている、は除く。並びは `急ぎ` → 優先度の選択肢の順（空は `flow.config.json: unsetPriority`）→
+  番号の小さい順で、種類ごとの枠（`flow.config.json: slots`。使っている数は記録の担当の数）まで。振り出すのは、担当の実行が終わったとき・決め直したタスクが
+  振り出せるステータスにあるとき・定時（`tools/flow-gate/wrangler.toml` の `triggers`。着手可能日時や止めの終わりが来る）。振り出したらその場で決め直す。
+- **受け箱**: ゲートは出来事を受け箱へ書いてから受け取ったと返す。一時の失敗は間をあけてやり直し（後ろの出来事は先に進む）、直らない失敗はすぐ諦めて
+  状況の更新に出す。GitHub が届けられなかった知らせは送り直されず、その出来事での決め直しは次の出来事まで抜ける（ユーザーの決定で許す）。
 - **担当のワークフローの1回**:
-  1. 振り出し: ゲートが `workflow_dispatch` で起こす。実行の名前「#<番号> <種類>」で、ゲートがどのタスクのどの担当かを読む。
+  1. 振り出し: 見回りが `workflow_dispatch` で起こす。実行の名前「#<番号> <種類> <振り出しの識別子>」で、見回りがどの振り出しの担当かを読む。
   2. 準備（`.github/workflows/claude-task.yml` の段）。
   3. 担当を起こす。指示は役・作業ツリー・issue の番号と読む節だけを渡し、決まりを写さない。担当は最初の結果で終わり、裏で動かす道具は外してある。
   4. 後始末（落ちても止められても走る）: GitHub に無い変更を `wip/tasks-<番号>-<時刻>` の枝へ残し、手番の記録を置き場のリリース（日ごと）へ置き、
@@ -87,7 +87,7 @@
 - **名義**: 置き場へは hidakagit-bot（`FLOW_BOT_TOKEN`）、コードのリポジトリへは hidakagit（`CODE_TOKEN`。`GITHUB_TOKEN` のマージは master の CI と
   デプロイを起こさない）。届く範囲は docs/architecture/tech-stack.md「秘密の値とトークン」。gh の既定は `CODE_TOKEN`（開発機では hidakagit の
   ログイン）なので、置き場を打つときは読むときも `GH_TOKEN=$FLOW_BOT_TOKEN` を付ける。名義の誤りを止めるのはトークンの届く範囲だけ。
-- **止める**: Claude Task を無効にする（`gh workflow disable "Claude Task" -R ridecompass/ride-compass`。戻すのは `enable` で、次の突き合わせから
+- **止める**: Claude Task を無効にする（`gh workflow disable "Claude Task" -R ridecompass/ride-compass`。戻すのは `enable` で、次の定時から
   振り出す）。担当は打てない。利用の上限の止めを早く解くなら、担当を1件手で起こす。動いている担当は Actions の画面で Cancel する。
   1つのタスクだけなら、ボードで保留へ動かす。
 - **開発機でしかできない作業**（開発機にしか無いもの（本番への調べの鍵・開発 DB の実データ）や、担当がしない操作（下の2つ）が要る作業）:
@@ -113,8 +113,8 @@ GitHub の側（ルールセット・トークンの権限）に置く。日常�
 
 導く原則: 4。
 
-ボードそのものが様子で、ステータスは事実から決まるので列が実態になる。盤面に表れないゲートの事実（定時の突き合わせの失敗・振り出しを止めている理由といつまで・突き合わせで決め直したタスク）は、ゲートがボードの状況の更新に、変わったときだけ書く（`tools/flow-gate/src/gate.js: reportHealth`）。動いている担当は Actions の画面（Claude Task の「#<番号> <種類>」）。
-担当が何も出さずに手放せばゲートが問い（担当者がユーザーになる）、出来事を取りこぼせば突き合わせが決め直し、ワークフローが落ちれば
+ボードそのものが様子で、ステータスは事実から決まるので列が実態になる。盤面に表れないゲートの事実（諦めた出来事・振り出しを止めている理由といつまで）は、ゲートがボードの状況の更新に、変わったときだけ書く（`tools/flow-gate/src/gate.js: reportHealth`）。動いている担当は Actions の画面（Claude Task の「#<番号> <種類>」）。
+担当が何も出さずに手放せばゲートが問い（担当者がユーザーになる）、出来事を処理できなければ状況の更新に出し、ワークフローが落ちれば
 GitHub の失敗の知らせが届く。この症状で拾えない詰まりは、例外を書き足さず流れの摩擦として記録する。
 
 ## コミット
@@ -132,5 +132,5 @@ issue に書き、git には写さない。master のコミットは Pull Reques
 
 設定は `flow.config.json`、決め方は `src/decide.js`、問いの形は `question_template.md` を直す。master に入ると `claude-gate.yml` の `deploy-gate` が、
 master の先頭の版を `wrangler deploy`（Webhook）と `wrangler deploy --env form`（回答フォーム）で公開する（秘密の値の名前は `tools/flow-gate/wrangler.toml` の先頭）。
-決め方を変えた直後は、出来事の無い issue が次の出来事か突き合わせまで前の姿で残る。テストは `node --test tools/flow-gate/test/*.test.js`、構文と import の
+決め方を変えた直後は、出来事の無い issue が次の出来事まで前の姿で残る。テストは `node --test tools/flow-gate/test/*.test.js`、構文と import の
 解決は `npm run lint`（`tools/flow-gate/eslint.config.js`）で、CI（`claude-gate.yml` の `flow-gate`）も同じ2つを流す。
